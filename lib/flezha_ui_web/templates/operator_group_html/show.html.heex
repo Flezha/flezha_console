@@ -1,0 +1,18 @@
+<div>
+  <h1>
+    {gettext("Operator group ID: %{group_id}", group_id: @group.id)}
+  </h1>
+
+  <div>
+    {gettext("List of operators in the group:")}
+    <ul>
+      <%= for operator <- @group.operators do %>
+        <li>{gettext("%{operator_name}", operator_name: operator)}</li>
+      <% end %>
+    </ul>
+  </div>
+
+  <div>
+    {gettext("List of computations running in the group:")}
+  </div>
+</div>

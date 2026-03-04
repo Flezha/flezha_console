@@ -1,0 +1,38 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flezha_ui_web
+    hostname: flezha_ui_web
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: "ecto://postgres:postgres@flezha_ui_db/postgres"
+      SECRET_KEY_BASE: "$(mix phx.gen.secret)"
+    depends_on:
+      - db
+    volumes:
+      - .:/flezha_ui
+    networks:
+      - flezha_network
+  db:
+    container_name: flezha_ui_db
+    image: postgres:14
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - flezha_network
+
+volumes:
+  postgres_data:
+
+networks:
+  flezha_network:
+    external: true
+  
