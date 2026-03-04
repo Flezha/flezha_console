@@ -8,31 +8,24 @@ services:
     ports:
       - "4000:4000"
     environment:
-      DATABASE_URL: "ecto://postgres:postgres@flezha_ui_db/postgres"
-      SECRET_KEY_BASE: "$(mix phx.gen.secret)"
-    depends_on:
-      - db
+      MIX_ENV: dev
+      # Must match the cookie used when starting the flezha node.
+      # The dev README uses: iex --sname flezha --cookie flezha_dev_cookie -S mix
+      ERLANG_COOKIE: flezha_dev_cookie
+      # Atom name of the flezha node. With --sname flezha inside the
+      # flezha_agent_dev container the name becomes flezha@flezha_agent_dev.
+      FLEZHA_NODE: flezha@flezha_agent_dev
     volumes:
       - .:/flezha_ui
-    networks:
-      - flezha_network
-  db:
-    container_name: flezha_ui_db
-    image: postgres:14
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - deps:/flezha_ui/deps
+      - build:/flezha_ui/_build
     networks:
       - flezha_network
 
 volumes:
-  postgres_data:
+  deps:
+  build:
 
 networks:
   flezha_network:
     external: true
-  

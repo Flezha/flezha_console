@@ -1,0 +1,136 @@
+# All-in-one dev compose: flezha agent + UI + kafka stack
+# Usage:
+#   docker compose -f docker-compose.dev.yml up [--build]
+#
+# Attach to iex:    docker attach fui_agent  (detach: Ctrl+P Ctrl+Q)
+# Get a bash shell: docker exec -it fui_agent bash
+# Restart iex:      docker exec fui_agent pkill -f iex
+
+services:
+  agent:
+    build:
+      context: ../flezha
+      dockerfile: docker/dev/Dockerfile.agent
+    container_name: fui_agent
+    hostname: fui_agent
+    tty: true
+    stdin_open: true
+    restart: unless-stopped
+    environment:
+      FLEZHA_SOCKET_FILES_PATH: /flezha/app_data/sockets/
+      FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    command: >
+      sh -c 'while true; do
+        echo "==> Starting flezha iex...";
+        iex --sname flezha --cookie flezha_dev_cookie -S mix;
+        echo "==> iex exited, restarting in 3s...";
+        sleep 3;
+      done'
+    volumes:
+      - fui_socket_data:/socket_data
+      - ../flezha:/flezha
+      - fui_flezha_build:/flezha/_build
+      - fui_flezha_deps:/flezha/deps
+      - fui_flezha_cargo_target:/flezha/target
+    networks:
+      - fui_network
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fui_web
+    hostname: fui_web
+    ports:
+      - "4000:4000"
+    environment:
+      MIX_ENV: dev
+      ERLANG_COOKIE: flezha_dev_cookie
+      FLEZHA_NODE: flezha@fui_agent
+    volumes:
+      - .:/flezha_ui
+      - fui_web_deps:/flezha_ui/deps
+      - fui_web_build:/flezha_ui/_build
+    networks:
+      - fui_network
+    restart: unless-stopped
+
+  zookeeper:
+    image: zookeeper:3.9.3
+    container_name: fui_zookeeper
+    hostname: fui_zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    healthcheck:
+      test: ["CMD", "zkServer.sh", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - fui_network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.8.6
+    container_name: fui_kafka
+    hostname: fui_kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: fui_zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://fui_kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - fui_network
+
+  kafka_ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: fui_kafka_ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: fui_kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: fui_zookeeper:2181
+    depends_on:
+      - kafka
+      - zookeeper
+    networks:
+      - fui_network
+
+volumes:
+  fui_socket_data:
+  fui_flezha_build:
+  fui_flezha_deps:
+  fui_flezha_cargo_target:
+  fui_web_deps:
+  fui_web_build:
+
+networks:
+  fui_network:
+    driver: bridge

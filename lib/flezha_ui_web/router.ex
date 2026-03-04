@@ -18,7 +18,7 @@ defmodule FlezhaUiWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
-    get "/operator-group/show/:group_id", OperatorGroupController, :show
+    get "/namespace/show/:namespace_id", NamespaceController, :show
   end
 
   # Other scopes may use custom stacks.

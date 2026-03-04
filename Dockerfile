@@ -37,17 +37,8 @@ USER flezha_ui
 RUN mix local.hex --force && \
     mix local.rebar --force
 
-# Install dependencies
-RUN mix deps.get
-
-# Compile the application
-RUN mix compile
-
 # Expose the port Phoenix will run on
 EXPOSE 4000
 
-# Keep the container running in development mode
-CMD ["tail", "-f", "/dev/null"]
-
-# Start the Phoenix server
-# CMD ["mix", "phx.server"]
+# Fetch deps and compile at startup so volume-mounted code changes are picked up automatically
+CMD ["sh", "-c", "mix deps.get && mix compile && elixir --sname flezha_ui@flezha_ui_web --hidden --cookie ${ERLANG_COOKIE:-flezha_dev_cookie} -S mix phx.server"]

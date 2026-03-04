@@ -2,17 +2,15 @@ defmodule FlezhaUiWeb.PageController do
   use FlezhaUiWeb, :controller
 
   def home(conn, _params) do
-    FlezhaUi.Service.NodeManager.erpc_call(Flezha, :list_groups, []) |> dbg()
-
-    groups =
-      case FlezhaUi.Service.NodeManager.erpc_call(Flezha, :list_groups, []) do
-        {:ok, groups} -> groups
+    namespaces =
+      case FlezhaUi.Service.NodeManager.erpc_call(Flezha, :list_namespaces, []) do
+        {:ok, namespaces} -> namespaces
         {:error, _reason} -> []
       end
 
     conn =
       conn
-      |> assign(:groups, groups)
+      |> assign(:namespaces, namespaces)
 
     render(conn, :home, layout: false)
   end

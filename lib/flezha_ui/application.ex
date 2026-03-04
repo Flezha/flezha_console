@@ -9,8 +9,8 @@ defmodule FlezhaUi.Application do
   def start(_type, _args) do
     children = [
       FlezhaUiWeb.Telemetry,
-      FlezhaUi.Repo,
       {DNSCluster, query: Application.get_env(:flezha_ui, :dns_cluster_query) || :ignore},
+      FlezhaUi.Service.NodeConnector,
       {Phoenix.PubSub, name: FlezhaUi.PubSub},
       # Start the Finch HTTP client for sending emails
       {Finch, name: FlezhaUi.Finch},
