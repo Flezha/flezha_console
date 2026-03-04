@@ -2,7 +2,7 @@ defmodule FlezhaUi.Service.NodeManager do
   def connected_node do
     # This function should return the first connected node
     # or nil if no nodes are connected.
-    Node.list() |> List.first()
+    Node.list(:hidden) |> List.first()
   end
 
   def erpc_call(module, function, args) do
@@ -10,7 +10,7 @@ defmodule FlezhaUi.Service.NodeManager do
 
     if is_atom(node) and not is_nil(node) do
       try do
-        {:ok, :erpc.call(node, module, function, args)}
+        :erpc.call(node, module, function, args)
       catch
         :error, reason -> {:error, reason}
       end
