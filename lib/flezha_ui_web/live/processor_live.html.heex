@@ -1,0 +1,261 @@
+<div class="space-y-6">
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href={~p"/namespaces/#{@ns}"} class="text-zinc-400 hover:text-white">
+        <.icon name="hero-arrow-left" class="w-4 h-4" />
+      </a>
+      <h1 class="text-2xl font-bold text-white font-mono"><%= @proc_id %></h1>
+    </div>
+    <button phx-click="confirm_stop"
+      class="px-4 py-2 text-sm font-medium text-red-400 border border-red-700 rounded-md hover:bg-red-900/20 transition-colors">
+      Stop Processor
+    </button>
+  </div>
+
+  <%!-- Info Panel --%>
+  <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-5 grid grid-cols-2 gap-4">
+    <div>
+      <p class="text-xs text-zinc-500 uppercase tracking-wider">Namespace</p>
+      <p class="text-white font-mono mt-1"><%= @ns %></p>
+    </div>
+    <div>
+      <p class="text-xs text-zinc-500 uppercase tracking-wider">Factory ID</p>
+      <p class="text-white font-mono mt-1"><%= @factory_id || "—" %></p>
+    </div>
+    <div>
+      <p class="text-xs text-zinc-500 uppercase tracking-wider">Compute Engine</p>
+      <p class="text-white font-mono mt-1"><%= @compute_engine_id || "—" %></p>
+    </div>
+    <div>
+      <p class="text-xs text-zinc-500 uppercase tracking-wider">Default Input Type</p>
+      <p class="text-white font-mono mt-1"><%= @default_input_type || "—" %></p>
+    </div>
+  </div>
+
+  <%!-- SDK State Panel --%>
+  <div class="bg-zinc-900 border border-zinc-800 rounded-lg">
+    <div class="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-zinc-400 uppercase tracking-wider">SDK State</h2>
+      <div class="flex items-center gap-3">
+        <button phx-click="toggle_auto_refresh"
+          class={"px-3 py-1.5 text-xs rounded-md transition-colors " <> if @auto_refresh_state, do: "bg-orange-600 text-white", else: "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"}>
+          <%= if @auto_refresh_state, do: "Auto-refresh ON", else: "Auto-refresh OFF" %>
+        </button>
+        <button phx-click="fetch_state"
+          class="px-3 py-1.5 text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded-md transition-colors">
+          Fetch State
+        </button>
+      </div>
+    </div>
+    <div class="p-5">
+      <%= if @state_json do %>
+        <pre class="bg-zinc-950 rounded-md p-4 text-xs text-green-300 font-mono overflow-x-auto whitespace-pre-wrap"><%= @state_json %></pre>
+      <% else %>
+        <p class="text-sm text-zinc-500">Click "Fetch State" to load the processor's current state.</p>
+      <% end %>
+    </div>
+  </div>
+
+  <%!-- Bindings / Plugins Panel --%>
+  <div class="bg-zinc-900 border border-zinc-800 rounded-lg">
+    <div class="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Plugins / Bindings</h2>
+      <button phx-click="open_attach_modal"
+        class="px-3 py-1.5 text-xs font-medium text-white rounded-md transition-colors"
+        style="background-color: #FD4F00;">
+        + Attach Plugin
+      </button>
+    </div>
+
+    <% flat = flat_bindings(@bindings) %>
+    <%= if flat == [] do %>
+      <div class="px-5 py-6 text-sm text-zinc-500">No plugins attached.</div>
+    <% else %>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-zinc-800">
+            <th class="text-left px-5 py-2 text-zinc-400 font-medium">Plugin ID</th>
+            <th class="text-left px-5 py-2 text-zinc-400 font-medium">Trigger</th>
+            <th class="text-left px-5 py-2 text-zinc-400 font-medium">Provider</th>
+            <th class="text-left px-5 py-2 text-zinc-400 font-medium">Position</th>
+            <th class="px-5 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <%= for binding <- flat do %>
+            <tr class="border-b border-zinc-800/50 hover:bg-zinc-800/30">
+              <td class="px-5 py-2 text-zinc-200 font-mono text-xs"><%= binding.plugin_id %></td>
+              <td class="px-5 py-2 text-zinc-300 text-xs"><%= binding.trigger %></td>
+              <td class="px-5 py-2 text-zinc-300 text-xs"><%= binding.provider %></td>
+              <td class="px-5 py-2 text-zinc-400 text-xs"><%= binding.position %></td>
+              <td class="px-5 py-2 text-right">
+                <button phx-click="confirm_detach" phx-value-plugin_id={binding.plugin_id}
+                  class="text-xs text-red-400 hover:text-red-300 transition-colors">
+                  Detach
+                </button>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% end %>
+  </div>
+
+  <%!-- Stream links --%>
+  <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
+    <h2 class="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">Stream Viewer</h2>
+    <div class="flex gap-3">
+      <a href={~p"/namespaces/#{@ns}/processors/#{@proc_id}/stream"}
+        class="px-4 py-2 text-sm font-medium text-white rounded-md transition-colors"
+        style="background-color: #FD4F00;">
+        Watch Stream
+      </a>
+    </div>
+  </div>
+</div>
+
+<%!-- Stop confirmation --%>
+<%= if @confirm_stop do %>
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div class="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-sm p-6 shadow-xl">
+      <h3 class="text-lg font-semibold text-white mb-3">Stop Processor?</h3>
+      <p class="text-sm text-zinc-400 mb-5">
+        Stop <span class="text-white font-mono"><%= @proc_id %></span>? This cannot be undone.
+      </p>
+      <div class="flex justify-end gap-3">
+        <button phx-click="cancel_stop" class="px-4 py-2 text-sm text-zinc-300 hover:text-white">Cancel</button>
+        <button phx-click="stop_processor" class="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 rounded-md">Stop</button>
+      </div>
+    </div>
+  </div>
+<% end %>
+
+<%!-- Detach confirmation --%>
+<%= if @confirm_detach do %>
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div class="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-sm p-6 shadow-xl">
+      <h3 class="text-lg font-semibold text-white mb-3">Detach Plugin?</h3>
+      <p class="text-sm text-zinc-400 mb-5">
+        Remove plugin <span class="text-white font-mono"><%= @confirm_detach %></span>?
+      </p>
+      <div class="flex justify-end gap-3">
+        <button phx-click="cancel_detach" class="px-4 py-2 text-sm text-zinc-300 hover:text-white">Cancel</button>
+        <button phx-click="detach_plugin" phx-value-plugin_id={@confirm_detach}
+          class="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 rounded-md">
+          Detach
+        </button>
+      </div>
+    </div>
+  </div>
+<% end %>
+
+<%!-- Attach Plugin Modal --%>
+<%= if @show_attach_modal do %>
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div class="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-lg p-6 shadow-xl">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="text-lg font-semibold text-white">
+          <%= if @attach_step == :choose_provider, do: "Choose Provider", else: "Configure Plugin" %>
+        </h3>
+        <button phx-click="close_attach_modal" class="text-zinc-400 hover:text-white">
+          <.icon name="hero-x-mark" class="w-5 h-5" />
+        </button>
+      </div>
+
+      <%= if @attach_step == :choose_provider do %>
+        <div class="grid grid-cols-2 gap-3">
+          <%= for {provider_id, schema} <- @enabled_providers do %>
+            <button phx-click="choose_provider" phx-value-provider_id={provider_id}
+              class="text-left p-4 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors">
+              <p class="text-sm font-medium text-white"><%= schema.label %></p>
+              <p class="text-xs text-zinc-400 mt-1"><%= schema.description %></p>
+            </button>
+          <% end %>
+        </div>
+
+      <% else %>
+        <% provider_schema = PluginSchema.provider(@attach_provider_id) %>
+        <%= if @attach_error do %>
+          <div class="mb-4 px-4 py-3 bg-red-900/30 border border-red-700 rounded text-sm text-red-300">
+            <%= @attach_error %>
+          </div>
+        <% end %>
+
+        <form phx-submit="attach_plugin" phx-change="attach_form_change" class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-zinc-300 mb-1">Plugin ID</label>
+              <input type="text" name="plugin[plugin_id]" value={@attach_form["plugin_id"]}
+                class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-zinc-300 mb-1">Position</label>
+              <input type="number" name="plugin[position]" value={@attach_form["position"]}
+                class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-zinc-300 mb-1">Trigger</label>
+            <select name="plugin[trigger]"
+              class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500">
+              <%= for trigger <- ~w(on_input on_output proactive interval) do %>
+                <option value={trigger} selected={@attach_form["trigger"] == trigger}><%= trigger %></option>
+              <% end %>
+            </select>
+          </div>
+
+          <%!-- Provider-specific fields --%>
+          <%= if provider_schema && provider_schema.fields != [] do %>
+            <div class="border-t border-zinc-700 pt-4">
+              <p class="text-xs text-zinc-500 uppercase tracking-wider mb-3">
+                <%= provider_schema.label %> Settings
+              </p>
+              <%= for field <- provider_schema.fields do %>
+                <div class="mb-3">
+                  <label class="block text-sm font-medium text-zinc-300 mb-1">
+                    <%= field.label %><%= if field.required, do: " *" %>
+                  </label>
+                  <%= case field.type do %>
+                    <% :boolean -> %>
+                      <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" name={"plugin[field_#{field.name}]"} value="true"
+                          checked={Map.get(@attach_form, "field_#{field.name}") == "true"}
+                          class="rounded" />
+                        <span class="text-sm text-zinc-300"><%= field.label %></span>
+                      </label>
+                    <% :integer -> %>
+                      <input type="number" name={"plugin[field_#{field.name}]"}
+                        value={Map.get(@attach_form, "field_#{field.name}", "")}
+                        class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+                    <% :json -> %>
+                      <textarea name={"plugin[field_#{field.name}]"} rows="2"
+                        placeholder="{}"
+                        class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500"><%= Map.get(@attach_form, "field_#{field.name}", "") %></textarea>
+                    <% _ -> %>
+                      <input type="text" name={"plugin[field_#{field.name}]"}
+                        value={Map.get(@attach_form, "field_#{field.name}", "")}
+                        placeholder={Map.get(field, :placeholder, "")}
+                        class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+                  <% end %>
+                </div>
+              <% end %>
+            </div>
+          <% end %>
+
+          <div class="flex justify-between pt-2">
+            <button type="button" phx-click="close_attach_modal"
+              class="px-4 py-2 text-sm text-zinc-300 hover:text-white transition-colors">
+              Cancel
+            </button>
+            <button type="submit"
+              class="px-4 py-2 text-sm font-medium text-white rounded-md transition-colors"
+              style="background-color: #FD4F00;">
+              Attach
+            </button>
+          </div>
+        </form>
+      <% end %>
+    </div>
+  </div>
+<% end %>

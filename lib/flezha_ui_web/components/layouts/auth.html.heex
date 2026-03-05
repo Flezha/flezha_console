@@ -1,0 +1,17 @@
+<div class="min-h-screen bg-zinc-950 flex flex-col items-center justify-center px-4">
+  <div class="mb-8 text-center">
+    <a href="/" class="inline-flex items-center gap-2">
+      <span class="text-3xl font-bold" style="color: #FD4F00;">flezha</span>
+      <span class="text-sm text-zinc-400 font-medium uppercase tracking-wider">UI</span>
+    </a>
+  </div>
+
+  <div class="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-xl p-8 shadow-xl">
+    <.flash_group flash={@flash} />
+    <%= if assigns[:inner_block] do %>
+      {render_slot(@inner_block)}
+    <% else %>
+      {@inner_content}
+    <% end %>
+  </div>
+</div>

@@ -1,32 +1,61 @@
-<header class="px-4 sm:px-6 lg:px-8">
-  <div class="flex items-center justify-between border-b border-zinc-100 py-3 text-sm">
-    <div class="flex items-center gap-4">
-      <a href="/">
-        <img src={~p"/images/logo.svg"} width="36" />
-      </a>
-      <p class="bg-brand/5 text-brand rounded-full px-2 font-medium leading-6">
-        v{Application.spec(:phoenix, :vsn)}
-      </p>
-    </div>
-    <div class="flex items-center gap-4 font-semibold leading-6 text-zinc-900">
-      <a href="https://twitter.com/elixirphoenix" class="hover:text-zinc-700">
-        @elixirphoenix
-      </a>
-      <a href="https://github.com/phoenixframework/phoenix" class="hover:text-zinc-700">
-        GitHub
-      </a>
-      <a
-        href="https://hexdocs.pm/phoenix/overview.html"
-        class="rounded-lg bg-zinc-100 px-2 py-1 hover:bg-zinc-200/80"
-      >
-        Get Started <span aria-hidden="true">&rarr;</span>
+<div class="flex h-screen bg-zinc-950 text-zinc-100">
+  <%!-- Sidebar --%>
+  <aside class="w-56 flex-shrink-0 bg-zinc-900 border-r border-zinc-800 flex flex-col">
+    <div class="px-4 py-5 border-b border-zinc-800">
+      <a href="/" class="flex items-center gap-2">
+        <span class="text-xl font-bold" style="color: #FD4F00;">flezha</span>
+        <span class="text-xs text-zinc-400 font-medium uppercase tracking-wider">UI</span>
       </a>
     </div>
+
+    <nav class="flex-1 px-2 py-4 space-y-1">
+      <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors">
+        <.icon name="hero-home" class="w-4 h-4" /> Dashboard
+      </a>
+      <a href="/namespaces" class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors">
+        <.icon name="hero-rectangle-stack" class="w-4 h-4" /> Namespaces
+      </a>
+      <a href="/plugins" class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors">
+        <.icon name="hero-puzzle-piece" class="w-4 h-4" /> Plugins
+      </a>
+    </nav>
+
+    <div class="px-4 py-4 border-t border-zinc-800 text-xs text-zinc-500">
+      <p>flezha_ui v0.1.0</p>
+    </div>
+  </aside>
+
+  <%!-- Main content area --%>
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <%!-- Top bar --%>
+    <header class="bg-zinc-900 border-b border-zinc-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
+      <div class="flex items-center gap-3">
+        <%= if FlezhaUi.Service.NodeManager.connected_node() do %>
+          <span class="flex items-center gap-1.5 text-sm text-zinc-300">
+            <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
+            <%= FlezhaUi.Service.NodeManager.connected_node() %>
+          </span>
+        <% else %>
+          <span class="flex items-center gap-1.5 text-sm text-zinc-400">
+            <span class="w-2 h-2 rounded-full bg-red-400 inline-block"></span>
+            Not connected
+          </span>
+        <% end %>
+      </div>
+      <div class="flex items-center gap-4 text-sm">
+        <span class="text-zinc-400"><%= @current_scope && @current_scope.user && @current_scope.user.email %></span>
+        <.link href={~p"/users/log-out"} method="delete" class="text-zinc-400 hover:text-white transition-colors">Log out</.link>
+      </div>
+    </header>
+
+    <%!-- Page content --%>
+    <main class="flex-1 overflow-auto p-6">
+      <.flash_group flash={@flash} />
+      <%= if assigns[:inner_block] do %>
+        {render_slot(@inner_block)}
+      <% else %>
+        {@inner_content}
+      <% end %>
+    </main>
   </div>
-</header>
-<main class="px-4 py-20 sm:px-6 lg:px-8">
-  <div class="mx-auto max-w-2xl">
-    <.flash_group flash={@flash} />
-    {@inner_content}
-  </div>
-</main>
+</div>

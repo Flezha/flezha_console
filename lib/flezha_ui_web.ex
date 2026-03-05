@@ -90,6 +90,9 @@ defmodule FlezhaUiWeb do
       # Core UI components
       import FlezhaUiWeb.CoreComponents
 
+      # Layouts alias so templates can use <Layouts.app>
+      alias FlezhaUiWeb.Layouts
+
       # Shortcut for generating JS commands
       alias Phoenix.LiveView.JS
 

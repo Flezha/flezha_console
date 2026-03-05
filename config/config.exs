@@ -7,6 +7,19 @@
 # General application configuration
 import Config
 
+config :flezha_ui, :scopes,
+  user: [
+    default: true,
+    module: FlezhaUi.Accounts.Scope,
+    assign_key: :current_scope,
+    access_path: [:user, :id],
+    schema_key: :user_id,
+    schema_type: :id,
+    schema_table: :users,
+    test_data_fixture: FlezhaUi.AccountsFixtures,
+    test_setup_helper: :register_and_log_in_user
+  ]
+
 config :flezha_ui,
   ecto_repos: [FlezhaUi.Repo],
   generators: [timestamp_type: :utc_datetime]

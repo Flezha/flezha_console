@@ -42,6 +42,25 @@ services:
     networks:
       - fui_network
 
+  db:
+    image: postgres:16
+    container_name: flezha_ui_db
+    hostname: flezha_ui_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: flezha_ui_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - fui_network
+
   web:
     build:
       context: .
@@ -54,6 +73,9 @@ services:
       MIX_ENV: dev
       ERLANG_COOKIE: flezha_dev_cookie
       FLEZHA_NODE: flezha@fui_agent
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
       - .:/flezha_ui
       - fui_web_deps:/flezha_ui/deps
