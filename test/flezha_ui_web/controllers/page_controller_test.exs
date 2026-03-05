@@ -1,8 +1,8 @@
 defmodule FlezhaUiWeb.PageControllerTest do
   use FlezhaUiWeb.ConnCase
 
-  test "GET /", %{conn: conn} do
+  test "GET / redirects to login when unauthenticated", %{conn: conn} do
     conn = get(conn, ~p"/")
-    assert html_response(conn, 200) =~ "Peace of mind from prototype to production"
+    assert redirected_to(conn) == ~p"/users/log-in"
   end
 end

@@ -56,11 +56,14 @@ defmodule FlezhaUiWeb.Router do
     put "/users/settings", UserSettingsController, :update
     get "/users/settings/confirm-email/:token", UserSettingsController, :confirm_email
 
-    live "/", DashboardLive
-    live "/namespaces", NamespaceLive.Index
-    live "/namespaces/:ns", NamespaceLive.Show
-    live "/namespaces/:ns/processors/:id", ProcessorLive
-    live "/namespaces/:ns/processors/:id/stream", StreamLive
-    live "/plugins", PluginLive
+    live_session :authenticated,
+      on_mount: [{FlezhaUiWeb.UserAuth, :ensure_authenticated}] do
+      live "/", DashboardLive
+      live "/namespaces", NamespaceLive.Index
+      live "/namespaces/:ns", NamespaceLive.Show
+      live "/namespaces/:ns/processors/:id", ProcessorLive
+      live "/namespaces/:ns/processors/:id/stream", StreamLive
+      live "/plugins", PluginLive
+    end
   end
 end

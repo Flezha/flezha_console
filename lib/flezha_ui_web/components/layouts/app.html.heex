@@ -43,7 +43,8 @@
         <% end %>
       </div>
       <div class="flex items-center gap-4 text-sm">
-        <span class="text-zinc-400"><%= @current_scope && @current_scope.user && @current_scope.user.email %></span>
+        <span class="text-zinc-400"><%= assigns[:current_scope] && assigns[:current_scope].user && assigns[:current_scope].user.email %></span>
+        <.link navigate={~p"/users/settings"} class="text-zinc-400 hover:text-white transition-colors">Settings</.link>
         <.link href={~p"/users/log-out"} method="delete" class="text-zinc-400 hover:text-white transition-colors">Log out</.link>
       </div>
     </header>

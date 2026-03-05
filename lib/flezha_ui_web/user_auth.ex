@@ -167,6 +167,45 @@ defmodule FlezhaUiWeb.UserAuth do
   end
 
   @doc """
+  Mounts the current scope on the socket for LiveViews.
+
+  Assigns `:current_scope` to the socket from the session token.
+  Use `{FlezhaUiWeb.UserAuth, :mount_current_scope}` for public LiveViews,
+  or `{FlezhaUiWeb.UserAuth, :ensure_authenticated}` for protected ones.
+  """
+  def on_mount(:mount_current_scope, _params, session, socket) do
+    {:cont, mount_current_scope(socket, session)}
+  end
+
+  def on_mount(:ensure_authenticated, _params, session, socket) do
+    socket = mount_current_scope(socket, session)
+
+    if socket.assigns.current_scope && socket.assigns.current_scope.user do
+      {:cont, socket}
+    else
+      socket =
+        socket
+        |> Phoenix.LiveView.put_flash(:error, "You must log in to access this page.")
+        |> Phoenix.LiveView.redirect(to: ~p"/users/log-in")
+
+      {:halt, socket}
+    end
+  end
+
+  defp mount_current_scope(socket, session) do
+    Phoenix.Component.assign_new(socket, :current_scope, fn ->
+      if user_token = session["user_token"] do
+        case Accounts.get_user_by_session_token(user_token) do
+          {user, _inserted_at} -> Scope.for_user(user)
+          nil -> Scope.for_user(nil)
+        end
+      else
+        Scope.for_user(nil)
+      end
+    end)
+  end
+
+  @doc """
   Plug for routes that require sudo mode.
   """
   def require_sudo_mode(conn, _opts) do
