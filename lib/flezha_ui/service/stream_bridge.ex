@@ -124,7 +124,12 @@ defmodule FlezhaUi.Service.StreamBridge do
       timestamp: DateTime.utc_now()
     }
 
-    Phoenix.PubSub.broadcast(@pubsub, topic(state.ns, state.proc_id, state.io_type), {:stream_message, msg})
+    Phoenix.PubSub.broadcast(
+      @pubsub,
+      topic(state.ns, state.proc_id, state.io_type),
+      {:stream_message, msg}
+    )
+
     {:noreply, state}
   end
 

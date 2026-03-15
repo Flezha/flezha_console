@@ -39,7 +39,10 @@ defmodule FlezhaUi.Service.NodeConnector do
   # Called by the Erlang node monitor when a node goes down
   @impl true
   def handle_info({:nodedown, node}, state) do
-    Logger.warning("[NodeConnector] Node #{node} went down, will retry in #{@retry_interval_ms}ms")
+    Logger.warning(
+      "[NodeConnector] Node #{node} went down, will retry in #{@retry_interval_ms}ms"
+    )
+
     schedule_retry()
     {:noreply, state}
   end
@@ -51,11 +54,16 @@ defmodule FlezhaUi.Service.NodeConnector do
         Node.monitor(node, true)
 
       false ->
-        Logger.warning("[NodeConnector] Could not connect to #{node}, retrying in #{@retry_interval_ms}ms")
+        Logger.warning(
+          "[NodeConnector] Could not connect to #{node}, retrying in #{@retry_interval_ms}ms"
+        )
+
         schedule_retry()
 
       :ignored ->
-        Logger.error("[NodeConnector] Distribution not started — check that the VM was started with --sname or --name")
+        Logger.error(
+          "[NodeConnector] Distribution not started — check that the VM was started with --sname or --name"
+        )
     end
   end
 
@@ -65,7 +73,7 @@ defmodule FlezhaUi.Service.NodeConnector do
 
   defp target_node do
     case System.get_env("FLEZHA_NODE") do
-      nil -> Application.get_env(:flezha_ui, :flezha_node, :"flezha@flezha_agent_dev")
+      nil -> Application.get_env(:flezha_ui, :flezha_node, :flezha@flezha_agent_dev)
       val -> String.to_atom(val)
     end
   end

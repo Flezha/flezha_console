@@ -3,17 +3,28 @@
     <div>
       <h2 class="text-xl font-semibold text-zinc-100">Create account</h2>
       <p class="mt-1 text-sm text-zinc-400">
-        Already have one? <.link navigate={~p"/users/log-in"} class="text-[#FD4F00] hover:underline">Log in</.link>
+        Already have one?
+        <.link navigate={~p"/users/log-in"} class="text-[#FD4F00] hover:underline">Log in</.link>
       </p>
     </div>
 
     <.form :let={f} for={@changeset} action={~p"/users/register"}>
       <div class="space-y-4">
-        <.input field={f[:email]} type="email" label="Email" autocomplete="username"
-          spellcheck="false" required phx-mounted={JS.focus()} />
+        <.input
+          field={f[:email]}
+          type="email"
+          label="Email"
+          autocomplete="username"
+          spellcheck="false"
+          required
+          phx-mounted={JS.focus()}
+        />
       </div>
-      <.button phx-disable-with="Creating account..."
-        class="w-full mt-6" style="background:#FD4F00">
+      <.button
+        phx-disable-with="Creating account..."
+        class="w-full mt-6"
+        style="background:#FD4F00"
+      >
         Create account
       </.button>
     </.form>

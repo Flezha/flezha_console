@@ -9,13 +9,22 @@
     </div>
 
     <nav class="flex-1 px-2 py-4 space-y-1">
-      <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors">
+      <a
+        href="/"
+        class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+      >
         <.icon name="hero-home" class="w-4 h-4" /> Dashboard
       </a>
-      <a href="/namespaces" class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors">
+      <a
+        href="/namespaces"
+        class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+      >
         <.icon name="hero-rectangle-stack" class="w-4 h-4" /> Namespaces
       </a>
-      <a href="/plugins" class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors">
+      <a
+        href="/plugins"
+        class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+      >
         <.icon name="hero-puzzle-piece" class="w-4 h-4" /> Plugins
       </a>
     </nav>
@@ -33,19 +42,32 @@
         <%= if FlezhaUi.Service.NodeManager.connected_node() do %>
           <span class="flex items-center gap-1.5 text-sm text-zinc-300">
             <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
-            <%= FlezhaUi.Service.NodeManager.connected_node() %>
+            {FlezhaUi.Service.NodeManager.connected_node()}
           </span>
         <% else %>
           <span class="flex items-center gap-1.5 text-sm text-zinc-400">
-            <span class="w-2 h-2 rounded-full bg-red-400 inline-block"></span>
-            Not connected
+            <span class="w-2 h-2 rounded-full bg-red-400 inline-block"></span> Not connected
           </span>
         <% end %>
       </div>
       <div class="flex items-center gap-4 text-sm">
-        <span class="text-zinc-400"><%= assigns[:current_scope] && assigns[:current_scope].user && assigns[:current_scope].user.email %></span>
-        <.link navigate={~p"/users/settings"} class="text-zinc-400 hover:text-white transition-colors">Settings</.link>
-        <.link href={~p"/users/log-out"} method="delete" class="text-zinc-400 hover:text-white transition-colors">Log out</.link>
+        <span class="text-zinc-400">
+          {assigns[:current_scope] && assigns[:current_scope].user &&
+            assigns[:current_scope].user.email}
+        </span>
+        <.link
+          navigate={~p"/users/settings"}
+          class="text-zinc-400 hover:text-white transition-colors"
+        >
+          Settings
+        </.link>
+        <.link
+          href={~p"/users/log-out"}
+          method="delete"
+          class="text-zinc-400 hover:text-white transition-colors"
+        >
+          Log out
+        </.link>
       </div>
     </header>
 

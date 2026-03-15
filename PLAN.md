@@ -13,6 +13,7 @@ Each phase follows this loop:
 ## Current State (as of last session)
 
 - **Code compiles cleanly** (host: `mix compile` passes with no errors)
+- **All 96 tests pass** (`mix test` → 0 failures)
 - **Docker stack is running** (`docker compose -f docker-compose.dev.yml up`)
 - **DB is migrated** (`docker exec fui_web mix ecto.migrate` → "Migrations already up")
 - **Login page loads** (200), register page loads (200), `/` redirects to login (302)
@@ -26,7 +27,7 @@ The container has its own `_build` Docker volume (`fui_web_build`). When `.ex` f
 
 ## Phase Status
 
-### ⚠️ Phase 1: User Authentication — WORKING BUT NEEDS UX POLISH
+### ✅ Phase 1: User Authentication — COMPLETE
 
 **What was done:**
 - `mix phx.gen.auth Accounts User users` — full auth: bcrypt passwords, magic links, CSRF, session tokens
@@ -36,49 +37,46 @@ The container has its own `_build` Docker volume (`fui_web_build`). When `.ex` f
 - Cleaned up `root.html.heex` — removed gen.auth nav bar, dark background
 - Fixed: `alias FlezhaUiWeb.Layouts` in `html_helpers`, removed unsupported `variant` attr
 - Router: all app routes protected by `require_authenticated_user`
-
-**What still needs work (deferred):**
-- The login page UX: currently shows TWO forms (magic link + password) which is confusing
-  - Option A: Remove magic link form, keep password-only login (simpler)
-  - Option B: Keep magic link only (passwordless), remove password form
-  - Recommended: password-only for a single-user dev tool
-- Registration form styling could be improved to match dark theme better
-- The `auth.html.heex` layout renders inside a second `app.html.heex` wrapper for controller routes
-  — this is because the controllers call `<Layouts.auth>` as a component AND Phoenix applies
-  the app layout from the router. The app.html.heex checks `assigns[:inner_block]` to handle both.
-  This works but needs cleanup.
-- No tests written yet for auth flow
+- **[Phase 1 polish]** Login page simplified — magic link form removed, password-only form with orange button
+- **[Phase 1 polish]** Registration page restyled — "Create account" heading, orange button
+- **[Phase 1 polish]** `UserAuth.on_mount/4` added (`:mount_current_scope`, `:ensure_authenticated`) so `current_scope` is available in LiveView sockets
+- **[Phase 1 polish]** Router wrapped LiveViews in `live_session :authenticated` with `on_mount` hook
+- **[Phase 1 polish]** `app.html.heex` uses `assigns[:current_scope]` (not `@current_scope`) + Settings link added to top bar
+- **[Phase 1 polish]** `DashboardLiveTest` written and passing
+- **All 96 tests pass**
 
 **How auth works (for reference):**
 - Passwords hashed with bcrypt (min 12 chars, max 72)
 - CSRF protection on all forms
 - Session tokens stored server-side (not raw passwords in cookies)
 - Dev emails go to http://localhost:4000/dev/mailbox
-- Magic link login: enter email only → get a link emailed → click link → logged in
-- Password login: email + password → logged in
+- Magic link login still works via `/users/log-in/:token` (registration confirms via magic link)
+- Password login: email + password → logged in (shown on login page)
 
-**Tests to write:**
-- `test/flezha_ui_web/live/dashboard_live_test.exs` — unauthenticated redirect, authenticated mount
+**Needs browser confirmation:**
+- Register at `/users/register` → check `/dev/mailbox` → click link → see Dashboard
+- Log out → log back in at `/users/log-in` with email + password (after setting password in settings)
 
 ---
 
-### ⚠️ Phase 2: NodeManager + Layout + Dashboard — IMPLEMENTED, NOT BROWSER-TESTED
+### ✅ Phase 2: NodeManager + Layout + Dashboard — AGENT CONFIRMED WORKING
 
 **What was done:**
 - `NodeManager` extended with all RPC wrapper functions (list_namespaces, list_processors, etc.)
-- App layout (`app.html.heex`): dark sidebar, top bar with node status dot + user email, logout link
+- App layout (`app.html.heex`): dark sidebar, top bar with node status dot + user email, settings + logout links
 - `DashboardLive`: polls every 5s, shows node status, namespace/processor/plugin counts, CE table, namespace quick links
+- **Fixed `Node.list(:hidden)` → `Node.list()`** in `node_manager.ex` — agent is a regular node, not hidden; `Node.list(:hidden)` always returned `[]` from the UI node
+- **Fixed CE process lifecycle**: added `FLEZHA_EXTERNAL_PROCESSES` to `docker-compose.dev.yml` so `PortPilot` GenServer manages the Rust CE (previously, ERPC-launched CE died immediately when handler terminated)
+- **Confirmed RPC works**: `list_namespaces()` → `["default"]`, `list_compute_engines("default")` → `{:ok, ["default_..."]}`, `start_processor` → `{:ok, ...}`
 
 **Known gaps:**
-- Dashboard shows "Not connected" when flezha agent is not running — this is correct behaviour
-- The `flat_bindings/1` helper in `ProcessorLive` handles both atom and string keys in the overwatch
-  state map (RPC may return either) — needs real testing against a live agent
-- Top bar logout uses `<.link method="delete">` — correct for Phoenix, but needs JS to work
-  (the `app.js` must include the Phoenix.HTML.Form JS for method override)
+- `flat_bindings/1` helper in `ProcessorLive` handles both atom and string keys — not yet verified in browser
+- Top bar logout uses `<.link method="delete">` — needs JS for method override (app.js includes Phoenix.HTML.Form JS)
 
-**Tests to write:**
-- Mount DashboardLive unauthenticated → redirect
-- Mount DashboardLive authenticated (mocked node) → renders "Not connected"
+**Needs browser confirmation:**
+- Dashboard shows green dot + node name `flezha@fui_agent`
+- Namespace count 1, CE table shows CE ID, Namespace quicklink to `/namespaces/default`
+- Demo processors `processor_a` (store_input) and `processor_b` (do_nothing) running in "default"
 
 ---
 
@@ -156,35 +154,118 @@ The container has its own `_build` Docker volume (`fui_web_build`). When `.ex` f
 
 ---
 
+## Agent Crash-Loop Investigation — STATUS AND FINDINGS
+
+### What was fixed
+
+#### Fix 1: `Node.list(:hidden)` → `Node.list()`
+`node_manager.ex` was calling `Node.list(:hidden)` but the UI node is `--hidden`, so agent
+(a regular named node) never appeared in that list. Fixed to `Node.list()`.
+
+#### Fix 2: `FLEZHA_EXTERNAL_PROCESSES` env var
+Without this, CE was launched via ERPC. The ERPC handler process owns the Port. Handler exits →
+stdin closes → CE reads EOF → exits. Fixed: set env var in docker-compose.dev.yml so PortPilot
+GenServer owns the Port for the lifetime of the application.
+
+#### Fix 3: `testnet_enabled: false` + `pkill` cleanup
+`testnet_enabled: true` in `flezha/config/dev.exs` starts a Node.js WebSocket server on port 4500.
+On agent restart, the old node process keeps the port bound. New instance → EADDRINUSE → crash loop.
+Fixed: `testnet_enabled: false` in dev.exs + `pkill node; pkill -f rust_compute_engine` before
+each iex restart in docker-compose.dev.yml command.
+
+#### Fix 4: `PortPilot` fatal raise → backoff (KEY FIX)
+`port_pilot.ex` had `raise "Port application malfunction"` when `port_down_counter > 10`.
+This caused a supervisor cascade: PortPilot crashes → supervisor restarts PortPilot → if 3 crashes
+in 5s, supervisor crashes → parent crashes → iex exits. Each CE restart was hitting this.
+
+**Fix applied (compiled 2026-03-05 ~17:09):**
+- Replaced `raise` with `Process.send_after(self(), {:restart_port, command}, @backoff_ms)`
+- Added `handle_info({:restart_port, command})` handler to restart CE after 5s backoff
+- This keeps PortPilot alive — no supervisor cascade — iex stays up
+
+After this fix: rapid restart cycle (every few seconds) stopped. Agent now survives CE crashes.
+
+### Remaining issue: silent periodic BEAM crashes (~6-10 min cycle)
+
+**Symptom:** BEAM process dies silently every ~6-10 minutes. No Elixir-level log output. BEAM PID
+changes, new iex session starts, web app reconnects.
+
+**What was ruled out:**
+- `compute_engine_cleanup` in `FleetManager` — runs every 40s, uses `HubManager.get_registry`
+  which returns `{:ok,...}` or `{:error,...}`, never raises. Only stops inactive CEs.
+- `ControlChannel → FleetManager` call deadlock — when ControlChannel gets killed during a
+  `GenServer.call(FleetManager, ...)`, Erlang handles this gracefully (reply dropped, no crash).
+- Orchestrator reconnect logic — `Node.monitor(node, false)` after max attempts — safe.
+- NIF thread panics — Rust panics in background threads don't crash the BEAM.
+- QuicListener — confirmed NOT in the supervisor tree (`transport_children()` only has `Transport.Server`).
+
+**What is suspected but unconfirmed:**
+- `LoggerFileBackend` (old `:gen_event` style) failing silently on init — no file log in new
+  sessions. All output goes to console (docker logs stdout). If logger backend crashes an OTP
+  process somehow, it could cascade. Unlikely but unconfirmed.
+- NIF resource cleanup race — `TransportServer::drop` sends Shutdown + joins with 50ms timeout.
+  If the thread doesn't stop in 50ms, it's abandoned but still alive. Possible state corruption.
+- Diagnostic remsh sessions appeared to trigger crashes — running `iex --remsh flezha@fui_agent`
+  from outside, then disconnecting, seemed to correlate with agent crashes. Mechanism unclear.
+  AVOID running diagnostic remsh commands — they may destabilize the agent.
+
+**Current status (end of last session):**
+- BEAM PID 17282 had been running 9m31s without crash (as of ~17:49 on 2026-03-05)
+- Web app showed "Connected to flezha@fui_agent" at 17:40:08 with no subsequent disconnects
+- Agent appeared stable but root cause of periodic crashes not yet confirmed
+
+### Next steps to investigate periodic crash
+
+1. **Enable file logging properly** — `LoggerFileBackend` not writing in current sessions.
+   Check if it registers correctly: in agent console or remsh look for it in `:logger.get_handler_config/0`.
+   Alternative: add `config :logger, backends: [...]` explicitly in dev.exs.
+   Goal: get crash stacktraces to file so we can see the actual crash reason.
+
+2. **Watch docker logs during a crash** — run `docker logs -f fui_agent` and wait for crash.
+   If nothing appears in logs at crash time, it's a native/NIF crash (SIGABRT, SIGSEGV, etc.).
+   If Elixir output appears, get the stacktrace.
+
+3. **Check for BEAM crash dump** — after a crash, check for `/flezha/erl_crash.dump`.
+   `docker exec fui_agent ls -la /flezha/erl_crash.dump`
+   If it exists, `head -100 /flezha/erl_crash.dump` will show the crash reason.
+
+4. **Test agent stability without any UI connections** — if agent crashes even without fui_web
+   connected, the crash is purely internal to the agent, not triggered by UI RPC calls.
+
+5. **If crash dump shows NIF crash** — look at `flz_nif/src/` for any unsafe Rust. The 50ms
+   join timeout in `TransportServer::drop` is the most likely race condition.
+
+### Files changed (not yet committed in flezha repo)
+- `/home/moon/Code/flezha/lib/flezha/service/port_pilot.ex` — backoff fix (key fix)
+- `/home/moon/Code/flezha/config/dev.exs` — `testnet_enabled: false`
+
+### Files changed (not yet committed in flezha_ui repo)
+- `docker-compose.dev.yml` — `FLEZHA_EXTERNAL_PROCESSES`, `pkill` cleanup in command
+- `lib/flezha_ui/service/node_manager.ex` — `Node.list()` fix
+- `PLAN.md` — this update
+
+---
+
 ## Immediate Next Steps (start of next session)
 
-### Step 1 — Fix auth UX (Phase 1 polish)
-Make login/register actually usable and not confusing.
+### Step 0 — Confirm agent stability / fix periodic crash
+1. Start stack: `docker compose -f docker-compose.dev.yml up -d`
+2. Watch for crashes: `docker logs -f fui_agent` — wait 15+ minutes
+3. After first crash, check: `docker exec fui_agent ls -la /flezha/erl_crash.dump`
+4. If crash dump exists: `docker exec fui_agent head -200 /flezha/erl_crash.dump`
+5. Fix based on crash reason (see investigation notes above)
+6. DO NOT use `iex --remsh` for diagnosis — it appears to trigger crashes
 
-**Recommended approach:** simplify to email + password only (no magic link UI shown):
-- `new.html.heex` (login): remove the magic link form, keep only the password form
-- `new.html.heex` (register): style it properly with the dark theme
-- Optionally: disable registration after first user (single-user tool)
+### Step 1 — User browser confirms Phase 1 auth UX (after agent stable)
+1. Open http://localhost:4000/users/register — "Create account" card, orange button
+2. Register → check http://localhost:4000/dev/mailbox → click magic link → Dashboard
+3. Open settings → set a password
+4. Log out → log back in at http://localhost:4000/users/log-in with email + password
 
-### Step 2 — Write Phase 1 tests
-```elixir
-# test/flezha_ui_web/live/dashboard_live_test.exs
-# - unauthenticated GET / → redirect to /users/log-in
-# - authenticated GET / → 200, "Dashboard" in response
-```
-
-### Step 3 — User browser test of auth
-- Login at http://localhost:4000/users/log-in
-- Register, confirm via /dev/mailbox, reach Dashboard
-
-### Step 4 — Commit Phase 1
-Only after browser confirmation.
-
-### Step 5 — Browser test Phases 2-3 (needs live flezha agent)
-With flezha agent running at `flezha@fui_agent`:
-- Dashboard shows green connected dot + node name
-- /namespaces shows namespace list
-- /namespaces/:ns shows processors + CEs
+### Step 2 — User browser confirms Phase 2 dashboard
+- http://localhost:4000 → green dot, namespace count, CE table
+- http://localhost:4000/namespaces → "default" namespace
+- http://localhost:4000/namespaces/default → processors, CE, start/stop modals
 
 ---
 
@@ -243,6 +324,10 @@ docker exec fui_web mix ecto.migrate
 # Check logs (filter noise)
 docker logs fui_web 2>&1 | grep -v "EventBridge\|NodeConnector"
 
-# Restart just the web container
-docker restart fui_web
+# Watch agent for crashes (wait 15+ min)
+docker logs -f fui_agent
+
+# Check for BEAM crash dump after a crash
+docker exec fui_agent ls -la /flezha/erl_crash.dump
+docker exec fui_agent head -200 /flezha/erl_crash.dump
 ```

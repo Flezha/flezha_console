@@ -1,6 +1,6 @@
 defmodule FlezhaUi.Service.NodeManager do
   def connected_node do
-    Node.list(:hidden) |> List.first()
+    Node.list(:connected) |> List.first()
   end
 
   def erpc_call(module, function, args) do

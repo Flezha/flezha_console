@@ -64,7 +64,10 @@ defmodule FlezhaUi.Service.EventBridge do
         %{state | subscribed: true}
       catch
         _, reason ->
-          Logger.warning("[EventBridge] Could not subscribe: #{inspect(reason)}, retrying in #{@retry_interval}ms")
+          Logger.warning(
+            "[EventBridge] Could not subscribe: #{inspect(reason)}, retrying in #{@retry_interval}ms"
+          )
+
           Process.send_after(self(), :retry_subscribe, @retry_interval)
           state
       end

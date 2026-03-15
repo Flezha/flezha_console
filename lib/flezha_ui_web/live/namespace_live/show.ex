@@ -15,7 +15,12 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         ns: ns,
         page_title: ns,
         show_start_modal: false,
-        start_form: %{"id" => "", "factory_id" => "", "init_values" => "", "snapshot_interval" => ""},
+        start_form: %{
+          "id" => "",
+          "factory_id" => "",
+          "init_values" => "",
+          "snapshot_interval" => ""
+        },
         start_error: nil,
         confirm_stop: nil
       )
@@ -120,8 +125,11 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
           Enum.map(list, fn proc_id ->
             ce_id =
               case NodeManager.get_overwatch_state(ns, proc_id) do
-                {:ok, state} -> Map.get(state, :compute_engine_id) || Map.get(state, "compute_engine_id")
-                _ -> nil
+                {:ok, state} ->
+                  Map.get(state, :compute_engine_id) || Map.get(state, "compute_engine_id")
+
+                _ ->
+                  nil
               end
 
             %{id: proc_id, compute_engine_id: ce_id}
@@ -145,8 +153,12 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
   defp build_opts(params) do
     case params["snapshot_interval"] do
-      "" -> []
-      nil -> []
+      "" ->
+        []
+
+      nil ->
+        []
+
       val ->
         case Integer.parse(val) do
           {n, ""} -> [snapshot_interval: n]

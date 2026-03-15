@@ -4,11 +4,13 @@
       <a href={~p"/namespaces"} class="text-zinc-400 hover:text-white">
         <.icon name="hero-arrow-left" class="w-4 h-4" />
       </a>
-      <h1 class="text-2xl font-bold text-white font-mono"><%= @ns %></h1>
+      <h1 class="text-2xl font-bold text-white font-mono">{@ns}</h1>
     </div>
-    <button phx-click="open_start_modal"
+    <button
+      phx-click="open_start_modal"
       class="px-4 py-2 rounded-md text-sm font-medium text-white transition-colors"
-      style="background-color: #FD4F00;">
+      style="background-color: #FD4F00;"
+    >
       + Start Processor
     </button>
   </div>
@@ -17,7 +19,7 @@
   <div class="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
     <div class="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
       <h2 class="text-sm font-semibold text-zinc-400 uppercase tracking-wider">
-        Processors (<%= length(@processors) %>)
+        Processors ({length(@processors)})
       </h2>
     </div>
     <%= if @processors == [] do %>
@@ -34,16 +36,23 @@
         <tbody>
           <%= for proc <- @processors do %>
             <tr class="border-b border-zinc-800/50 hover:bg-zinc-800/30">
-              <td class="px-5 py-2 text-white font-mono text-xs"><%= proc.id %></td>
-              <td class="px-5 py-2 text-zinc-400 font-mono text-xs"><%= proc.compute_engine_id || "—" %></td>
+              <td class="px-5 py-2 text-white font-mono text-xs">{proc.id}</td>
+              <td class="px-5 py-2 text-zinc-400 font-mono text-xs">
+                {proc.compute_engine_id || "—"}
+              </td>
               <td class="px-5 py-2 text-right flex items-center justify-end gap-3">
-                <a href={~p"/namespaces/#{@ns}/processors/#{proc.id}"}
-                   class="text-sm font-medium hover:text-white transition-colors"
-                   style="color: #FD4F00;">
+                <a
+                  href={~p"/namespaces/#{@ns}/processors/#{proc.id}"}
+                  class="text-sm font-medium hover:text-white transition-colors"
+                  style="color: #FD4F00;"
+                >
                   View
                 </a>
-                <button phx-click="confirm_stop" phx-value-processor_id={proc.id}
-                  class="text-sm text-red-400 hover:text-red-300 transition-colors">
+                <button
+                  phx-click="confirm_stop"
+                  phx-value-processor_id={proc.id}
+                  class="text-sm text-red-400 hover:text-red-300 transition-colors"
+                >
                   Stop
                 </button>
               </td>
@@ -58,7 +67,7 @@
   <div class="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
     <div class="px-5 py-4 border-b border-zinc-800">
       <h2 class="text-sm font-semibold text-zinc-400 uppercase tracking-wider">
-        Compute Engines (<%= length(@compute_engines) %>)
+        Compute Engines ({length(@compute_engines)})
       </h2>
     </div>
     <%= if @compute_engines == [] do %>
@@ -66,7 +75,7 @@
     <% else %>
       <ul class="divide-y divide-zinc-800/50">
         <%= for ce <- @compute_engines do %>
-          <li class="px-5 py-3 text-zinc-300 font-mono text-xs"><%= ce %></li>
+          <li class="px-5 py-3 text-zinc-300 font-mono text-xs">{ce}</li>
         <% end %>
       </ul>
     <% end %>
@@ -86,44 +95,64 @@
 
       <%= if @start_error do %>
         <div class="mb-4 px-4 py-3 bg-red-900/30 border border-red-700 rounded text-sm text-red-300">
-          <%= @start_error %>
+          {@start_error}
         </div>
       <% end %>
 
       <form phx-submit="start_processor" phx-change="start_form_change" class="space-y-4">
         <div>
           <label class="block text-sm font-medium text-zinc-300 mb-1">Processor ID *</label>
-          <input type="text" name="start[id]" value={@start_form["id"]}
+          <input
+            type="text"
+            name="start[id]"
+            value={@start_form["id"]}
             placeholder="my-processor"
             maxlength="32"
-            class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+            class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+          />
         </div>
         <div>
           <label class="block text-sm font-medium text-zinc-300 mb-1">Factory ID *</label>
-          <input type="text" name="start[factory_id]" value={@start_form["factory_id"]}
+          <input
+            type="text"
+            name="start[factory_id]"
+            value={@start_form["factory_id"]}
             placeholder="my_factory"
-            class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+            class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+          />
         </div>
         <div>
           <label class="block text-sm font-medium text-zinc-300 mb-1">Init Values (JSON)</label>
-          <textarea name="start[init_values]" rows="3"
+          <textarea
+            name="start[init_values]"
+            rows="3"
             placeholder="{}"
-            class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500"><%= @start_form["init_values"] %></textarea>
+            class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500"
+          ><%= @start_form["init_values"] %></textarea>
         </div>
         <div>
           <label class="block text-sm font-medium text-zinc-300 mb-1">Snapshot Interval</label>
-          <input type="number" name="start[snapshot_interval]" value={@start_form["snapshot_interval"]}
+          <input
+            type="number"
+            name="start[snapshot_interval]"
+            value={@start_form["snapshot_interval"]}
             placeholder="optional"
-            class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500" />
+            class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+          />
         </div>
         <div class="flex justify-end gap-3 pt-2">
-          <button type="button" phx-click="close_start_modal"
-            class="px-4 py-2 text-sm text-zinc-300 hover:text-white transition-colors">
+          <button
+            type="button"
+            phx-click="close_start_modal"
+            class="px-4 py-2 text-sm text-zinc-300 hover:text-white transition-colors"
+          >
             Cancel
           </button>
-          <button type="submit"
+          <button
+            type="submit"
             class="px-4 py-2 text-sm font-medium text-white rounded-md transition-colors"
-            style="background-color: #FD4F00;">
+            style="background-color: #FD4F00;"
+          >
             Start
           </button>
         </div>
@@ -141,11 +170,17 @@
         Are you sure you want to stop <span class="text-white font-mono"><%= @confirm_stop %></span>?
       </p>
       <div class="flex justify-end gap-3">
-        <button phx-click="cancel_stop" class="px-4 py-2 text-sm text-zinc-300 hover:text-white transition-colors">
+        <button
+          phx-click="cancel_stop"
+          class="px-4 py-2 text-sm text-zinc-300 hover:text-white transition-colors"
+        >
           Cancel
         </button>
-        <button phx-click="stop_processor" phx-value-processor_id={@confirm_stop}
-          class="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 rounded-md transition-colors">
+        <button
+          phx-click="stop_processor"
+          phx-value-processor_id={@confirm_stop}
+          class="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 rounded-md transition-colors"
+        >
           Stop
         </button>
       </div>

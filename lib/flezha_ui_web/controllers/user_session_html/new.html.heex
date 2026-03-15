@@ -3,23 +3,45 @@
     <div>
       <h2 class="text-xl font-semibold text-zinc-100">Log in</h2>
       <%= if @current_scope do %>
-        <p class="mt-1 text-sm text-zinc-400">You need to reauthenticate to perform sensitive actions on your account.</p>
+        <p class="mt-1 text-sm text-zinc-400">
+          You need to reauthenticate to perform sensitive actions on your account.
+        </p>
       <% else %>
         <p class="mt-1 text-sm text-zinc-400">
-          No account? <.link navigate={~p"/users/register"} class="text-[#FD4F00] hover:underline">Register</.link>
+          No account?
+          <.link navigate={~p"/users/register"} class="text-[#FD4F00] hover:underline">
+            Register
+          </.link>
         </p>
       <% end %>
     </div>
 
     <.form :let={f} for={@form} as={:user} id="login_form_password" action={~p"/users/log-in"}>
       <div class="space-y-4">
-        <.input field={f[:email]} type="email" label="Email" autocomplete="username"
-          spellcheck="false" required phx-mounted={JS.focus()} readonly={!!@current_scope} />
-        <.input field={f[:password]} type="password" label="Password"
-          autocomplete="current-password" spellcheck="false" />
+        <.input
+          field={f[:email]}
+          type="email"
+          label="Email"
+          autocomplete="username"
+          spellcheck="false"
+          required
+          phx-mounted={JS.focus()}
+          readonly={!!@current_scope}
+        />
+        <.input
+          field={f[:password]}
+          type="password"
+          label="Password"
+          autocomplete="current-password"
+          spellcheck="false"
+        />
       </div>
-      <.button name={@form[:remember_me].name} value="true"
-        class="w-full mt-6" style="background:#FD4F00">
+      <.button
+        name={@form[:remember_me].name}
+        value="true"
+        class="w-full mt-6"
+        style="background:#FD4F00"
+      >
         Log in <span aria-hidden="true">→</span>
       </.button>
     </.form>

@@ -19,6 +19,7 @@ services:
     environment:
       FLEZHA_SOCKET_FILES_PATH: /flezha/app_data/sockets/
       FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
+      FLEZHA_EXTERNAL_PROCESSES: /flezha/test/apps/rust_compute_engine/target/debug/rust_compute_engine
     depends_on:
       kafka:
         condition: service_healthy
@@ -28,6 +29,7 @@ services:
         hard: 65536
     command: >
       sh -c 'while true; do
+        pkill node 2>/dev/null; pkill -f "rust_compute_engine" 2>/dev/null;
         echo "==> Starting flezha iex...";
         iex --sname flezha --cookie flezha_dev_cookie -S mix;
         echo "==> iex exited, restarting in 3s...";

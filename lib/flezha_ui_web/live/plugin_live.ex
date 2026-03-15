@@ -50,9 +50,18 @@ defmodule FlezhaUiWeb.PluginLive do
     case NodeManager.get_plugins() do
       map when is_map(map) ->
         Enum.map(map, fn {plugin_id, {module, info}} ->
-          ns = if is_map(info), do: Map.get(info, :namespace) || Map.get(info, "namespace"), else: nil
-          proc = if is_map(info), do: Map.get(info, :processor_id) || Map.get(info, "processor_id"), else: nil
-          trigger = if is_map(info), do: Map.get(info, :trigger) || Map.get(info, "trigger"), else: nil
+          ns =
+            if is_map(info),
+              do: Map.get(info, :namespace) || Map.get(info, "namespace"),
+              else: nil
+
+          proc =
+            if is_map(info),
+              do: Map.get(info, :processor_id) || Map.get(info, "processor_id"),
+              else: nil
+
+          trigger =
+            if is_map(info), do: Map.get(info, :trigger) || Map.get(info, "trigger"), else: nil
 
           %{
             id: to_string(plugin_id),

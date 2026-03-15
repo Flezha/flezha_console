@@ -41,4 +41,4 @@ RUN mix local.hex --force && \
 EXPOSE 4000
 
 # Fetch deps and compile at startup so volume-mounted code changes are picked up automatically
-CMD ["sh", "-c", "mix deps.get && mix compile && elixir --sname flezha_ui@flezha_ui_web --hidden --cookie ${ERLANG_COOKIE:-flezha_dev_cookie} -S mix phx.server"]
+CMD ["sh", "-c", "mix deps.get && mix compile && elixir --sname flezha_ui --hidden --cookie ${ERLANG_COOKIE:-flezha_dev_cookie} -S mix phx.server"]

@@ -22,11 +22,15 @@
         <tbody>
           <%= for ns <- @namespaces do %>
             <tr class="border-b border-zinc-800/50 hover:bg-zinc-800/30">
-              <td class="px-5 py-3 text-white font-medium font-mono"><%= ns.name %></td>
-              <td class="px-5 py-3 text-zinc-300"><%= ns.processor_count %></td>
-              <td class="px-5 py-3 text-zinc-300"><%= ns.ce_count %></td>
+              <td class="px-5 py-3 text-white font-medium font-mono">{ns.name}</td>
+              <td class="px-5 py-3 text-zinc-300">{ns.processor_count}</td>
+              <td class="px-5 py-3 text-zinc-300">{ns.ce_count}</td>
               <td class="px-5 py-3 text-right">
-                <a href={~p"/namespaces/#{ns.name}"} class="text-sm font-medium hover:text-white transition-colors" style="color: #FD4F00;">
+                <a
+                  href={~p"/namespaces/#{ns.name}"}
+                  class="text-sm font-medium hover:text-white transition-colors"
+                  style="color: #FD4F00;"
+                >
                   View &rarr;
                 </a>
               </td>
