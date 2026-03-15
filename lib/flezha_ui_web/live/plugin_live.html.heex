@@ -79,7 +79,6 @@
             <th class="text-left px-5 py-3 text-zinc-400 font-medium">Provider</th>
             <th class="text-left px-5 py-3 text-zinc-400 font-medium">Namespace</th>
             <th class="text-left px-5 py-3 text-zinc-400 font-medium">Processor</th>
-            <th class="text-left px-5 py-3 text-zinc-400 font-medium">Trigger</th>
             <th class="px-5 py-3"></th>
           </tr>
         </thead>
@@ -92,7 +91,6 @@
               <td class="px-5 py-3 text-zinc-400 font-mono text-xs">
                 {plugin.processor_id || "—"}
               </td>
-              <td class="px-5 py-3 text-zinc-400 text-xs">{plugin.trigger || "—"}</td>
               <td class="px-5 py-3 text-right">
                 <button
                   phx-click="confirm_disable"

@@ -85,3 +85,102 @@ config :phoenix_live_view,
 
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
+
+# Auto-start testnet processors and plugins in dev mode
+config :flezha_ui, :dev_setup,
+  enabled: true,
+  namespace: "default",
+  processors: [
+    %{id: "testnet_store_1", factory_id: "store_input", init_values: %{}},
+    %{id: "testnet_store_2", factory_id: "store_input", init_values: %{}},
+    %{id: "testnet_store_3", factory_id: "store_input", init_values: %{}},
+    %{id: "testnet_filter", factory_id: "compare_filter", init_values: %{}},
+    %{id: "testnet_noop", factory_id: "do_nothing", init_values: %{}}
+  ],
+  plugins: [
+    %{
+      plugin_id: "ws_store_1",
+      processor_id: "testnet_store_1",
+      provider_id: "processor_websocket",
+      trigger: "proactive",
+      position: 0,
+      provider_settings: %{
+        "uri" => "ws://fui_agent:4500",
+        "post_connect" => %{
+          "payload" => %{
+            "type" => "text",
+            "message" =>
+              ~s({"event_type":"subscribe","event_data":{"default_message":"store_1 ping","interval":5000}})
+          }
+        }
+      }
+    },
+    %{
+      plugin_id: "ws_store_2",
+      processor_id: "testnet_store_2",
+      provider_id: "processor_websocket",
+      trigger: "proactive",
+      position: 0,
+      provider_settings: %{
+        "uri" => "ws://fui_agent:4500",
+        "post_connect" => %{
+          "payload" => %{
+            "type" => "text",
+            "message" =>
+              ~s({"event_type":"subscribe","event_data":{"default_message":"store_2 ping","interval":5000}})
+          }
+        }
+      }
+    },
+    %{
+      plugin_id: "ws_store_3",
+      processor_id: "testnet_store_3",
+      provider_id: "processor_websocket",
+      trigger: "proactive",
+      position: 0,
+      provider_settings: %{
+        "uri" => "ws://fui_agent:4500",
+        "post_connect" => %{
+          "payload" => %{
+            "type" => "text",
+            "message" =>
+              ~s({"event_type":"subscribe","event_data":{"default_message":"store_3 ping","interval":5000}})
+          }
+        }
+      }
+    },
+    %{
+      plugin_id: "ws_filter",
+      processor_id: "testnet_filter",
+      provider_id: "processor_websocket",
+      trigger: "proactive",
+      position: 0,
+      provider_settings: %{
+        "uri" => "ws://fui_agent:4500",
+        "post_connect" => %{
+          "payload" => %{
+            "type" => "text",
+            "message" =>
+              ~s({"event_type":"subscribe","event_data":{"default_message":"filter ping","interval":5000}})
+          }
+        }
+      }
+    },
+    %{
+      plugin_id: "ws_noop",
+      processor_id: "testnet_noop",
+      provider_id: "processor_websocket",
+      trigger: "proactive",
+      position: 0,
+      provider_settings: %{
+        "uri" => "ws://fui_agent:4500",
+        "post_connect" => %{
+          "payload" => %{
+            "type" => "text",
+            "message" =>
+              ~s({"event_type":"subscribe","event_data":{"default_message":"noop ping","interval":5000}})
+          }
+        }
+      }
+    }
+  ]

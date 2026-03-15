@@ -58,32 +58,39 @@ defmodule FlezhaUiWeb.PluginLive do
   defp load_plugins do
     case NodeManager.get_plugins() do
       map when is_map(map) ->
-        Enum.map(map, fn {plugin_id, {module, info}} ->
-          ns =
-            if is_map(info),
-              do: Map.get(info, :namespace) || Map.get(info, "namespace"),
-              else: nil
-
-          proc =
-            if is_map(info),
-              do: Map.get(info, :processor_id) || Map.get(info, "processor_id"),
-              else: nil
-
-          trigger =
-            if is_map(info), do: Map.get(info, :trigger) || Map.get(info, "trigger"), else: nil
+        Enum.map(map, fn {plugin_id, value} ->
+          {module, ns, proc} = extract_plugin_info(value)
 
           %{
             id: to_string(plugin_id),
             module: inspect(module),
             namespace: ns,
-            processor_id: proc,
-            trigger: trigger
+            processor_id: proc
           }
         end)
 
       _ ->
         []
     end
+  end
+
+  # IOBindingPlugin.enable returns {IOBindingPlugin, {namespace, processor_id}}
+  defp extract_plugin_info({module, {ns, proc_id}}) when is_binary(ns) do
+    {module, ns, proc_id}
+  end
+
+  defp extract_plugin_info({module, info}) when is_map(info) do
+    ns = Map.get(info, :namespace) || Map.get(info, "namespace")
+    proc = Map.get(info, :processor_id) || Map.get(info, "processor_id")
+    {module, ns, proc}
+  end
+
+  defp extract_plugin_info({module, _info}) do
+    {module, nil, nil}
+  end
+
+  defp extract_plugin_info(other) do
+    {inspect(other), nil, nil}
   end
 
   defp load_available_providers do
