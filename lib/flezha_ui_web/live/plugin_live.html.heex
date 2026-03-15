@@ -1,5 +1,70 @@
 <div class="space-y-6">
-  <h1 class="text-2xl font-bold text-white">Active Plugins</h1>
+  <h1 class="text-2xl font-bold text-white">Plugins</h1>
+
+  <%!-- Available Providers Grid --%>
+  <%= if @available_providers == [] do %>
+    <div class="bg-zinc-900 border border-zinc-800 rounded-lg px-6 py-10 text-center">
+      <p class="text-zinc-400">No providers discovered from agent.</p>
+    </div>
+  <% else %>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <%= for provider <- @available_providers do %>
+        <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-5 flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-white">{provider.label}</h3>
+            <%= if provider.internal do %>
+              <span class="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-zinc-700 text-zinc-300 rounded">
+                Internal
+              </span>
+            <% end %>
+          </div>
+
+          <div class="space-y-1 text-xs">
+            <p class="text-zinc-500">
+              <span class="text-zinc-400">ID:</span>
+              <span class="font-mono">{provider.id}</span>
+            </p>
+            <p class="text-zinc-500">
+              <span class="text-zinc-400">Module:</span>
+              <span class="font-mono">{provider.module}</span>
+            </p>
+            <p class="text-zinc-500">
+              <span class="text-zinc-400">Type:</span> {provider.type}
+            </p>
+          </div>
+
+          <%= if provider.required_fields != [] do %>
+            <div>
+              <p class="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Required</p>
+              <div class="flex flex-wrap gap-1">
+                <%= for field <- provider.required_fields do %>
+                  <span class="px-1.5 py-0.5 bg-zinc-800 text-zinc-300 rounded text-[11px] font-mono">
+                    {field}
+                  </span>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+
+          <%= if provider.optional_fields != [] do %>
+            <div>
+              <p class="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Optional</p>
+              <div class="flex flex-wrap gap-1">
+                <%= for field <- provider.optional_fields do %>
+                  <span class="px-1.5 py-0.5 bg-zinc-800/50 text-zinc-400 rounded text-[11px] font-mono">
+                    {field}
+                  </span>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
+
+  <%!-- Active Plugins --%>
+  <h2 class="text-lg font-bold text-white pt-2">Active Plugins</h2>
 
   <%= if @plugins == [] do %>
     <div class="bg-zinc-900 border border-zinc-800 rounded-lg px-6 py-10 text-center">

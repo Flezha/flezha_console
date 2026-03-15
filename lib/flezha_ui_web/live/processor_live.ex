@@ -2,7 +2,6 @@ defmodule FlezhaUiWeb.ProcessorLive do
   use FlezhaUiWeb, :live_view
 
   alias FlezhaUi.Service.NodeManager
-  alias FlezhaUi.PluginSchema
 
   @impl true
   def mount(%{"ns" => ns, "id" => id}, _session, socket) do
@@ -123,8 +122,8 @@ defmodule FlezhaUiWeb.ProcessorLive do
     trigger = form["trigger"]
     position = String.to_integer(form["position"] || "0")
 
-    provider_schema = PluginSchema.provider(provider_id)
-    settings = extract_provider_settings(provider_schema, form)
+    provider = find_provider(socket.assigns.enabled_providers, provider_id)
+    settings = extract_provider_settings(provider, form)
 
     plugin_map = %{
       namespace: ns,
@@ -218,62 +217,56 @@ defmodule FlezhaUiWeb.ProcessorLive do
   end
 
   defp load_enabled_providers do
-    case NodeManager.get_enabled_providers() do
-      map when is_map(map) ->
-        # Filter to user-facing providers only
-        user_facing = Map.keys(PluginSchema.providers())
+    case NodeManager.get_provider_info() do
+      list when is_list(list) ->
+        list
+        |> Enum.reject(fn info ->
+          required = Map.get(info, :required_fields, [])
+          "recv_pid" in required
+        end)
+        |> Enum.map(fn info ->
+          id = to_string(Map.get(info, :id, ""))
 
-        map
-        |> Enum.filter(fn {k, _v} ->
-          key = if is_atom(k), do: Atom.to_string(k), else: k
-          key in user_facing
+          %{
+            id: id,
+            label: humanize_id(id),
+            module: Map.get(info, :module, "unknown"),
+            type: Map.get(info, :type, :unknown),
+            required_fields: Map.get(info, :required_fields, []),
+            optional_fields: Map.get(info, :optional_fields, [])
+          }
         end)
-        |> Enum.map(fn {k, _v} ->
-          key = if is_atom(k), do: Atom.to_string(k), else: k
-          {key, PluginSchema.provider(key)}
-        end)
-        |> Enum.filter(fn {_k, schema} -> not is_nil(schema) end)
-        |> Map.new()
 
       _ ->
-        # Fall back to all user-facing providers
-        PluginSchema.providers()
+        []
     end
+  end
+
+  defp find_provider(providers, provider_id) do
+    Enum.find(providers, fn p -> p.id == provider_id end)
   end
 
   defp extract_provider_settings(nil, _form), do: %{}
 
-  defp extract_provider_settings(provider_schema, form) do
-    Enum.reduce(provider_schema.fields, %{}, fn field, acc ->
-      raw = Map.get(form, "field_#{field.name}", "")
+  defp extract_provider_settings(provider, form) do
+    all_fields = provider.required_fields ++ provider.optional_fields
 
-      value =
-        case field.type do
-          :integer ->
-            case Integer.parse(raw) do
-              {n, ""} -> n
-              _ -> nil
-            end
-
-          :boolean ->
-            raw == "true"
-
-          :json ->
-            case Jason.decode(raw) do
-              {:ok, parsed} -> parsed
-              _ -> if raw == "", do: nil, else: raw
-            end
-
-          _ ->
-            if raw == "", do: nil, else: raw
-        end
-
-      if is_nil(value), do: acc, else: Map.put(acc, field.name, value)
+    Enum.reduce(all_fields, %{}, fn field, acc ->
+      raw = Map.get(form, "field_#{field}", "")
+      if raw == "", do: acc, else: Map.put(acc, field, raw)
     end)
   end
 
   defp generate_plugin_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+  end
+
+  defp humanize_id(id) do
+    id
+    |> String.replace("_", " ")
+    |> String.split(" ")
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join(" ")
   end
 
   defp flat_bindings(bindings) when is_map(bindings) do

@@ -8,13 +8,22 @@ defmodule FlezhaUiWeb.PluginLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_interval)
-    {:ok, assign(socket, plugins: load_plugins(), confirm_disable: nil, page_title: "Plugins")}
+
+    {:ok,
+     assign(socket,
+       plugins: load_plugins(),
+       available_providers: load_available_providers(),
+       confirm_disable: nil,
+       page_title: "Plugins"
+     )}
   end
 
   @impl true
   def handle_info(:refresh, socket) do
     Process.send_after(self(), :refresh, @refresh_interval)
-    {:noreply, assign(socket, plugins: load_plugins())}
+
+    {:noreply,
+     assign(socket, plugins: load_plugins(), available_providers: load_available_providers())}
   end
 
   @impl true
@@ -75,5 +84,37 @@ defmodule FlezhaUiWeb.PluginLive do
       _ ->
         []
     end
+  end
+
+  defp load_available_providers do
+    case NodeManager.get_provider_info() do
+      list when is_list(list) ->
+        Enum.map(list, fn info ->
+          id = to_string(Map.get(info, :id, ""))
+          required = Map.get(info, :required_fields, [])
+          internal = "recv_pid" in required
+
+          %{
+            id: id,
+            label: humanize_id(id),
+            module: Map.get(info, :module, "unknown"),
+            type: Map.get(info, :type, :unknown),
+            required_fields: required,
+            optional_fields: Map.get(info, :optional_fields, []),
+            internal: internal
+          }
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp humanize_id(id) do
+    id
+    |> String.replace("_", " ")
+    |> String.split(" ")
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join(" ")
   end
 end

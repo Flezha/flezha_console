@@ -65,4 +65,8 @@ defmodule FlezhaUi.Service.NodeManager do
   def get_enabled_providers() do
     erpc_call(Flezha.Service.ConfigManager, :get_enabled_plugins, [])
   end
+
+  def get_provider_info() do
+    erpc_call(Flezha.Service.ConfigManager, :get_provider_info, [])
+  end
 end

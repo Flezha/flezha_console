@@ -195,19 +195,19 @@
 
       <%= if @attach_step == :choose_provider do %>
         <div class="grid grid-cols-2 gap-3">
-          <%= for {provider_id, schema} <- @enabled_providers do %>
+          <%= for provider <- @enabled_providers do %>
             <button
               phx-click="choose_provider"
-              phx-value-provider_id={provider_id}
+              phx-value-provider_id={provider.id}
               class="text-left p-4 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors"
             >
-              <p class="text-sm font-medium text-white">{schema.label}</p>
-              <p class="text-xs text-zinc-400 mt-1">{schema.description}</p>
+              <p class="text-sm font-medium text-white">{provider.label}</p>
+              <p class="text-xs text-zinc-400 mt-1 font-mono">{provider.id}</p>
             </button>
           <% end %>
         </div>
       <% else %>
-        <% provider_schema = PluginSchema.provider(@attach_provider_id) %>
+        <% provider = Enum.find(@enabled_providers, fn p -> p.id == @attach_provider_id end) %>
         <%= if @attach_error do %>
           <div class="mb-4 px-4 py-3 bg-red-900/30 border border-red-700 rounded text-sm text-red-300">
             {@attach_error}
@@ -250,55 +250,42 @@
             </select>
           </div>
 
-          <%!-- Provider-specific fields --%>
-          <%= if provider_schema && provider_schema.fields != [] do %>
-            <div class="border-t border-zinc-700 pt-4">
-              <p class="text-xs text-zinc-500 uppercase tracking-wider mb-3">
-                {provider_schema.label} Settings
-              </p>
-              <%= for field <- provider_schema.fields do %>
-                <div class="mb-3">
-                  <label class="block text-sm font-medium text-zinc-300 mb-1">
-                    {field.label}{if field.required, do: " *"}
-                  </label>
-                  <%= case field.type do %>
-                    <% :boolean -> %>
-                      <label class="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          name={"plugin[field_#{field.name}]"}
-                          value="true"
-                          checked={Map.get(@attach_form, "field_#{field.name}") == "true"}
-                          class="rounded"
-                        />
-                        <span class="text-sm text-zinc-300">{field.label}</span>
-                      </label>
-                    <% :integer -> %>
-                      <input
-                        type="number"
-                        name={"plugin[field_#{field.name}]"}
-                        value={Map.get(@attach_form, "field_#{field.name}", "")}
-                        class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                      />
-                    <% :json -> %>
-                      <textarea
-                        name={"plugin[field_#{field.name}]"}
-                        rows="2"
-                        placeholder="{}"
-                        class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500"
-                      ><%= Map.get(@attach_form, "field_#{field.name}", "") %></textarea>
-                    <% _ -> %>
-                      <input
-                        type="text"
-                        name={"plugin[field_#{field.name}]"}
-                        value={Map.get(@attach_form, "field_#{field.name}", "")}
-                        placeholder={Map.get(field, :placeholder, "")}
-                        class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                      />
-                  <% end %>
-                </div>
-              <% end %>
-            </div>
+          <%!-- Provider-specific fields (dynamic) --%>
+          <%= if provider do %>
+            <% all_fields = provider.required_fields ++ provider.optional_fields %>
+            <%= if all_fields != [] do %>
+              <div class="border-t border-zinc-700 pt-4">
+                <p class="text-xs text-zinc-500 uppercase tracking-wider mb-3">
+                  {provider.label} Settings
+                </p>
+                <%= for field <- provider.required_fields do %>
+                  <div class="mb-3">
+                    <label class="block text-sm font-medium text-zinc-300 mb-1">
+                      {humanize_id(field)} *
+                    </label>
+                    <input
+                      type="text"
+                      name={"plugin[field_#{field}]"}
+                      value={Map.get(@attach_form, "field_#{field}", "")}
+                      class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
+                <% end %>
+                <%= for field <- provider.optional_fields do %>
+                  <div class="mb-3">
+                    <label class="block text-sm font-medium text-zinc-300 mb-1">
+                      {humanize_id(field)}
+                    </label>
+                    <input
+                      type="text"
+                      name={"plugin[field_#{field}]"}
+                      value={Map.get(@attach_form, "field_#{field}", "")}
+                      class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
           <% end %>
 
           <div class="flex justify-between pt-2">

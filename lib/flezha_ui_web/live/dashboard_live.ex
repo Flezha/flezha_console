@@ -26,7 +26,7 @@ defmodule FlezhaUiWeb.DashboardLive do
     node = NodeManager.connected_node()
     transport = System.get_env("FLEZHA_TRANSPORT", "uds")
 
-    {namespaces, processors, compute_engines, plugins} =
+    {namespaces, processors, compute_engines, plugins, provider_count} =
       if node do
         ns_list =
           case NodeManager.list_namespaces() do
@@ -56,9 +56,15 @@ defmodule FlezhaUiWeb.DashboardLive do
             _ -> %{}
           end
 
-        {ns_list, processors, ces, plugins}
+        provider_count =
+          case NodeManager.get_provider_info() do
+            list when is_list(list) -> length(list)
+            _ -> 0
+          end
+
+        {ns_list, processors, ces, plugins, provider_count}
       else
-        {[], [], [], %{}}
+        {[], [], [], %{}, 0}
       end
 
     %{
@@ -68,7 +74,8 @@ defmodule FlezhaUiWeb.DashboardLive do
       namespaces: namespaces,
       processor_count: length(processors),
       compute_engines: compute_engines,
-      plugin_count: map_size(plugins)
+      plugin_count: map_size(plugins),
+      provider_count: provider_count
     }
   end
 end
