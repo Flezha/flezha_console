@@ -30,7 +30,7 @@
     </div>
     <div>
       <p class="text-xs text-zinc-500 uppercase tracking-wider">Default Input Type</p>
-      <p class="text-white font-mono mt-1">{@default_input_type || "—"}</p>
+      <p class="text-white font-mono mt-1">{format_input_type(@default_input_type)}</p>
     </div>
   </div>
 
@@ -122,13 +122,13 @@
       Stream Viewer
     </h2>
     <div class="flex gap-3">
-      <a
-        href={~p"/namespaces/#{@ns}/processors/#{@proc_id}/stream"}
+      <.link
+        navigate={~p"/namespaces/#{@ns}/processors/#{@proc_id}/stream"}
         class="px-4 py-2 text-sm font-medium text-white rounded-md transition-colors"
         style="background-color: #FD4F00;"
       >
         Watch Stream
-      </a>
+      </.link>
     </div>
   </div>
 </div>

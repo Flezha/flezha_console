@@ -261,6 +261,13 @@ defmodule FlezhaUiWeb.ProcessorLive do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
   end
 
+  # TODO: add more types here if the agent adds new input types (e.g. "3" = custom)
+  defp format_input_type("1"), do: "Binary (1)"
+  defp format_input_type("2"), do: "Text (2)"
+  defp format_input_type("3"), do: "Custom (3)"
+  defp format_input_type(other) when is_binary(other), do: "Unknown (#{other})"
+  defp format_input_type(_), do: "—"
+
   defp humanize_id(id) do
     id
     |> String.replace("_", " ")

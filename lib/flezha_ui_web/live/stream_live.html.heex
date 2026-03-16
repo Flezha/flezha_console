@@ -1,33 +1,40 @@
 <div class="flex flex-col h-full space-y-4">
   <div class="flex items-center justify-between flex-shrink-0">
     <div class="flex items-center gap-3">
-      <a
-        href={~p"/namespaces/#{@ns}/processors/#{@proc_id}"}
+      <.link
+        navigate={~p"/namespaces/#{@ns}/processors/#{@proc_id}"}
         class="text-zinc-400 hover:text-white"
       >
         <.icon name="hero-arrow-left" class="w-4 h-4" />
-      </a>
+      </.link>
       <h1 class="text-xl font-bold text-white">
         Stream: <span class="font-mono text-base">{@proc_id}</span>
       </h1>
     </div>
 
     <%!-- IO type tabs --%>
-    <div class="flex items-center gap-1 bg-zinc-800 rounded-lg p-1">
-      <button
-        phx-click="switch_io"
-        phx-value-type="input"
-        class={"px-3 py-1.5 text-sm rounded-md transition-colors " <> if @io_type == "input", do: "bg-zinc-600 text-white", else: "text-zinc-400 hover:text-white"}
-      >
-        Input
-      </button>
-      <button
-        phx-click="switch_io"
-        phx-value-type="output"
-        class={"px-3 py-1.5 text-sm rounded-md transition-colors " <> if @io_type == "output", do: "bg-zinc-600 text-white", else: "text-zinc-400 hover:text-white"}
-      >
-        Output
-      </button>
+    <div class="flex items-center gap-2">
+      <%= if @status == :connecting do %>
+        <span class="text-xs text-zinc-500 mr-1">Connecting...</span>
+      <% end %>
+      <div class="flex items-center gap-1 bg-zinc-800 rounded-lg p-1">
+        <button
+          phx-click="switch_io"
+          phx-value-type="input"
+          disabled={@status == :connecting}
+          class={"px-3 py-1.5 text-sm rounded-md transition-colors " <> if @io_type == "input", do: "bg-zinc-600 text-white", else: "text-zinc-400 hover:text-white disabled:opacity-40"}
+        >
+          Input
+        </button>
+        <button
+          phx-click="switch_io"
+          phx-value-type="output"
+          disabled={@status == :connecting}
+          class={"px-3 py-1.5 text-sm rounded-md transition-colors " <> if @io_type == "output", do: "bg-zinc-600 text-white", else: "text-zinc-400 hover:text-white disabled:opacity-40"}
+        >
+          Output
+        </button>
+      </div>
     </div>
   </div>
 
@@ -65,23 +72,62 @@
     id="stream-feed"
     phx-hook="ScrollBottom"
   >
-    <% display_messages = filtered_messages(@messages, @filter) %>
-    <%= if display_messages == [] do %>
-      <div class="p-6 text-zinc-500 text-center">
-        Waiting for messages on {@io_type} stream...
-      </div>
-    <% else %>
-      <%= for msg <- Enum.reverse(display_messages) do %>
-        <div class="flex gap-3 px-4 py-2 border-b border-zinc-900 hover:bg-zinc-900/50">
-          <span class="text-zinc-500 flex-shrink-0 w-28">{format_timestamp(msg.timestamp)}</span>
-          <span class="text-green-300 flex-1 break-all whitespace-pre-wrap">{msg.message}</span>
-          <%= if msg.metadata && msg.metadata != %{} do %>
-            <span class="text-zinc-600 flex-shrink-0 text-xs">
-              {Enum.map_join(msg.metadata, ", ", fn {k, v} -> "#{k}=#{inspect(v)}" end)}
-            </span>
-          <% end %>
+    <%= case @status do %>
+      <% :connecting -> %>
+        <div class="p-6 text-center">
+          <div class="inline-flex items-center gap-2 text-zinc-400">
+            <svg
+              class="animate-spin h-4 w-4"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              >
+              </circle>
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              >
+              </path>
+            </svg>
+            <span>Connecting to {@io_type} stream...</span>
+          </div>
         </div>
-      <% end %>
+      <% :error -> %>
+        <div class="p-6 text-center text-red-400">
+          Failed to connect to {@io_type} stream. Try navigating back and reopening.
+        </div>
+      <% :connected -> %>
+        <% display_messages = filtered_messages(@messages, @filter) %>
+        <%= if display_messages == [] do %>
+          <div class="p-6 text-zinc-500 text-center">
+            Waiting for messages on {@io_type} stream...
+          </div>
+        <% else %>
+          <%= for msg <- Enum.reverse(display_messages) do %>
+            <div class="flex gap-3 px-4 py-2 border-b border-zinc-900 hover:bg-zinc-900/50">
+              <span class="text-zinc-500 flex-shrink-0 w-28">
+                {format_timestamp(msg.timestamp)}
+              </span>
+              <span class="text-green-300 flex-1 break-all whitespace-pre-wrap">
+                {msg.message}
+              </span>
+              <%= if msg.metadata && msg.metadata != %{} do %>
+                <span class="text-zinc-600 flex-shrink-0 text-xs">
+                  {Enum.map_join(msg.metadata, ", ", fn {k, v} -> "#{k}=#{inspect(v)}" end)}
+                </span>
+              <% end %>
+            </div>
+          <% end %>
+        <% end %>
     <% end %>
   </div>
 </div>

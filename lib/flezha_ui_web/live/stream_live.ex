@@ -18,6 +18,7 @@ defmodule FlezhaUiWeb.StreamLive do
        ns: ns,
        proc_id: proc_id,
        io_type: io_type,
+       status: :connecting,
        messages: [],
        paused: false,
        filter: "",
@@ -47,6 +48,7 @@ defmodule FlezhaUiWeb.StreamLive do
     {:noreply,
      assign(socket,
        io_type: new_type,
+       status: :connecting,
        messages: [],
        message_count: 0
      )}
@@ -65,6 +67,17 @@ defmodule FlezhaUiWeb.StreamLive do
   @impl true
   def handle_event("set_filter", %{"filter" => filter}, socket) do
     {:noreply, assign(socket, filter: filter)}
+  end
+
+  @impl true
+  def handle_info({:stream_status, status}, socket) do
+    case status do
+      :connected ->
+        {:noreply, assign(socket, status: :connected)}
+
+      {:error, _reason} ->
+        {:noreply, assign(socket, status: :error)}
+    end
   end
 
   @impl true

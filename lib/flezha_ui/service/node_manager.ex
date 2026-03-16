@@ -54,6 +54,15 @@ defmodule FlezhaUi.Service.NodeManager do
     erpc_call(Flezha, :enable_plugin, [plugin_id, plugin_map])
   end
 
+  def enable_io_listener(namespace, processor_id, io_type, recv_pid) do
+    erpc_call(Flezha.Service.PluginHelper, :enable_io_listener, [
+      namespace,
+      processor_id,
+      io_type,
+      recv_pid
+    ])
+  end
+
   def disable_plugin(plugin_id) do
     erpc_call(Flezha, :disable_plugin, [plugin_id])
   end

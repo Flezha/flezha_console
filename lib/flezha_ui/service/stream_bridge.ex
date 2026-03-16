@@ -46,7 +46,7 @@ defmodule FlezhaUi.Service.StreamBridge do
 
     case GenServer.whereis(via(ns, proc_id, io_type)) do
       nil -> :ok
-      _pid -> GenServer.cast(via(ns, proc_id, io_type), {:remove_subscriber, self()})
+      _pid -> GenServer.call(via(ns, proc_id, io_type), {:remove_subscriber, self()})
     end
   end
 
@@ -60,13 +60,11 @@ defmodule FlezhaUi.Service.StreamBridge do
 
   @impl true
   def init({ns, proc_id, io_type}) do
-    plugin_id = "stream_#{ns}_#{proc_id}_#{io_type}"
-
     state = %{
       ns: ns,
       proc_id: proc_id,
       io_type: io_type,
-      plugin_id: plugin_id,
+      plugin_id: nil,
       subscribers: MapSet.new(),
       enabled: false
     }
@@ -76,24 +74,15 @@ defmodule FlezhaUi.Service.StreamBridge do
 
   @impl true
   def handle_continue(:enable_plugin, state) do
-    trigger = if state.io_type == "input", do: "on_input", else: "on_output"
-
-    plugin_map = %{
-      namespace: state.ns,
-      processor_id: state.proc_id,
-      trigger: trigger,
-      position: 999,
-      provider_id: "monitored_io_forward",
-      provider_settings: %{recv_pid: self()}
-    }
-
-    case NodeManager.enable_plugin(state.plugin_id, plugin_map) do
-      {:ok, _} ->
-        Logger.info("[StreamBridge] Enabled plugin #{state.plugin_id}")
-        {:noreply, %{state | enabled: true}}
+    case NodeManager.enable_io_listener(state.ns, state.proc_id, state.io_type, self()) do
+      {:ok, plugin_id} ->
+        Logger.info("[StreamBridge] Enabled plugin #{plugin_id}")
+        broadcast_status(state, :connected)
+        {:noreply, %{state | plugin_id: plugin_id, enabled: true}}
 
       {:error, reason} ->
         Logger.warning("[StreamBridge] Could not enable plugin: #{inspect(reason)}")
+        broadcast_status(state, {:error, reason})
         {:noreply, state}
     end
   end
@@ -105,14 +94,15 @@ defmodule FlezhaUi.Service.StreamBridge do
   end
 
   @impl true
-  def handle_cast({:remove_subscriber, pid}, state) do
+  def handle_call({:remove_subscriber, pid}, _from, state) do
     new_subs = MapSet.delete(state.subscribers, pid)
     state = %{state | subscribers: new_subs}
 
     if MapSet.size(new_subs) == 0 do
-      {:stop, :normal, state}
+      cleanup_plugin(state)
+      {:stop, :normal, :ok, %{state | enabled: false}}
     else
-      {:noreply, state}
+      {:reply, :ok, state}
     end
   end
 
@@ -135,7 +125,7 @@ defmodule FlezhaUi.Service.StreamBridge do
 
   @impl true
   def handle_info({:heartbeat_keepalive, pid}, state) do
-    send(pid, :keepalive_ack)
+    send(pid, {:heartbeat_keepalive, :ok})
     {:noreply, state}
   end
 
@@ -145,7 +135,8 @@ defmodule FlezhaUi.Service.StreamBridge do
     state = %{state | subscribers: new_subs}
 
     if MapSet.size(new_subs) == 0 do
-      {:stop, :normal, state}
+      cleanup_plugin(state)
+      {:stop, :normal, %{state | enabled: false}}
     else
       {:noreply, state}
     end
@@ -164,6 +155,20 @@ defmodule FlezhaUi.Service.StreamBridge do
   end
 
   # ---- Helpers ----
+
+  defp cleanup_plugin(state) do
+    if state.enabled do
+      NodeManager.disable_plugin(state.plugin_id)
+    end
+  end
+
+  defp broadcast_status(state, status) do
+    Phoenix.PubSub.broadcast(
+      @pubsub,
+      topic(state.ns, state.proc_id, state.io_type),
+      {:stream_status, status}
+    )
+  end
 
   defp via(ns, proc_id, io_type) do
     {:via, Registry, {FlezhaUi.StreamRegistry, {ns, proc_id, io_type}}}
