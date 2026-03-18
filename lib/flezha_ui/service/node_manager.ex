@@ -11,6 +11,7 @@ defmodule FlezhaUi.Service.NodeManager do
         :erpc.call(node, module, function, args)
       catch
         :error, reason -> {:error, reason}
+        :exit, reason -> {:error, reason}
       end
     else
       {:error, :node_not_connected}
@@ -54,8 +55,21 @@ defmodule FlezhaUi.Service.NodeManager do
 
   # ---- Plugin API ----
 
-  def enable_plugin(plugin_id, plugin_map) do
-    erpc_call(Flezha, :enable_plugin, [plugin_id, plugin_map])
+  def enable_plugin(_plugin_id, nil, _provider_settings, _common_params) do
+    {:error, "provider not found"}
+  end
+
+  def enable_plugin(plugin_id, provider_module_str, provider_settings, common_params) do
+    provider_mod = String.to_atom("Elixir." <> provider_module_str)
+
+    with {:ok, provider_struct} <- erpc_call(provider_mod, :build, [provider_settings]),
+         {:ok, plugin} <-
+           erpc_call(Flezha.Plugin.Driver.IOBindingPlugin, :build, [
+             common_params,
+             provider_struct
+           ]) do
+      erpc_call(Flezha.Service.PluginManager, :enable_plugin, [plugin_id, plugin])
+    end
   end
 
   def enable_io_listener(namespace, processor_id, io_type, recv_pid) do
@@ -69,6 +83,13 @@ defmodule FlezhaUi.Service.NodeManager do
 
   def disable_plugin(plugin_id) do
     erpc_call(Flezha, :disable_plugin, [plugin_id])
+  end
+
+  def disable_plugin_direct(plugin_id, namespace, processor_id) do
+    erpc_call(Flezha.Plugin.Driver.IOBindingPlugin, :disable, [
+      plugin_id,
+      {namespace, processor_id}
+    ])
   end
 
   def get_plugins() do

@@ -120,21 +120,20 @@ defmodule FlezhaUiWeb.ProcessorLive do
     form = Map.merge(socket.assigns.attach_form, params)
     plugin_id = form["plugin_id"]
     trigger = form["trigger"]
-    position = String.to_integer(form["position"] || "0")
+    position = form["position"] || "0"
 
     provider = find_provider(socket.assigns.enabled_providers, provider_id)
-    settings = extract_provider_settings(provider, form)
+    provider_settings = extract_provider_settings(provider, form)
+    provider_module = provider && provider.module
 
-    plugin_map = %{
-      namespace: ns,
-      processor_id: proc_id,
-      trigger: trigger,
-      position: position,
-      provider_id: provider_id,
-      provider_settings: settings
+    common_params = %{
+      "namespace" => ns,
+      "processor_id" => proc_id,
+      "trigger" => trigger,
+      "position" => position
     }
 
-    case NodeManager.enable_plugin(plugin_id, plugin_map) do
+    case NodeManager.enable_plugin(plugin_id, provider_module, provider_settings, common_params) do
       {:ok, _} ->
         socket =
           socket
@@ -161,8 +160,23 @@ defmodule FlezhaUiWeb.ProcessorLive do
 
   @impl true
   def handle_event("detach_plugin", %{"plugin_id" => plugin_id}, socket) do
-    case NodeManager.disable_plugin(plugin_id) do
-      {:ok, _} ->
+    %{ns: ns, proc_id: proc_id} = socket.assigns
+
+    result =
+      case NodeManager.disable_plugin(plugin_id) do
+        {:ok, _} = ok ->
+          ok
+
+        {:error, "plugin not found"} ->
+          # PluginManager lost state (e.g. after crash/restart) — go direct to processor
+          NodeManager.disable_plugin_direct(plugin_id, ns, proc_id)
+
+        error ->
+          error
+      end
+
+    case result do
+      success when success == :ok or (is_tuple(success) and elem(success, 0) == :ok) ->
         socket =
           socket
           |> assign(confirm_detach: nil)

@@ -1,0 +1,13 @@
+{
+  "name": "flezha-ui-e2e",
+  "private": true,
+  "scripts": {
+    "cy:open": "cypress open",
+    "cy:run": "cypress run",
+    "cy:run:headed": "cypress run --headed"
+  },
+  "devDependencies": {
+    "cypress": "^14.x",
+    "typescript": "^5.x"
+  }
+}
