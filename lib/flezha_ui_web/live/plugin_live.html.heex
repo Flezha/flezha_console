@@ -1,44 +1,48 @@
 <div class="space-y-6">
-  <h1 class="text-2xl font-bold text-white">Plugins</h1>
+  <h1 class="text-2xl font-bold text-th-primary">Plugins</h1>
 
   <%!-- Available Providers Grid --%>
   <%= if @available_providers == [] do %>
-    <div class="bg-zinc-900 border border-zinc-800 rounded-lg px-6 py-10 text-center">
-      <p class="text-zinc-400">No providers discovered from agent.</p>
+    <div class="bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel">
+      <.icon name="hero-puzzle-piece" class="w-10 h-10 text-th-muted mx-auto mb-3" />
+      <p class="text-th-tertiary">No providers discovered from agent.</p>
     </div>
   <% else %>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       <%= for provider <- @available_providers do %>
-        <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-5 flex flex-col gap-3">
+        <div class="group bg-surface border border-brd rounded-panel p-5 flex flex-col gap-3 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 hover:border-accent/30 transition-all duration-200">
           <div class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-white">{provider.label}</h3>
+            <div class="flex items-center gap-2">
+              <.icon name="hero-cube" class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors" />
+              <h3 class="text-sm font-semibold text-th-primary">{provider.label}</h3>
+            </div>
             <%= if provider.internal do %>
-              <span class="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-zinc-700 text-zinc-300 rounded">
+              <span class="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-badge-bg text-badge-text rounded-full border border-brd-subtle">
                 Internal
               </span>
             <% end %>
           </div>
 
           <div class="space-y-1 text-xs">
-            <p class="text-zinc-500">
-              <span class="text-zinc-400">ID:</span>
+            <p class="text-th-muted">
+              <span class="text-th-tertiary">ID:</span>
               <span class="font-mono">{provider.id}</span>
             </p>
-            <p class="text-zinc-500">
-              <span class="text-zinc-400">Module:</span>
+            <p class="text-th-muted">
+              <span class="text-th-tertiary">Module:</span>
               <span class="font-mono">{provider.module}</span>
             </p>
-            <p class="text-zinc-500">
-              <span class="text-zinc-400">Type:</span> {provider.type}
+            <p class="text-th-muted">
+              <span class="text-th-tertiary">Type:</span> {provider.type}
             </p>
           </div>
 
           <%= if provider.required_fields != [] do %>
             <div>
-              <p class="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Required</p>
+              <p class="text-[10px] text-th-muted uppercase tracking-wider mb-1">Required</p>
               <div class="flex flex-wrap gap-1">
                 <%= for field <- provider.required_fields do %>
-                  <span class="px-1.5 py-0.5 bg-zinc-800 text-zinc-300 rounded text-[11px] font-mono">
+                  <span class="px-1.5 py-0.5 bg-badge-bg text-badge-text rounded-full border border-brd-subtle text-[11px] font-mono">
                     {field}
                   </span>
                 <% end %>
@@ -48,10 +52,10 @@
 
           <%= if provider.optional_fields != [] do %>
             <div>
-              <p class="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Optional</p>
+              <p class="text-[10px] text-th-muted uppercase tracking-wider mb-1">Optional</p>
               <div class="flex flex-wrap gap-1">
                 <%= for field <- provider.optional_fields do %>
-                  <span class="px-1.5 py-0.5 bg-zinc-800/50 text-zinc-400 rounded text-[11px] font-mono">
+                  <span class="px-1.5 py-0.5 bg-accent-subtle text-accent-text rounded-full border border-brd-subtle text-[11px] font-mono">
                     {field}
                   </span>
                 <% end %>
@@ -64,38 +68,39 @@
   <% end %>
 
   <%!-- Active Plugins --%>
-  <h2 class="text-lg font-bold text-white pt-2">Active Plugins</h2>
+  <h2 class="text-lg font-bold text-th-primary pt-2">Active Plugins</h2>
 
   <%= if @plugins == [] do %>
-    <div class="bg-zinc-900 border border-zinc-800 rounded-lg px-6 py-10 text-center">
-      <p class="text-zinc-400">No active plugins found.</p>
+    <div class="bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel">
+      <.icon name="hero-puzzle-piece" class="w-10 h-10 text-th-muted mx-auto mb-3" />
+      <p class="text-th-tertiary">No active plugins found.</p>
     </div>
   <% else %>
-    <div class="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+    <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-zinc-800">
-            <th class="text-left px-5 py-3 text-zinc-400 font-medium">Plugin ID</th>
-            <th class="text-left px-5 py-3 text-zinc-400 font-medium">Provider</th>
-            <th class="text-left px-5 py-3 text-zinc-400 font-medium">Namespace</th>
-            <th class="text-left px-5 py-3 text-zinc-400 font-medium">Processor</th>
+          <tr class="border-b border-brd">
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Plugin ID</th>
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Provider</th>
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Namespace</th>
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Processor</th>
             <th class="px-5 py-3"></th>
           </tr>
         </thead>
         <tbody>
           <%= for plugin <- @plugins do %>
-            <tr class="border-b border-zinc-800/50 hover:bg-zinc-800/30">
-              <td class="px-5 py-3 text-white font-mono text-xs">{plugin.id}</td>
-              <td class="px-5 py-3 text-zinc-300 text-xs">{plugin.module}</td>
-              <td class="px-5 py-3 text-zinc-400 text-xs">{plugin.namespace || "—"}</td>
-              <td class="px-5 py-3 text-zinc-400 font-mono text-xs">
+            <tr class="border-b border-brd-subtle hover:bg-surface-hover transition-colors">
+              <td class="px-5 py-3 text-th-primary font-mono text-xs">{plugin.id}</td>
+              <td class="px-5 py-3 text-th-secondary text-xs">{plugin.module}</td>
+              <td class="px-5 py-3 text-th-tertiary text-xs">{plugin.namespace || "—"}</td>
+              <td class="px-5 py-3 text-th-tertiary font-mono text-xs">
                 {plugin.processor_id || "—"}
               </td>
               <td class="px-5 py-3 text-right">
                 <button
                   phx-click="confirm_disable"
                   phx-value-plugin_id={plugin.id}
-                  class="text-xs text-red-400 hover:text-red-300 transition-colors"
+                  class="text-xs text-danger-text hover:text-danger transition-colors"
                 >
                   Disable
                 </button>
@@ -109,23 +114,23 @@
 </div>
 
 <%= if @confirm_disable do %>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-    <div class="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-sm p-6 shadow-xl">
-      <h3 class="text-lg font-semibold text-white mb-3">Disable Plugin?</h3>
-      <p class="text-sm text-zinc-400 mb-5">
-        Disable plugin <span class="text-white font-mono"><%= @confirm_disable %></span>?
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
+    <div class="bg-modal-bg border border-modal-border rounded-modal w-full max-w-sm p-6 shadow-modal animate-scale-in">
+      <h3 class="text-lg font-semibold text-th-primary mb-3">Disable Plugin?</h3>
+      <p class="text-sm text-th-tertiary mb-5">
+        Disable plugin <span class="text-th-primary font-mono"><%= @confirm_disable %></span>?
       </p>
       <div class="flex justify-end gap-3">
         <button
           phx-click="cancel_disable"
-          class="px-4 py-2 text-sm text-zinc-300 hover:text-white"
+          class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
         >
           Cancel
         </button>
         <button
           phx-click="disable_plugin"
           phx-value-plugin_id={@confirm_disable}
-          class="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 rounded-md"
+          class="px-4 py-2 text-sm font-medium text-white bg-danger hover:bg-danger-hover rounded-xl transition-colors"
         >
           Disable
         </button>

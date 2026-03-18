@@ -1,84 +1,113 @@
-<div class="flex h-screen bg-zinc-950 text-zinc-100">
+<div class="flex h-screen bg-surface-base text-th-secondary">
   <%!-- Sidebar --%>
-  <aside class="w-56 flex-shrink-0 bg-zinc-900 border-r border-zinc-800 flex flex-col">
-    <div class="px-4 py-5 border-b border-zinc-800">
+  <aside class="w-56 flex-shrink-0 bg-sidebar-bg border-r border-sidebar-border flex flex-col">
+    <div class="px-5 py-6 border-b border-sidebar-border bg-gradient-to-r from-accent/5 to-transparent">
       <a href="/" class="flex items-center gap-2">
-        <span class="text-xl font-bold" style="color: #FD4F00;">flezha</span>
-        <span class="text-xs text-zinc-400 font-medium uppercase tracking-wider">UI</span>
+        <span class="text-xl font-bold text-accent">flezha</span>
+        <span class="text-xs text-th-muted font-medium uppercase tracking-wider">UI</span>
       </a>
     </div>
 
-    <nav class="flex-1 px-2 py-4 space-y-1">
+    <nav class="flex-1 px-3 py-5 space-y-1">
       <a
         href="/"
-        class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+        data-nav-link
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
       >
-        <.icon name="hero-home" class="w-4 h-4" /> Dashboard
+        <.icon name="hero-squares-2x2" class="w-4 h-4" /> Dashboard
       </a>
       <a
         href="/namespaces"
-        class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+        data-nav-link
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
       >
         <.icon name="hero-rectangle-stack" class="w-4 h-4" /> Namespaces
       </a>
       <a
         href="/plugins"
-        class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+        data-nav-link
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
       >
         <.icon name="hero-puzzle-piece" class="w-4 h-4" /> Plugins
       </a>
     </nav>
 
-    <div class="px-4 py-4 border-t border-zinc-800 text-xs text-zinc-500">
-      <p>flezha_ui v0.1.0</p>
+    <div class="px-5 py-4 border-t border-sidebar-border">
+      <div class="flex items-center gap-2 text-xs text-th-muted mb-2">
+        <%= if FlezhaUi.Service.NodeManager.connected_node() do %>
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+          </span>
+          <span class="font-mono truncate">{FlezhaUi.Service.NodeManager.connected_node()}</span>
+        <% else %>
+          <span class="w-2 h-2 rounded-full bg-danger inline-block"></span>
+          <span>Disconnected</span>
+        <% end %>
+      </div>
+      <p class="text-[10px] text-th-muted font-mono">flezha_ui v0.1.0</p>
     </div>
   </aside>
 
   <%!-- Main content area --%>
   <div class="flex-1 flex flex-col overflow-hidden">
     <%!-- Top bar --%>
-    <header class="bg-zinc-900 border-b border-zinc-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
+    <header class="bg-surface border-b border-brd px-8 py-3 flex items-center justify-between flex-shrink-0 shadow-panel">
       <div class="flex items-center gap-3">
         <%= if FlezhaUi.Service.NodeManager.connected_node() do %>
-          <span class="flex items-center gap-1.5 text-sm text-zinc-300">
-            <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
+          <span class="flex items-center gap-1.5 text-sm text-th-secondary">
+            <span class="relative flex h-2 w-2">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+            </span>
             {FlezhaUi.Service.NodeManager.connected_node()}
           </span>
         <% else %>
-          <span class="flex items-center gap-1.5 text-sm text-zinc-400">
-            <span class="w-2 h-2 rounded-full bg-red-400 inline-block"></span> Not connected
+          <span class="flex items-center gap-1.5 text-sm text-th-tertiary">
+            <span class="w-2 h-2 rounded-full bg-danger inline-block"></span> Not connected
           </span>
         <% end %>
       </div>
       <div class="flex items-center gap-4 text-sm">
-        <span class="text-zinc-400">
+        <span class="text-th-tertiary">
           {assigns[:current_scope] && assigns[:current_scope].user &&
             assigns[:current_scope].user.email}
         </span>
         <.link
           navigate={~p"/users/settings"}
-          class="text-zinc-400 hover:text-white transition-colors"
+          class="text-th-tertiary hover:text-th-primary transition-colors"
         >
           Settings
         </.link>
         <.link
           href={~p"/users/log-out"}
           method="delete"
-          class="text-zinc-400 hover:text-white transition-colors"
+          class="text-th-tertiary hover:text-th-primary transition-colors"
         >
           Log out
         </.link>
+        <button
+          onclick="toggleTheme()"
+          class="text-th-tertiary hover:text-accent transition-colors p-1"
+          title="Toggle light/dark mode"
+        >
+          <%!-- Sun in dark mode (switch to light), moon in light mode (switch to dark) --%>
+          <.icon name="hero-sun" class="w-4 h-4 show-in-dark" />
+          <.icon name="hero-moon" class="w-4 h-4 show-in-light" />
+        </button>
       </div>
     </header>
 
     <%!-- Page content --%>
-    <main class="flex-1 overflow-auto p-6">
+    <main class="flex-1 overflow-auto p-8">
       <.flash_group flash={@flash} />
-      <%= if assigns[:inner_block] do %>
-        {render_slot(@inner_block)}
-      <% else %>
-        {@inner_content}
-      <% end %>
+      <div class="animate-fade-in">
+        <%= if assigns[:inner_block] do %>
+          {render_slot(@inner_block)}
+        <% else %>
+          {@inner_content}
+        <% end %>
+      </div>
     </main>
   </div>
 </div>

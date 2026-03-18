@@ -1,15 +1,15 @@
 <Layouts.auth flash={@flash} current_scope={@current_scope}>
   <div class="space-y-6">
     <div>
-      <h2 class="text-xl font-semibold text-zinc-100">Log in</h2>
+      <h2 class="text-xl font-semibold text-th-primary">Log in</h2>
       <%= if @current_scope do %>
-        <p class="mt-1 text-sm text-zinc-400">
+        <p class="mt-1 text-sm text-th-tertiary">
           You need to reauthenticate to perform sensitive actions on your account.
         </p>
       <% else %>
-        <p class="mt-1 text-sm text-zinc-400">
+        <p class="mt-1 text-sm text-th-tertiary">
           No account?
-          <.link navigate={~p"/users/register"} class="text-[#FD4F00] hover:underline">
+          <.link navigate={~p"/users/register"} class="text-accent-text hover:underline">
             Register
           </.link>
         </p>
@@ -40,9 +40,8 @@
         name={@form[:remember_me].name}
         value="true"
         class="w-full mt-6"
-        style="background:#FD4F00"
       >
-        Log in <span aria-hidden="true">→</span>
+        Log in <span aria-hidden="true">&rarr;</span>
       </.button>
     </.form>
   </div>

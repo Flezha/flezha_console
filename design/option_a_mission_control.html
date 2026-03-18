@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Option A — Mission Control</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+  }
+
+  .mode-switcher {
+    position: fixed; top: 16px; right: 16px; z-index: 1000;
+    display: flex; gap: 8px;
+  }
+  .mode-switcher button {
+    padding: 8px 16px; border: 1px solid #7c3aed; background: transparent;
+    color: #c4b5fd; border-radius: 6px; cursor: pointer; font-size: 13px;
+    font-family: 'Inter', sans-serif; transition: all 0.2s;
+  }
+  .mode-switcher button.active {
+    background: #7c3aed; color: #fff;
+  }
+
+  .sketch-label {
+    text-align: center; padding: 32px 0 16px;
+    font-size: 28px; font-weight: 700; letter-spacing: -0.5px;
+  }
+  .sketch-sublabel {
+    text-align: center; padding: 0 0 32px;
+    font-size: 14px; opacity: 0.6;
+  }
+
+  /* ===== DARK THEME ===== */
+  .mockup-frame {
+    max-width: 1100px; margin: 0 auto 60px; border-radius: 12px;
+    overflow: hidden; box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+    border: 1px solid #2d2d4e;
+  }
+
+  /* --- Dark variant --- */
+  .dark .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 40px; padding: 0 16px;
+    background: #0f0f1a; border-bottom: 1px solid #1e1e36;
+    font-size: 12px;
+  }
+  .dark .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .dark .topbar .logo { font-weight: 700; color: #a78bfa; font-size: 14px; }
+  .dark .topbar .nav-link {
+    color: #888; text-decoration: none; padding: 2px 8px; border-radius: 4px;
+    transition: all 0.15s;
+  }
+  .dark .topbar .nav-link:hover, .dark .topbar .nav-link.active {
+    color: #e0e0e0; background: #1e1e36;
+  }
+  .dark .topbar-right { display: flex; align-items: center; gap: 12px; color: #666; }
+  .dark .topbar-right .node-badge {
+    display: flex; align-items: center; gap: 6px;
+    background: #1a1a2e; padding: 2px 10px; border-radius: 4px; font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .dark .topbar-right .node-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #22c55e;
+  }
+
+  .dark .main-layout { display: flex; min-height: 520px; }
+
+  .dark .sidebar {
+    width: 52px; background: #0f0f1a; border-right: 1px solid #1e1e36;
+    display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 4px;
+  }
+  .dark .sidebar .nav-icon {
+    width: 36px; height: 36px; border-radius: 8px; display: flex;
+    align-items: center; justify-content: center; color: #666;
+    font-size: 16px; cursor: pointer; transition: all 0.15s;
+  }
+  .dark .sidebar .nav-icon:hover { background: #1e1e36; color: #c4b5fd; }
+  .dark .sidebar .nav-icon.active { background: #2d1f69; color: #a78bfa; }
+  .dark .sidebar .sidebar-bottom {
+    margin-top: auto; font-size: 9px; color: #444;
+    font-family: 'JetBrains Mono', monospace; writing-mode: vertical-rl;
+  }
+
+  .dark .content {
+    flex: 1; background: #12121f; padding: 20px; overflow: auto;
+  }
+
+  .dark .stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
+  .dark .stat-card {
+    flex: 1; background: #181830; border: 1px solid #1e1e36; border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .dark .stat-card .stat-num {
+    font-size: 28px; font-weight: 700; color: #fff;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .dark .stat-card .stat-label {
+    font-size: 10px; color: #666; text-transform: uppercase;
+    letter-spacing: 1.5px; margin-top: 2px;
+  }
+
+  .dark .section { margin-bottom: 16px; }
+  .dark .section-header {
+    font-size: 10px; font-weight: 600; color: #555; text-transform: uppercase;
+    letter-spacing: 1.5px; margin-bottom: 8px; padding-left: 2px;
+  }
+
+  .dark .table-wrap {
+    background: #181830; border: 1px solid #1e1e36; border-radius: 6px;
+    overflow: hidden;
+  }
+  .dark .table-wrap table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .dark .table-wrap th {
+    text-align: left; padding: 8px 12px; color: #555; font-weight: 500;
+    border-bottom: 1px solid #1e1e36; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .dark .table-wrap td {
+    padding: 7px 12px; border-bottom: 1px solid #1e1e36;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #bbb;
+  }
+  .dark .table-wrap tr:last-child td { border-bottom: none; }
+  .dark .table-wrap tr:hover td { background: #1e1e36; }
+
+  .dark .status-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    margin-right: 6px;
+  }
+  .dark .status-dot.active { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
+  .dark .status-dot.warn { background: #eab308; }
+
+  .dark .ns-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .dark .ns-pill {
+    background: #181830; border: 1px solid #1e1e36; border-radius: 6px;
+    padding: 8px 16px; font-size: 12px; color: #c4b5fd; cursor: pointer;
+    transition: all 0.15s; display: flex; align-items: center; gap: 8px;
+  }
+  .dark .ns-pill:hover { border-color: #7c3aed; background: #1e1e36; }
+  .dark .ns-pill .pill-count {
+    font-size: 10px; background: #2d1f69; padding: 1px 6px; border-radius: 3px;
+    color: #a78bfa;
+  }
+
+  .dark .statusbar {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 28px; padding: 0 16px;
+    background: #0a0a14; border-top: 1px solid #1e1e36;
+    font-size: 10px; color: #444;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .dark .statusbar-left { display: flex; align-items: center; gap: 8px; }
+  .dark .statusbar .conn-status { color: #22c55e; }
+
+  /* --- Light variant --- */
+  .light .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 40px; padding: 0 16px;
+    background: #fff; border-bottom: 1px solid #e5e5f0;
+    font-size: 12px;
+  }
+  .light .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .light .topbar .logo { font-weight: 700; color: #7c3aed; font-size: 14px; }
+  .light .topbar .nav-link {
+    color: #999; text-decoration: none; padding: 2px 8px; border-radius: 4px;
+    transition: all 0.15s;
+  }
+  .light .topbar .nav-link:hover, .light .topbar .nav-link.active {
+    color: #333; background: #f3f0ff;
+  }
+  .light .topbar-right { display: flex; align-items: center; gap: 12px; color: #999; }
+  .light .topbar-right .node-badge {
+    display: flex; align-items: center; gap: 6px;
+    background: #f5f3ff; padding: 2px 10px; border-radius: 4px; font-size: 11px;
+    font-family: 'JetBrains Mono', monospace; color: #6d28d9;
+  }
+  .light .topbar-right .node-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #22c55e;
+  }
+
+  .light .main-layout { display: flex; min-height: 520px; }
+
+  .light .sidebar {
+    width: 52px; background: #faf9ff; border-right: 1px solid #e5e5f0;
+    display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 4px;
+  }
+  .light .sidebar .nav-icon {
+    width: 36px; height: 36px; border-radius: 8px; display: flex;
+    align-items: center; justify-content: center; color: #aaa;
+    font-size: 16px; cursor: pointer; transition: all 0.15s;
+  }
+  .light .sidebar .nav-icon:hover { background: #ede9fe; color: #7c3aed; }
+  .light .sidebar .nav-icon.active { background: #ede9fe; color: #7c3aed; }
+  .light .sidebar .sidebar-bottom {
+    margin-top: auto; font-size: 9px; color: #ccc;
+    font-family: 'JetBrains Mono', monospace; writing-mode: vertical-rl;
+  }
+
+  .light .content {
+    flex: 1; background: #f8f7fc; padding: 20px; overflow: auto;
+  }
+
+  .light .stat-row { display: flex; gap: 12px; margin-bottom: 16px; }
+  .light .stat-card {
+    flex: 1; background: #fff; border: 1px solid #e5e5f0; border-radius: 6px;
+    padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .light .stat-card .stat-num {
+    font-size: 28px; font-weight: 700; color: #1a1a2e;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .light .stat-card .stat-label {
+    font-size: 10px; color: #999; text-transform: uppercase;
+    letter-spacing: 1.5px; margin-top: 2px;
+  }
+
+  .light .section { margin-bottom: 16px; }
+  .light .section-header {
+    font-size: 10px; font-weight: 600; color: #999; text-transform: uppercase;
+    letter-spacing: 1.5px; margin-bottom: 8px; padding-left: 2px;
+  }
+
+  .light .table-wrap {
+    background: #fff; border: 1px solid #e5e5f0; border-radius: 6px;
+    overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .light .table-wrap table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .light .table-wrap th {
+    text-align: left; padding: 8px 12px; color: #999; font-weight: 500;
+    border-bottom: 1px solid #e5e5f0; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .light .table-wrap td {
+    padding: 7px 12px; border-bottom: 1px solid #f0f0f5;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #444;
+  }
+  .light .table-wrap tr:last-child td { border-bottom: none; }
+  .light .table-wrap tr:hover td { background: #f9f7ff; }
+
+  .light .status-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    margin-right: 6px;
+  }
+  .light .status-dot.active { background: #22c55e; box-shadow: 0 0 6px #22c55e44; }
+
+  .light .ns-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .light .ns-pill {
+    background: #fff; border: 1px solid #e5e5f0; border-radius: 6px;
+    padding: 8px 16px; font-size: 12px; color: #7c3aed; cursor: pointer;
+    transition: all 0.15s; display: flex; align-items: center; gap: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .light .ns-pill:hover { border-color: #c4b5fd; background: #f5f3ff; }
+  .light .ns-pill .pill-count {
+    font-size: 10px; background: #ede9fe; padding: 1px 6px; border-radius: 3px;
+    color: #7c3aed;
+  }
+
+  .light .statusbar {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 28px; padding: 0 16px;
+    background: #fff; border-top: 1px solid #e5e5f0;
+    font-size: 10px; color: #bbb;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .light .statusbar-left { display: flex; align-items: center; gap: 8px; }
+  .light .statusbar .conn-status { color: #16a34a; }
+
+  /* Page sections */
+  .page-section { padding: 40px 0; }
+  .page-section h2 { text-align: center; margin-bottom: 8px; }
+  .page-section p { text-align: center; color: #888; font-size: 13px; margin-bottom: 24px; }
+
+  /* Processor detail mockup */
+  .dark .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .dark .detail-card {
+    background: #181830; border: 1px solid #1e1e36; border-radius: 6px; padding: 14px 16px;
+  }
+  .dark .detail-card .detail-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .dark .detail-card .detail-value { font-size: 13px; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; }
+
+  .light .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .light .detail-card {
+    background: #fff; border: 1px solid #e5e5f0; border-radius: 6px; padding: 14px 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .light .detail-card .detail-label { font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .light .detail-card .detail-value { font-size: 13px; color: #333; font-family: 'JetBrains Mono', monospace; }
+
+  /* Breadcrumb */
+  .dark .breadcrumb { font-size: 11px; color: #555; margin-bottom: 12px; }
+  .dark .breadcrumb a { color: #a78bfa; text-decoration: none; }
+  .dark .breadcrumb span { margin: 0 6px; }
+  .dark .page-title { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; }
+  .dark .page-title .btn-danger { font-size: 11px; background: transparent; border: 1px solid #ef4444; color: #ef4444; padding: 3px 10px; border-radius: 4px; cursor: pointer; }
+
+  .light .breadcrumb { font-size: 11px; color: #bbb; margin-bottom: 12px; }
+  .light .breadcrumb a { color: #7c3aed; text-decoration: none; }
+  .light .breadcrumb span { margin: 0 6px; }
+  .light .page-title { font-size: 18px; font-weight: 700; color: #1a1a2e; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; }
+  .light .page-title .btn-danger { font-size: 11px; background: transparent; border: 1px solid #ef4444; color: #ef4444; padding: 3px 10px; border-radius: 4px; cursor: pointer; }
+
+  /* Drawer (right panel modal) */
+  .dark .drawer-overlay { position: relative; margin-top: 16px; }
+  .dark .drawer-panel {
+    background: #181830; border: 1px solid #1e1e36; border-radius: 8px;
+    padding: 20px; max-width: 380px; margin-left: auto;
+  }
+  .dark .drawer-panel h3 { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 16px; }
+  .dark .drawer-panel label { display: block; font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; margin-top: 12px; }
+  .dark .drawer-panel input, .dark .drawer-panel select {
+    width: 100%; background: #12121f; border: 1px solid #1e1e36; color: #e0e0e0;
+    padding: 7px 10px; border-radius: 4px; font-size: 12px; font-family: 'JetBrains Mono', monospace;
+    outline: none;
+  }
+  .dark .drawer-panel input:focus, .dark .drawer-panel select:focus { border-color: #7c3aed; }
+  .dark .drawer-panel .btn-row { display: flex; gap: 8px; margin-top: 20px; }
+  .dark .drawer-panel .btn-primary {
+    background: #7c3aed; color: #fff; border: none; padding: 7px 16px;
+    border-radius: 4px; font-size: 12px; cursor: pointer;
+  }
+  .dark .drawer-panel .btn-secondary {
+    background: transparent; color: #888; border: 1px solid #1e1e36;
+    padding: 7px 16px; border-radius: 4px; font-size: 12px; cursor: pointer;
+  }
+
+  .light .drawer-overlay { position: relative; margin-top: 16px; }
+  .light .drawer-panel {
+    background: #fff; border: 1px solid #e5e5f0; border-radius: 8px;
+    padding: 20px; max-width: 380px; margin-left: auto;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  }
+  .light .drawer-panel h3 { font-size: 14px; font-weight: 600; color: #1a1a2e; margin-bottom: 16px; }
+  .light .drawer-panel label { display: block; font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; margin-top: 12px; }
+  .light .drawer-panel input, .light .drawer-panel select {
+    width: 100%; background: #f8f7fc; border: 1px solid #e5e5f0; color: #333;
+    padding: 7px 10px; border-radius: 4px; font-size: 12px; font-family: 'JetBrains Mono', monospace;
+    outline: none;
+  }
+  .light .drawer-panel input:focus, .light .drawer-panel select:focus { border-color: #7c3aed; }
+  .light .drawer-panel .btn-row { display: flex; gap: 8px; margin-top: 20px; }
+  .light .drawer-panel .btn-primary {
+    background: #7c3aed; color: #fff; border: none; padding: 7px 16px;
+    border-radius: 4px; font-size: 12px; cursor: pointer;
+  }
+  .light .drawer-panel .btn-secondary {
+    background: transparent; color: #999; border: 1px solid #e5e5f0;
+    padding: 7px 16px; border-radius: 4px; font-size: 12px; cursor: pointer;
+  }
+
+  /* Stream viewer */
+  .dark .stream-panel {
+    background: #0a0a14; border: 1px solid #1e1e36; border-radius: 6px;
+    padding: 0; overflow: hidden;
+  }
+  .dark .stream-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border-bottom: 1px solid #1e1e36; background: #0f0f1a;
+  }
+  .dark .stream-tabs { display: flex; gap: 4px; }
+  .dark .stream-tab {
+    padding: 3px 10px; border-radius: 4px; font-size: 11px; color: #555; cursor: pointer;
+  }
+  .dark .stream-tab.active { background: #2d1f69; color: #a78bfa; }
+  .dark .stream-controls { display: flex; gap: 8px; align-items: center; }
+  .dark .stream-controls button {
+    background: transparent; border: 1px solid #1e1e36; color: #666; padding: 2px 8px;
+    border-radius: 3px; font-size: 10px; cursor: pointer;
+  }
+  .dark .stream-body {
+    padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    min-height: 150px; max-height: 200px; overflow: auto;
+  }
+  .dark .stream-line { padding: 2px 0; display: flex; gap: 12px; }
+  .dark .stream-ts { color: #555; }
+  .dark .stream-msg { color: #a78bfa; }
+  .dark .stream-meta { color: #444; }
+
+  .light .stream-panel {
+    background: #fff; border: 1px solid #e5e5f0; border-radius: 6px;
+    padding: 0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .light .stream-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border-bottom: 1px solid #e5e5f0; background: #faf9ff;
+  }
+  .light .stream-tabs { display: flex; gap: 4px; }
+  .light .stream-tab {
+    padding: 3px 10px; border-radius: 4px; font-size: 11px; color: #999; cursor: pointer;
+  }
+  .light .stream-tab.active { background: #ede9fe; color: #7c3aed; }
+  .light .stream-controls { display: flex; gap: 8px; align-items: center; }
+  .light .stream-controls button {
+    background: transparent; border: 1px solid #e5e5f0; color: #999; padding: 2px 8px;
+    border-radius: 3px; font-size: 10px; cursor: pointer;
+  }
+  .light .stream-body {
+    padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    min-height: 150px; max-height: 200px; overflow: auto;
+  }
+  .light .stream-line { padding: 2px 0; display: flex; gap: 12px; }
+  .light .stream-ts { color: #bbb; }
+  .light .stream-msg { color: #6d28d9; }
+  .light .stream-meta { color: #ccc; }
+</style>
+</head>
+<body>
+
+<div class="mode-switcher">
+  <button class="active" onclick="showMode('dark')">Night</button>
+  <button onclick="showMode('light')">Day</button>
+  <button onclick="showMode('both')">Both</button>
+</div>
+
+<div class="sketch-label" style="color: #c4b5fd;">Option A — Mission Control</div>
+<div class="sketch-sublabel">Dense, utilitarian, collapsible icon sidebar, bottom status bar, drawer modals</div>
+
+<!-- ============ DARK: DASHBOARD ============ -->
+<div class="page-section dark-only">
+  <h2 style="color:#c4b5fd">Night Mode</h2>
+  <p>Dashboard view</p>
+  <div class="mockup-frame dark">
+    <div class="topbar">
+      <div class="topbar-left">
+        <span class="logo">flezha</span>
+        <a class="nav-link active" href="#">Dashboard</a>
+        <a class="nav-link" href="#">Namespaces</a>
+        <a class="nav-link" href="#">Plugins</a>
+      </div>
+      <div class="topbar-right">
+        <div class="node-badge"><span class="node-dot"></span> flezha@agent</div>
+        <span style="color:#555">user@example.com</span>
+      </div>
+    </div>
+    <div class="main-layout">
+      <div class="sidebar">
+        <div class="nav-icon active">D</div>
+        <div class="nav-icon">N</div>
+        <div class="nav-icon">P</div>
+        <div class="sidebar-bottom">v0.4.1</div>
+      </div>
+      <div class="content">
+        <div class="stat-row">
+          <div class="stat-card">
+            <div class="stat-num">3</div>
+            <div class="stat-label">Namespaces</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num">12</div>
+            <div class="stat-label">Processors</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num">8</div>
+            <div class="stat-label">Plugins</div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-header">Compute Engines</div>
+          <div class="table-wrap">
+            <table>
+              <tr><th>Engine ID</th><th>Namespace</th><th>Status</th><th>Uptime</th></tr>
+              <tr><td>ce-a8f3bc12</td><td>default</td><td><span class="status-dot active"></span>active</td><td>3h 21m</td></tr>
+              <tr><td>ce-d4e901ff</td><td>default</td><td><span class="status-dot active"></span>active</td><td>1h 04m</td></tr>
+              <tr><td>ce-7b22ae90</td><td>staging</td><td><span class="status-dot active"></span>active</td><td>45m</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-header">Namespaces</div>
+          <div class="ns-pills">
+            <div class="ns-pill">default <span class="pill-count">4 proc</span></div>
+            <div class="ns-pill">staging <span class="pill-count">3 proc</span></div>
+            <div class="ns-pill">prod <span class="pill-count">5 proc</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <div class="statusbar-left">
+        <span class="conn-status">&#9679; connected</span>
+        <span>|</span> <span>3 ns</span> <span>|</span> <span>12 proc</span> <span>|</span> <span>8 plug</span>
+      </div>
+      <span>14:22:07</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ DARK: PROCESSOR DETAIL ============ -->
+<div class="page-section dark-only">
+  <p>Processor detail + drawer modal + stream viewer</p>
+  <div class="mockup-frame dark">
+    <div class="topbar">
+      <div class="topbar-left">
+        <span class="logo">flezha</span>
+        <a class="nav-link" href="#">Dashboard</a>
+        <a class="nav-link active" href="#">Namespaces</a>
+        <a class="nav-link" href="#">Plugins</a>
+      </div>
+      <div class="topbar-right">
+        <div class="node-badge"><span class="node-dot"></span> flezha@agent</div>
+        <span style="color:#555">user@example.com</span>
+      </div>
+    </div>
+    <div class="main-layout">
+      <div class="sidebar">
+        <div class="nav-icon">D</div>
+        <div class="nav-icon active">N</div>
+        <div class="nav-icon">P</div>
+        <div class="sidebar-bottom">v0.4.1</div>
+      </div>
+      <div class="content">
+        <div class="breadcrumb">
+          <a href="#">Namespaces</a> <span>/</span> <a href="#">default</a> <span>/</span> proc-f82a
+        </div>
+        <div class="page-title">
+          proc-f82a1c
+          <button class="btn-danger">Stop</button>
+        </div>
+
+        <div class="detail-grid">
+          <div class="detail-card"><div class="detail-label">Namespace</div><div class="detail-value">default</div></div>
+          <div class="detail-card"><div class="detail-label">Factory</div><div class="detail-value">store_input</div></div>
+          <div class="detail-card"><div class="detail-label">Compute Engine</div><div class="detail-value">ce-a8f3bc12</div></div>
+          <div class="detail-card"><div class="detail-label">Input Type</div><div class="detail-value">:binary</div></div>
+        </div>
+
+        <div class="section">
+          <div class="section-header">Plugins / Bindings</div>
+          <div class="table-wrap">
+            <table>
+              <tr><th>Plugin ID</th><th>Trigger</th><th>Provider</th><th>Pos</th><th></th></tr>
+              <tr><td>plg-001</td><td>on_process</td><td>logger</td><td>0</td><td style="color:#ef4444;cursor:pointer;">detach</td></tr>
+              <tr><td>plg-002</td><td>on_output</td><td>metrics</td><td>1</td><td style="color:#ef4444;cursor:pointer;">detach</td></tr>
+            </table>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-header">Stream Viewer</div>
+          <div class="stream-panel">
+            <div class="stream-toolbar">
+              <div class="stream-tabs">
+                <div class="stream-tab active">Input</div>
+                <div class="stream-tab">Output</div>
+              </div>
+              <div class="stream-controls">
+                <button>Pause</button>
+                <button>Clear</button>
+                <span style="color:#444;font-size:10px;">23 msgs</span>
+              </div>
+            </div>
+            <div class="stream-body">
+              <div class="stream-line"><span class="stream-ts">14:22:01.332</span><span class="stream-msg">{"action":"store","key":"user_123"}</span></div>
+              <div class="stream-line"><span class="stream-ts">14:22:01.891</span><span class="stream-msg">{"action":"store","key":"session_456"}</span></div>
+              <div class="stream-line"><span class="stream-ts">14:22:02.104</span><span class="stream-msg">{"action":"compare","key":"user_123"}</span></div>
+              <div class="stream-line"><span class="stream-ts">14:22:02.887</span><span class="stream-msg">{"action":"store","key":"event_789"}</span></div>
+              <div class="stream-line"><span class="stream-ts">14:22:03.221</span><span class="stream-msg">{"action":"noop"}</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="drawer-overlay">
+          <div class="drawer-panel">
+            <h3>Attach Plugin</h3>
+            <label>Provider</label>
+            <select><option>logger</option><option>metrics</option><option>filter</option></select>
+            <label>Trigger</label>
+            <select><option>on_process</option><option>on_output</option><option>on_input</option></select>
+            <label>Config (JSON)</label>
+            <input type="text" value='{"level": "info"}' />
+            <div class="btn-row">
+              <button class="btn-primary">Attach</button>
+              <button class="btn-secondary">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <div class="statusbar-left">
+        <span class="conn-status">&#9679; connected</span>
+        <span>|</span> <span>proc-f82a1c</span>
+      </div>
+      <span>14:22:07</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ LIGHT: DASHBOARD ============ -->
+<div class="page-section light-only">
+  <h2 style="color:#7c3aed">Day Mode</h2>
+  <p>Dashboard view</p>
+  <div class="mockup-frame light" style="border-color:#e5e5f0;">
+    <div class="topbar">
+      <div class="topbar-left">
+        <span class="logo">flezha</span>
+        <a class="nav-link active" href="#">Dashboard</a>
+        <a class="nav-link" href="#">Namespaces</a>
+        <a class="nav-link" href="#">Plugins</a>
+      </div>
+      <div class="topbar-right">
+        <div class="node-badge"><span class="node-dot"></span> flezha@agent</div>
+        <span style="color:#999">user@example.com</span>
+      </div>
+    </div>
+    <div class="main-layout">
+      <div class="sidebar">
+        <div class="nav-icon active">D</div>
+        <div class="nav-icon">N</div>
+        <div class="nav-icon">P</div>
+        <div class="sidebar-bottom">v0.4.1</div>
+      </div>
+      <div class="content">
+        <div class="stat-row">
+          <div class="stat-card">
+            <div class="stat-num">3</div>
+            <div class="stat-label">Namespaces</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num">12</div>
+            <div class="stat-label">Processors</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num">8</div>
+            <div class="stat-label">Plugins</div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-header">Compute Engines</div>
+          <div class="table-wrap">
+            <table>
+              <tr><th>Engine ID</th><th>Namespace</th><th>Status</th><th>Uptime</th></tr>
+              <tr><td>ce-a8f3bc12</td><td>default</td><td><span class="status-dot active"></span>active</td><td>3h 21m</td></tr>
+              <tr><td>ce-d4e901ff</td><td>default</td><td><span class="status-dot active"></span>active</td><td>1h 04m</td></tr>
+              <tr><td>ce-7b22ae90</td><td>staging</td><td><span class="status-dot active"></span>active</td><td>45m</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-header">Namespaces</div>
+          <div class="ns-pills">
+            <div class="ns-pill">default <span class="pill-count">4 proc</span></div>
+            <div class="ns-pill">staging <span class="pill-count">3 proc</span></div>
+            <div class="ns-pill">prod <span class="pill-count">5 proc</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <div class="statusbar-left">
+        <span class="conn-status">&#9679; connected</span>
+        <span>|</span> <span>3 ns</span> <span>|</span> <span>12 proc</span> <span>|</span> <span>8 plug</span>
+      </div>
+      <span>14:22:07</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ LIGHT: PROCESSOR DETAIL ============ -->
+<div class="page-section light-only">
+  <p>Processor detail + drawer modal + stream viewer</p>
+  <div class="mockup-frame light" style="border-color:#e5e5f0;">
+    <div class="topbar">
+      <div class="topbar-left">
+        <span class="logo">flezha</span>
+        <a class="nav-link" href="#">Dashboard</a>
+        <a class="nav-link active" href="#">Namespaces</a>
+        <a class="nav-link" href="#">Plugins</a>
+      </div>
+      <div class="topbar-right">
+        <div class="node-badge"><span class="node-dot"></span> flezha@agent</div>
+        <span style="color:#999">user@example.com</span>
+      </div>
+    </div>
+    <div class="main-layout">
+      <div class="sidebar">
+        <div class="nav-icon">D</div>
+        <div class="nav-icon active">N</div>
+        <div class="nav-icon">P</div>
+        <div class="sidebar-bottom">v0.4.1</div>
+      </div>
+      <div class="content">
+        <div class="breadcrumb">
+          <a href="#">Namespaces</a> <span>/</span> <a href="#">default</a> <span>/</span> proc-f82a
+        </div>
+        <div class="page-title">
+          proc-f82a1c
+          <button class="btn-danger">Stop</button>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-card"><div class="detail-label">Namespace</div><div class="detail-value">default</div></div>
+          <div class="detail-card"><div class="detail-label">Factory</div><div class="detail-value">store_input</div></div>
+          <div class="detail-card"><div class="detail-label">Compute Engine</div><div class="detail-value">ce-a8f3bc12</div></div>
+          <div class="detail-card"><div class="detail-label">Input Type</div><div class="detail-value">:binary</div></div>
+        </div>
+        <div class="section">
+          <div class="section-header">Plugins / Bindings</div>
+          <div class="table-wrap">
+            <table>
+              <tr><th>Plugin ID</th><th>Trigger</th><th>Provider</th><th>Pos</th><th></th></tr>
+              <tr><td>plg-001</td><td>on_process</td><td>logger</td><td>0</td><td style="color:#ef4444;cursor:pointer;">detach</td></tr>
+              <tr><td>plg-002</td><td>on_output</td><td>metrics</td><td>1</td><td style="color:#ef4444;cursor:pointer;">detach</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-header">Stream Viewer</div>
+          <div class="stream-panel">
+            <div class="stream-toolbar">
+              <div class="stream-tabs">
+                <div class="stream-tab active">Input</div>
+                <div class="stream-tab">Output</div>
+              </div>
+              <div class="stream-controls">
+                <button>Pause</button>
+                <button>Clear</button>
+                <span style="color:#bbb;font-size:10px;">23 msgs</span>
+              </div>
+            </div>
+            <div class="stream-body">
+              <div class="stream-line"><span class="stream-ts">14:22:01.332</span><span class="stream-msg">{"action":"store","key":"user_123"}</span></div>
+              <div class="stream-line"><span class="stream-ts">14:22:01.891</span><span class="stream-msg">{"action":"store","key":"session_456"}</span></div>
+              <div class="stream-line"><span class="stream-ts">14:22:02.104</span><span class="stream-msg">{"action":"compare","key":"user_123"}</span></div>
+              <div class="stream-line"><span class="stream-ts">14:22:02.887</span><span class="stream-msg">{"action":"store","key":"event_789"}</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="drawer-overlay">
+          <div class="drawer-panel">
+            <h3>Attach Plugin</h3>
+            <label>Provider</label>
+            <select><option>logger</option><option>metrics</option><option>filter</option></select>
+            <label>Trigger</label>
+            <select><option>on_process</option><option>on_output</option></select>
+            <label>Config (JSON)</label>
+            <input type="text" value='{"level": "info"}' />
+            <div class="btn-row">
+              <button class="btn-primary">Attach</button>
+              <button class="btn-secondary">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <div class="statusbar-left">
+        <span class="conn-status">&#9679; connected</span>
+        <span>|</span> <span>proc-f82a1c</span>
+      </div>
+      <span>14:22:07</span>
+    </div>
+  </div>
+</div>
+
+<script>
+function showMode(mode) {
+  document.querySelectorAll('.mode-switcher button').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  const darkSections = document.querySelectorAll('.dark-only');
+  const lightSections = document.querySelectorAll('.light-only');
+  if (mode === 'dark') {
+    darkSections.forEach(s => s.style.display = '');
+    lightSections.forEach(s => s.style.display = 'none');
+  } else if (mode === 'light') {
+    darkSections.forEach(s => s.style.display = 'none');
+    lightSections.forEach(s => s.style.display = '');
+  } else {
+    darkSections.forEach(s => s.style.display = '');
+    lightSections.forEach(s => s.style.display = '');
+  }
+}
+</script>
+
+</body>
+</html>

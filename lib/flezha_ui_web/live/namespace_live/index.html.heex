@@ -1,35 +1,35 @@
 <div class="space-y-6">
   <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-white">Namespaces</h1>
+    <h1 class="text-2xl font-bold text-th-primary">Namespaces</h1>
   </div>
 
   <%= if @namespaces == [] do %>
-    <div class="bg-zinc-900 border border-zinc-800 rounded-lg px-6 py-10 text-center">
-      <p class="text-zinc-400">No namespaces found.</p>
-      <p class="text-sm text-zinc-500 mt-1">Make sure the flezha agent is connected.</p>
+    <div class="bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel">
+      <.icon name="hero-rectangle-stack" class="w-10 h-10 text-th-muted mx-auto mb-3" />
+      <p class="text-th-tertiary">No namespaces found.</p>
+      <p class="text-sm text-th-muted mt-1">Make sure the flezha agent is connected.</p>
     </div>
   <% else %>
-    <div class="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+    <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-zinc-800">
-            <th class="text-left px-5 py-3 text-zinc-400 font-medium">Namespace</th>
-            <th class="text-left px-5 py-3 text-zinc-400 font-medium">Processors</th>
-            <th class="text-left px-5 py-3 text-zinc-400 font-medium">Compute Engines</th>
+          <tr class="border-b border-brd">
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Namespace</th>
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Processors</th>
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Compute Engines</th>
             <th class="px-5 py-3"></th>
           </tr>
         </thead>
         <tbody>
           <%= for ns <- @namespaces do %>
-            <tr class="border-b border-zinc-800/50 hover:bg-zinc-800/30">
-              <td class="px-5 py-3 text-white font-medium font-mono">{ns.name}</td>
-              <td class="px-5 py-3 text-zinc-300">{ns.processor_count}</td>
-              <td class="px-5 py-3 text-zinc-300">{ns.ce_count}</td>
+            <tr class="border-b border-brd-subtle hover:bg-surface-hover transition-colors">
+              <td class="px-5 py-3 text-th-primary font-medium font-mono">{ns.name}</td>
+              <td class="px-5 py-3 text-th-secondary">{ns.processor_count}</td>
+              <td class="px-5 py-3 text-th-secondary">{ns.ce_count}</td>
               <td class="px-5 py-3 text-right">
                 <a
                   href={~p"/namespaces/#{ns.name}"}
-                  class="text-sm font-medium hover:text-white transition-colors"
-                  style="color: #FD4F00;"
+                  class="text-sm font-medium text-accent-text hover:text-accent transition-colors"
                 >
                   View &rarr;
                 </a>

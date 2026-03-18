@@ -1,10 +1,10 @@
 <Layouts.auth flash={@flash} current_scope={@current_scope}>
   <div class="space-y-6">
     <div>
-      <h2 class="text-xl font-semibold text-zinc-100">Create account</h2>
-      <p class="mt-1 text-sm text-zinc-400">
+      <h2 class="text-xl font-semibold text-th-primary">Create account</h2>
+      <p class="mt-1 text-sm text-th-tertiary">
         Already have one?
-        <.link navigate={~p"/users/log-in"} class="text-[#FD4F00] hover:underline">Log in</.link>
+        <.link navigate={~p"/users/log-in"} class="text-accent-text hover:underline">Log in</.link>
       </p>
     </div>
 
@@ -23,7 +23,6 @@
       <.button
         phx-disable-with="Creating account..."
         class="w-full mt-6"
-        style="background:#FD4F00"
       >
         Create account
       </.button>
