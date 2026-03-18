@@ -145,7 +145,13 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         _ -> []
       end
 
-    assign(socket, processors: processors, compute_engines: compute_engines)
+    factories =
+      case NodeManager.list_factories(ns) do
+        {:ok, list} -> list
+        _ -> []
+      end
+
+    assign(socket, processors: processors, compute_engines: compute_engines, factories: factories)
   end
 
   defp parse_json_or_empty(""), do: {:ok, %{}}

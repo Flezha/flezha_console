@@ -31,6 +31,10 @@ defmodule FlezhaUi.Service.NodeManager do
     erpc_call(Flezha, :list_compute_engines, [namespace])
   end
 
+  def list_factories(namespace) do
+    erpc_call(Flezha, :list_factories, [namespace])
+  end
+
   def start_processor(namespace, id, factory_id, init_values \\ %{}, opts \\ []) do
     builder = %{id: id, factory_id: factory_id, init_values: init_values, opts: opts}
     erpc_call(Flezha, :start_processor, [namespace, builder])

@@ -113,13 +113,27 @@
         </div>
         <div>
           <label class="block text-sm font-medium text-zinc-300 mb-1">Factory ID *</label>
-          <input
-            type="text"
-            name="start[factory_id]"
-            value={@start_form["factory_id"]}
-            placeholder="my_factory"
-            class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-          />
+          <%= if @factories == [] do %>
+            <select
+              name="start[factory_id]"
+              disabled
+              class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-zinc-500 text-sm focus:outline-none focus:border-orange-500"
+            >
+              <option value="">No factories available</option>
+            </select>
+          <% else %>
+            <select
+              name="start[factory_id]"
+              class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+            >
+              <option value="">Select a factory...</option>
+              <%= for factory <- @factories do %>
+                <option value={factory.id} selected={@start_form["factory_id"] == factory.id}>
+                  <%= factory.id %><%= if factory.description, do: " — #{factory.description}" %>
+                </option>
+              <% end %>
+            </select>
+          <% end %>
         </div>
         <div>
           <label class="block text-sm font-medium text-zinc-300 mb-1">Init Values (JSON)</label>
