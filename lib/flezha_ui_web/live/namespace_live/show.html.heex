@@ -8,6 +8,7 @@
     </div>
     <button
       phx-click="open_start_modal"
+      data-testid="start-processor-btn"
       class="px-4 py-2 rounded-md text-sm font-medium text-white transition-colors"
       style="background-color: #FD4F00;"
     >
@@ -23,9 +24,9 @@
       </h2>
     </div>
     <%= if @processors == [] do %>
-      <div class="px-5 py-6 text-sm text-zinc-500">No processors running.</div>
+      <div data-testid="no-processors-msg" class="px-5 py-6 text-sm text-zinc-500">No processors running.</div>
     <% else %>
-      <table class="w-full text-sm">
+      <table data-testid="processors-table" class="w-full text-sm">
         <thead>
           <tr class="border-b border-zinc-800">
             <th class="text-left px-5 py-2 text-zinc-400 font-medium">Processor ID</th>
@@ -35,13 +36,14 @@
         </thead>
         <tbody>
           <%= for proc <- @processors do %>
-            <tr class="border-b border-zinc-800/50 hover:bg-zinc-800/30">
+            <tr data-testid={"processor-row-#{proc.id}"} class="border-b border-zinc-800/50 hover:bg-zinc-800/30">
               <td class="px-5 py-2 text-white font-mono text-xs">{proc.id}</td>
               <td class="px-5 py-2 text-zinc-400 font-mono text-xs">
                 {proc.compute_engine_id || "—"}
               </td>
               <td class="px-5 py-2 text-right flex items-center justify-end gap-3">
                 <a
+                  data-testid={"view-processor-#{proc.id}"}
                   href={~p"/namespaces/#{@ns}/processors/#{proc.id}"}
                   class="text-sm font-medium hover:text-white transition-colors"
                   style="color: #FD4F00;"
@@ -49,6 +51,7 @@
                   View
                 </a>
                 <button
+                  data-testid={"stop-processor-#{proc.id}"}
                   phx-click="confirm_stop"
                   phx-value-processor_id={proc.id}
                   class="text-sm text-red-400 hover:text-red-300 transition-colors"
@@ -85,7 +88,7 @@
 <%!-- Start Processor Modal --%>
 <%= if @show_start_modal do %>
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-    <div class="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-md p-6 shadow-xl">
+    <div data-testid="start-modal" class="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-md p-6 shadow-xl">
       <div class="flex items-center justify-between mb-5">
         <h3 class="text-lg font-semibold text-white">Start Processor</h3>
         <button phx-click="close_start_modal" class="text-zinc-400 hover:text-white">
@@ -94,7 +97,7 @@
       </div>
 
       <%= if @start_error do %>
-        <div class="mb-4 px-4 py-3 bg-red-900/30 border border-red-700 rounded text-sm text-red-300">
+        <div data-testid="start-error" class="mb-4 px-4 py-3 bg-red-900/30 border border-red-700 rounded text-sm text-red-300">
           {@start_error}
         </div>
       <% end %>
@@ -105,6 +108,7 @@
           <input
             type="text"
             name="start[id]"
+            data-testid="input-processor-id"
             value={@start_form["id"]}
             placeholder="my-processor"
             maxlength="32"
@@ -116,6 +120,7 @@
           <%= if @factories == [] do %>
             <select
               name="start[factory_id]"
+              data-testid="input-factory-id"
               disabled
               class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-zinc-500 text-sm focus:outline-none focus:border-orange-500"
             >
@@ -124,6 +129,7 @@
           <% else %>
             <select
               name="start[factory_id]"
+              data-testid="input-factory-id"
               class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
             >
               <option value="">Select a factory...</option>
@@ -139,6 +145,7 @@
           <label class="block text-sm font-medium text-zinc-300 mb-1">Init Values (JSON)</label>
           <textarea
             name="start[init_values]"
+            data-testid="input-init-values"
             rows="3"
             placeholder="{}"
             class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500"
@@ -149,6 +156,7 @@
           <input
             type="number"
             name="start[snapshot_interval]"
+            data-testid="input-snapshot-interval"
             value={@start_form["snapshot_interval"]}
             placeholder="optional"
             class="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
@@ -158,12 +166,14 @@
           <button
             type="button"
             phx-click="close_start_modal"
+            data-testid="start-cancel-btn"
             class="px-4 py-2 text-sm text-zinc-300 hover:text-white transition-colors"
           >
             Cancel
           </button>
           <button
             type="submit"
+            data-testid="start-submit-btn"
             class="px-4 py-2 text-sm font-medium text-white rounded-md transition-colors"
             style="background-color: #FD4F00;"
           >
@@ -178,7 +188,7 @@
 <%!-- Stop confirmation modal --%>
 <%= if @confirm_stop do %>
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-    <div class="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-sm p-6 shadow-xl">
+    <div data-testid="stop-confirm-modal" class="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-sm p-6 shadow-xl">
       <h3 class="text-lg font-semibold text-white mb-3">Stop Processor?</h3>
       <p class="text-sm text-zinc-400 mb-5">
         Are you sure you want to stop <span class="text-white font-mono"><%= @confirm_stop %></span>?
@@ -186,6 +196,7 @@
       <div class="flex justify-end gap-3">
         <button
           phx-click="cancel_stop"
+          data-testid="stop-cancel-btn"
           class="px-4 py-2 text-sm text-zinc-300 hover:text-white transition-colors"
         >
           Cancel
@@ -193,6 +204,7 @@
         <button
           phx-click="stop_processor"
           phx-value-processor_id={@confirm_stop}
+          data-testid="stop-confirm-btn"
           class="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 rounded-md transition-colors"
         >
           Stop
