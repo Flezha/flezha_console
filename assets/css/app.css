@@ -10,14 +10,14 @@
 
 :root {
   /* ---- Surfaces ---- */
-  --color-bg-base:          #0a0a12;
-  --color-bg-surface:       #111120;
-  --color-bg-surface-hover: rgba(124, 58, 237, 0.06);
+  --color-bg-base:          #2d082d;
+  --color-bg-surface:       #0e0111;
+  --color-bg-surface-hover: rgba(32, 26, 33, 0.06);
   --color-bg-input:         #0f0f1a;
   --color-bg-overlay:       rgba(0, 0, 0, 0.6);
 
   /* ---- Sidebar ---- */
-  --color-sidebar-bg:       #0f0f1a;
+  --color-sidebar-bg:       #110913;
   --color-sidebar-border:   #1a1a2e;
   --color-sidebar-hover:    #12121f;
   --color-sidebar-active:   #12121f;
@@ -29,34 +29,34 @@
   --color-border-focus:     #7c3aed;
 
   /* ---- Text ---- */
-  --color-text-primary:     #fafafa;
-  --color-text-secondary:   #a1a1aa;
-  --color-text-tertiary:    #71717a;
-  --color-text-muted:       #52525b;
+  --color-text-primary:     #f5eeff;
+  --color-text-secondary:   #e0ccf5;
+  --color-text-tertiary:    #c9a8eb;
+  --color-text-muted:       #b99ae0;
 
   /* ---- Accent (purple) ---- */
-  --color-accent:           #7c3aed;
-  --color-accent-hover:     #6d28d9;
-  --color-accent-text:      #a78bfa;
-  --color-accent-subtle:    rgba(124, 58, 237, 0.12);
+  --color-accent:           #8b5cf6;
+  --color-accent-hover:     #7c3aed;
+  --color-accent-text:      #c4b5fd;
+  --color-accent-subtle:    rgba(139, 92, 246, 0.15);
 
   /* ---- Semantic ---- */
-  --color-success:          #22c55e;
-  --color-danger:           #ef4444;
-  --color-danger-hover:     #dc2626;
-  --color-danger-text:      #f87171;
+  --color-success:          #34d399;
+  --color-danger:           #ff6b6b;
+  --color-danger-hover:     #ff4444;
+  --color-danger-text:      #ff6b6b;
   --color-danger-subtle-bg: rgba(127, 29, 29, 0.3);
   --color-danger-subtle-border: #7f1d1d;
-  --color-warning:          #eab308;
-  --color-code-text:        #a78bfa;
+  --color-warning:          #fbbf24;
+  --color-code-text:        #c4b5fd;
 
   /* ---- Modal ---- */
-  --color-modal-bg:         #111120;
-  --color-modal-border:     #252540;
+  --color-modal-bg:         #1c111e;
+  --color-modal-border:     #2d1f30;
 
   /* ---- Badge ---- */
-  --color-badge-bg:         #1a1a2e;
-  --color-badge-text:       #a1a1aa;
+  --color-badge-bg:         #2d1f30;
+  --color-badge-text:       #ddd6fe;
 
   /* ---- Radii ---- */
   --radius-panel:           0.75rem;  /* 12px */

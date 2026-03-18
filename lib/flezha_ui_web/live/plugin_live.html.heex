@@ -24,22 +24,22 @@
           </div>
 
           <div class="space-y-1 text-xs">
-            <p class="text-th-muted">
+            <p class="text-th-secondary">
               <span class="text-th-tertiary">ID:</span>
               <span class="font-mono">{provider.id}</span>
             </p>
-            <p class="text-th-muted">
+            <p class="text-th-secondary">
               <span class="text-th-tertiary">Module:</span>
               <span class="font-mono">{provider.module}</span>
             </p>
-            <p class="text-th-muted">
+            <p class="text-th-secondary">
               <span class="text-th-tertiary">Type:</span> {provider.type}
             </p>
           </div>
 
           <%= if provider.required_fields != [] do %>
             <div>
-              <p class="text-[10px] text-th-muted uppercase tracking-wider mb-1">Required</p>
+              <p class="text-[10px] text-th-tertiary uppercase tracking-wider mb-1">Required</p>
               <div class="flex flex-wrap gap-1">
                 <%= for field <- provider.required_fields do %>
                   <span class="px-1.5 py-0.5 bg-badge-bg text-badge-text rounded-full border border-brd-subtle text-[11px] font-mono">
@@ -52,7 +52,7 @@
 
           <%= if provider.optional_fields != [] do %>
             <div>
-              <p class="text-[10px] text-th-muted uppercase tracking-wider mb-1">Optional</p>
+              <p class="text-[10px] text-th-tertiary uppercase tracking-wider mb-1">Optional</p>
               <div class="flex flex-wrap gap-1">
                 <%= for field <- provider.optional_fields do %>
                   <span class="px-1.5 py-0.5 bg-accent-subtle text-accent-text rounded-full border border-brd-subtle text-[11px] font-mono">
