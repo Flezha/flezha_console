@@ -1,0 +1,398 @@
+<div class="space-y-6">
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a
+        href={~p"/namespaces/#{@ns}"}
+        class="text-th-tertiary hover:text-th-primary transition-colors"
+      >
+        <.icon name="hero-arrow-left" class="w-4 h-4" />
+      </a>
+      <h1 class="text-2xl font-bold text-th-primary font-mono">{@operative_id}</h1>
+    </div>
+    <button
+      phx-click="confirm_stop"
+      class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-danger-text border border-danger rounded-xl hover:bg-danger hover:text-white hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+    >
+      Stop Operative
+    </button>
+  </div>
+
+  <.runtime_error error={@load_error} />
+
+  <%!-- Info Panel --%>
+  <div class="bg-surface border border-brd rounded-panel p-5 grid grid-cols-3 gap-4 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200">
+    <div>
+      <p class="text-xs text-th-muted uppercase tracking-wider">Namespace</p>
+      <p class="text-th-primary font-mono mt-1">{@ns}</p>
+    </div>
+    <div>
+      <p class="text-xs text-th-muted uppercase tracking-wider">Factory ID</p>
+      <p class="text-th-primary font-mono mt-1">{@factory_id || "—"}</p>
+    </div>
+    <div>
+      <p class="text-xs text-th-muted uppercase tracking-wider">Runner</p>
+      <p data-testid="operative-runner" class="text-th-primary font-mono mt-1">
+        {@runner_id || "—"}
+      </p>
+    </div>
+    <div>
+      <p class="text-xs text-th-muted uppercase tracking-wider">Kind</p>
+      <p data-testid="operative-kind" class="text-th-primary font-mono mt-1">
+        {if @kind, do: inspect(@kind), else: "—"}
+      </p>
+    </div>
+    <div>
+      <p class="text-xs text-th-muted uppercase tracking-wider">Uptime</p>
+      <p data-testid="operative-uptime" class="text-th-primary font-mono mt-1">
+        {Format.duration(@uptime)}
+      </p>
+    </div>
+    <div>
+      <p class="text-xs text-th-muted uppercase tracking-wider">Default Input Type</p>
+      <p class="text-th-primary font-mono mt-1">{format_input_type(@default_input_type)}</p>
+    </div>
+    <div class="col-span-3 flex items-center gap-3">
+      <span
+        :if={@suspended}
+        data-testid="operative-suspended"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-surface-input border border-brd text-th-secondary"
+      >
+        <.icon name="hero-pause-circle" class="w-3.5 h-3.5" /> Suspended
+      </span>
+      <span
+        :if={@effectively_once}
+        data-testid="operative-effectively-once"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-surface-input border border-brd text-th-secondary"
+      >
+        <.icon name="hero-shield-check" class="w-3.5 h-3.5" /> Effectively once
+      </span>
+    </div>
+  </div>
+
+  <%!-- SDK State Panel --%>
+  <div class="bg-surface border border-brd rounded-panel shadow-panel">
+    <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <.icon name="hero-code-bracket" class="w-4 h-4 text-th-tertiary" />
+        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">SDK State</h2>
+      </div>
+      <div class="flex items-center gap-3">
+        <button
+          phx-click="toggle_auto_refresh"
+          class={"px-3 py-1.5 text-xs rounded-xl transition-colors " <> if @auto_refresh_state, do: "bg-accent text-white", else: "bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover"}
+        >
+          {if @auto_refresh_state, do: "Auto-refresh ON", else: "Auto-refresh OFF"}
+        </button>
+        <button
+          phx-click="fetch_state"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover rounded-xl transition-colors"
+        >
+          <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> Fetch State
+        </button>
+      </div>
+    </div>
+    <div class="p-5 space-y-4">
+      <form phx-change="selector_change" class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">
+            Procedure
+          </label>
+          <input
+            type="text"
+            name="selector[procedure]"
+            value={@selector_form["procedure"]}
+            placeholder="all procedures"
+            data-testid="input-selector-procedure"
+            class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus transition-colors"
+          />
+        </div>
+        <div>
+          <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">
+            Entity Key
+          </label>
+          <input
+            type="text"
+            name="selector[entity_key]"
+            value={@selector_form["entity_key"]}
+            placeholder="all entities"
+            data-testid="input-selector-entity-key"
+            class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus transition-colors"
+          />
+        </div>
+      </form>
+
+      <%= case @state_notice do %>
+        <% {:info, message} -> %>
+          <.notice testid="state-notice">{message}</.notice>
+        <% {:error, reason} -> %>
+          <.runtime_error error={reason} />
+        <% nil -> %>
+      <% end %>
+
+      <%= if @state_json do %>
+        <p :if={@state_seq} class="text-xs text-th-muted">
+          Serialized at change sequence <span class="font-mono">{@state_seq}</span>; this may be
+          ahead of what is durable.
+        </p>
+        <pre
+          data-testid="state-json"
+          class="bg-surface-base rounded-xl p-4 text-xs text-code font-mono overflow-x-auto whitespace-pre-wrap border border-brd"
+        ><%= @state_json %></pre>
+      <% else %>
+        <p :if={is_nil(@state_notice)} class="text-sm text-th-muted">
+          Click "Fetch State" to load the operative's current state.
+        </p>
+      <% end %>
+    </div>
+  </div>
+
+  <%!-- Bindings / Plugins Panel --%>
+  <div class="bg-surface border border-brd rounded-panel shadow-panel">
+    <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <.icon name="hero-puzzle-piece" class="w-4 h-4 text-th-tertiary" />
+        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+          Plugins / Bindings
+        </h2>
+      </div>
+      <button
+        phx-click="open_attach_modal"
+        data-testid="attach-plugin-btn"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-xl bg-accent hover:bg-accent-hover hover:shadow-btn-hover hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+      >
+        <.icon name="hero-plus" class="w-3.5 h-3.5" /> Attach Plugin
+      </button>
+    </div>
+
+    <%= if @bindings == [] do %>
+      <div data-testid="no-plugins-msg" class="px-5 py-6 text-sm text-th-muted">
+        No plugins attached.
+      </div>
+    <% else %>
+      <table data-testid="bindings-table" class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-brd">
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Plugin ID</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Extension</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Provider</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Position</th>
+            <th class="px-5 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <%= for binding <- @bindings do %>
+            <tr
+              data-testid={"binding-row-#{binding.plugin_id}"}
+              class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
+            >
+              <td class="px-5 py-2 text-th-secondary font-mono text-xs">{binding.plugin_id}</td>
+              <td class="px-5 py-2 text-th-secondary text-xs">{binding.extension}</td>
+              <td class="px-5 py-2 text-th-secondary text-xs">{binding.provider}</td>
+              <td class="px-5 py-2 text-th-tertiary text-xs">{binding.position || "—"}</td>
+              <td class="px-5 py-2 text-right">
+                <button
+                  phx-click="confirm_detach"
+                  phx-value-plugin_id={binding.plugin_id}
+                  data-testid={"detach-btn-#{binding.plugin_id}"}
+                  class="text-xs text-danger-text hover:text-danger transition-colors"
+                >
+                  Detach
+                </button>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% end %>
+  </div>
+
+  <%!-- Stream links --%>
+  <div class="bg-surface border border-brd rounded-panel p-5 shadow-panel">
+    <div class="flex items-center gap-2 mb-3">
+      <.icon name="hero-signal" class="w-4 h-4 text-th-tertiary" />
+      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+        Stream Viewer
+      </h2>
+    </div>
+    <div class="flex gap-3">
+      <.link
+        navigate={~p"/namespaces/#{@ns}/operatives/#{@operative_id}/stream"}
+        class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-xl bg-accent hover:bg-accent-hover hover:shadow-btn-hover hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+      >
+        <.icon name="hero-signal" class="w-4 h-4" /> Watch Stream
+      </.link>
+    </div>
+  </div>
+</div>
+
+<.confirm_dialog
+  :if={@confirm_stop}
+  title="Stop Operative?"
+  confirm_label="Stop"
+  on_confirm="stop_operative"
+  on_cancel="cancel_stop"
+>
+  Stop <.mono>{@operative_id}</.mono>? This cannot be undone.
+</.confirm_dialog>
+
+<.confirm_dialog
+  :if={@confirm_detach}
+  title="Detach Plugin?"
+  confirm_label="Detach"
+  on_confirm="detach_plugin"
+  on_cancel="cancel_detach"
+  values={%{"plugin_id" => @confirm_detach}}
+  testid="detach-confirm-modal"
+  cancel_testid="detach-cancel-btn"
+  confirm_testid="detach-confirm-btn"
+>
+  Remove plugin <.mono>{@confirm_detach}</.mono>?
+</.confirm_dialog>
+
+<%!-- Attach Plugin Modal --%>
+<.dialog :if={@show_attach_modal} testid="attach-modal" size="max-w-lg">
+  <div class="flex items-center justify-between mb-5">
+    <h3 class="text-lg font-semibold text-th-primary">
+      {if @attach_step == :choose_provider, do: "Choose Provider", else: "Configure Plugin"}
+    </h3>
+    <button
+      phx-click="close_attach_modal"
+      class="text-th-muted hover:text-th-primary transition-colors"
+    >
+      <.icon name="hero-x-mark" class="w-5 h-5" />
+    </button>
+  </div>
+
+  <%= if @attach_step == :choose_provider do %>
+    <div data-testid="provider-grid" class="grid grid-cols-2 gap-3">
+      <%= for provider <- @enabled_providers do %>
+        <button
+          phx-click="choose_provider"
+          phx-value-provider_id={provider.id}
+          data-testid={"provider-btn-#{provider.id}"}
+          class="group text-left p-4 bg-surface-input hover:bg-surface-hover border border-brd rounded-xl hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200"
+        >
+          <div class="flex items-center gap-2">
+            <.icon
+              name="hero-cube"
+              class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
+            />
+            <p class="text-sm font-medium text-th-primary">{Format.humanize(provider.id)}</p>
+          </div>
+          <p class="text-xs text-th-tertiary mt-1 font-mono">{provider.id}</p>
+        </button>
+      <% end %>
+    </div>
+  <% else %>
+    <% provider = Enum.find(@enabled_providers, fn p -> p.id == @attach_provider_id end) %>
+    <%= if @attach_error do %>
+      <div
+        data-testid="attach-error"
+        class="mb-4 px-4 py-3 bg-[var(--color-danger-subtle-bg)] border border-[var(--color-danger-subtle-border)] rounded-lg text-sm text-danger-text"
+      >
+        {@attach_error}
+      </div>
+    <% end %>
+
+    <form phx-submit="attach_plugin" phx-change="attach_form_change" class="space-y-4">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-th-secondary mb-1">Plugin ID</label>
+          <input
+            type="text"
+            name="plugin[plugin_id]"
+            value={@attach_form["plugin_id"]}
+            data-testid="input-plugin-id"
+            class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 transition-colors"
+          />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-th-secondary mb-1">
+            Position <span class="text-th-muted font-normal">(ordered extensions only)</span>
+          </label>
+          <input
+            type="number"
+            name="plugin[position]"
+            placeholder="unset"
+            value={@attach_form["position"]}
+            data-testid="input-position"
+            class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 transition-colors"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-th-secondary mb-1">Trigger</label>
+        <select
+          name="plugin[trigger]"
+          data-testid="input-trigger"
+          class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus"
+        >
+          <%= for trigger <- trigger_options() do %>
+            <option value={trigger} selected={@attach_form["trigger"] == trigger}>
+              {trigger}
+            </option>
+          <% end %>
+        </select>
+      </div>
+
+      <%!-- Provider-specific fields (dynamic) --%>
+      <%= if provider do %>
+        <% all_fields = provider.required_fields ++ provider.optional_fields %>
+        <%= if all_fields != [] do %>
+          <div class="border-t border-brd pt-4">
+            <p class="text-xs text-th-muted uppercase tracking-wider mb-3">
+              {Format.humanize(provider.id)} Settings
+            </p>
+            <%= for field <- provider.required_fields do %>
+              <div class="mb-3">
+                <label class="block text-sm font-medium text-th-secondary mb-1">
+                  {Format.humanize(field)} *
+                </label>
+                <input
+                  type="text"
+                  name={"plugin[field_#{field}]"}
+                  value={Map.get(@attach_form, "field_#{field}", "")}
+                  data-testid={"input-field-#{field}"}
+                  class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 transition-colors"
+                />
+              </div>
+            <% end %>
+            <%= for field <- provider.optional_fields do %>
+              <div class="mb-3">
+                <label class="block text-sm font-medium text-th-secondary mb-1">
+                  {Format.humanize(field)}
+                </label>
+                <input
+                  type="text"
+                  name={"plugin[field_#{field}]"}
+                  value={Map.get(@attach_form, "field_#{field}", "")}
+                  data-testid={"input-field-#{field}"}
+                  class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 transition-colors"
+                />
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      <% end %>
+
+      <div class="flex justify-between pt-2">
+        <button
+          type="button"
+          phx-click="close_attach_modal"
+          data-testid="attach-cancel-btn"
+          class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          data-testid="attach-submit-btn"
+          class="px-4 py-2 text-sm font-medium text-white rounded-xl bg-accent hover:bg-accent-hover hover:shadow-btn-hover transition-all duration-200"
+        >
+          Attach
+        </button>
+      </div>
+    </form>
+  <% end %>
+</.dialog>

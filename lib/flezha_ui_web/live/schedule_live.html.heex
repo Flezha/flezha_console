@@ -1,0 +1,219 @@
+<div class="space-y-6">
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-bold text-th-primary">Schedules</h1>
+    <button
+      phx-click="open_form"
+      data-testid="schedule-new-btn"
+      class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white bg-accent hover:bg-accent-hover hover:shadow-btn-hover hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+    >
+      <.icon name="hero-plus" class="w-4 h-4" /> New Schedule
+    </button>
+  </div>
+
+  <.runtime_error error={@load_error} />
+
+  <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
+    <div class="px-5 py-4 border-b border-brd flex items-center gap-2">
+      <.icon name="hero-clock" class="w-4 h-4 text-th-tertiary" />
+      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+        Entries ({length(@schedules)})
+      </h2>
+    </div>
+
+    <%= if @schedules == [] do %>
+      <div data-testid="schedule-empty" class="px-5 py-10 text-center">
+        <.icon name="hero-clock" class="w-10 h-10 text-th-muted mx-auto mb-3" />
+        <p class="text-th-tertiary">No schedule has been created.</p>
+      </div>
+    <% else %>
+      <div class="overflow-x-auto">
+        <table data-testid="schedule-table" class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-brd">
+              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Name</th>
+              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Cron</th>
+              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Timezone</th>
+              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Namespace</th>
+              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Factory</th>
+              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Status</th>
+              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Last fire</th>
+              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Next fire</th>
+              <th class="px-5 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              :for={schedule <- @schedules}
+              data-testid={"schedule-row-#{schedule.name}"}
+              class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
+            >
+              <td class="px-5 py-3 text-th-primary font-mono text-xs">{schedule.name}</td>
+              <td class="px-5 py-3 text-th-secondary font-mono text-xs">{schedule.cron}</td>
+              <td class="px-5 py-3 text-th-tertiary text-xs">{schedule.timezone}</td>
+              <td class="px-5 py-3 text-th-tertiary text-xs">{schedule.namespace}</td>
+              <td class="px-5 py-3 text-th-secondary font-mono text-xs">{schedule.factory_id}</td>
+              <td class="px-5 py-3 text-xs">
+                <span
+                  :if={schedule.armed}
+                  data-testid={"schedule-status-#{schedule.name}"}
+                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface-input border border-brd text-th-secondary"
+                >
+                  <span class="w-1.5 h-1.5 rounded-full bg-success"></span> Armed
+                </span>
+                <span
+                  :if={!schedule.armed}
+                  data-testid={"schedule-status-#{schedule.name}"}
+                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface-input border border-brd text-th-muted"
+                >
+                  <span class="w-1.5 h-1.5 rounded-full bg-th-muted"></span> Not armed
+                </span>
+              </td>
+              <td class="px-5 py-3 text-th-tertiary text-xs">
+                {Format.timestamp(schedule.last_fire)}
+              </td>
+              <td
+                data-testid={"schedule-next-fire-#{schedule.name}"}
+                class="px-5 py-3 text-th-tertiary text-xs"
+              >
+                {Format.timestamp(schedule.next_fire)}
+              </td>
+              <td class="px-5 py-3 text-right">
+                <button
+                  phx-click="confirm_remove"
+                  phx-value-name={schedule.name}
+                  data-testid={"schedule-remove-#{schedule.name}"}
+                  class="text-xs text-danger-text hover:text-danger transition-colors"
+                >
+                  Remove
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    <% end %>
+  </div>
+</div>
+
+<%!-- Create --%>
+<.dialog :if={@show_form} testid="schedule-form-modal" size="max-w-md">
+  <div class="flex items-center justify-between mb-5">
+    <h3 class="text-lg font-semibold text-th-primary">New Schedule</h3>
+    <button phx-click="close_form" class="text-th-muted hover:text-th-primary transition-colors">
+      <.icon name="hero-x-mark" class="w-5 h-5" />
+    </button>
+  </div>
+
+  <.notice :if={@form_error} kind={:error} testid="schedule-form-error" class="mb-4">
+    {@form_error}
+  </.notice>
+
+  <form phx-submit="create" phx-change="form_change" class="space-y-4">
+    <div>
+      <label class="block text-sm font-medium text-th-secondary mb-1">
+        Name
+        <%!-- The controller composes `<name>@<slot-iso>` as the operative id,
+                and that must fit its 32-byte limit — so the name gets 11. --%>
+        <span class="text-th-muted font-normal">(max 11 characters)</span>
+      </label>
+      <input
+        type="text"
+        name="schedule[name]"
+        value={@form["name"]}
+        maxlength="11"
+        data-testid="schedule-input-name"
+        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus transition-colors"
+      />
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-th-secondary mb-1">Cron expression</label>
+      <input
+        type="text"
+        name="schedule[cron]"
+        value={@form["cron"]}
+        placeholder="*/5 * * * *"
+        data-testid="schedule-input-cron"
+        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm font-mono focus:outline-none focus:border-brd-focus transition-colors"
+      />
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-th-secondary mb-1">Timezone</label>
+      <input
+        type="text"
+        name="schedule[timezone]"
+        value={@form["timezone"]}
+        data-testid="schedule-input-timezone"
+        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus transition-colors"
+      />
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-th-secondary mb-1">Namespace</label>
+        <input
+          type="text"
+          name="schedule[namespace]"
+          value={@form["namespace"]}
+          data-testid="schedule-input-namespace"
+          class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm font-mono focus:outline-none focus:border-brd-focus transition-colors"
+        />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-th-secondary mb-1">Factory ID</label>
+        <input
+          type="text"
+          name="schedule[factory_id]"
+          value={@form["factory_id"]}
+          data-testid="schedule-input-factory"
+          class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm font-mono focus:outline-none focus:border-brd-focus transition-colors"
+        />
+      </div>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-th-secondary mb-1">
+        Init Values <span class="text-th-muted font-normal">(JSON, optional)</span>
+      </label>
+      <input
+        type="text"
+        name="schedule[init_values]"
+        value={@form["init_values"]}
+        placeholder="{}"
+        data-testid="schedule-input-init-values"
+        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm font-mono focus:outline-none focus:border-brd-focus transition-colors"
+      />
+    </div>
+
+    <div class="flex justify-between pt-2">
+      <button
+        type="button"
+        phx-click="close_form"
+        data-testid="schedule-form-cancel"
+        class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
+      >
+        Cancel
+      </button>
+      <button
+        type="submit"
+        data-testid="schedule-form-submit"
+        class="px-4 py-2 text-sm font-medium text-white rounded-xl bg-accent hover:bg-accent-hover hover:shadow-btn-hover transition-all duration-200"
+      >
+        Create
+      </button>
+    </div>
+  </form>
+</.dialog>
+
+<.confirm_dialog
+  :if={@confirm_remove}
+  title="Remove schedule?"
+  confirm_label="Remove"
+  on_confirm="remove"
+  on_cancel="cancel_remove"
+  values={%{"name" => @confirm_remove}}
+  testid="schedule-remove-modal"
+  cancel_testid="schedule-remove-cancel"
+  confirm_testid="schedule-remove-confirm"
+>
+  Retract
+  <.mono>{@confirm_remove}</.mono>
+  from the hub and delete it. It will stop firing.
+</.confirm_dialog>

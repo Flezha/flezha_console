@@ -1,35 +1,44 @@
-# All-in-one dev compose: flezha agent + UI + kafka stack
+# All-in-one dev compose: flezha controller + UI + kafka stack
 # Usage:
 #   docker compose -f docker-compose.dev.yml up [--build]
 #
-# Attach to iex:    docker attach fui_agent  (detach: Ctrl+P Ctrl+Q)
-# Get a bash shell: docker exec -it fui_agent bash
-# Restart iex:      docker exec fui_agent pkill -f iex
+# Attach to iex:    docker attach flezha_controller  (detach: Ctrl+P Ctrl+Q)
+# Get a bash shell: docker exec -it flezha_controller bash
+# Restart iex:      docker exec flezha_controller pkill -f iex
 
 services:
-  agent:
+  controller:
     build:
+      # The toolchain image is what flezha's own docker/dev/docker-compose.yml
+      # builds: Elixir+OTP, Rust, Node.js, protoc against bind-mounted source.
       context: ../flezha
-      dockerfile: docker/dev/Dockerfile.agent
-    container_name: fui_agent
-    hostname: fui_agent
+      dockerfile: docker/dev/Dockerfile.toolchain
+    container_name: flezha_controller
+    hostname: flezha_controller
     tty: true
     stdin_open: true
     restart: unless-stopped
     environment:
       FLEZHA_SOCKET_FILES_PATH: /flezha/app_data/sockets/
       FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
-      FLEZHA_EXTERNAL_PROCESSES: /flezha/test/apps/rust_compute_engine/target/debug/rust_compute_engine
+      FLEZHA_GRACEFUL_SHUTDOWN_ENABLED: ${FLEZHA_GRACEFUL_SHUTDOWN_ENABLED:-true}
+      FLEZHA_GRACEFUL_SHUTDOWN_TIMEOUT_MS: ${FLEZHA_GRACEFUL_SHUTDOWN_TIMEOUT_MS:-60000}
+      # Off by default on the controller; on here so the UI's audit screen has
+      # something to show in dev.
+      FLEZHA_AUDIT_ENABLED: ${FLEZHA_AUDIT_ENABLED:-true}
     depends_on:
       kafka:
         condition: service_healthy
+    # Graceful shutdown — see flezha's docs/operations/graceful_shutdown.md.
+    stop_signal: SIGTERM
+    stop_grace_period: 75s
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
     command: >
       sh -c 'while true; do
-        pkill node 2>/dev/null; pkill -f "rust_compute_engine" 2>/dev/null;
+        pkill node 2>/dev/null;
         echo "==> Starting flezha iex...";
         iex --sname flezha --cookie flezha_dev_cookie -S mix;
         echo "==> iex exited, restarting in 3s...";
@@ -40,6 +49,45 @@ services:
       - ../flezha:/flezha
       - fui_flezha_build:/flezha/_build
       - fui_flezha_deps:/flezha/deps
+      - fui_flezha_cargo_target:/flezha/target
+    networks:
+      - fui_network
+
+  # The runner is its own service, mirroring flezha's docker/dev/docker-compose.yml.
+  # It owns its process, so it survives a controller restart on the SDK's own
+  # reconnect loop — unlike a runner launched through the controller, which dies
+  # with whatever process owned its Port.
+  runner:
+    build:
+      context: ../flezha
+      dockerfile: docker/dev/Dockerfile.toolchain
+    container_name: flezha_rust_runner
+    restart: unless-stopped
+    # The runner exits when its stdin reaches EOF, which is how a controller
+    # that owns its Port shuts it down. Without an open stdin, docker hands it
+    # /dev/null and it exits immediately at startup.
+    stdin_open: true
+    tty: true
+    depends_on:
+      controller:
+        condition: service_started
+    environment:
+      FLEZHA_SOCKET_FILES_PATH: /flezha/app_data/sockets/
+      FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
+      FLEZHA_DEMO_NAMESPACE: ${FLEZHA_DEMO_NAMESPACE:-default}
+    working_dir: /flezha/test/apps/rust_runner
+    command:
+      - sh
+      - -c
+      - |
+        until [ -S /flezha/app_data/sockets/runner_control_channel.sock ]; do
+          echo "[runner] waiting for controller control socket..."
+          sleep 1
+        done
+        exec cargo run --quiet --manifest-path=/flezha/test/apps/rust_runner/Cargo.toml -- "$$FLEZHA_DEMO_NAMESPACE"
+    volumes:
+      - fui_socket_data:/socket_data
+      - ../flezha:/flezha
       - fui_flezha_cargo_target:/flezha/target
     networks:
       - fui_network
@@ -74,7 +122,7 @@ services:
     environment:
       MIX_ENV: dev
       ERLANG_COOKIE: flezha_dev_cookie
-      FLEZHA_NODE: flezha@fui_agent
+      FLEZHA_NODE: flezha@flezha_controller
     depends_on:
       db:
         condition: service_healthy

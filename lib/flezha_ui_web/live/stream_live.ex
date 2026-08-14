@@ -6,23 +6,23 @@ defmodule FlezhaUiWeb.StreamLive do
   @max_messages 200
 
   @impl true
-  def mount(%{"ns" => ns, "id" => proc_id} = _params, _session, socket) do
+  def mount(%{"ns" => ns, "id" => operative_id} = _params, _session, socket) do
     io_type = "output"
 
     if connected?(socket) do
-      StreamBridge.subscribe(ns, proc_id, io_type)
+      StreamBridge.subscribe(ns, operative_id, io_type)
     end
 
     {:ok,
      assign(socket,
        ns: ns,
-       proc_id: proc_id,
+       operative_id: operative_id,
        io_type: io_type,
        status: :connecting,
        messages: [],
        paused: false,
        filter: "",
-       page_title: "Stream: #{proc_id}",
+       page_title: "Stream: #{operative_id}",
        message_count: 0
      )}
   end
@@ -30,7 +30,11 @@ defmodule FlezhaUiWeb.StreamLive do
   @impl true
   def terminate(_reason, socket) do
     if connected?(socket) do
-      StreamBridge.unsubscribe(socket.assigns.ns, socket.assigns.proc_id, socket.assigns.io_type)
+      StreamBridge.unsubscribe(
+        socket.assigns.ns,
+        socket.assigns.operative_id,
+        socket.assigns.io_type
+      )
     end
 
     :ok
@@ -38,11 +42,11 @@ defmodule FlezhaUiWeb.StreamLive do
 
   @impl true
   def handle_event("switch_io", %{"type" => new_type}, socket) do
-    %{ns: ns, proc_id: proc_id, io_type: old_type} = socket.assigns
+    %{ns: ns, operative_id: operative_id, io_type: old_type} = socket.assigns
 
     if connected?(socket) do
-      StreamBridge.unsubscribe(ns, proc_id, old_type)
-      StreamBridge.subscribe(ns, proc_id, new_type)
+      StreamBridge.unsubscribe(ns, operative_id, old_type)
+      StreamBridge.subscribe(ns, operative_id, new_type)
     end
 
     {:noreply,
@@ -110,10 +114,4 @@ defmodule FlezhaUiWeb.StreamLive do
         messages
     end
   end
-
-  defp format_timestamp(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%H:%M:%S.%f") |> String.slice(0..-4//1)
-  end
-
-  defp format_timestamp(_), do: "—"
 end

@@ -1,8 +1,8 @@
 defmodule FlezhaUi.Service.StreamBridge do
   @moduledoc """
-  GenServer that bridges a processor's monitored I/O stream to Phoenix PubSub.
+  GenServer that bridges an operative's monitored I/O stream to Phoenix PubSub.
 
-  One bridge per (namespace, processor_id, io_type) stream. Multiple LiveView
+  One bridge per (namespace, operative_id, io_type) stream. Multiple LiveView
   subscribers share one bridge (reference-counted). The bridge enables a
   MonitoredIOForward plugin via RPC and broadcasts received messages.
   """
@@ -16,14 +16,14 @@ defmodule FlezhaUi.Service.StreamBridge do
 
   # ---- Public API ----
 
-  def topic(ns, proc_id, io_type), do: "stream:#{ns}:#{proc_id}:#{io_type}"
+  def topic(ns, operative_id, io_type), do: "stream:#{ns}:#{operative_id}:#{io_type}"
 
-  def subscribe(ns, proc_id, io_type) do
-    topic = topic(ns, proc_id, io_type)
+  def subscribe(ns, operative_id, io_type) do
+    topic = topic(ns, operative_id, io_type)
 
     case DynamicSupervisor.start_child(
            FlezhaUi.StreamSupervisor,
-           {__MODULE__, {ns, proc_id, io_type}}
+           {__MODULE__, {ns, operative_id, io_type}}
          ) do
       {:ok, _pid} ->
         :ok
@@ -37,32 +37,34 @@ defmodule FlezhaUi.Service.StreamBridge do
     end
 
     Phoenix.PubSub.subscribe(@pubsub, topic)
-    GenServer.cast(via(ns, proc_id, io_type), {:add_subscriber, self()})
+    GenServer.cast(via(ns, operative_id, io_type), {:add_subscriber, self()})
     topic
   end
 
-  def unsubscribe(ns, proc_id, io_type) do
-    Phoenix.PubSub.unsubscribe(@pubsub, topic(ns, proc_id, io_type))
+  def unsubscribe(ns, operative_id, io_type) do
+    Phoenix.PubSub.unsubscribe(@pubsub, topic(ns, operative_id, io_type))
 
-    case GenServer.whereis(via(ns, proc_id, io_type)) do
+    case GenServer.whereis(via(ns, operative_id, io_type)) do
       nil -> :ok
-      _pid -> GenServer.call(via(ns, proc_id, io_type), {:remove_subscriber, self()})
+      _pid -> GenServer.call(via(ns, operative_id, io_type), {:remove_subscriber, self()})
     end
   end
 
   # ---- Supervisor child spec ----
 
-  def start_link({ns, proc_id, io_type}) do
-    GenServer.start_link(__MODULE__, {ns, proc_id, io_type}, name: via(ns, proc_id, io_type))
+  def start_link({ns, operative_id, io_type}) do
+    GenServer.start_link(__MODULE__, {ns, operative_id, io_type},
+      name: via(ns, operative_id, io_type)
+    )
   end
 
   # ---- GenServer callbacks ----
 
   @impl true
-  def init({ns, proc_id, io_type}) do
+  def init({ns, operative_id, io_type}) do
     state = %{
       ns: ns,
-      proc_id: proc_id,
+      operative_id: operative_id,
       io_type: io_type,
       plugin_id: nil,
       subscribers: MapSet.new(),
@@ -74,7 +76,7 @@ defmodule FlezhaUi.Service.StreamBridge do
 
   @impl true
   def handle_continue(:enable_plugin, state) do
-    case NodeManager.enable_io_listener(state.ns, state.proc_id, state.io_type, self()) do
+    case NodeManager.enable_io_listener(state.ns, state.operative_id, state.io_type, self()) do
       {:ok, plugin_id} ->
         Logger.info("[StreamBridge] Enabled plugin #{plugin_id}")
         broadcast_status(state, :connected)
@@ -109,14 +111,14 @@ defmodule FlezhaUi.Service.StreamBridge do
   @impl true
   def handle_info({:message_forward, {message, metadata}}, state) do
     msg = %{
-      message: format_message(message),
+      message: FlezhaUi.Format.printable(message),
       metadata: metadata,
       timestamp: DateTime.utc_now()
     }
 
     Phoenix.PubSub.broadcast(
       @pubsub,
-      topic(state.ns, state.proc_id, state.io_type),
+      topic(state.ns, state.operative_id, state.io_type),
       {:stream_message, msg}
     )
 
@@ -165,21 +167,12 @@ defmodule FlezhaUi.Service.StreamBridge do
   defp broadcast_status(state, status) do
     Phoenix.PubSub.broadcast(
       @pubsub,
-      topic(state.ns, state.proc_id, state.io_type),
+      topic(state.ns, state.operative_id, state.io_type),
       {:stream_status, status}
     )
   end
 
-  defp via(ns, proc_id, io_type) do
-    {:via, Registry, {FlezhaUi.StreamRegistry, {ns, proc_id, io_type}}}
+  defp via(ns, operative_id, io_type) do
+    {:via, Registry, {FlezhaUi.StreamRegistry, {ns, operative_id, io_type}}}
   end
-
-  defp format_message(msg) when is_binary(msg) do
-    case String.valid?(msg) do
-      true -> msg
-      false -> Base.encode16(msg)
-    end
-  end
-
-  defp format_message(msg), do: inspect(msg)
 end

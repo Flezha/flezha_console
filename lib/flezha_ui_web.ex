@@ -90,6 +90,9 @@ defmodule FlezhaUiWeb do
       # Core UI components
       import FlezhaUiWeb.CoreComponents
 
+      # Rendering controller values as text
+      alias FlezhaUi.Format
+
       # Layouts alias so templates can use <Layouts.app>
       alias FlezhaUiWeb.Layouts
 

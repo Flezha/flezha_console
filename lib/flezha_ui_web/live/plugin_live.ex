@@ -1,29 +1,26 @@
 defmodule FlezhaUiWeb.PluginLive do
   use FlezhaUiWeb, :live_view
 
-  alias FlezhaUi.Service.NodeManager
+  use FlezhaUiWeb.Live.Refresh, every: 5_000
 
-  @refresh_interval 5_000
+  alias FlezhaUi.Service.NodeManager
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_interval)
+    if connected?(socket), do: schedule_refresh()
 
     {:ok,
      assign(socket,
        plugins: load_plugins(),
-       available_providers: load_available_providers(),
+       available_providers: NodeManager.providers(),
        confirm_disable: nil,
        page_title: "Plugins"
      )}
   end
 
-  @impl true
-  def handle_info(:refresh, socket) do
-    Process.send_after(self(), :refresh, @refresh_interval)
-
-    {:noreply,
-     assign(socket, plugins: load_plugins(), available_providers: load_available_providers())}
+  @impl FlezhaUiWeb.Live.Refresh
+  def refresh(socket) do
+    assign(socket, plugins: load_plugins(), available_providers: NodeManager.providers())
   end
 
   @impl true
@@ -55,73 +52,52 @@ defmodule FlezhaUiWeb.PluginLive do
     end
   end
 
+  # The plugin registry answers `%{plugin_id => {namespace, operative_id}}`;
+  # provider and subscribed extensions live on the target operative's extension
+  # table, so each distinct operative is read once and joined in.
   defp load_plugins do
     case NodeManager.get_plugins() do
       map when is_map(map) ->
-        Enum.map(map, fn {plugin_id, value} ->
-          {module, ns, proc} = extract_plugin_info(value)
+        targets = Enum.map(map, fn {_id, target} -> plugin_target(target) end)
+        entries = extension_entries_by_plugin(targets)
 
-          %{
-            id: to_string(plugin_id),
-            module: inspect(module),
-            namespace: ns,
-            processor_id: proc
-          }
-        end)
-
-      _ ->
-        []
-    end
-  end
-
-  # IOBindingPlugin.enable returns {IOBindingPlugin, {namespace, processor_id}}
-  defp extract_plugin_info({module, {ns, proc_id}}) when is_binary(ns) do
-    {module, ns, proc_id}
-  end
-
-  defp extract_plugin_info({module, info}) when is_map(info) do
-    ns = Map.get(info, :namespace) || Map.get(info, "namespace")
-    proc = Map.get(info, :processor_id) || Map.get(info, "processor_id")
-    {module, ns, proc}
-  end
-
-  defp extract_plugin_info({module, _info}) do
-    {module, nil, nil}
-  end
-
-  defp extract_plugin_info(other) do
-    {inspect(other), nil, nil}
-  end
-
-  defp load_available_providers do
-    case NodeManager.get_provider_info() do
-      list when is_list(list) ->
-        Enum.map(list, fn info ->
-          id = to_string(Map.get(info, :id, ""))
-          required = Map.get(info, :required_fields, [])
-          internal = "recv_pid" in required
+        map
+        |> Enum.map(fn {plugin_id, target} ->
+          id = to_string(plugin_id)
+          {ns, operative_id} = plugin_target(target)
+          matched = Map.get(entries, id, [])
 
           %{
             id: id,
-            label: humanize_id(id),
-            module: Map.get(info, :module, "unknown"),
-            type: Map.get(info, :type, :unknown),
-            required_fields: required,
-            optional_fields: Map.get(info, :optional_fields, []),
-            internal: internal
+            namespace: ns,
+            operative_id: operative_id,
+            provider: matched |> Enum.map(& &1.provider) |> Enum.uniq() |> join_or_dash(),
+            extensions: matched |> Enum.map(& &1.extension) |> Enum.sort() |> join_or_dash()
           }
         end)
+        |> Enum.sort_by(& &1.id)
 
       _ ->
         []
     end
   end
 
-  defp humanize_id(id) do
-    id
-    |> String.replace("_", " ")
-    |> String.split(" ")
-    |> Enum.map(&String.capitalize/1)
-    |> Enum.join(" ")
+  defp plugin_target({ns, operative_id}), do: {ns, operative_id}
+  defp plugin_target(_), do: {nil, nil}
+
+  defp extension_entries_by_plugin(targets) do
+    targets
+    |> Enum.uniq()
+    |> Enum.filter(fn {ns, operative_id} -> is_binary(ns) and is_binary(operative_id) end)
+    |> Enum.flat_map(fn {ns, operative_id} ->
+      case NodeManager.get_overwatch_state(ns, operative_id) do
+        {:ok, state} -> NodeManager.extension_entries(state)
+        _ -> []
+      end
+    end)
+    |> Enum.group_by(& &1.plugin_id)
   end
+
+  defp join_or_dash([]), do: "—"
+  defp join_or_dash(list), do: Enum.join(list, ", ")
 end

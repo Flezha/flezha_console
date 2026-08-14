@@ -1,13 +1,13 @@
 defmodule FlezhaUiWeb.NamespaceLive.Show do
   use FlezhaUiWeb, :live_view
 
-  alias FlezhaUi.Service.NodeManager
+  use FlezhaUiWeb.Live.Refresh, every: 5_000
 
-  @refresh_interval 5_000
+  alias FlezhaUi.Service.NodeManager
 
   @impl true
   def mount(%{"ns" => ns}, _session, socket) do
-    if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_interval)
+    if connected?(socket), do: schedule_refresh()
 
     socket =
       socket
@@ -22,17 +22,12 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
           "snapshot_interval" => ""
         },
         start_error: nil,
-        confirm_stop: nil
+        confirm_stop: nil,
+        load_error: nil
       )
-      |> load_data()
+      |> refresh()
 
     {:ok, socket}
-  end
-
-  @impl true
-  def handle_info(:refresh, socket) do
-    Process.send_after(self(), :refresh, @refresh_interval)
-    {:noreply, load_data(socket)}
   end
 
   @impl true
@@ -51,7 +46,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   end
 
   @impl true
-  def handle_event("start_processor", %{"start" => params}, socket) do
+  def handle_event("start_operative", %{"start" => params}, socket) do
     ns = socket.assigns.ns
     id = String.trim(params["id"])
     factory_id = String.trim(params["factory_id"])
@@ -60,13 +55,13 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     with true <- id != "" and factory_id != "",
          {:ok, init_values} <- parse_json_or_empty(init_values_raw),
          opts <- build_opts(params) do
-      case NodeManager.start_processor(ns, id, factory_id, init_values, opts) do
+      case NodeManager.start_operative(ns, id, factory_id, init_values, opts) do
         {:ok, _result} ->
           socket =
             socket
             |> assign(show_start_modal: false, start_error: nil)
-            |> load_data()
-            |> put_flash(:info, "Processor #{id} started.")
+            |> refresh()
+            |> put_flash(:info, "Operative #{id} started.")
 
           {:noreply, socket}
 
@@ -83,8 +78,8 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   end
 
   @impl true
-  def handle_event("confirm_stop", %{"processor_id" => proc_id}, socket) do
-    {:noreply, assign(socket, confirm_stop: proc_id)}
+  def handle_event("confirm_stop", %{"operative_id" => operative_id}, socket) do
+    {:noreply, assign(socket, confirm_stop: operative_id)}
   end
 
   @impl true
@@ -93,16 +88,16 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   end
 
   @impl true
-  def handle_event("stop_processor", %{"processor_id" => proc_id}, socket) do
+  def handle_event("stop_operative", %{"operative_id" => operative_id}, socket) do
     ns = socket.assigns.ns
 
-    case NodeManager.stop_processor(ns, proc_id) do
+    case NodeManager.stop_operative(ns, operative_id) do
       :ok ->
         socket =
           socket
           |> assign(confirm_stop: nil)
-          |> load_data()
-          |> put_flash(:info, "Processor #{proc_id} stopped.")
+          |> refresh()
+          |> put_flash(:info, "Operative #{operative_id} stopped.")
 
         {:noreply, socket}
 
@@ -116,42 +111,33 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     end
   end
 
-  defp load_data(socket) do
+  @impl FlezhaUiWeb.Live.Refresh
+  def refresh(socket) do
     ns = socket.assigns.ns
 
-    processors =
-      case NodeManager.list_processors(ns) do
-        {:ok, list} ->
-          Enum.map(list, fn proc_id ->
-            ce_id =
-              case NodeManager.get_overwatch_state(ns, proc_id) do
-                {:ok, state} ->
-                  Map.get(state, :compute_engine_id) || Map.get(state, "compute_engine_id")
-
-                _ ->
-                  nil
-              end
-
-            %{id: proc_id, compute_engine_id: ce_id}
-          end)
-
-        _ ->
-          []
+    {operative_ids, load_error} =
+      case NodeManager.list_operatives(ns) do
+        {:ok, list} -> {list, nil}
+        {:error, reason} -> {[], reason}
       end
 
-    compute_engines =
-      case NodeManager.list_compute_engines(ns) do
-        {:ok, list} -> list
-        _ -> []
-      end
+    operatives =
+      Enum.map(operative_ids, fn operative_id ->
+        runner_id =
+          case NodeManager.get_overwatch_state(ns, operative_id) do
+            {:ok, state} -> Map.get(state, :runner_id)
+            _ -> nil
+          end
 
-    factories =
-      case NodeManager.list_factories(ns) do
-        {:ok, list} -> list
-        _ -> []
-      end
+        %{id: operative_id, runner_id: runner_id}
+      end)
 
-    assign(socket, processors: processors, compute_engines: compute_engines, factories: factories)
+    assign(socket,
+      operatives: operatives,
+      runners: NodeManager.ok_or(NodeManager.list_runners(ns), []),
+      factories: NodeManager.ok_or(NodeManager.list_factories(ns), []),
+      load_error: load_error
+    )
   end
 
   defp parse_json_or_empty(""), do: {:ok, %{}}

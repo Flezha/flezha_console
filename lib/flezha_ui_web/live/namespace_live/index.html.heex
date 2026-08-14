@@ -3,6 +3,8 @@
     <h1 class="text-2xl font-bold text-th-primary">Namespaces</h1>
   </div>
 
+  <.runtime_error error={@load_error} />
+
   <%= if @namespaces == [] do %>
     <div class="bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel">
       <.icon name="hero-rectangle-stack" class="w-10 h-10 text-th-muted mx-auto mb-3" />
@@ -15,8 +17,8 @@
         <thead>
           <tr class="border-b border-brd">
             <th class="text-left px-5 py-3 text-th-tertiary font-medium">Namespace</th>
-            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Processors</th>
-            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Compute Engines</th>
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Operatives</th>
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Runners</th>
             <th class="px-5 py-3"></th>
           </tr>
         </thead>
@@ -24,8 +26,8 @@
           <%= for ns <- @namespaces do %>
             <tr class="border-b border-brd-subtle hover:bg-surface-hover transition-colors">
               <td class="px-5 py-3 text-th-primary font-medium font-mono">{ns.name}</td>
-              <td class="px-5 py-3 text-th-secondary">{ns.processor_count}</td>
-              <td class="px-5 py-3 text-th-secondary">{ns.ce_count}</td>
+              <td class="px-5 py-3 text-th-secondary">{ns.operative_count}</td>
+              <td class="px-5 py-3 text-th-secondary">{ns.runner_count}</td>
               <td class="px-5 py-3 text-right">
                 <a
                   href={~p"/namespaces/#{ns.name}"}

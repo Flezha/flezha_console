@@ -30,13 +30,42 @@
       >
         <.icon name="hero-puzzle-piece" class="w-4 h-4" /> Plugins
       </a>
+      <a
+        href="/cluster"
+        data-nav-link
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
+      >
+        <.icon name="hero-server-stack" class="w-4 h-4" /> Cluster
+      </a>
+      <a
+        href="/schedules"
+        data-nav-link
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
+      >
+        <.icon name="hero-clock" class="w-4 h-4" /> Schedules
+      </a>
+      <a
+        href="/dlq"
+        data-nav-link
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
+      >
+        <.icon name="hero-inbox-stack" class="w-4 h-4" /> Dead-letter
+      </a>
+      <a
+        href="/audit"
+        data-nav-link
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
+      >
+        <.icon name="hero-document-text" class="w-4 h-4" /> Audit log
+      </a>
     </nav>
 
     <div class="px-5 py-4 border-t border-sidebar-border">
       <div class="flex items-center gap-2 text-xs text-th-muted mb-2">
         <%= if FlezhaUi.Service.NodeManager.connected_node() do %>
           <span class="relative flex h-2 w-2">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75">
+            </span>
             <span class="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
           </span>
           <span class="font-mono truncate">{FlezhaUi.Service.NodeManager.connected_node()}</span>
@@ -57,7 +86,8 @@
         <%= if FlezhaUi.Service.NodeManager.connected_node() do %>
           <span class="flex items-center gap-1.5 text-sm text-th-secondary">
             <span class="relative flex h-2 w-2">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75">
+              </span>
               <span class="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
             </span>
             {FlezhaUi.Service.NodeManager.connected_node()}

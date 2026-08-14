@@ -1,37 +1,37 @@
 /**
- * E2E tests for processor lifecycle: starting and stopping processors.
+ * E2E tests for operative lifecycle: starting and stopping operatives.
  *
  * Tests run against the namespace show page (/namespaces/default) and:
  *   1. Verify the start modal opens and lists available factories
- *   2. Start a new processor with a unique ID via the first available factory
- *   3. Verify the processor row appears in the processors table
- *   4. Navigate to the processor detail page and back
- *   5. Stop the processor and verify the row is removed
+ *   2. Start a new operative with a unique ID via the first available factory
+ *   3. Verify the operative row appears in the operatives table
+ *   4. Navigate to the operative detail page and back
+ *   5. Stop the operative and verify the row is removed
  *   6. Test validation (empty fields, duplicate IDs)
  */
 
 const NAMESPACE = 'default';
 const NAMESPACE_URL = `/namespaces/${NAMESPACE}`;
 
-/** Generate a unique processor ID for each test run to avoid collisions */
-function uniqueProcessorId(prefix = 'cy_test'): string {
+/** Generate a unique operative ID for each test run to avoid collisions */
+function uniqueOperativeId(prefix = 'cy_test'): string {
   const ts = Date.now().toString(36).slice(-4);
   const rand = Math.random().toString(36).slice(2, 5);
   return `${prefix}_${ts}_${rand}`;
 }
 
-/** Get all processor IDs currently shown in the table */
-function getProcessorIds(): Cypress.Chainable<string[]> {
+/** Get all operative IDs currently shown in the table */
+function getOperativeIds(): Cypress.Chainable<string[]> {
   return cy.document().then((doc) => {
-    const rows = doc.querySelectorAll('[data-testid^="processor-row-"]');
+    const rows = doc.querySelectorAll('[data-testid^="operative-row-"]');
     return Array.from(rows).map((el) => {
       const testid = el.getAttribute('data-testid') ?? '';
-      return testid.replace('processor-row-', '');
+      return testid.replace('operative-row-', '');
     });
   });
 }
 
-describe('Processor Lifecycle - Start & Stop', () => {
+describe('Operative Lifecycle - Start & Stop', () => {
   beforeEach(() => {
     cy.login();
     cy.visit(NAMESPACE_URL);
@@ -39,7 +39,7 @@ describe('Processor Lifecycle - Start & Stop', () => {
   });
 
   it('opens the start modal and shows available factories', () => {
-    cy.get('[data-testid="start-processor-btn"]').click();
+    cy.get('[data-testid="start-operative-btn"]').click();
     cy.get('[data-testid="start-modal"]').should('be.visible');
 
     // Factory dropdown should exist
@@ -67,7 +67,7 @@ describe('Processor Lifecycle - Start & Stop', () => {
   });
 
   it('validates required fields', () => {
-    cy.get('[data-testid="start-processor-btn"]').click();
+    cy.get('[data-testid="start-operative-btn"]').click();
     cy.get('[data-testid="start-modal"]').should('be.visible');
 
     // Submit with empty fields
@@ -86,12 +86,12 @@ describe('Processor Lifecycle - Start & Stop', () => {
   });
 
   it('validates invalid JSON in init values', () => {
-    cy.get('[data-testid="start-processor-btn"]').click();
+    cy.get('[data-testid="start-operative-btn"]').click();
     cy.get('[data-testid="start-modal"]').should('be.visible');
 
     // Fill in valid ID and factory, but invalid JSON
-    const procId = uniqueProcessorId();
-    cy.get('[data-testid="input-processor-id"]').clear().type(procId);
+    const operativeId = uniqueOperativeId();
+    cy.get('[data-testid="input-operative-id"]').clear().type(operativeId);
 
     // Select the first available factory
     cy.get('[data-testid="input-factory-id"] option')
@@ -119,19 +119,19 @@ describe('Processor Lifecycle - Start & Stop', () => {
     cy.get('[data-testid="start-cancel-btn"]').click();
   });
 
-  it('starts a processor and verifies it appears in the table', () => {
-    const procId = uniqueProcessorId();
-    cy.task('log', `\n  Starting processor: ${procId}`);
+  it('starts a operative and verifies it appears in the table', () => {
+    const operativeId = uniqueOperativeId();
+    cy.task('log', `\n  Starting operative: ${operativeId}`);
 
-    getProcessorIds().then((idsBefore) => {
-      cy.task('log', `  Processors before: ${idsBefore.length} [${idsBefore.join(', ')}]`);
+    getOperativeIds().then((idsBefore) => {
+      cy.task('log', `  Operatives before: ${idsBefore.length} [${idsBefore.join(', ')}]`);
 
       // Open start modal
-      cy.get('[data-testid="start-processor-btn"]').click();
+      cy.get('[data-testid="start-operative-btn"]').click();
       cy.get('[data-testid="start-modal"]').should('be.visible');
 
-      // Fill in the processor ID
-      cy.get('[data-testid="input-processor-id"]').clear().type(procId);
+      // Fill in the operative ID
+      cy.get('[data-testid="input-operative-id"]').clear().type(operativeId);
 
       // Select the first available factory
       cy.get('[data-testid="input-factory-id"] option')
@@ -150,35 +150,35 @@ describe('Processor Lifecycle - Start & Stop', () => {
       cy.get('[data-testid="start-modal"]').should('not.exist');
 
       // Flash message should confirm start
-      cy.get('body').should('contain.text', `Processor ${procId} started`);
+      cy.get('body').should('contain.text', `Operative ${operativeId} started`);
 
       // New row should appear in the table
-      cy.get(`[data-testid="processor-row-${procId}"]`, { timeout: 10000 }).should('exist');
+      cy.get(`[data-testid="operative-row-${operativeId}"]`, { timeout: 10000 }).should('exist');
 
-      getProcessorIds().then((idsAfter) => {
-        cy.task('log', `  Processors after: ${idsAfter.length} [${idsAfter.join(', ')}]`);
-        expect(idsAfter).to.include(procId);
+      getOperativeIds().then((idsAfter) => {
+        cy.task('log', `  Operatives after: ${idsAfter.length} [${idsAfter.join(', ')}]`);
+        expect(idsAfter).to.include(operativeId);
         expect(idsAfter.length).to.eq(idsBefore.length + 1);
       });
 
-      // --- CLEANUP: stop the processor ---
-      cy.task('log', `  Cleaning up: stopping ${procId}`);
-      cy.get(`[data-testid="stop-processor-${procId}"]`).click();
+      // --- CLEANUP: stop the operative ---
+      cy.task('log', `  Cleaning up: stopping ${operativeId}`);
+      cy.get(`[data-testid="stop-operative-${operativeId}"]`).click();
       cy.get('[data-testid="stop-confirm-modal"]').should('be.visible');
       cy.get('[data-testid="stop-confirm-btn"]').click();
-      cy.get(`[data-testid="processor-row-${procId}"]`).should('not.exist');
+      cy.get(`[data-testid="operative-row-${operativeId}"]`).should('not.exist');
       cy.task('log', '  Cleanup complete.');
     });
   });
 
-  it('starts a processor, navigates to detail page, then stops it', () => {
-    const procId = uniqueProcessorId('cy_nav');
-    cy.task('log', `\n  Full lifecycle test: ${procId}`);
+  it('starts a operative, navigates to detail page, then stops it', () => {
+    const operativeId = uniqueOperativeId('cy_nav');
+    cy.task('log', `\n  Full lifecycle test: ${operativeId}`);
 
-    // Start processor
-    cy.get('[data-testid="start-processor-btn"]').click();
+    // Start operative
+    cy.get('[data-testid="start-operative-btn"]').click();
     cy.get('[data-testid="start-modal"]').should('be.visible');
-    cy.get('[data-testid="input-processor-id"]').clear().type(procId);
+    cy.get('[data-testid="input-operative-id"]').clear().type(operativeId);
 
     cy.get('[data-testid="input-factory-id"] option')
       .not(':first')
@@ -193,46 +193,46 @@ describe('Processor Lifecycle - Start & Stop', () => {
     cy.get('[data-testid="start-modal"]').should('not.exist');
 
     // Verify row appeared
-    cy.get(`[data-testid="processor-row-${procId}"]`).should('exist');
-    cy.task('log', '  Processor started and visible in table.');
+    cy.get(`[data-testid="operative-row-${operativeId}"]`).should('exist');
+    cy.task('log', '  Operative started and visible in table.');
 
-    // Navigate to processor detail page
-    cy.get(`[data-testid="view-processor-${procId}"]`).click();
+    // Navigate to operative detail page
+    cy.get(`[data-testid="view-operative-${operativeId}"]`).click();
     cy.waitForLiveView();
 
-    // Verify we're on the processor detail page
-    cy.url().should('include', `/namespaces/${NAMESPACE}/processors/${procId}`);
-    cy.get('body').should('contain.text', procId);
-    cy.task('log', '  Navigated to processor detail page.');
+    // Verify we're on the operative detail page
+    cy.url().should('include', `/namespaces/${NAMESPACE}/operatives/${operativeId}`);
+    cy.get('body').should('contain.text', operativeId);
+    cy.task('log', '  Navigated to operative detail page.');
 
     // Go back to namespace page
     cy.visit(NAMESPACE_URL);
     cy.waitForLiveView();
 
-    // Processor should still be in the table
-    cy.get(`[data-testid="processor-row-${procId}"]`).should('exist');
-    cy.task('log', '  Processor persists after navigation.');
+    // Operative should still be in the table
+    cy.get(`[data-testid="operative-row-${operativeId}"]`).should('exist');
+    cy.task('log', '  Operative persists after navigation.');
 
-    // Stop the processor
-    cy.get(`[data-testid="stop-processor-${procId}"]`).click();
+    // Stop the operative
+    cy.get(`[data-testid="stop-operative-${operativeId}"]`).click();
     cy.get('[data-testid="stop-confirm-modal"]').should('be.visible');
     cy.get('[data-testid="stop-confirm-btn"]').click();
 
     // Verify removal
-    cy.get(`[data-testid="processor-row-${procId}"]`).should('not.exist');
-    cy.get('body').should('contain.text', `Processor ${procId} stopped`);
+    cy.get(`[data-testid="operative-row-${operativeId}"]`).should('not.exist');
+    cy.get('body').should('contain.text', `Operative ${operativeId} stopped`);
     cy.get('body').should('not.contain.text', 'Failed');
-    cy.task('log', '  Processor stopped and removed from table. Flash confirmed.');
+    cy.task('log', '  Operative stopped and removed from table. Flash confirmed.');
   });
 
   it('can cancel the stop confirmation modal', () => {
-    const procId = uniqueProcessorId('cy_cancel');
-    cy.task('log', `\n  Testing stop cancel: ${procId}`);
+    const operativeId = uniqueOperativeId('cy_cancel');
+    cy.task('log', `\n  Testing stop cancel: ${operativeId}`);
 
-    // Start a processor to test with
-    cy.get('[data-testid="start-processor-btn"]').click();
+    // Start a operative to test with
+    cy.get('[data-testid="start-operative-btn"]').click();
     cy.get('[data-testid="start-modal"]').should('be.visible');
-    cy.get('[data-testid="input-processor-id"]').clear().type(procId);
+    cy.get('[data-testid="input-operative-id"]').clear().type(operativeId);
 
     cy.get('[data-testid="input-factory-id"] option')
       .not(':first')
@@ -243,45 +243,45 @@ describe('Processor Lifecycle - Start & Stop', () => {
 
     cy.get('[data-testid="start-submit-btn"]').click();
     cy.get('[data-testid="start-modal"]').should('not.exist');
-    cy.get(`[data-testid="processor-row-${procId}"]`).should('exist');
+    cy.get(`[data-testid="operative-row-${operativeId}"]`).should('exist');
 
     // Click stop
-    cy.get(`[data-testid="stop-processor-${procId}"]`).click();
+    cy.get(`[data-testid="stop-operative-${operativeId}"]`).click();
     cy.get('[data-testid="stop-confirm-modal"]').should('be.visible');
 
     // Cancel
     cy.get('[data-testid="stop-cancel-btn"]').click();
     cy.get('[data-testid="stop-confirm-modal"]').should('not.exist');
 
-    // Processor should still be there
-    cy.get(`[data-testid="processor-row-${procId}"]`).should('exist');
-    cy.task('log', '  Stop cancelled successfully. Processor still running.');
+    // Operative should still be there
+    cy.get(`[data-testid="operative-row-${operativeId}"]`).should('exist');
+    cy.task('log', '  Stop cancelled successfully. Operative still running.');
 
     // Cleanup: actually stop it now
-    cy.get(`[data-testid="stop-processor-${procId}"]`).click();
+    cy.get(`[data-testid="stop-operative-${operativeId}"]`).click();
     cy.get('[data-testid="stop-confirm-modal"]').should('be.visible');
     cy.get('[data-testid="stop-confirm-btn"]').click();
-    cy.get(`[data-testid="processor-row-${procId}"]`).should('not.exist');
+    cy.get(`[data-testid="operative-row-${operativeId}"]`).should('not.exist');
     cy.task('log', '  Cleanup complete.');
   });
 
-  it('starts multiple processors and stops them all', () => {
+  it('starts multiple operatives and stops them all', () => {
     const procIds = [
-      uniqueProcessorId('cy_multi_a'),
-      uniqueProcessorId('cy_multi_b'),
+      uniqueOperativeId('cy_multi_a'),
+      uniqueOperativeId('cy_multi_b'),
     ];
 
-    cy.task('log', `\n  Multi-processor test: ${procIds.join(', ')}`);
+    cy.task('log', `\n  Multi-operative test: ${procIds.join(', ')}`);
 
-    getProcessorIds().then((idsBefore) => {
+    getOperativeIds().then((idsBefore) => {
       const chain = cy.wrap(null);
 
-      // Start each processor sequentially
-      procIds.forEach((procId) => {
+      // Start each operative sequentially
+      procIds.forEach((operativeId) => {
         chain.then(() => {
-          cy.get('[data-testid="start-processor-btn"]').click();
+          cy.get('[data-testid="start-operative-btn"]').click();
           cy.get('[data-testid="start-modal"]').should('be.visible');
-          cy.get('[data-testid="input-processor-id"]').clear().type(procId);
+          cy.get('[data-testid="input-operative-id"]').clear().type(operativeId);
 
           cy.get('[data-testid="input-factory-id"] option')
             .not(':first')
@@ -292,36 +292,36 @@ describe('Processor Lifecycle - Start & Stop', () => {
 
           cy.get('[data-testid="start-submit-btn"]').click();
           cy.get('[data-testid="start-modal"]').should('not.exist');
-          cy.get(`[data-testid="processor-row-${procId}"]`).should('exist');
-          cy.task('log', `  Started: ${procId}`);
+          cy.get(`[data-testid="operative-row-${operativeId}"]`).should('exist');
+          cy.task('log', `  Started: ${operativeId}`);
         });
       });
 
       // Verify all are present
       chain.then(() => {
-        getProcessorIds().then((idsAfter) => {
-          procIds.forEach((procId) => {
-            expect(idsAfter, `${procId} should be in the table`).to.include(procId);
+        getOperativeIds().then((idsAfter) => {
+          procIds.forEach((operativeId) => {
+            expect(idsAfter, `${operativeId} should be in the table`).to.include(operativeId);
           });
-          cy.task('log', `  All ${procIds.length} processors visible.`);
+          cy.task('log', `  All ${procIds.length} operatives visible.`);
         });
       });
 
-      // Stop each processor sequentially
-      procIds.forEach((procId) => {
+      // Stop each operative sequentially
+      procIds.forEach((operativeId) => {
         chain.then(() => {
-          cy.get(`[data-testid="stop-processor-${procId}"]`).click();
+          cy.get(`[data-testid="stop-operative-${operativeId}"]`).click();
           cy.get('[data-testid="stop-confirm-modal"]').should('be.visible');
           cy.get('[data-testid="stop-confirm-btn"]').click();
-          cy.get(`[data-testid="processor-row-${procId}"]`).should('not.exist');
-          cy.task('log', `  Stopped: ${procId}`);
+          cy.get(`[data-testid="operative-row-${operativeId}"]`).should('not.exist');
+          cy.task('log', `  Stopped: ${operativeId}`);
         });
       });
 
       // Verify count is back to original
       chain.then(() => {
-        getProcessorIds().then((idsFinal) => {
-          expect(idsFinal.length, 'Processor count should return to original').to.eq(
+        getOperativeIds().then((idsFinal) => {
+          expect(idsFinal.length, 'Operative count should return to original').to.eq(
             idsBefore.length,
           );
           cy.task('log', `  All cleaned up. Final count: ${idsFinal.length}`);
@@ -330,16 +330,16 @@ describe('Processor Lifecycle - Start & Stop', () => {
     });
   });
 
-  it('starts processor with init values JSON', () => {
-    const procId = uniqueProcessorId('cy_json');
-    cy.task('log', `\n  Testing with JSON init values: ${procId}`);
+  it('starts operative with init values JSON', () => {
+    const operativeId = uniqueOperativeId('cy_json');
+    cy.task('log', `\n  Testing with JSON init values: ${operativeId}`);
 
     // Open start modal
-    cy.get('[data-testid="start-processor-btn"]').click();
+    cy.get('[data-testid="start-operative-btn"]').click();
     cy.get('[data-testid="start-modal"]').should('be.visible');
 
     // Fill in the form
-    cy.get('[data-testid="input-processor-id"]').clear().type(procId);
+    cy.get('[data-testid="input-operative-id"]').clear().type(operativeId);
 
     cy.get('[data-testid="input-factory-id"] option')
       .not(':first')
@@ -371,14 +371,14 @@ describe('Processor Lifecycle - Start & Stop', () => {
         cy.get('[data-testid="start-cancel-btn"]').click();
       } else {
         // Success - verify and cleanup
-        cy.get(`[data-testid="processor-row-${procId}"]`).should('exist');
-        cy.task('log', '  Processor started with JSON init values.');
+        cy.get(`[data-testid="operative-row-${operativeId}"]`).should('exist');
+        cy.task('log', '  Operative started with JSON init values.');
 
         // Cleanup
-        cy.get(`[data-testid="stop-processor-${procId}"]`).click();
+        cy.get(`[data-testid="stop-operative-${operativeId}"]`).click();
         cy.get('[data-testid="stop-confirm-modal"]').should('be.visible');
         cy.get('[data-testid="stop-confirm-btn"]').click();
-        cy.get(`[data-testid="processor-row-${procId}"]`).should('not.exist');
+        cy.get(`[data-testid="operative-row-${operativeId}"]`).should('not.exist');
         cy.task('log', '  Cleanup complete.');
       }
     });

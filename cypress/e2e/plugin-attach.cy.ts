@@ -201,7 +201,7 @@ function attachAndDetachProvider(
 describe('Plugin Attachment - All Providers', () => {
   beforeEach(() => {
     cy.login();
-    cy.visit('/namespaces/default/processors/testnet_store_1');
+    cy.visit('/namespaces/default/operatives/testnet_store_1');
     cy.waitForLiveView();
   });
 
@@ -303,7 +303,7 @@ describe('Plugin Attachment - All Providers', () => {
       // Attach a stdout plugin (simplest — no external deps)
       cy.get('[data-testid="attach-plugin-btn"]').click();
       cy.get('[data-testid="provider-grid"]').should('be.visible');
-      cy.get('[data-testid="provider-btn-processor_stdout"]').click();
+      cy.get('[data-testid="provider-btn-operative_stdout"]').click();
       cy.get('[data-testid="input-plugin-id"]').should('be.visible');
 
       cy.get('[data-testid="input-plugin-id"]')
@@ -318,7 +318,7 @@ describe('Plugin Attachment - All Providers', () => {
           cy.get(`[data-testid="binding-row-${pid}"]`).should('exist');
           cy.task('log', `  Attached stdout plugin: ${pid}`);
 
-          // Now detach it — this tests the direct processor fallback
+          // Now detach it — this tests the direct operative fallback
           // because the PluginManager may or may not have it depending on state
           cy.task('log', `  Detaching plugin: ${pid}`);
           cy.get(`[data-testid="detach-btn-${pid}"]`).click();
@@ -368,57 +368,38 @@ describe('Plugin Attachment - All Providers', () => {
 
       cy.task('log', `  Successfully detached pre-existing binding: ${targetId}`);
 
-      // Re-attach it so we don't leave the processor in a changed state
+      // Re-attach it so we don't leave the operative in a changed state
       // (only if it was a known provider type — skip if unknown)
     });
   });
 
-  it('attaches and detaches websocket plugin specifically', () => {
+  it('attaches and detaches the websocket provider on an extension it exports', () => {
     cy.task('log', '\n  Testing websocket plugin attach+detach explicitly...');
 
-    // Record bindings before
     getBindingPluginIds().then((idsBefore) => {
-      // Open modal
       cy.get('[data-testid="attach-plugin-btn"]').click();
       cy.get('[data-testid="provider-grid"]').should('be.visible');
 
-      // Select websocket provider
-      cy.get('[data-testid="provider-btn-processor_websocket"]').click();
+      cy.get('[data-testid="provider-btn-operative_websocket"]').click();
       cy.get('[data-testid="input-plugin-id"]').should('be.visible');
 
-      // Read server-generated plugin ID
       cy.get('[data-testid="input-plugin-id"]')
         .invoke('val')
         .then((pluginId) => {
           const pid = pluginId as string;
           cy.task('log', `  Plugin ID: ${pid}`);
 
-          // Fill required field: uri
           cy.get('[data-testid="input-field-uri"]').clear().type('ws://localhost:9999/test');
 
-          // Set trigger
-          cy.get('[data-testid="input-trigger"]').select('on_input');
+          // The websocket provider is a source: it connects when enabled and
+          // exports `on_terminate` for teardown. Subscribing it to a transform
+          // extension it does not export is refused by the controller.
+          cy.get('[data-testid="input-trigger"]').select('on_terminate');
 
-          // Fill optional fields if present
-          cy.get('body').then(($body) => {
-            const fields = $body.find(
-              '[data-testid^="input-field-"]:not([data-testid="input-field-uri"])',
-            );
-            fields.each((_i, el) => {
-              const testid = el.getAttribute('data-testid') ?? '';
-              const fieldName = testid.replace('input-field-', '');
-              const value = guessFieldValue(fieldName);
-              cy.wrap(el).clear().type(value);
-            });
-          });
-
-          // Submit
           cy.get('[data-testid="attach-submit-btn"]').click();
 
-          // Verify: modal should close (no error)
           cy.get('[data-testid="attach-modal"]').should('not.exist');
 
-          // Verify: new binding row appeared
           getBindingPluginIds().then((idsAfter) => {
             const newIds = idsAfter.filter((id) => !idsBefore.includes(id));
             expect(newIds.length, 'Expected exactly 1 new binding row after websocket attach').to.eq(1);
@@ -426,10 +407,10 @@ describe('Plugin Attachment - All Providers', () => {
             const newPluginId = newIds[0];
             cy.task('log', `  Websocket attached successfully as: ${newPluginId}`);
 
-            // Verify the row shows correct provider
             cy.get(`[data-testid="binding-row-${newPluginId}"]`)
               .should('exist')
-              .and('contain.text', 'Websocket');
+              .and('contain.text', 'Websocket')
+              .and('contain.text', 'on_terminate');
 
             // --- DETACH ---
             cy.task('log', '  Detaching websocket plugin...');
@@ -437,22 +418,42 @@ describe('Plugin Attachment - All Providers', () => {
             cy.get('[data-testid="detach-confirm-modal"]').should('be.visible');
             cy.get('[data-testid="detach-confirm-btn"]').click();
 
-            // Verify: row removed
             cy.get(`[data-testid="binding-row-${newPluginId}"]`).should('not.exist');
 
-            // Verify: binding count is back to original
             getBindingPluginIds().then((idsAfterDetach) => {
               expect(idsAfterDetach.length, 'Binding count should return to original').to.eq(
                 idsBefore.length,
               );
-              expect(
-                idsAfterDetach.includes(newPluginId),
-                'Detached plugin should not be in bindings',
-              ).to.be.false;
               cy.task('log', '  Websocket detached successfully. Binding count restored.\n');
             });
           });
         });
+    });
+  });
+
+  it('refuses an extension the provider does not export', () => {
+    // The extension table validates that the provider exports a callback for
+    // every subscription. The websocket provider has no `on_input`, so this
+    // must be reported rather than silently creating a plugin that never runs.
+    getBindingPluginIds().then((idsBefore) => {
+      cy.get('[data-testid="attach-plugin-btn"]').click();
+      cy.get('[data-testid="provider-btn-operative_websocket"]').click();
+      cy.get('[data-testid="input-plugin-id"]').should('be.visible');
+
+      cy.get('[data-testid="input-field-uri"]').clear().type('ws://localhost:9999/test');
+      cy.get('[data-testid="input-trigger"]').select('on_input');
+      cy.get('[data-testid="attach-submit-btn"]').click();
+
+      cy.get('[data-testid="attach-error"]').should('exist');
+      cy.get('[data-testid="attach-modal"]').should('exist');
+
+      cy.get('[data-testid="attach-cancel-btn"]').click();
+
+      getBindingPluginIds().then((idsAfter) => {
+        expect(idsAfter.length, 'A refused plugin must not appear as a binding').to.eq(
+          idsBefore.length,
+        );
+      });
     });
   });
 });

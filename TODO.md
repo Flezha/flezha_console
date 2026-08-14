@@ -1,60 +1,66 @@
 # TODO
 
-## Add standalone Processors page
+## Add a standalone Operatives page
 
 ### Current state
-- Processors are only accessible through the namespace detail page: `/namespaces/:ns` → click processor → `/namespaces/:ns/processors/:id`
-- No way to see all processors across all namespaces in one view
-- Sidebar has: Dashboard, Namespaces, Plugins — no Processors entry
+
+- Operatives are reachable only through a namespace: `/namespaces/:ns` → click an
+  operative → `/namespaces/:ns/operatives/:id`
+- There is no view of every operative across every namespace
+- The sidebar has Dashboard, Namespaces, Plugins, Cluster, Schedules,
+  Dead-letter, Audit log — no Operatives entry
 
 ### What to build
 
-#### 1. Processors list page (`/processors`)
-**Route:** `live "/processors", ProcessorListLive`
-**File:** `lib/flezha_ui_web/live/processor_list_live.ex` + `.html.heex`
+#### 1. Operatives list page (`/operatives`)
 
-Shows a table of all processors across all namespaces:
-- **Columns:** Processor ID, Namespace, Factory ID, Compute Engine, Plugin Count
-- Processor ID links to the existing detail page (`/namespaces/:ns/processors/:id`)
-- Data: iterate `list_namespaces()` → `list_processors(ns)` → `get_overwatch_state(ns, proc_id)` for each
-- Auto-refresh every 5s (same pattern as other pages)
+**Route:** `live "/operatives", OperativeListLive`
+**Files:** `lib/flezha_ui_web/live/operative_list_live.ex` + `.html.heex`
 
-#### 2. Add sidebar nav entry
+A table of every operative across every namespace:
+
+- **Columns:** Operative ID, Namespace, Factory ID, Kind, Runner, Plugin count
+- Operative ID links to `/namespaces/:ns/operatives/:id`
+- Data: `list_namespaces()` → `list_operatives(ns)` → `get_overwatch_state(ns, id)`
+- Auto-refresh on the 5s timer the other screens use, and subscribe to
+  `EventBridge.topic()` so runner changes land immediately
+
+Note the cost: one overwatch call per operative. `ClusterLive.describe_namespace/1`
+shows the shape to follow — do the per-namespace lookups once and invert them,
+rather than asking per row.
+
+#### 2. Sidebar entry
+
 **File:** `lib/flezha_ui_web/components/layouts/app.html.heex`
 
-Add a "Processors" link between "Namespaces" and "Plugins" in the sidebar nav:
-- Icon: `hero-cpu-chip`
-- href: `/processors`
-
-#### 3. Improve processor detail page
-**Existing file:** `lib/flezha_ui_web/live/processor_live.ex` + `.html.heex`
-**Route:** `/namespaces/:ns/processors/:id` (already exists)
-
-The processor detail page already shows:
-- Info panel: namespace, factory_id, compute_engine_id, default_input_type
-- SDK state viewer with fetch + auto-refresh
-- Plugins/Bindings table with trigger, provider, position
-- Attach plugin modal (choose provider → configure)
-- Detach plugin with confirmation
-- Link to stream page
-
-Review and ensure:
-- Bindings table shows all plugin info correctly (trigger, provider, position)
-- Attach plugin flow works end-to-end (currently sends plain map to `Flezha.enable_plugin` which expects a struct — same bug we fixed in DevSetup by using `CliManager.enable_plugin`)
-- Stream link works
+Add "Operatives" between "Namespaces" and "Plugins", icon `hero-cpu-chip`.
 
 ### Existing pages for reference
+
 | Page | Route | File |
 |------|-------|------|
 | Dashboard | `/` | `dashboard_live.ex` |
 | Namespaces list | `/namespaces` | `namespace_live/index.ex` |
 | Namespace detail | `/namespaces/:ns` | `namespace_live/show.ex` |
-| Processor detail | `/namespaces/:ns/processors/:id` | `processor_live.ex` |
-| Stream | `/namespaces/:ns/processors/:id/stream` | `stream_live.ex` |
+| Operative detail | `/namespaces/:ns/operatives/:id` | `operative_live.ex` |
+| Stream | `/namespaces/:ns/operatives/:id/stream` | `stream_live.ex` |
 | Plugins | `/plugins` | `plugin_live.ex` |
+| Cluster | `/cluster` | `cluster_live.ex` |
+| Schedules | `/schedules` | `schedule_live.ex` |
+| Dead-letter | `/dlq` | `dlq_live.ex` |
+| Audit log | `/audit` | `audit_live.ex` |
 
 ### Data sources (NodeManager)
+
 - `list_namespaces()` → list of namespace strings
-- `list_processors(ns)` → `{:ok, [processor_id_string, ...]}`
-- `get_overwatch_state(ns, proc_id)` → `{:ok, %{factory_id, compute_engine_id, bindings, ...}}`
-- `get_plugins()` → `%{plugin_id => {module, {namespace, processor_id}}}`
+- `list_operatives(ns)` → `{:ok, [operative_id, ...]}`
+- `get_overwatch_state(ns, id)` → `{:ok, %{factory_id, runner_id, kind, extensions, ...}}`
+- `extension_entries(state)` → one row per `{extension, plugin}` pair
+- `get_plugins()` → `%{plugin_id => {namespace, operative_id}}`
+
+## Later
+
+- Upgrade to the latest Phoenix and LiveView
+- The visual redesign in `REDESIGN_OPTIONS.md`
+- AuthZ: bind a principal so the controller's `authn_authz` can be switched on
+  (`NodeManager.caller_context/1` already carries the field)

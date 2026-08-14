@@ -61,9 +61,13 @@ defmodule FlezhaUiWeb.Router do
       live "/", DashboardLive
       live "/namespaces", NamespaceLive.Index
       live "/namespaces/:ns", NamespaceLive.Show
-      live "/namespaces/:ns/processors/:id", ProcessorLive
-      live "/namespaces/:ns/processors/:id/stream", StreamLive
+      live "/namespaces/:ns/operatives/:id", OperativeLive
+      live "/namespaces/:ns/operatives/:id/stream", StreamLive
       live "/plugins", PluginLive
+      live "/cluster", ClusterLive
+      live "/schedules", ScheduleLive
+      live "/dlq", DlqLive
+      live "/audit", AuditLive
     end
   end
 end

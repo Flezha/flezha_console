@@ -7,6 +7,12 @@ defmodule FlezhaUi.MixProject do
       version: "0.1.0",
       elixir: "~> 1.14",
       elixirc_paths: elixirc_paths(Mix.env()),
+      # `EventRelay` runs on the flezha controller node, so it calls a module
+      # that exists only there. Every other controller call goes through
+      # `NodeManager`, which names modules as `:erpc` arguments.
+      elixirc_options: [
+        no_warn_undefined: [Flezha.Service.EventManager, Flezha.Service.AuditLog]
+      ],
       start_permanent: Mix.env() == :prod,
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],

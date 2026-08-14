@@ -1,43 +1,41 @@
 defmodule FlezhaUiWeb.NamespaceLive.Index do
   use FlezhaUiWeb, :live_view
 
-  alias FlezhaUi.Service.NodeManager
+  use FlezhaUiWeb.Live.Refresh, every: 5_000
 
-  @refresh_interval 5_000
+  alias FlezhaUi.Service.NodeManager
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_interval)
-    {:ok, assign(socket, namespaces: load_namespaces(), page_title: "Namespaces")}
+    if connected?(socket), do: schedule_refresh()
+    {:ok, socket |> assign(page_title: "Namespaces") |> refresh()}
   end
 
-  @impl true
-  def handle_info(:refresh, socket) do
-    Process.send_after(self(), :refresh, @refresh_interval)
-    {:noreply, assign(socket, namespaces: load_namespaces())}
-  end
-
-  defp load_namespaces do
-    case NodeManager.list_namespaces() do
-      list when is_list(list) ->
-        Enum.map(list, fn ns ->
-          proc_count =
-            case NodeManager.list_processors(ns) do
-              {:ok, list} -> length(list)
-              _ -> 0
-            end
-
-          ce_count =
-            case NodeManager.list_compute_engines(ns) do
-              {:ok, list} -> length(list)
-              _ -> 0
-            end
-
-          %{name: ns, processor_count: proc_count, ce_count: ce_count}
-        end)
-
-      _ ->
-        []
+  @impl FlezhaUiWeb.Live.Refresh
+  def refresh(socket) do
+    case list_namespaces() do
+      {:ok, namespaces} -> assign(socket, namespaces: namespaces, load_error: nil)
+      {:error, reason} -> assign(socket, namespaces: [], load_error: reason)
     end
   end
+
+  defp list_namespaces do
+    case NodeManager.list_namespaces() do
+      {:ok, list} ->
+        {:ok,
+         Enum.map(list, fn ns ->
+           %{
+             name: ns,
+             operative_count: count(NodeManager.list_operatives(ns)),
+             runner_count: count(NodeManager.list_runners(ns))
+           }
+         end)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp count({:ok, list}), do: length(list)
+  defp count({:error, _reason}), do: 0
 end

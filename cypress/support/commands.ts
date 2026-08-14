@@ -3,6 +3,7 @@ declare global {
     interface Chainable {
       login(): Chainable<void>;
       waitForLiveView(): Chainable<JQuery<HTMLElement>>;
+      visitLive(path: string): Chainable<JQuery<HTMLElement>>;
     }
   }
 }
@@ -17,6 +18,13 @@ Cypress.Commands.add('login', () => {
     });
     cy.url().should('eq', Cypress.config('baseUrl') + '/');
   });
+});
+
+/** Log in, open a screen, and wait for its LiveView to connect. */
+Cypress.Commands.add('visitLive', (path: string) => {
+  cy.login();
+  cy.visit(path);
+  return cy.waitForLiveView();
 });
 
 Cypress.Commands.add('waitForLiveView', () => {

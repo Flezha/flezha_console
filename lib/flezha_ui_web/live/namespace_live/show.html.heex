@@ -6,58 +6,64 @@
       </a>
       <h1 class="text-2xl font-bold text-th-primary font-mono">{@ns}</h1>
     </div>
+
     <button
       phx-click="open_start_modal"
-      data-testid="start-processor-btn"
+      data-testid="start-operative-btn"
       class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white bg-accent hover:bg-accent-hover hover:shadow-btn-hover hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
     >
-      <.icon name="hero-plus" class="w-4 h-4" /> Start Processor
+      <.icon name="hero-plus" class="w-4 h-4" /> Start Operative
     </button>
   </div>
 
-  <%!-- Processors panel --%>
+  <.runtime_error error={@load_error} />
+
+  <%!-- Operatives panel --%>
   <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
     <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
       <div class="flex items-center gap-2">
         <.icon name="hero-cpu-chip" class="w-4 h-4 text-th-tertiary" />
         <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
-          Processors ({length(@processors)})
+          Operatives ({length(@operatives)})
         </h2>
       </div>
     </div>
-    <%= if @processors == [] do %>
-      <div data-testid="no-processors-msg" class="px-5 py-10 text-center">
+    <%= if @operatives == [] do %>
+      <div data-testid="no-operatives-msg" class="px-5 py-10 text-center">
         <.icon name="hero-cpu-chip" class="w-10 h-10 text-th-muted mx-auto mb-3" />
-        <p class="text-sm text-th-muted">No processors running.</p>
+        <p class="text-sm text-th-muted">No operatives running.</p>
       </div>
     <% else %>
-      <table data-testid="processors-table" class="w-full text-sm">
+      <table data-testid="operatives-table" class="w-full text-sm">
         <thead>
           <tr class="border-b border-brd">
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Processor ID</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Compute Engine</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Operative ID</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Runner</th>
             <th class="px-5 py-2"></th>
           </tr>
         </thead>
         <tbody>
-          <%= for proc <- @processors do %>
-            <tr data-testid={"processor-row-#{proc.id}"} class="border-b border-brd-subtle hover:bg-surface-hover transition-colors">
-              <td class="px-5 py-2 text-th-primary font-mono text-xs">{proc.id}</td>
+          <%= for operative <- @operatives do %>
+            <tr
+              data-testid={"operative-row-#{operative.id}"}
+              class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
+            >
+              <td class="px-5 py-2 text-th-primary font-mono text-xs">{operative.id}</td>
               <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
-                {proc.compute_engine_id || "—"}
+                {operative.runner_id || "—"}
               </td>
               <td class="px-5 py-2 text-right flex items-center justify-end gap-3">
                 <a
-                  data-testid={"view-processor-#{proc.id}"}
-                  href={~p"/namespaces/#{@ns}/processors/#{proc.id}"}
+                  data-testid={"view-operative-#{operative.id}"}
+                  href={~p"/namespaces/#{@ns}/operatives/#{operative.id}"}
                   class="text-sm font-medium text-accent-text hover:text-accent transition-colors"
                 >
                   View
                 </a>
                 <button
-                  data-testid={"stop-processor-#{proc.id}"}
+                  data-testid={"stop-operative-#{operative.id}"}
                   phx-click="confirm_stop"
-                  phx-value-processor_id={proc.id}
+                  phx-value-operative_id={operative.id}
                   class="text-sm text-danger-text hover:text-danger transition-colors"
                 >
                   Stop
@@ -70,150 +76,141 @@
     <% end %>
   </div>
 
-  <%!-- Compute Engines panel --%>
+  <%!-- Runners panel --%>
   <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
     <div class="px-5 py-4 border-b border-brd flex items-center gap-2">
       <.icon name="hero-server-stack" class="w-4 h-4 text-th-tertiary" />
       <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
-        Compute Engines ({length(@compute_engines)})
+        Runners ({length(@runners)})
       </h2>
     </div>
-    <%= if @compute_engines == [] do %>
-      <div class="px-5 py-6 text-sm text-th-muted">No compute engines connected.</div>
+    <%= if @runners == [] do %>
+      <div class="px-5 py-6 text-sm text-th-muted">No runners connected.</div>
     <% else %>
       <ul class="divide-y divide-brd-subtle">
-        <%= for ce <- @compute_engines do %>
-          <li class="px-5 py-3 text-th-secondary font-mono text-xs">{ce}</li>
+        <%= for runner <- @runners do %>
+          <li class="px-5 py-3 text-th-secondary font-mono text-xs">{runner}</li>
         <% end %>
       </ul>
     <% end %>
   </div>
 </div>
 
-<%!-- Start Processor Modal --%>
-<%= if @show_start_modal do %>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
-    <div data-testid="start-modal" class="bg-modal-bg border border-modal-border rounded-modal w-full max-w-md p-6 shadow-modal animate-scale-in">
-      <div class="flex items-center justify-between mb-5">
-        <h3 class="text-lg font-semibold text-th-primary">Start Processor</h3>
-        <button phx-click="close_start_modal" class="text-th-muted hover:text-th-primary transition-colors">
-          <.icon name="hero-x-mark" class="w-5 h-5" />
-        </button>
-      </div>
+<%!-- Start Operative Modal --%>
+<.dialog :if={@show_start_modal} testid="start-modal" size="max-w-md">
+  <div class="flex items-center justify-between mb-5">
+    <h3 class="text-lg font-semibold text-th-primary">Start Operative</h3>
+    <button
+      phx-click="close_start_modal"
+      class="text-th-muted hover:text-th-primary transition-colors"
+    >
+      <.icon name="hero-x-mark" class="w-5 h-5" />
+    </button>
+  </div>
 
-      <%= if @start_error do %>
-        <div data-testid="start-error" class="mb-4 px-4 py-3 bg-[var(--color-danger-subtle-bg)] border border-[var(--color-danger-subtle-border)] rounded-lg text-sm text-danger-text">
-          {@start_error}
-        </div>
-      <% end %>
+  <%= if @start_error do %>
+    <div
+      data-testid="start-error"
+      class="mb-4 px-4 py-3 bg-[var(--color-danger-subtle-bg)] border border-[var(--color-danger-subtle-border)] rounded-lg text-sm text-danger-text"
+    >
+      {@start_error}
+    </div>
+  <% end %>
 
-      <form phx-submit="start_processor" phx-change="start_form_change" class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium text-th-secondary mb-1">Processor ID *</label>
-          <input
-            type="text"
-            name="start[id]"
-            data-testid="input-processor-id"
-            value={@start_form["id"]}
-            placeholder="my-processor"
-            maxlength="32"
-            class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 transition-colors"
-          />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-th-secondary mb-1">Factory ID *</label>
-          <%= if @factories == [] do %>
-            <select
-              name="start[factory_id]"
-              data-testid="input-factory-id"
-              disabled
-              class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-muted text-sm focus:outline-none focus:border-brd-focus"
-            >
-              <option value="">No factories available</option>
-            </select>
-          <% else %>
-            <select
-              name="start[factory_id]"
-              data-testid="input-factory-id"
-              class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus"
-            >
-              <option value="">Select a factory...</option>
-              <%= for factory <- @factories do %>
-                <option value={factory.id} selected={@start_form["factory_id"] == factory.id}>
-                  <%= factory.id %><%= if factory.description, do: " — #{factory.description}" %>
-                </option>
-              <% end %>
-            </select>
+  <form phx-submit="start_operative" phx-change="start_form_change" class="space-y-4">
+    <div>
+      <label class="block text-sm font-medium text-th-secondary mb-1">Operative ID *</label>
+      <input
+        type="text"
+        name="start[id]"
+        data-testid="input-operative-id"
+        value={@start_form["id"]}
+        placeholder="my-operative"
+        maxlength="32"
+        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 transition-colors"
+      />
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-th-secondary mb-1">Factory ID *</label>
+      <%= if @factories == [] do %>
+        <select
+          name="start[factory_id]"
+          data-testid="input-factory-id"
+          disabled
+          class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-muted text-sm focus:outline-none focus:border-brd-focus"
+        >
+          <option value="">No factories available</option>
+        </select>
+      <% else %>
+        <select
+          name="start[factory_id]"
+          data-testid="input-factory-id"
+          class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus"
+        >
+          <option value="">Select a factory...</option>
+          <%= for factory <- @factories do %>
+            <option value={factory.id} selected={@start_form["factory_id"] == factory.id}>
+              {factory.id}{if factory.description, do: " — #{factory.description}"}
+            </option>
           <% end %>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-th-secondary mb-1">Init Values (JSON)</label>
-          <textarea
-            name="start[init_values]"
-            data-testid="input-init-values"
-            rows="3"
-            placeholder="{}"
-            class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm font-mono focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1"
-          ><%= @start_form["init_values"] %></textarea>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-th-secondary mb-1">Snapshot Interval</label>
-          <input
-            type="number"
-            name="start[snapshot_interval]"
-            data-testid="input-snapshot-interval"
-            value={@start_form["snapshot_interval"]}
-            placeholder="optional"
-            class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 transition-colors"
-          />
-        </div>
-        <div class="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            phx-click="close_start_modal"
-            data-testid="start-cancel-btn"
-            class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            data-testid="start-submit-btn"
-            class="px-4 py-2 text-sm font-medium text-white rounded-xl bg-accent hover:bg-accent-hover hover:shadow-btn-hover transition-all duration-200"
-          >
-            Start
-          </button>
-        </div>
-      </form>
+        </select>
+      <% end %>
     </div>
-  </div>
-<% end %>
+    <div>
+      <label class="block text-sm font-medium text-th-secondary mb-1">
+        Init Values (JSON)
+      </label>
+      <textarea
+        name="start[init_values]"
+        data-testid="input-init-values"
+        rows="3"
+        placeholder="{}"
+        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm font-mono focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1"
+      ><%= @start_form["init_values"] %></textarea>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-th-secondary mb-1">
+        Snapshot Interval
+      </label>
+      <input
+        type="number"
+        name="start[snapshot_interval]"
+        data-testid="input-snapshot-interval"
+        value={@start_form["snapshot_interval"]}
+        placeholder="optional"
+        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 transition-colors"
+      />
+    </div>
+    <div class="flex justify-end gap-3 pt-2">
+      <button
+        type="button"
+        phx-click="close_start_modal"
+        data-testid="start-cancel-btn"
+        class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
+      >
+        Cancel
+      </button>
+      <button
+        type="submit"
+        data-testid="start-submit-btn"
+        class="px-4 py-2 text-sm font-medium text-white rounded-xl bg-accent hover:bg-accent-hover hover:shadow-btn-hover transition-all duration-200"
+      >
+        Start
+      </button>
+    </div>
+  </form>
+</.dialog>
 
-<%!-- Stop confirmation modal --%>
-<%= if @confirm_stop do %>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
-    <div data-testid="stop-confirm-modal" class="bg-modal-bg border border-modal-border rounded-modal w-full max-w-sm p-6 shadow-modal animate-scale-in">
-      <h3 class="text-lg font-semibold text-th-primary mb-3">Stop Processor?</h3>
-      <p class="text-sm text-th-tertiary mb-5">
-        Are you sure you want to stop <span class="text-th-primary font-mono"><%= @confirm_stop %></span>?
-      </p>
-      <div class="flex justify-end gap-3">
-        <button
-          phx-click="cancel_stop"
-          data-testid="stop-cancel-btn"
-          class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          phx-click="stop_processor"
-          phx-value-processor_id={@confirm_stop}
-          data-testid="stop-confirm-btn"
-          class="px-4 py-2 text-sm font-medium text-white bg-danger hover:bg-danger-hover rounded-xl transition-colors"
-        >
-          Stop
-        </button>
-      </div>
-    </div>
-  </div>
-<% end %>
+<.confirm_dialog
+  :if={@confirm_stop}
+  title="Stop Operative?"
+  confirm_label="Stop"
+  on_confirm="stop_operative"
+  on_cancel="cancel_stop"
+  values={%{"operative_id" => @confirm_stop}}
+  testid="stop-confirm-modal"
+  cancel_testid="stop-cancel-btn"
+  confirm_testid="stop-confirm-btn"
+>
+  Are you sure you want to stop <.mono>{@confirm_stop}</.mono>?
+</.confirm_dialog>

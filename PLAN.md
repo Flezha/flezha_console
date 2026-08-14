@@ -10,18 +10,22 @@ Each phase follows this loop:
 
 ---
 
-## Current State (as of last session)
+> **This file is a historical build log.** The phases below record how the app
+> was first built, against a version of the controller that has since changed
+> substantially. For what the app does now, read `README.md`; for what is left,
+> read `TODO.md`. Vocabulary here has been brought in line with the controller,
+> but the narrative is not maintained.
 
-- **Code compiles cleanly** (host: `mix compile` passes with no errors)
-- **All 96 tests pass** (`mix test` → 0 failures)
-- **Docker stack is running** (`docker compose -f docker-compose.dev.yml up`)
-- **DB is migrated** (`docker exec fui_web mix ecto.migrate` → "Migrations already up")
-- **Login page loads** (200), register page loads (200), `/` redirects to login (302)
-- **Registration flow tested**: register → dev mailbox email → magic link → logged in → Dashboard renders
-- **Container recompile needed after `.ex` file changes**: `docker exec fui_web mix compile --force`
+## Current state
+
+- Compiles clean under `mix compile --warnings-as-errors`
+- `mix test` green, including distributed tests that start real peer nodes
+- `npm run cy:run` green against the running dev stack
+- The dev stack is `docker compose -f docker-compose.dev.yml up --build`, which
+  brings up the controller, a Rust runner, this UI, Postgres, and Kafka
 
 ### Known issue: container recompile lag
-The container has its own `_build` Docker volume (`fui_web_build`). When `.ex` files change on the host, the container won't pick them up until `docker exec fui_web mix compile --force` is run (or the container restarts). `.html.heex` template changes are picked up by live-reload automatically.
+The container has its own `_build` Docker volume (`fui_web_build`). When `.ex` files change on the host, the container won't pick them up until `docker exec fui_web mix compile` is run (or the container restarts). `.html.heex` template changes are picked up by live-reload automatically.
 
 ---
 
@@ -62,35 +66,35 @@ The container has its own `_build` Docker volume (`fui_web_build`). When `.ex` f
 ### ✅ Phase 2: NodeManager + Layout + Dashboard — AGENT CONFIRMED WORKING
 
 **What was done:**
-- `NodeManager` extended with all RPC wrapper functions (list_namespaces, list_processors, etc.)
+- `NodeManager` extended with all RPC wrapper functions (list_namespaces, list_operatives, etc.)
 - App layout (`app.html.heex`): dark sidebar, top bar with node status dot + user email, settings + logout links
-- `DashboardLive`: polls every 5s, shows node status, namespace/processor/plugin counts, CE table, namespace quick links
+- `DashboardLive`: polls every 5s, shows node status, namespace/operative/plugin counts, CE table, namespace quick links
 - **Fixed `Node.list(:hidden)` → `Node.list()`** in `node_manager.ex` — agent is a regular node, not hidden; `Node.list(:hidden)` always returned `[]` from the UI node
 - **Fixed CE process lifecycle**: added `FLEZHA_EXTERNAL_PROCESSES` to `docker-compose.dev.yml` so `PortPilot` GenServer manages the Rust CE (previously, ERPC-launched CE died immediately when handler terminated)
-- **Confirmed RPC works**: `list_namespaces()` → `["default"]`, `list_compute_engines("default")` → `{:ok, ["default_..."]}`, `start_processor` → `{:ok, ...}`
+- **Confirmed RPC works**: `list_namespaces()` → `["default"]`, `list_runners("default")` → `{:ok, ["default_..."]}`, `start_operative` → `{:ok, ...}`
 
 **Known gaps:**
-- `flat_bindings/1` helper in `ProcessorLive` handles both atom and string keys — not yet verified in browser
+- `extension_entries/1` helper in `OperativeLive` handles both atom and string keys — not yet verified in browser
 - Top bar logout uses `<.link method="delete">` — needs JS for method override (app.js includes Phoenix.HTML.Form JS)
 
 **Needs browser confirmation:**
-- Dashboard shows green dot + node name `flezha@fui_agent`
+- Dashboard shows green dot + node name `flezha@flezha_controller`
 - Namespace count 1, CE table shows CE ID, Namespace quicklink to `/namespaces/default`
-- Demo processors `processor_a` (store_input) and `processor_b` (do_nothing) running in "default"
+- Demo operatives `operative_a` (store_input) and `operative_b` (do_nothing) running in "default"
 
 ---
 
-### ⚠️ Phase 3: Namespace + Processor LiveViews — IMPLEMENTED, NOT BROWSER-TESTED
+### ⚠️ Phase 3: Namespace + Operative LiveViews — IMPLEMENTED, NOT BROWSER-TESTED
 
 **What was done:**
-- `NamespaceLive.Index`: lists namespaces with processor/CE counts, auto-refreshes every 5s
-- `NamespaceLive.Show`: processors + CEs panels, Start Processor modal, Stop confirmation
-- `ProcessorLive`: info panel, SDK state fetch + auto-refresh toggle, bindings table, attach/detach modals, stream link
+- `NamespaceLive.Index`: lists namespaces with operative/CE counts, auto-refreshes every 5s
+- `NamespaceLive.Show`: operatives + CEs panels, Start Operative modal, Stop confirmation
+- `OperativeLive`: info panel, SDK state fetch + auto-refresh toggle, bindings table, attach/detach modals, stream link
 
 **Known gaps:**
 - `get_overwatch_state` return value key format (atom vs string) handled with `||` fallback — verify against real agent
-- `flat_bindings/1` in ProcessorLive needs testing with real binding data shapes
-- Start processor modal: `init_values` JSON textarea, `snapshot_interval` optional
+- `extension_entries/1` in OperativeLive needs testing with real binding data shapes
+- Start operative modal: `init_values` JSON textarea, `snapshot_interval` optional
 
 **Tests to write:**
 - Namespace index: empty state when disconnected
@@ -102,7 +106,7 @@ The container has its own `_build` Docker volume (`fui_web_build`). When `.ex` f
 
 **What was done:**
 - `PluginSchema` module: static schema for 4 user-facing providers (websocket, kafka, filter, stdout)
-- Attach Plugin modal in `ProcessorLive`: step 1 choose provider, step 2 configure fields
+- Attach Plugin modal in `OperativeLive`: step 1 choose provider, step 2 configure fields
 - `PluginLive`: global list of all active plugins, disable button
 
 **Known gaps:**
@@ -141,7 +145,7 @@ The container has its own `_build` Docker volume (`fui_web_build`). When `.ex` f
 
 **What was done:**
 - `EventBridge` GenServer: subscribes to `Flezha.Service.EventManager` via RPC, retries every 10s
-- Broadcasts `:compute_engine_connected` / `:compute_engine_disconnected` events to PubSub `"flezha:events"`
+- Broadcasts `:runner_connected` / `:runner_disconnected` events to PubSub `"flezha:events"`
 
 **Known gaps:**
 - `Flezha.Service.EventManager.subscribe/1` API may differ — currently logs warning and retries
@@ -170,7 +174,7 @@ GenServer owns the Port for the lifetime of the application.
 #### Fix 3: `testnet_enabled: false` + `pkill` cleanup
 `testnet_enabled: true` in `flezha/config/dev.exs` starts a Node.js WebSocket server on port 4500.
 On agent restart, the old node process keeps the port bound. New instance → EADDRINUSE → crash loop.
-Fixed: `testnet_enabled: false` in dev.exs + `pkill node; pkill -f rust_compute_engine` before
+Fixed: `testnet_enabled: false` in dev.exs + `pkill node; pkill -f rust_runner` before
 each iex restart in docker-compose.dev.yml command.
 
 #### Fix 4: `PortPilot` fatal raise → backoff (KEY FIX)
@@ -191,7 +195,7 @@ After this fix: rapid restart cycle (every few seconds) stopped. Agent now survi
 changes, new iex session starts, web app reconnects.
 
 **What was ruled out:**
-- `compute_engine_cleanup` in `FleetManager` — runs every 40s, uses `HubManager.get_registry`
+- `runner_cleanup` in `FleetManager` — runs every 40s, uses `HubManager.get_registry`
   which returns `{:ok,...}` or `{:error,...}`, never raises. Only stops inactive CEs.
 - `ControlChannel → FleetManager` call deadlock — when ControlChannel gets killed during a
   `GenServer.call(FleetManager, ...)`, Erlang handles this gracefully (reply dropped, no crash).
@@ -205,13 +209,13 @@ changes, new iex session starts, web app reconnects.
   process somehow, it could cascade. Unlikely but unconfirmed.
 - NIF resource cleanup race — `TransportServer::drop` sends Shutdown + joins with 50ms timeout.
   If the thread doesn't stop in 50ms, it's abandoned but still alive. Possible state corruption.
-- Diagnostic remsh sessions appeared to trigger crashes — running `iex --remsh flezha@fui_agent`
+- Diagnostic remsh sessions appeared to trigger crashes — running `iex --remsh flezha@flezha_controller`
   from outside, then disconnecting, seemed to correlate with agent crashes. Mechanism unclear.
   AVOID running diagnostic remsh commands — they may destabilize the agent.
 
 **Current status (end of last session):**
 - BEAM PID 17282 had been running 9m31s without crash (as of ~17:49 on 2026-03-05)
-- Web app showed "Connected to flezha@fui_agent" at 17:40:08 with no subsequent disconnects
+- Web app showed "Connected to flezha@flezha_controller" at 17:40:08 with no subsequent disconnects
 - Agent appeared stable but root cause of periodic crashes not yet confirmed
 
 ### Next steps to investigate periodic crash
@@ -221,12 +225,12 @@ changes, new iex session starts, web app reconnects.
    Alternative: add `config :logger, backends: [...]` explicitly in dev.exs.
    Goal: get crash stacktraces to file so we can see the actual crash reason.
 
-2. **Watch docker logs during a crash** — run `docker logs -f fui_agent` and wait for crash.
+2. **Watch docker logs during a crash** — run `docker logs -f flezha_controller` and wait for crash.
    If nothing appears in logs at crash time, it's a native/NIF crash (SIGABRT, SIGSEGV, etc.).
    If Elixir output appears, get the stacktrace.
 
 3. **Check for BEAM crash dump** — after a crash, check for `/flezha/erl_crash.dump`.
-   `docker exec fui_agent ls -la /flezha/erl_crash.dump`
+   `docker exec flezha_controller ls -la /flezha/erl_crash.dump`
    If it exists, `head -100 /flezha/erl_crash.dump` will show the crash reason.
 
 4. **Test agent stability without any UI connections** — if agent crashes even without fui_web
@@ -250,9 +254,9 @@ changes, new iex session starts, web app reconnects.
 
 ### Step 0 — Confirm agent stability / fix periodic crash
 1. Start stack: `docker compose -f docker-compose.dev.yml up -d`
-2. Watch for crashes: `docker logs -f fui_agent` — wait 15+ minutes
-3. After first crash, check: `docker exec fui_agent ls -la /flezha/erl_crash.dump`
-4. If crash dump exists: `docker exec fui_agent head -200 /flezha/erl_crash.dump`
+2. Watch for crashes: `docker logs -f flezha_controller` — wait 15+ minutes
+3. After first crash, check: `docker exec flezha_controller ls -la /flezha/erl_crash.dump`
+4. If crash dump exists: `docker exec flezha_controller head -200 /flezha/erl_crash.dump`
 5. Fix based on crash reason (see investigation notes above)
 6. DO NOT use `iex --remsh` for diagnosis — it appears to trigger crashes
 
@@ -265,7 +269,7 @@ changes, new iex session starts, web app reconnects.
 ### Step 2 — User browser confirms Phase 2 dashboard
 - http://localhost:4000 → green dot, namespace count, CE table
 - http://localhost:4000/namespaces → "default" namespace
-- http://localhost:4000/namespaces/default → processors, CE, start/stop modals
+- http://localhost:4000/namespaces/default → operatives, CE, start/stop modals
 
 ---
 
@@ -279,8 +283,8 @@ changes, new iex session starts, web app reconnects.
 | `lib/flezha_ui/service/event_bridge.ex` | PubSub bridge for system events |
 | `lib/flezha_ui_web/live/dashboard_live.ex` | System overview, auto-refresh every 5s |
 | `lib/flezha_ui_web/live/namespace_live/index.ex` | Namespace list |
-| `lib/flezha_ui_web/live/namespace_live/show.ex` | Namespace detail + start/stop processor |
-| `lib/flezha_ui_web/live/processor_live.ex` | Processor detail, state, bindings, plugin attach |
+| `lib/flezha_ui_web/live/namespace_live/show.ex` | Namespace detail + start/stop operative |
+| `lib/flezha_ui_web/live/operative_live.ex` | Operative detail, state, bindings, plugin attach |
 | `lib/flezha_ui_web/live/plugin_live.ex` | Global plugin list |
 | `lib/flezha_ui_web/live/stream_live.ex` | Real-time I/O stream viewer |
 | `lib/flezha_ui_web/router.ex` | All routes, auth protection |
@@ -296,8 +300,8 @@ changes, new iex session starts, web app reconnects.
 GET  /                                     → DashboardLive           [auth required]
 GET  /namespaces                           → NamespaceLive.Index      [auth required]
 GET  /namespaces/:ns                       → NamespaceLive.Show       [auth required]
-GET  /namespaces/:ns/processors/:id        → ProcessorLive            [auth required]
-GET  /namespaces/:ns/processors/:id/stream → StreamLive               [auth required]
+GET  /namespaces/:ns/operatives/:id        → OperativeLive            [auth required]
+GET  /namespaces/:ns/operatives/:id/stream → StreamLive               [auth required]
 GET  /plugins                              → PluginLive               [auth required]
 
 GET    /users/register   → UserRegistrationController (public)
@@ -325,9 +329,9 @@ docker exec fui_web mix ecto.migrate
 docker logs fui_web 2>&1 | grep -v "EventBridge\|NodeConnector"
 
 # Watch agent for crashes (wait 15+ min)
-docker logs -f fui_agent
+docker logs -f flezha_controller
 
 # Check for BEAM crash dump after a crash
-docker exec fui_agent ls -la /flezha/erl_crash.dump
-docker exec fui_agent head -200 /flezha/erl_crash.dump
+docker exec flezha_controller ls -la /flezha/erl_crash.dump
+docker exec flezha_controller head -200 /flezha/erl_crash.dump
 ```

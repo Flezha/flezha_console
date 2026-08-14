@@ -38,3 +38,11 @@ config :phoenix, :plug_init_mode, :runtime
 # Enable helpful, but potentially expensive runtime checks
 config :phoenix_live_view,
   enable_expensive_runtime_checks: true
+
+# Re-establish the controller relay promptly, so a reconnect test does not wait
+# out the production backoff.
+config :flezha_ui, :event_bridge_retry_interval_ms, 100
+
+# Tests start their own event bridge against a peer node; a supervised
+# singleton would attach to that peer and race the test that owns it.
+config :flezha_ui, :start_event_bridge, false

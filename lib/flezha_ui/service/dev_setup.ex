@@ -1,8 +1,11 @@
 defmodule FlezhaUi.Service.DevSetup do
   @moduledoc """
-  Dev-only GenServer that auto-creates testnet processors and plugins
-  when the agent node becomes available. Retries every 5s for up to 5 minutes.
-  Resets and re-attempts on nodedown.
+  Dev-only GenServer that auto-creates testnet operatives and plugins
+  when the controller node becomes available. Retries every 5s for up to 5
+  minutes. Resets and re-attempts on nodedown.
+
+  Idempotent: an operative or plugin that already exists is left alone, so a
+  UI restart against a seeded controller is a no-op.
   """
 
   use GenServer
@@ -35,7 +38,7 @@ defmodule FlezhaUi.Service.DevSetup do
 
   @impl true
   def handle_info({:nodedown, node}, state) do
-    Logger.warning("[DevSetup] Agent node #{node} went down, will re-attempt on reconnect")
+    Logger.warning("[DevSetup] Controller node #{node} went down, will re-attempt on reconnect")
     {:noreply, %{state | retries: 0, ready: false}, {:continue, :setup}}
   end
 
@@ -51,25 +54,27 @@ defmodule FlezhaUi.Service.DevSetup do
 
   defp attempt_setup(%{config: config, retries: retries} = state) do
     ns = config[:namespace]
-    processors = config[:processors] || []
+    operatives = config[:operatives] || []
     plugins = config[:plugins] || []
 
     try do
       with {:node, node} when node != nil <- {:node, NodeManager.connected_node()},
            :ok <- ensure_namespace(ns),
-           :ok <- ensure_processors(ns, processors),
+           :ok <- ensure_operatives(ns, operatives),
            :ok <- ensure_plugins(ns, plugins) do
         Node.monitor(node, true)
 
-        proc_ids = Enum.map_join(processors, ", ", & &1.id)
+        operative_ids = Enum.map_join(operatives, ", ", & &1.id)
         plugin_ids = Enum.map_join(plugins, ", ", & &1.plugin_id)
 
-        Logger.info("[DevSetup] Testnet ready: processors=[#{proc_ids}], plugins=[#{plugin_ids}]")
+        Logger.info(
+          "[DevSetup] Testnet ready: operatives=[#{operative_ids}], plugins=[#{plugin_ids}]"
+        )
 
         %{state | ready: true}
       else
         {:node, nil} ->
-          schedule_retry(retries, "waiting for agent node")
+          schedule_retry(retries, "waiting for controller node")
           %{state | retries: retries + 1}
 
         {:error, reason} ->
@@ -85,42 +90,34 @@ defmodule FlezhaUi.Service.DevSetup do
   end
 
   defp ensure_namespace(ns) do
-    namespaces =
-      case NodeManager.list_namespaces() do
-        {:ok, list} when is_list(list) -> list
-        list when is_list(list) -> list
-        _ -> nil
-      end
-
-    if namespaces do
-      if Enum.any?(namespaces, fn n -> to_string(n) == ns end) do
+    with {:ok, list} <- NodeManager.list_namespaces() do
+      if Enum.any?(list, fn n -> to_string(n) == ns end) do
         :ok
       else
         {:error, {:namespace_not_found, ns}}
       end
-    else
-      {:error, :no_namespaces}
     end
   end
 
-  defp ensure_processors(ns, processors) do
+  defp ensure_operatives(ns, operatives) do
     existing =
-      case NodeManager.list_processors(ns) do
-        {:ok, list} when is_list(list) -> list
-        list when is_list(list) -> list
-        _ -> []
-      end
+      ns |> NodeManager.list_operatives() |> NodeManager.ok_or([]) |> MapSet.new(&to_string/1)
 
-    existing_ids = MapSet.new(existing, &to_string/1)
-
-    Enum.reduce_while(processors, :ok, fn proc, :ok ->
-      if MapSet.member?(existing_ids, proc.id) do
+    Enum.reduce_while(operatives, :ok, fn operative, :ok ->
+      if MapSet.member?(existing, operative.id) do
         {:cont, :ok}
       else
-        case NodeManager.start_processor(ns, proc.id, proc.factory_id, proc.init_values) do
+        case NodeManager.start_operative(
+               ns,
+               operative.id,
+               operative.factory_id,
+               operative.init_values,
+               Map.get(operative, :opts, []),
+               Map.get(operative, :kind, :stream)
+             ) do
           {:ok, _} -> {:cont, :ok}
           :ok -> {:cont, :ok}
-          error -> {:halt, {:error, {:start_processor, proc.id, error}}}
+          error -> {:halt, {:error, {:start_operative, operative.id, error}}}
         end
       end
     end)
@@ -129,59 +126,70 @@ defmodule FlezhaUi.Service.DevSetup do
   defp ensure_plugins(ns, plugins) do
     existing =
       case NodeManager.get_plugins() do
-        {:ok, p} when is_map(p) -> p
-        p when is_map(p) -> p
-        _ -> %{}
+        map when is_map(map) -> MapSet.new(Map.keys(map), &to_string/1)
+        _ -> MapSet.new()
       end
 
-    existing_ids =
-      MapSet.new(Map.keys(existing), &to_string/1)
+    providers = NodeManager.ok_or(NodeManager.get_provider_info(), [])
 
     Enum.reduce_while(plugins, :ok, fn plugin, :ok ->
-      if MapSet.member?(existing_ids, plugin.plugin_id) do
+      if MapSet.member?(existing, plugin.plugin_id) do
         {:cont, :ok}
       else
-        case enable_plugin(ns, plugin) do
-          :ok -> {:cont, :ok}
-          {:error, _} = err -> {:halt, err}
+        case enable_plugin(ns, plugin, providers) do
+          {:ok, _} ->
+            {:cont, :ok}
+
+          :ok ->
+            {:cont, :ok}
+
+          # The desired state already holds. A plugin can be live on the
+          # operative while absent from the plugin registry — the operative's
+          # subscriptions are restored from its persisted spec, the registry is
+          # not — so this is the seeder's goal met, not a failure.
+          {:error, {:plugin_already_subscribed, _id}} ->
+            {:cont, :ok}
+
+          error ->
+            {:halt, {:error, {:enable_plugin, plugin.plugin_id, error}}}
         end
       end
     end)
   end
 
-  defp enable_plugin(ns, plugin) do
-    # Use CliManager.enable_plugin/4 on the agent — it handles the full
-    # provider_mod.build → IOBindingPlugin.build → PluginManager.enable pipeline.
-    # plugin_flags must include processor_id, trigger, position (used by IOBindingPlugin.build)
-    # plus provider-specific settings (used by provider.build)
-    plugin_flags =
-      Map.merge(plugin.provider_settings, %{
-        "processor_id" => plugin.processor_id,
-        "trigger" => plugin.trigger,
-        "position" => to_string(plugin.position)
-      })
+  # Goes through the same NodeManager path the UI's attach form uses, so the
+  # seeded plugins exercise the code an operator drives.
+  defp enable_plugin(ns, plugin, providers) do
+    case find_provider(providers, plugin.provider_id) do
+      nil ->
+        {:error, {:provider_not_enabled, plugin.provider_id}}
 
-    plugin_flags_json = Jason.encode!(plugin_flags)
-    opts_json = Jason.encode!(%{"namespace" => ns})
+      provider ->
+        form =
+          plugin.provider_settings
+          |> Map.put("extensions", plugin.extensions)
+          |> merge_sub_opts(Map.get(plugin, :sub_opts, %{}))
 
-    try do
-      result =
-        NodeManager.erpc_call(
-          Flezha.Service.CliManager,
-          :enable_plugin,
-          [plugin.plugin_id, plugin.provider_id, plugin_flags_json, opts_json]
-        )
-
-      case result do
-        {:ok, _} -> :ok
-        :ok -> :ok
-        error -> {:error, error}
-      end
-    catch
-      kind, reason ->
-        Logger.warning("[DevSetup] enable_plugin crashed: #{kind} #{inspect(reason)}")
-        {:error, {kind, reason}}
+        NodeManager.enable_plugin(plugin.plugin_id, provider, form, ns, plugin.operative_id)
     end
+  end
+
+  defp merge_sub_opts(form, sub_opts) do
+    Enum.reduce(sub_opts, form, fn {key, value}, acc ->
+      Map.put(acc, "sub_#{key}", to_string(value))
+    end)
+  end
+
+  defp find_provider(providers, provider_id) do
+    Enum.find_value(providers, fn info ->
+      if to_string(Map.get(info, :id)) == provider_id do
+        %{
+          module: Map.get(info, :module),
+          required_fields: Map.get(info, :required_fields, []),
+          optional_fields: Map.get(info, :optional_fields, [])
+        }
+      end
+    end)
   end
 
   defp schedule_retry(retries, reason) do

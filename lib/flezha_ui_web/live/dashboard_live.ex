@@ -1,53 +1,53 @@
 defmodule FlezhaUiWeb.DashboardLive do
   use FlezhaUiWeb, :live_view
 
-  alias FlezhaUi.Service.NodeManager
+  use FlezhaUiWeb.Live.Refresh, every: 5_000
 
-  @refresh_interval 5_000
+  alias FlezhaUi.Service.EventBridge
+  alias FlezhaUi.Service.NodeManager
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: schedule_refresh()
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventBridge.topic())
+      schedule_refresh()
+    end
 
     {:ok, assign(socket, stats: load_stats(), page_title: "Dashboard")}
   end
 
   @impl true
-  def handle_info(:refresh, socket) do
-    schedule_refresh()
-    {:noreply, assign(socket, stats: load_stats())}
+  def handle_info({:flezha_event, event, _data}, socket)
+      when event in [:runner_connected, :runner_disconnected] do
+    {:noreply, refresh(socket)}
   end
 
-  defp schedule_refresh do
-    Process.send_after(self(), :refresh, @refresh_interval)
-  end
+  @impl FlezhaUiWeb.Live.Refresh
+  def refresh(socket), do: assign(socket, stats: load_stats())
 
   defp load_stats do
     node = NodeManager.connected_node()
     transport = System.get_env("FLEZHA_TRANSPORT", "uds")
 
-    {namespaces, processors, compute_engines, plugins, provider_count} =
+    {namespaces, operatives, runners, plugins, provider_count, error} =
       if node do
-        ns_list =
+        {ns_list, ns_error} =
           case NodeManager.list_namespaces() do
-            list when is_list(list) -> list
-            _ -> []
+            {:ok, list} -> {list, nil}
+            {:error, reason} -> {[], reason}
           end
 
-        processors =
+        operatives =
           Enum.flat_map(ns_list, fn ns ->
-            case NodeManager.list_processors(ns) do
-              {:ok, list} -> list
-              _ -> []
-            end
+            ns |> NodeManager.list_operatives() |> NodeManager.ok_or([])
           end)
 
-        ces =
+        runners =
           Enum.flat_map(ns_list, fn ns ->
-            case NodeManager.list_compute_engines(ns) do
-              {:ok, list} -> Enum.map(list, &%{id: &1, namespace: ns})
-              _ -> []
-            end
+            ns
+            |> NodeManager.list_runners()
+            |> NodeManager.ok_or([])
+            |> Enum.map(&%{id: NodeManager.identifier_id(&1), namespace: ns})
           end)
 
         plugins =
@@ -56,15 +56,11 @@ defmodule FlezhaUiWeb.DashboardLive do
             _ -> %{}
           end
 
-        provider_count =
-          case NodeManager.get_provider_info() do
-            list when is_list(list) -> length(list)
-            _ -> 0
-          end
+        provider_count = NodeManager.get_provider_info() |> NodeManager.ok_or([]) |> length()
 
-        {ns_list, processors, ces, plugins, provider_count}
+        {ns_list, operatives, runners, plugins, provider_count, ns_error}
       else
-        {[], [], [], %{}, 0}
+        {[], [], [], %{}, 0, :node_not_connected}
       end
 
     %{
@@ -72,10 +68,11 @@ defmodule FlezhaUiWeb.DashboardLive do
       transport: transport,
       namespace_count: length(namespaces),
       namespaces: namespaces,
-      processor_count: length(processors),
-      compute_engines: compute_engines,
+      operative_count: length(operatives),
+      runners: runners,
       plugin_count: map_size(plugins),
-      provider_count: provider_count
+      provider_count: provider_count,
+      error: error
     }
   end
 end

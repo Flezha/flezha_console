@@ -13,10 +13,15 @@
         <div class="group bg-surface border border-brd rounded-panel p-5 flex flex-col gap-3 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 hover:border-accent/30 transition-all duration-200">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <.icon name="hero-cube" class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors" />
-              <h3 class="text-sm font-semibold text-th-primary">{provider.label}</h3>
+              <.icon
+                name="hero-cube"
+                class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
+              />
+              <h3 class="text-sm font-semibold text-th-primary">
+                {Format.humanize(provider.id)}
+              </h3>
             </div>
-            <%= if provider.internal do %>
+            <%= if provider.internal? do %>
               <span class="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-badge-bg text-badge-text rounded-full border border-brd-subtle">
                 Internal
               </span>
@@ -82,19 +87,24 @@
           <tr class="border-b border-brd">
             <th class="text-left px-5 py-3 text-th-tertiary font-medium">Plugin ID</th>
             <th class="text-left px-5 py-3 text-th-tertiary font-medium">Provider</th>
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Extensions</th>
             <th class="text-left px-5 py-3 text-th-tertiary font-medium">Namespace</th>
-            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Processor</th>
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Operative</th>
             <th class="px-5 py-3"></th>
           </tr>
         </thead>
         <tbody>
           <%= for plugin <- @plugins do %>
-            <tr class="border-b border-brd-subtle hover:bg-surface-hover transition-colors">
+            <tr
+              data-testid={"plugin-row-#{plugin.id}"}
+              class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
+            >
               <td class="px-5 py-3 text-th-primary font-mono text-xs">{plugin.id}</td>
-              <td class="px-5 py-3 text-th-secondary text-xs">{plugin.module}</td>
+              <td class="px-5 py-3 text-th-secondary text-xs">{plugin.provider}</td>
+              <td class="px-5 py-3 text-th-secondary text-xs">{plugin.extensions}</td>
               <td class="px-5 py-3 text-th-tertiary text-xs">{plugin.namespace || "—"}</td>
               <td class="px-5 py-3 text-th-tertiary font-mono text-xs">
-                {plugin.processor_id || "—"}
+                {plugin.operative_id || "—"}
               </td>
               <td class="px-5 py-3 text-right">
                 <button
@@ -113,28 +123,13 @@
   <% end %>
 </div>
 
-<%= if @confirm_disable do %>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
-    <div class="bg-modal-bg border border-modal-border rounded-modal w-full max-w-sm p-6 shadow-modal animate-scale-in">
-      <h3 class="text-lg font-semibold text-th-primary mb-3">Disable Plugin?</h3>
-      <p class="text-sm text-th-tertiary mb-5">
-        Disable plugin <span class="text-th-primary font-mono"><%= @confirm_disable %></span>?
-      </p>
-      <div class="flex justify-end gap-3">
-        <button
-          phx-click="cancel_disable"
-          class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          phx-click="disable_plugin"
-          phx-value-plugin_id={@confirm_disable}
-          class="px-4 py-2 text-sm font-medium text-white bg-danger hover:bg-danger-hover rounded-xl transition-colors"
-        >
-          Disable
-        </button>
-      </div>
-    </div>
-  </div>
-<% end %>
+<.confirm_dialog
+  :if={@confirm_disable}
+  title="Disable Plugin?"
+  confirm_label="Disable"
+  on_confirm="disable_plugin"
+  on_cancel="cancel_disable"
+  values={%{"plugin_id" => @confirm_disable}}
+>
+  Disable plugin <.mono>{@confirm_disable}</.mono>?
+</.confirm_dialog>

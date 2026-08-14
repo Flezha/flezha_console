@@ -1,0 +1,183 @@
+<div class="space-y-6">
+  <h1 class="text-2xl font-bold text-th-primary">Audit log</h1>
+
+  <.runtime_error error={@load_error} />
+
+  <.notice :if={@disabled_reason} testid="audit-disabled">
+    {disabled_message(@disabled_reason)}
+  </.notice>
+
+  <%= if is_nil(@disabled_reason) do %>
+    <%!-- Stats --%>
+    <div :if={@stats} class="bg-surface border border-brd rounded-panel p-5 shadow-panel">
+      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider mb-3">
+        Statistics
+      </h2>
+      <div data-testid="audit-stats" class="grid grid-cols-4 gap-4">
+        <div
+          :for={{label, value} <- stat_tiles(@stats)}
+          class="bg-surface-input border border-brd rounded-xl px-4 py-3"
+        >
+          <p class="text-xs text-th-muted uppercase tracking-wider">{label}</p>
+          <p class="text-2xl font-bold text-th-primary mt-1 font-mono">{value}</p>
+        </div>
+      </div>
+      <p :if={@stats[:drop_count] not in [nil, 0]} class="mt-3 text-xs text-danger-text">
+        {@stats[:drop_count]} record(s) were dropped rather than written.
+      </p>
+    </div>
+
+    <%!-- Files --%>
+    <div class="bg-surface border border-brd rounded-panel shadow-panel">
+      <div class="px-5 py-4 border-b border-brd flex items-center gap-2">
+        <.icon name="hero-document-text" class="w-4 h-4 text-th-tertiary" />
+        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+          Files ({length(@files)})
+        </h2>
+      </div>
+      <%= if @files == [] do %>
+        <div data-testid="audit-files-empty" class="px-5 py-6 text-sm text-th-muted">
+          <%!-- The catalog lists rotated files, so it is empty until the first
+                rotation even while the current file is being written. --%>
+          No file has been rotated yet. Records are being written to <span class="font-mono text-th-secondary">{current_file(@stats)}</span>.
+        </div>
+      <% else %>
+        <ul data-testid="audit-files" class="divide-y divide-brd-subtle">
+          <li :for={file <- @files} class="px-5 py-3 text-xs font-mono text-th-secondary">
+            {inspect(file)}
+          </li>
+        </ul>
+      <% end %>
+    </div>
+
+    <%!-- Read --%>
+    <div class="bg-surface border border-brd rounded-panel shadow-panel">
+      <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-magnifying-glass" class="w-4 h-4 text-th-tertiary" />
+          <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">Records</h2>
+        </div>
+        <button
+          phx-click="read"
+          data-testid="audit-read-btn"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover rounded-xl transition-colors"
+        >
+          <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> Read
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4">
+        <form phx-change="filter_change" class="grid grid-cols-4 gap-4">
+          <div>
+            <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">File</label>
+            <input
+              type="text"
+              name="filter[file]"
+              value={@filter["file"]}
+              placeholder="all files"
+              data-testid="audit-filter-file"
+              class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus transition-colors"
+            />
+          </div>
+          <div>
+            <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">
+              Source
+            </label>
+            <input
+              type="text"
+              name="filter[source]"
+              value={@filter["source"]}
+              placeholder="all sources"
+              data-testid="audit-filter-source"
+              class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus transition-colors"
+            />
+          </div>
+          <div>
+            <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">Name</label>
+            <input
+              type="text"
+              name="filter[name]"
+              value={@filter["name"]}
+              placeholder="all names"
+              data-testid="audit-filter-name"
+              class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus transition-colors"
+            />
+          </div>
+          <div>
+            <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">Limit</label>
+            <input
+              type="number"
+              name="filter[limit]"
+              value={@filter["limit"]}
+              data-testid="audit-filter-limit"
+              class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus transition-colors"
+            />
+          </div>
+        </form>
+
+        <.runtime_error :if={@read_error} error={audit_error(@read_error)} />
+
+        <.notice :if={@truncated} testid="audit-truncated">
+          More records matched than the limit. Raise the limit or narrow the filter.
+        </.notice>
+
+        <%= cond do %>
+          <% is_nil(@records) -> %>
+            <p class="text-sm text-th-muted">Click "Read" to load audit records.</p>
+          <% @records == [] -> %>
+            <p data-testid="audit-records-empty" class="text-sm text-th-muted">
+              No record matches this filter.
+            </p>
+          <% true -> %>
+            <div data-testid="audit-records" class="space-y-1 max-h-96 overflow-y-auto">
+              <pre
+                :for={record <- @records}
+                class="bg-surface-base rounded-lg px-3 py-2 text-xs text-code font-mono overflow-x-auto whitespace-pre-wrap border border-brd"
+              ><%= Format.json_line(record) %></pre>
+            </div>
+        <% end %>
+      </div>
+    </div>
+
+    <%!-- Tail --%>
+    <div class="bg-surface border border-brd rounded-panel shadow-panel">
+      <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-signal" class="w-4 h-4 text-th-tertiary" />
+          <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+            Live tail ({length(@tail_records)})
+          </h2>
+        </div>
+        <button
+          phx-click={if @tailing, do: "stop_tail", else: "start_tail"}
+          data-testid="audit-tail-toggle"
+          class={
+            "px-3 py-1.5 text-xs rounded-xl transition-colors " <>
+              if @tailing,
+                do: "bg-accent text-white",
+                else: "bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover"
+          }
+        >
+          {if @tailing, do: "Tailing — stop", else: "Start tail"}
+        </button>
+      </div>
+      <div class="p-5">
+        <%= cond do %>
+          <% not @tailing -> %>
+            <p data-testid="audit-tail-idle" class="text-sm text-th-muted">
+              The tail is stopped. Start it to stream new audit records as they are written.
+            </p>
+          <% @tail_records == [] -> %>
+            <p class="text-sm text-th-muted">Tailing — waiting for the next record.</p>
+          <% true -> %>
+            <div data-testid="audit-tail-records" class="space-y-1 max-h-96 overflow-y-auto">
+              <pre
+                :for={record <- @tail_records}
+                class="bg-surface-base rounded-lg px-3 py-2 text-xs text-code font-mono overflow-x-auto whitespace-pre-wrap border border-brd"
+              ><%= Format.json_line(record) %></pre>
+            </div>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+</div>

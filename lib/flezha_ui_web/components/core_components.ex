@@ -50,7 +50,11 @@ defmodule FlezhaUiWeb.CoreComponents do
       data-cancel={JS.exec(@on_cancel, "phx-remove")}
       class="relative z-50 hidden"
     >
-      <div id={"#{@id}-bg"} class="bg-overlay fixed inset-0 transition-opacity backdrop-blur-sm" aria-hidden="true" />
+      <div
+        id={"#{@id}-bg"}
+        class="bg-overlay fixed inset-0 transition-opacity backdrop-blur-sm"
+        aria-hidden="true"
+      />
       <div
         class="fixed inset-0 overflow-y-auto"
         aria-labelledby={"#{@id}-title"}
@@ -88,6 +92,204 @@ defmodule FlezhaUiWeb.CoreComponents do
     </div>
     """
   end
+
+  @doc """
+  The overlay and panel every dialog on the operator screens sits in.
+
+  Padded and scrollable, so a panel taller than the viewport can still be
+  reached — a provider declaring many fields makes one.
+
+  ## Examples
+
+      <.dialog :if={@open} testid="start-modal" size="max-w-md">
+        ...
+      </.dialog>
+  """
+  attr :testid, :string, default: nil
+  attr :size, :string, default: "max-w-sm", doc: "max-width class for the panel"
+  slot :inner_block, required: true
+
+  def dialog(assigns) do
+    ~H"""
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm p-6">
+      <div
+        data-testid={@testid}
+        class={[
+          "bg-modal-bg border border-modal-border rounded-modal w-full p-6",
+          "shadow-modal animate-scale-in max-h-full overflow-y-auto",
+          @size
+        ]}
+      >
+        {render_slot(@inner_block)}
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
+  A dialog asking the operator to confirm an action before it happens.
+
+  Used for every irreversible verb on these screens, so they all ask the same
+  way. `values` are sent with the confirm click, for a handler keyed on which
+  row was acted on.
+
+  ## Examples
+
+      <.confirm_dialog
+        :if={@confirm_stop}
+        title="Stop operative?"
+        confirm_label="Stop"
+        on_confirm="stop_operative"
+        on_cancel="cancel_stop"
+        values={%{"operative_id" => @confirm_stop}}
+        testid="stop-confirm-modal"
+      >
+        Stop <.mono>{@confirm_stop}</.mono>? This cannot be undone.
+      </.confirm_dialog>
+  """
+  attr :title, :string, required: true
+  attr :confirm_label, :string, required: true
+  attr :on_confirm, :string, required: true
+  attr :on_cancel, :string, required: true
+  attr :values, :map, default: %{}
+  attr :variant, :string, default: "danger", values: ~w(danger accent)
+  attr :testid, :string, default: nil
+  attr :cancel_testid, :string, default: nil
+  attr :confirm_testid, :string, default: nil
+  slot :inner_block, required: true
+
+  def confirm_dialog(assigns) do
+    ~H"""
+    <.dialog testid={@testid}>
+      <h3 class="text-lg font-semibold text-th-primary mb-3">{@title}</h3>
+      <p class="text-sm text-th-tertiary mb-5">{render_slot(@inner_block)}</p>
+      <div class="flex justify-end gap-3">
+        <button
+          phx-click={@on_cancel}
+          data-testid={@cancel_testid}
+          class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          phx-click={@on_confirm}
+          {values_attrs(@values)}
+          data-testid={@confirm_testid}
+          class={[
+            "px-4 py-2 text-sm font-medium text-white rounded-xl transition-colors",
+            @variant == "danger" && "bg-danger hover:bg-danger-hover",
+            @variant == "accent" && "bg-accent hover:bg-accent-hover"
+          ]}
+        >
+          {@confirm_label}
+        </button>
+      </div>
+    </.dialog>
+    """
+  end
+
+  defp values_attrs(values) do
+    Map.new(values, fn {key, value} -> {"phx-value-#{key}", value} end)
+  end
+
+  @doc """
+  An identifier rendered the way identifiers are rendered everywhere here.
+  """
+  slot :inner_block, required: true
+
+  def mono(assigns) do
+    ~H"""
+    <span class="text-th-primary font-mono">{render_slot(@inner_block)}</span>
+    """
+  end
+
+  @doc """
+  A short explanation sitting above or beside content.
+
+  `:info` is for a state that is not a fault — a subsystem switched off, a kind
+  that has no entity state, a result the limit truncated. `:error` is for a
+  failure. Keeping both in one component means the difference is a parameter
+  rather than two blocks of markup that drifted.
+
+  ## Examples
+
+      <.notice kind={:info}>Audit logging is off on the controller.</.notice>
+  """
+  attr :kind, :atom, default: :info, values: [:info, :error]
+  attr :icon, :string, default: nil
+  attr :testid, :string, default: nil
+  attr :class, :string, default: nil
+  slot :inner_block, required: true
+
+  def notice(assigns) do
+    assigns =
+      assign_new(assigns, :resolved_icon, fn -> notice_icon(assigns.kind, assigns.icon) end)
+
+    ~H"""
+    <div
+      role={@kind == :error && "alert"}
+      data-testid={@testid}
+      class={[
+        "flex items-start gap-3 px-4 py-3 rounded-xl border text-sm",
+        @kind == :info && "border-brd bg-surface-input text-th-secondary",
+        @kind == :error &&
+          "bg-[var(--color-danger-subtle-bg)] border-[var(--color-danger-subtle-border)] text-danger-text",
+        @class
+      ]}
+    >
+      <.icon name={@resolved_icon} class="w-5 h-5 shrink-0 mt-px" />
+      <p>{render_slot(@inner_block)}</p>
+    </div>
+    """
+  end
+
+  defp notice_icon(_kind, icon) when is_binary(icon), do: icon
+  defp notice_icon(:error, _icon), do: "hero-exclamation-triangle"
+  defp notice_icon(:info, _icon), do: "hero-information-circle"
+
+  @doc """
+  Renders a banner for a normalised `FlezhaUi.Service.NodeManager` error.
+
+  Renders nothing when `error` is `nil`, so a screen can pass its last call
+  result unconditionally.
+
+  ## Examples
+
+      <.runtime_error error={@load_error} />
+  """
+  attr :error, :any, default: nil, doc: "a normalised NodeManager error, or nil"
+  attr :class, :string, default: nil
+
+  def runtime_error(assigns) do
+    assigns = assign(assigns, :message, runtime_error_message(assigns.error))
+
+    ~H"""
+    <.notice :if={@message} kind={:error} testid="runtime-error" class={@class}>
+      {@message}
+    </.notice>
+    """
+  end
+
+  defp runtime_error_message(nil), do: nil
+
+  defp runtime_error_message(:node_not_connected) do
+    "Not connected to a flezha controller. Screens will recover automatically once it is reachable."
+  end
+
+  defp runtime_error_message({:api_missing, module, function, arity}) do
+    "This UI and the flezha controller have diverged: the controller does not export " <>
+      "#{inspect(module)}.#{function}/#{arity}."
+  end
+
+  defp runtime_error_message(:timeout) do
+    "The flezha controller did not answer in time."
+  end
+
+  defp runtime_error_message({:remote_error, reason}) do
+    "The flezha controller reported an error: #{inspect(reason)}"
+  end
+
+  defp runtime_error_message(reason), do: "Error: #{inspect(reason)}"
 
   @doc """
   Renders flash notices.
@@ -257,11 +459,19 @@ defmodule FlezhaUiWeb.CoreComponents do
     """
   end
 
-  defp button_variant_classes("primary"), do: "bg-accent hover:bg-accent-hover text-white hover:shadow-btn-hover"
-  defp button_variant_classes("secondary"), do: "bg-surface-input border border-brd text-th-secondary hover:bg-surface-hover"
+  defp button_variant_classes("primary"),
+    do: "bg-accent hover:bg-accent-hover text-white hover:shadow-btn-hover"
+
+  defp button_variant_classes("secondary"),
+    do: "bg-surface-input border border-brd text-th-secondary hover:bg-surface-hover"
+
   defp button_variant_classes("danger"), do: "bg-danger hover:bg-danger-hover text-white"
-  defp button_variant_classes("ghost"), do: "text-th-tertiary hover:text-th-primary hover:bg-surface-hover"
-  defp button_variant_classes("outline"), do: "border border-accent text-accent-text hover:bg-accent hover:text-white"
+
+  defp button_variant_classes("ghost"),
+    do: "text-th-tertiary hover:text-th-primary hover:bg-surface-hover"
+
+  defp button_variant_classes("outline"),
+    do: "border border-accent text-accent-text hover:bg-accent hover:text-white"
 
   defp button_size_classes("sm"), do: "py-1.5 px-2.5 text-xs"
   defp button_size_classes("md"), do: "py-2 px-3 text-sm"

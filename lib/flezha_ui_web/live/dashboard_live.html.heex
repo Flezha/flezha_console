@@ -1,13 +1,16 @@
 <div class="space-y-6">
   <h1 class="text-2xl font-bold text-th-primary">Dashboard</h1>
 
+  <.runtime_error error={@stats.error} />
+
   <%!-- Node status card --%>
   <div class="bg-surface border border-brd rounded-panel p-5 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200">
     <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider mb-3">Node</h2>
     <div class="flex items-center gap-3">
       <%= if @stats.node do %>
         <span class="relative flex h-3 w-3 flex-shrink-0">
-          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75">
+          </span>
           <span class="relative inline-flex rounded-full h-3 w-3 bg-success"></span>
         </span>
         <div>
@@ -28,21 +31,30 @@
   <div class="grid grid-cols-3 gap-4">
     <div class="group bg-surface border border-brd rounded-panel p-6 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200 animate-fade-in-up">
       <div class="flex items-center gap-2 mb-1">
-        <.icon name="hero-rectangle-stack" class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors" />
+        <.icon
+          name="hero-rectangle-stack"
+          class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
+        />
         <p class="text-sm text-th-tertiary">Namespaces</p>
       </div>
       <p class="text-3xl font-bold text-th-primary mt-1 font-mono">{@stats.namespace_count}</p>
     </div>
     <div class="group bg-surface border border-brd rounded-panel p-6 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200 animate-fade-in-up animation-delay-100">
       <div class="flex items-center gap-2 mb-1">
-        <.icon name="hero-cpu-chip" class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors" />
-        <p class="text-sm text-th-tertiary">Processors</p>
+        <.icon
+          name="hero-cpu-chip"
+          class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
+        />
+        <p class="text-sm text-th-tertiary">Operatives</p>
       </div>
-      <p class="text-3xl font-bold text-th-primary mt-1 font-mono">{@stats.processor_count}</p>
+      <p class="text-3xl font-bold text-th-primary mt-1 font-mono">{@stats.operative_count}</p>
     </div>
     <div class="group bg-surface border border-brd rounded-panel p-6 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200 animate-fade-in-up animation-delay-200">
       <div class="flex items-center gap-2 mb-1">
-        <.icon name="hero-puzzle-piece" class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors" />
+        <.icon
+          name="hero-puzzle-piece"
+          class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
+        />
         <p class="text-sm text-th-tertiary">Plugins</p>
       </div>
       <p class="text-3xl font-bold text-th-primary mt-1 font-mono">{@stats.plugin_count}</p>
@@ -50,29 +62,29 @@
     </div>
   </div>
 
-  <%!-- Compute Engines table --%>
+  <%!-- Runners table --%>
   <div class="bg-surface border border-brd rounded-panel shadow-panel">
     <div class="px-5 py-4 border-b border-brd flex items-center gap-2">
       <.icon name="hero-server-stack" class="w-4 h-4 text-th-tertiary" />
       <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
-        Compute Engines
+        Runners
       </h2>
     </div>
-    <%= if @stats.compute_engines == [] do %>
-      <div class="px-5 py-6 text-sm text-th-muted">No compute engines found.</div>
+    <%= if @stats.runners == [] do %>
+      <div class="px-5 py-6 text-sm text-th-muted">No runners found.</div>
     <% else %>
       <table class="w-full text-sm">
         <thead>
           <tr class="border-b border-brd">
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Engine ID</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Runner ID</th>
             <th class="text-left px-5 py-2 text-th-tertiary font-medium">Namespace</th>
           </tr>
         </thead>
         <tbody>
-          <%= for ce <- @stats.compute_engines do %>
+          <%= for runner <- @stats.runners do %>
             <tr class="border-b border-brd-subtle hover:bg-surface-hover transition-colors">
-              <td class="px-5 py-2 text-th-secondary font-mono text-xs">{ce.id}</td>
-              <td class="px-5 py-2 text-th-tertiary">{ce.namespace}</td>
+              <td class="px-5 py-2 text-th-secondary font-mono text-xs">{runner.id}</td>
+              <td class="px-5 py-2 text-th-tertiary">{runner.namespace}</td>
             </tr>
           <% end %>
         </tbody>
@@ -84,7 +96,9 @@
   <%= if @stats.namespaces != [] do %>
     <div class="bg-surface border border-brd rounded-panel shadow-panel">
       <div class="px-5 py-4 border-b border-brd">
-        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">Namespaces</h2>
+        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+          Namespaces
+        </h2>
       </div>
       <div class="px-5 py-3 flex flex-wrap gap-2">
         <%= for ns <- @stats.namespaces do %>

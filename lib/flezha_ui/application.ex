@@ -14,9 +14,9 @@ defmodule FlezhaUi.Application do
         {Phoenix.PubSub, name: FlezhaUi.PubSub},
         {Finch, name: FlezhaUi.Finch},
         {Registry, keys: :unique, name: FlezhaUi.StreamRegistry},
-        {DynamicSupervisor, name: FlezhaUi.StreamSupervisor, strategy: :one_for_one},
-        FlezhaUi.Service.EventBridge
+        {DynamicSupervisor, name: FlezhaUi.StreamSupervisor, strategy: :one_for_one}
       ] ++
+        event_bridge_children() ++
         dev_children() ++
         [
           FlezhaUiWeb.Endpoint
@@ -30,6 +30,18 @@ defmodule FlezhaUi.Application do
   def config_change(changed, _new, removed) do
     FlezhaUiWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  # Left out under `:test`, where tests start their own bridge against a peer
+  # node. A supervised singleton would otherwise attach itself to whichever
+  # peer happened to be connected and recompile the relay there, racing the
+  # test that owns that peer.
+  defp event_bridge_children do
+    if Application.get_env(:flezha_ui, :start_event_bridge, true) do
+      [FlezhaUi.Service.EventBridge]
+    else
+      []
+    end
   end
 
   defp dev_children do

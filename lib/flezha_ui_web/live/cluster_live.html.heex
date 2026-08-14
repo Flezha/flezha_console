@@ -1,0 +1,142 @@
+<div class="space-y-6">
+  <h1 class="text-2xl font-bold text-th-primary">Cluster</h1>
+
+  <.runtime_error error={@load_error} />
+
+  <%!-- Nodes --%>
+  <div class="bg-surface border border-brd rounded-panel shadow-panel">
+    <div class="px-5 py-4 border-b border-brd flex items-center gap-2">
+      <.icon name="hero-server-stack" class="w-4 h-4 text-th-tertiary" />
+      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+        Nodes ({length(@cluster_nodes)})
+      </h2>
+    </div>
+    <%= if @cluster_nodes == [] do %>
+      <div data-testid="cluster-nodes-empty" class="px-5 py-6 text-sm text-th-muted">
+        No controller node is reachable.
+      </div>
+    <% else %>
+      <ul data-testid="cluster-nodes" class="divide-y divide-brd-subtle">
+        <li
+          :for={node <- @cluster_nodes}
+          data-testid={"cluster-node-#{node.name}"}
+          class="px-5 py-3 flex items-center gap-3"
+        >
+          <span class={
+            "w-2 h-2 rounded-full shrink-0 " <> if node.connected?, do: "bg-success", else: "bg-th-muted"
+          }>
+          </span>
+          <span class="text-th-primary font-mono text-sm">{node.name}</span>
+          <span
+            :if={node.connected?}
+            class="ml-auto text-xs px-2 py-0.5 rounded-lg bg-surface-input border border-brd text-th-secondary"
+          >
+            connected to this UI
+          </span>
+        </li>
+      </ul>
+    <% end %>
+  </div>
+
+  <%!-- Per-namespace hubs and fleet --%>
+  <div
+    :if={@namespaces == []}
+    data-testid="cluster-namespaces-empty"
+    class="bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel"
+  >
+    <.icon name="hero-rectangle-stack" class="w-10 h-10 text-th-muted mx-auto mb-3" />
+    <p class="text-th-tertiary">No namespace is running.</p>
+  </div>
+
+  <div
+    :for={ns <- @namespaces}
+    data-testid={"cluster-namespace-#{ns.name}"}
+    class="bg-surface border border-brd rounded-panel shadow-panel"
+  >
+    <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <.icon name="hero-rectangle-stack" class="w-4 h-4 text-th-tertiary" />
+        <h2 class="text-sm font-semibold text-th-primary font-mono">{ns.name}</h2>
+      </div>
+      <div class="flex items-center gap-2 text-xs text-th-tertiary">
+        <span>Hub:</span>
+        <%= if ns.hub_nodes == [] do %>
+          <span data-testid={"hub-nodes-#{ns.name}"} class="text-th-muted">no hub running</span>
+        <% else %>
+          <span data-testid={"hub-nodes-#{ns.name}"} class="font-mono text-th-secondary">
+            {Enum.join(ns.hub_nodes, ", ")}
+          </span>
+        <% end %>
+      </div>
+    </div>
+
+    <%!-- Runners --%>
+    <div class="px-5 py-4">
+      <p class="text-xs text-th-muted uppercase tracking-wider mb-3">
+        Runners ({length(ns.runners)})
+      </p>
+      <%= if ns.runners == [] do %>
+        <p data-testid={"runners-empty-#{ns.name}"} class="text-sm text-th-muted">
+          No runner has connected to this namespace.
+        </p>
+      <% else %>
+        <ul data-testid={"runners-#{ns.name}"} class="space-y-2">
+          <li
+            :for={runner <- ns.runners}
+            data-testid={"runner-#{runner.id}"}
+            class="bg-surface-input border border-brd rounded-xl px-4 py-3"
+          >
+            <p class="text-th-primary font-mono text-xs">{runner.id}</p>
+            <p class="text-th-tertiary text-xs mt-1">
+              {if runner.factories == [],
+                do: "no factories registered",
+                else: Enum.join(runner.factories, ", ")}
+            </p>
+          </li>
+        </ul>
+      <% end %>
+    </div>
+
+    <%!-- Factory placement --%>
+    <div :if={ns.factories != []} class="px-5 py-4 border-t border-brd">
+      <p class="text-xs text-th-muted uppercase tracking-wider mb-3">Factory placement</p>
+      <div class="flex flex-wrap gap-2">
+        <button
+          :for={factory <- ns.factories}
+          phx-click="select_factory"
+          phx-value-namespace={ns.name}
+          phx-value-factory={factory}
+          data-testid={"factory-#{factory}"}
+          class={
+            "px-3 py-1.5 text-xs font-mono rounded-lg border transition-colors " <>
+              if @selected_factory == {ns.name, factory},
+                do: "bg-accent text-white border-accent",
+                else: "bg-surface-input text-th-secondary border-brd hover:bg-surface-hover"
+          }
+        >
+          {factory}
+        </button>
+      </div>
+
+      <div :if={@selected_factory && elem(@selected_factory, 0) == ns.name} class="mt-4">
+        <%= if @factory_runners == [] do %>
+          <p data-testid="factory-runners-empty" class="text-sm text-th-muted">
+            No runner currently serves <span class="font-mono">{elem(@selected_factory, 1)}</span>.
+          </p>
+        <% else %>
+          <p data-testid="factory-runners" class="text-sm text-th-secondary">
+            <span class="font-mono">{elem(@selected_factory, 1)}</span>
+            is served by:
+            <span class="font-mono text-th-primary">{Enum.join(@factory_runners, ", ")}</span>
+          </p>
+        <% end %>
+        <button
+          phx-click="clear_factory"
+          class="mt-2 text-xs text-th-tertiary hover:text-th-primary transition-colors"
+        >
+          Clear
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
