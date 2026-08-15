@@ -7,10 +7,10 @@ defmodule FlezhaUiWeb.PluginLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: schedule_refresh()
-
     {:ok,
-     assign(socket,
+     socket
+     |> start_refresh()
+     |> assign(
        plugins: load_plugins(),
        available_providers: NodeManager.providers(),
        confirm_disable: nil,

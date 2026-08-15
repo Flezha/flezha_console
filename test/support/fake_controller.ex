@@ -88,7 +88,9 @@ defmodule FakeController do
       Flezha.Schedule.Hub,
       Flezha.Schedule.Cron,
       Flezha.Cluster.Directory,
-      Flezha.Runner.FleetManager
+      Flezha.Runner.FleetManager,
+      Flezha.Transport.LivenessCounters,
+      Flezha.Service.Observability
     ]
   end
 
@@ -311,4 +313,26 @@ defmodule Flezha.Runner.FleetManager do
 
   defstub active_runners(ns), do: {:ok, []}
   defstub runners_for_factory(ns, factory_id), do: {:ok, []}
+end
+
+defmodule Flezha.Transport.LivenessCounters do
+  @moduledoc "Stand-in for the controller's data-plane counters. See `FakeController`."
+  use FakeController.Stub
+
+  # The real snapshot answers a bare map of two counter lists.
+  defstub snapshot_all(), do: %{channels: [], operatives: []}
+end
+
+defmodule Flezha.Service.Observability do
+  @moduledoc """
+  Stand-in for the controller's observability service. See `FakeController`.
+
+  Answers plain maps rather than `Flezha.Observability.Signal` structs: that
+  module is not loadable on this node, and a struct arriving from the
+  controller is read here as the map it is on the wire.
+  """
+  use FakeController.Stub
+
+  # The context pattern is kept strict: the UI identifies itself on every read.
+  defstub query(params, %{source: :ui}), do: {:ok, []}
 end

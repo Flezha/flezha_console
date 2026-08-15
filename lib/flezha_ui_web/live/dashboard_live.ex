@@ -1,29 +1,55 @@
 defmodule FlezhaUiWeb.DashboardLive do
   use FlezhaUiWeb, :live_view
 
-  use FlezhaUiWeb.Live.Refresh, every: 5_000
+  # The data-plane summary reads its rates from snapshot deltas, so the screen
+  # ticks at the rate those deltas are worth measuring over.
+  use FlezhaUiWeb.Live.Refresh,
+    every: 2_000,
+    on_events: [:runner_connected, :runner_disconnected]
 
-  alias FlezhaUi.Service.EventBridge
+  use FlezhaUiWeb.Topology
+
   alias FlezhaUi.Service.NodeManager
+  alias FlezhaUiWeb.Topology
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket) do
-      Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventBridge.topic())
-      schedule_refresh()
-    end
+    {:ok,
+     socket
+     |> start_refresh()
+     |> assign(page_title: "Dashboard", ns_param: nil)
+     |> Topology.init()}
+  end
 
-    {:ok, assign(socket, stats: load_stats(), page_title: "Dashboard")}
+  # The graph's namespace is carried in the query string, so a selection is a
+  # link someone can send to whoever is on call.
+  @impl true
+  def handle_params(params, _uri, socket) do
+    {:noreply, socket |> assign(ns_param: params["ns"]) |> refresh()}
   end
 
   @impl true
-  def handle_info({:flezha_event, event, _data}, socket)
-      when event in [:runner_connected, :runner_disconnected] do
-    {:noreply, refresh(socket)}
+  def handle_event("select_namespace", %{"ns" => ns}, socket) do
+    {:noreply, push_patch(socket, to: ~p"/?#{[ns: ns]}")}
   end
 
   @impl FlezhaUiWeb.Live.Refresh
-  def refresh(socket), do: assign(socket, stats: load_stats())
+  def refresh(socket) do
+    stats = load_stats()
+    namespace = resolve_namespace(socket.assigns.ns_param, stats.namespaces)
+
+    socket
+    |> assign(stats: stats, namespace: namespace)
+    |> Topology.load_summary(namespace)
+  end
+
+  # An `?ns=` naming a namespace the controller no longer has falls back rather
+  # than showing an empty graph for a namespace that is not there.
+  defp resolve_namespace(requested, namespaces) do
+    sorted = Enum.sort(namespaces)
+
+    if requested in sorted, do: requested, else: List.first(sorted)
+  end
 
   defp load_stats do
     node = NodeManager.connected_node()

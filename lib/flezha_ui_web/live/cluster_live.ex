@@ -9,28 +9,19 @@ defmodule FlezhaUiWeb.ClusterLive do
 
   use FlezhaUiWeb, :live_view
 
-  use FlezhaUiWeb.Live.Refresh, every: 5_000
+  use FlezhaUiWeb.Live.Refresh,
+    every: 5_000,
+    on_events: [:runner_connected, :runner_disconnected]
 
-  alias FlezhaUi.Service.EventBridge
   alias FlezhaUi.Service.NodeManager
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket) do
-      Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventBridge.topic())
-      schedule_refresh()
-    end
-
     {:ok,
      socket
+     |> start_refresh()
      |> assign(page_title: "Cluster", selected_factory: nil, factory_runners: nil)
      |> refresh()}
-  end
-
-  @impl true
-  def handle_info({:flezha_event, event, _data}, socket)
-      when event in [:runner_connected, :runner_disconnected] do
-    {:noreply, refresh(socket)}
   end
 
   @impl true

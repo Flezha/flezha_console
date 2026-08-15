@@ -152,6 +152,50 @@
   50%      { opacity: 0.5; }
 }
 
+/* ---- Topology graph ----
+ * Flow is animated by marching the dash pattern along the edge; the speed
+ * bucket the UI derives from a rate picks the period, and an idle edge has no
+ * animation at all rather than one too slow to read.
+ */
+@keyframes topo-flow { to { stroke-dashoffset: -32; } }
+
+.topo-edge          { fill: none; stroke: var(--color-border-input); stroke-width: 2; }
+.topo-edge-dlq      { stroke: var(--color-warning); stroke-width: 1.5; stroke-dasharray: 2 4; }
+.topo-edge-satellite{ stroke: var(--color-accent); stroke-width: 1.5; stroke-dasharray: 3 4; opacity: 0.6; }
+.topo-edge-degraded { stroke: var(--color-danger); stroke-width: 2; stroke-dasharray: 5 4; }
+
+.topo-flow-idle    { stroke-dasharray: none; }
+.topo-flow-slow,
+.topo-flow-medium,
+.topo-flow-fast    { stroke: var(--color-accent); stroke-dasharray: 6 10; }
+.topo-flow-slow    { animation: topo-flow 1.8s  linear infinite; }
+.topo-flow-medium  { animation: topo-flow 0.9s  linear infinite; stroke-width: 2.5; }
+.topo-flow-fast    { animation: topo-flow 0.35s linear infinite; stroke-width: 3; stroke: var(--color-success); }
+
+.topo-node         { fill: var(--color-bg-input); stroke: var(--color-border-input); stroke-width: 1;
+                     transition: stroke var(--transition-fast) ease, fill var(--transition-fast) ease; }
+.topo-node:hover        { stroke: var(--color-accent); }
+.topo-node-ingest,
+.topo-node-sink         { fill: var(--color-bg-surface); }
+.topo-node-core         { fill: var(--color-accent-subtle); stroke: var(--color-accent); }
+.topo-node.is-selected  { stroke: var(--color-accent); stroke-width: 2; }
+.topo-node.is-suspended { stroke: var(--color-warning); stroke-dasharray: 5 3; }
+.topo-node.is-disconnected { stroke: var(--color-danger); stroke-dasharray: 5 3; }
+
+.topo-backpressure { fill: var(--color-warning); animation: pulse-dot 2s ease-in-out infinite; }
+
+.topo-label  { fill: var(--color-text-primary); font-size: 12px; font-family: ui-monospace, monospace; }
+.topo-sub    { fill: var(--color-text-muted);   font-size: 10px; }
+.topo-rate   { fill: var(--color-accent-text);  font-size: 10px; font-family: ui-monospace, monospace; }
+.topo-rate.is-muted { fill: var(--color-text-muted); opacity: 0.55; }
+
+.topo-spark-in  { fill: none; stroke: var(--color-accent);  stroke-width: 1.5; }
+.topo-spark-out { fill: none; stroke: var(--color-success); stroke-width: 1.5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .topo-flow-slow, .topo-flow-medium, .topo-flow-fast, .topo-backpressure { animation: none; }
+}
+
 /* Theme icon swap — show sun in dark mode, moon in light mode */
 .show-in-light { display: none !important; }
 .show-in-dark  { display: inline-block; }

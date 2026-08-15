@@ -19,6 +19,86 @@
 
   <.runtime_error error={@load_error} />
 
+  <.pipeline_graph topology={@topology}>
+    <:tap>
+      <aside
+        data-testid="topology-tap"
+        class="lg:w-72 shrink-0 bg-surface-input border border-brd rounded-xl p-4 space-y-3"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs text-th-muted uppercase tracking-wider">Payload tap</p>
+          <button
+            :if={@tap}
+            type="button"
+            phx-click="graph_tap_close"
+            data-testid="tap-close"
+            class="text-th-muted hover:text-th-primary transition-colors"
+            aria-label="Close tap"
+          >
+            <.icon name="hero-x-mark" class="w-4 h-4" />
+          </button>
+        </div>
+
+        <p :if={!@tap} class="text-xs text-th-muted">
+          Attaches a listener to this operative while open, and detaches it when you close it.
+        </p>
+
+        <div :if={!@tap} class="flex gap-2">
+          <.button
+            :for={io <- ~w(input output)}
+            variant="secondary"
+            size="sm"
+            phx-click="graph_tap"
+            phx-value-io={io}
+            data-testid={"tap-#{io}"}
+          >
+            Tap {io}
+          </.button>
+        </div>
+
+        <div :if={@tap} class="space-y-2">
+          <p class="text-xs text-th-secondary">
+            Tapping
+            <.mono>{@tap.io_type}</.mono>
+            — attached
+          </p>
+
+          <.notice :if={@tap.error} kind={:error} testid="tap-error">
+            Could not attach the listener: {inspect(@tap.error)}
+          </.notice>
+
+          <dl data-testid="tap-figures" class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+            <dt class="text-th-muted">Messages</dt>
+            <dd class="text-th-secondary font-mono text-right">{@tap.count}</dd>
+            <dt class="text-th-muted">Total</dt>
+            <dd class="text-th-secondary font-mono text-right">{Format.bytes(@tap.bytes)}</dd>
+            <dt class="text-th-muted">Rate</dt>
+            <dd data-testid="tap-msg-rate" class="text-accent-text font-mono text-right">
+              {tap_rate(@tap, :count)}/s
+            </dd>
+            <dt class="text-th-muted">Throughput</dt>
+            <dd data-testid="tap-byte-rate" class="text-accent-text font-mono text-right">
+              {Format.bytes(round(tap_rate(@tap, :bytes)))}/s
+            </dd>
+          </dl>
+
+          <ul :if={@tap.recent != []} data-testid="tap-recent" class="space-y-1">
+            <li
+              :for={msg <- @tap.recent}
+              class="text-[10px] font-mono text-th-muted truncate bg-surface rounded px-2 py-1"
+            >
+              {String.slice(msg.message, 0, 60)}
+            </li>
+          </ul>
+
+          <p :if={@tap.recent == [] and is_nil(@tap.error)} class="text-xs text-th-muted">
+            Waiting for a record to pass through.
+          </p>
+        </div>
+      </aside>
+    </:tap>
+  </.pipeline_graph>
+
   <%!-- Info Panel --%>
   <div class="bg-surface border border-brd rounded-panel p-5 grid grid-cols-3 gap-4 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200">
     <div>
@@ -44,7 +124,7 @@
     <div>
       <p class="text-xs text-th-muted uppercase tracking-wider">Uptime</p>
       <p data-testid="operative-uptime" class="text-th-primary font-mono mt-1">
-        {Format.duration(@uptime)}
+        {Format.duration(@uptime_ms)}
       </p>
     </div>
     <div>

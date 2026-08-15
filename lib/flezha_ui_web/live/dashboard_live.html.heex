@@ -27,6 +27,22 @@
     </div>
   </div>
 
+  <.fleet_summary topology={@topology}>
+    <:controls>
+      <form :if={@stats.namespaces != []} phx-change="select_namespace">
+        <select
+          name="ns"
+          data-testid="topology-namespace"
+          class="bg-surface-input border border-brd-input rounded-xl px-3 py-1.5 text-th-primary text-xs focus:outline-none focus:border-brd-focus transition-colors"
+        >
+          <option :for={ns <- Enum.sort(@stats.namespaces)} value={ns} selected={ns == @namespace}>
+            {ns}
+          </option>
+        </select>
+      </form>
+    </:controls>
+  </.fleet_summary>
+
   <%!-- Stats grid --%>
   <div class="grid grid-cols-3 gap-4">
     <div class="group bg-surface border border-brd rounded-panel p-6 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200 animate-fade-in-up">

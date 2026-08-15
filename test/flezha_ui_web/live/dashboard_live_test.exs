@@ -44,6 +44,13 @@ defmodule FlezhaUiWeb.DashboardLiveTest do
       assert html =~ ~s(data-testid="stat-namespaces")
       assert html =~ "Not connected to a flezha controller"
     end
+
+    test "the topology graph degrades rather than drawing a graph of nothing", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/")
+
+      assert html =~ ~s(data-testid="topology-disconnected")
+      refute html =~ ~s(data-testid="topo-node-ingest")
+    end
   end
 end
 

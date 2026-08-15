@@ -1,16 +1,24 @@
 defmodule FlezhaUiWeb.NamespaceLive.Show do
   use FlezhaUiWeb, :live_view
 
-  use FlezhaUiWeb.Live.Refresh, every: 5_000
+  # The data-plane summary reads its rates from snapshot deltas, so this
+  # screen ticks at the rate those deltas are worth measuring over. A runner
+  # flip is the one state change worth showing before the next tick.
+  use FlezhaUiWeb.Live.Refresh,
+    every: 2_000,
+    on_events: [:runner_connected, :runner_disconnected]
+
+  use FlezhaUiWeb.Topology
 
   alias FlezhaUi.Service.NodeManager
+  alias FlezhaUiWeb.Topology
 
   @impl true
   def mount(%{"ns" => ns}, _session, socket) do
-    if connected?(socket), do: schedule_refresh()
-
     socket =
       socket
+      |> start_refresh()
+      |> Topology.init()
       |> assign(
         ns: ns,
         page_title: ns,
@@ -123,21 +131,22 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
     operatives =
       Enum.map(operative_ids, fn operative_id ->
-        runner_id =
-          case NodeManager.get_overwatch_state(ns, operative_id) do
-            {:ok, state} -> Map.get(state, :runner_id)
-            _ -> nil
-          end
+        facts =
+          ns
+          |> NodeManager.overwatch_facts(operative_id)
+          |> NodeManager.ok_or(NodeManager.overwatch_facts())
 
-        %{id: operative_id, runner_id: runner_id}
+        %{id: operative_id, runner_id: facts.runner_id}
       end)
 
-    assign(socket,
+    socket
+    |> assign(
       operatives: operatives,
       runners: NodeManager.ok_or(NodeManager.list_runners(ns), []),
       factories: NodeManager.ok_or(NodeManager.list_factories(ns), []),
       load_error: load_error
     )
+    |> Topology.load_summary(ns)
   end
 
   defp parse_json_or_empty(""), do: {:ok, %{}}

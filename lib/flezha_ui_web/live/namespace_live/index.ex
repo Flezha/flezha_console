@@ -7,8 +7,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: schedule_refresh()
-    {:ok, socket |> assign(page_title: "Namespaces") |> refresh()}
+    {:ok, socket |> start_refresh() |> assign(page_title: "Namespaces") |> refresh()}
   end
 
   @impl FlezhaUiWeb.Live.Refresh

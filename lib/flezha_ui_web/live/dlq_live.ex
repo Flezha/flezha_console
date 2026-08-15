@@ -16,10 +16,9 @@ defmodule FlezhaUiWeb.DlqLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: schedule_refresh()
-
     socket =
       socket
+      |> start_refresh()
       |> assign(
         page_title: "Dead-letter queue",
         filter: "",

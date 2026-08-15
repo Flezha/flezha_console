@@ -1,14 +1,25 @@
 defmodule FlezhaUiWeb.OperativeLive do
   use FlezhaUiWeb, :live_view
 
-  use FlezhaUiWeb.Live.Refresh, every: 2_000
+  # The pipeline graph reads its rates from snapshot deltas, so this screen
+  # ticks whether or not the operator armed the entity-state panel. A runner
+  # flip is the one state change worth showing before the next tick.
+  use FlezhaUiWeb.Live.Refresh,
+    every: 2_000,
+    on_events: [:runner_connected, :runner_disconnected]
+
+  use FlezhaUiWeb.Topology
 
   alias FlezhaUi.Service.NodeManager
+  alias FlezhaUi.Service.StreamBridge
+  alias FlezhaUiWeb.Topology
 
   @impl true
   def mount(%{"ns" => ns, "id" => id}, _session, socket) do
     socket =
       socket
+      |> start_refresh()
+      |> Topology.init()
       |> assign(
         ns: ns,
         operative_id: id,
@@ -26,21 +37,59 @@ defmodule FlezhaUiWeb.OperativeLive do
         attach_form: %{},
         attach_error: nil,
         confirm_detach: nil,
+        tap: nil,
         enabled_providers: Enum.reject(NodeManager.providers(), & &1.internal?)
       )
       |> load_data()
+      |> Topology.load_pipeline()
 
-    if connected?(socket), do: schedule_refresh()
     {:ok, socket}
   end
 
-  # Only the state panel auto-refreshes, and only when asked; the rest of the
-  # screen is reloaded by the actions that change it.
   @impl FlezhaUiWeb.Live.Refresh
-  def refresh_paused?(socket), do: not socket.assigns.auto_refresh_state
+  def refresh(socket) do
+    socket
+    |> maybe_fetch_state()
+    |> load_data()
+    |> Topology.load_pipeline()
+  end
 
-  @impl FlezhaUiWeb.Live.Refresh
-  def refresh(socket), do: fetch_state(socket)
+  # The entity-state panel reloads only when the operator armed it; the graph
+  # ticks regardless, because a rate needs two snapshots to exist at all.
+  defp maybe_fetch_state(socket) do
+    if socket.assigns.auto_refresh_state, do: fetch_state(socket), else: socket
+  end
+
+  # ---- Payload tap ----
+  #
+  # `StreamBridge` attaches the controller's monitored-I/O listener on demand,
+  # reference-counts viewers and detaches when the last one goes — including a
+  # LiveView that died without saying goodbye. The tap is that bridge with a
+  # meter on it.
+
+  @impl true
+  def handle_event("graph_tap", %{"io" => io_type}, socket) when io_type in ~w(input output) do
+    %{ns: ns, operative_id: id} = socket.assigns
+    socket = close_tap(socket)
+    StreamBridge.subscribe(ns, id, io_type)
+
+    {:noreply,
+     assign(socket,
+       tap: %{
+         io_type: io_type,
+         started_at: System.monotonic_time(:millisecond),
+         count: 0,
+         bytes: 0,
+         recent: [],
+         error: nil
+       }
+     )}
+  end
+
+  @impl true
+  def handle_event("graph_tap_close", _params, socket) do
+    {:noreply, close_tap(socket)}
+  end
 
   @impl true
   def handle_event("fetch_state", _params, socket) do
@@ -178,54 +227,63 @@ defmodule FlezhaUiWeb.OperativeLive do
     end
   end
 
+  @impl true
+  def handle_info({:stream_message, msg}, %{assigns: %{tap: tap}} = socket) when is_map(tap) do
+    tap = %{
+      tap
+      | count: tap.count + 1,
+        bytes: tap.bytes + Map.get(msg, :bytes, 0),
+        recent: Enum.take([msg | tap.recent], 5)
+    }
+
+    {:noreply, assign(socket, tap: tap)}
+  end
+
+  @impl true
+  def handle_info({:stream_status, {:error, reason}}, %{assigns: %{tap: tap}} = socket)
+      when is_map(tap) do
+    {:noreply, assign(socket, tap: %{tap | error: reason})}
+  end
+
+  @impl true
+  def handle_info(_message, socket), do: {:noreply, socket}
+
+  defp close_tap(%{assigns: %{tap: nil}} = socket), do: socket
+
+  defp close_tap(%{assigns: %{tap: tap}} = socket) do
+    StreamBridge.unsubscribe(socket.assigns.ns, socket.assigns.operative_id, tap.io_type)
+    assign(socket, tap: nil)
+  end
+
   defp load_data(socket) do
     %{ns: ns, operative_id: operative_id} = socket.assigns
 
-    case NodeManager.get_overwatch_state(ns, operative_id) do
-      {:ok, state} ->
-        assign(socket,
-          load_error: nil,
-          factory_id: Map.get(state, :factory_id),
-          runner_id: Map.get(state, :runner_id),
-          kind: Map.get(state, :kind) || kind_from_builder(Map.get(state, :builder)),
-          uptime: uptime(Map.get(state, :started_at)),
-          suspended: Map.get(state, :suspended, false),
-          effectively_once: Map.get(state, :effectively_once, false),
-          default_input_type: Map.get(state, :default_input_type),
-          bindings: NodeManager.extension_entries(state)
-        )
-
-      {:error, reason} ->
-        socket
-        |> assign(load_error: reason)
-        |> assign_empty_overwatch()
+    case NodeManager.overwatch_facts(ns, operative_id) do
+      {:ok, facts} -> socket |> assign(load_error: nil) |> assign_facts(facts)
+      {:error, reason} -> socket |> assign(load_error: reason) |> assign_facts(overwatch_facts())
     end
   end
 
-  defp assign_empty_overwatch(socket) do
-    assign(socket,
-      factory_id: nil,
-      runner_id: nil,
-      kind: nil,
-      uptime: nil,
-      suspended: false,
-      effectively_once: false,
-      default_input_type: nil,
-      bindings: []
-    )
+  # Spread for the panels that read one field each, and kept whole for the
+  # pipeline graph, so a tick fetches the overwatch state once rather than
+  # twice.
+  defp assign_facts(socket, facts) do
+    socket |> assign(facts) |> assign(overwatch: facts)
   end
 
-  # The operative's kind lives on the builder it was started from.
-  defp kind_from_builder(%{kind: kind}), do: kind
-  defp kind_from_builder(_), do: nil
+  defp overwatch_facts, do: NodeManager.overwatch_facts()
 
-  # `started_at` is wall-clock ms, so it stays comparable when read from
-  # another node.
-  defp uptime(started_at) when is_integer(started_at) do
-    System.system_time(:millisecond) - started_at
+  @doc """
+  A tap's `field` per second, measured over the tap's own window.
+
+  Deliberately not a controller figure: nothing counts bytes on the data plane,
+  so this is what the listener actually delivered while it was attached.
+  """
+  def tap_rate(tap, field) do
+    elapsed = max(System.monotonic_time(:millisecond) - tap.started_at, 1) / 1_000
+
+    Float.round(Map.fetch!(tap, field) / elapsed, 1)
   end
-
-  defp uptime(_), do: nil
 
   defp fetch_state(socket) do
     %{ns: ns, operative_id: id, selector_form: form} = socket.assigns

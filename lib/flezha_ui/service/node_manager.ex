@@ -176,6 +176,69 @@ defmodule FlezhaUi.Service.NodeManager do
     erpc_call(Flezha.Service.OperativeManager, :get_overwatch_state, [namespace, operative_id])
   end
 
+  @doc """
+  The facts a screen wants out of an operative's overwatch state.
+
+  The controller answers a struct this node cannot pattern-match, and each
+  field needs its own rule to read: `kind` falls back to the builder the
+  operative was started from, the dead-letter class defaults to the id, uptime
+  is a wall-clock difference. Decoding it here is the bargain `extension_entries/1`
+  already makes — one place knows the shape, instead of each screen holding
+  half of it.
+
+  `overwatch_facts/0` is the same shape with nothing in it, for a screen whose
+  read failed.
+  """
+  def overwatch_facts(namespace, operative_id) do
+    case get_overwatch_state(namespace, operative_id) do
+      {:ok, state} when is_map(state) -> {:ok, decode_overwatch(state, operative_id)}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:remote_error, other}}
+    end
+  end
+
+  def overwatch_facts, do: decode_overwatch(%{}, nil)
+
+  defp decode_overwatch(state, operative_id) do
+    started_at = Map.get(state, :started_at)
+
+    %{
+      factory_id: Map.get(state, :factory_id),
+      runner_id: overwatch_runner(Map.get(state, :runner_id)),
+      kind: Map.get(state, :kind) || builder_kind(Map.get(state, :builder)),
+      suspended: Map.get(state, :suspended, false),
+      effectively_once: Map.get(state, :effectively_once, false),
+      default_input_type: Map.get(state, :default_input_type),
+      started_at: started_at,
+      uptime_ms: uptime(started_at),
+      operative_class: operative_class(state, operative_id),
+      bindings: extension_entries(state)
+    }
+  end
+
+  defp builder_kind(%{kind: kind}), do: kind
+  defp builder_kind(_builder), do: nil
+
+  defp overwatch_runner(nil), do: nil
+  defp overwatch_runner(id), do: identifier_id(id)
+
+  # An operative's dead-letter class is its id unless the builder overrode it —
+  # the controller's own rule, so a DLQ join agrees with what parked there.
+  defp operative_class(_state, nil), do: nil
+
+  defp operative_class(%{builder: %{opts: opts}}, operative_id) when is_list(opts) do
+    to_string(Keyword.get(opts, :operative_class, operative_id))
+  end
+
+  defp operative_class(_state, operative_id), do: to_string(operative_id)
+
+  # `started_at` is wall-clock ms, so it stays comparable read from another node.
+  defp uptime(started_at) when is_integer(started_at) do
+    System.system_time(:millisecond) - started_at
+  end
+
+  defp uptime(_started_at), do: nil
+
   # ---- Plugin API ----
 
   # Per-subscription options (`position`, `interval_ms`, ...) arrive prefixed so
@@ -489,6 +552,45 @@ defmodule FlezhaUi.Service.NodeManager do
     erpc_call(Flezha.Service.AuditLog, :stats, [caller_context()])
   end
 
+  # ---- Data plane and observability ----
+
+  @doc """
+  The controller's always-on data-plane counters.
+
+  Answers `%{channels: [...], operatives: [...]}` exactly as the controller
+  produced it: one entry per channel (keyed by runner id and stream name) and
+  one per operative instance, every value a monotonic count. Rates are the
+  caller's business — this is a point reading.
+  """
+  def liveness_snapshot do
+    erpc_call(Flezha.Transport.LivenessCounters, :snapshot_all, [])
+  end
+
+  @doc """
+  Recent signals from the controller's observability ring buffer.
+
+  `params` is the service's own query map — `%{source: atom, limit: n,
+  from_ts: us}`. The remote's `{:error, reason}` is its own answer and passes
+  through untouched, so a caller can tell "observability is switched off" from
+  a transport failure and render the affected region as absent rather than
+  failed.
+  """
+  def observability_query(params) when is_map(params) do
+    erpc_call(Flezha.Service.Observability, :query, [params, caller_context()])
+  end
+
+  @doc """
+  The controller's monotonic clock, in microseconds.
+
+  Observability signals are stamped with the controller's monotonic time, which
+  shares no epoch with this node's. Reading the controller's own clock is the
+  only way to say how old a signal is; a local clock would answer confidently
+  and wrongly.
+  """
+  def controller_monotonic_us do
+    erpc_call(:erlang, :monotonic_time, [:microsecond])
+  end
+
   # ---- Cluster and fleet ----
 
   def hub_nodes(namespace) do
@@ -512,11 +614,15 @@ defmodule FlezhaUi.Service.NodeManager do
   The id out of a controller identifier, whatever shape it arrives in.
 
   `list_factories/1` answers maps carrying a description, the fleet functions
-  answer bare ids or `{id, metadata}` tuples. Normalising here keeps every
-  screen off the question.
+  answer bare ids or `{id, metadata}` tuples, and anything named through the
+  controller's process registry — a stream channel, say — arrives as the
+  `:via` tuple it was registered under. Normalising here keeps every screen off
+  the question.
   """
   def identifier_id(%{id: id}), do: to_string(id)
   def identifier_id(%{"id" => id}), do: to_string(id)
+  def identifier_id({:via, _registry, {_scope, id}}), do: to_string(id)
+  def identifier_id({:via, _registry, id}), do: to_string(id)
   def identifier_id({id, _metadata}), do: to_string(id)
   def identifier_id(id), do: to_string(id)
 end

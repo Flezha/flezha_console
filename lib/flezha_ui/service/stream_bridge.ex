@@ -112,6 +112,9 @@ defmodule FlezhaUi.Service.StreamBridge do
   def handle_info({:message_forward, {message, metadata}}, state) do
     msg = %{
       message: FlezhaUi.Format.printable(message),
+      # Sized before it is rendered printable: a non-UTF-8 payload becomes hex,
+      # which would report double what actually crossed the wire.
+      bytes: payload_bytes(message),
       metadata: metadata,
       timestamp: DateTime.utc_now()
     }
@@ -163,6 +166,9 @@ defmodule FlezhaUi.Service.StreamBridge do
       NodeManager.disable_plugin(state.plugin_id)
     end
   end
+
+  defp payload_bytes(message) when is_binary(message), do: byte_size(message)
+  defp payload_bytes(message), do: message |> :erlang.term_to_binary() |> byte_size()
 
   defp broadcast_status(state, status) do
     Phoenix.PubSub.broadcast(
