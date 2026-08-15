@@ -19,6 +19,7 @@
       <% end %>
       <div class="flex items-center gap-1 bg-surface-input border border-brd rounded-xl p-1">
         <button
+          data-testid="stream-io-input"
           phx-click="switch_io"
           phx-value-type="input"
           disabled={@status == :connecting}
@@ -27,6 +28,7 @@
           Input
         </button>
         <button
+          data-testid="stream-io-output"
           phx-click="switch_io"
           phx-value-type="output"
           disabled={@status == :connecting}
@@ -41,6 +43,7 @@
   <%!-- Controls bar --%>
   <div class="flex items-center gap-3 flex-shrink-0">
     <button
+      data-testid="stream-pause"
       phx-click="toggle_pause"
       class={"inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl transition-all duration-200 " <> if @paused, do: "bg-warning text-white", else: "bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover"}
     >
@@ -51,6 +54,7 @@
       <% end %>
     </button>
     <button
+      data-testid="stream-clear"
       phx-click="clear"
       class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover rounded-xl transition-colors"
     >
@@ -58,6 +62,7 @@
     </button>
     <form phx-change="set_filter" class="flex-1 max-w-xs">
       <input
+        data-testid="stream-filter"
         type="text"
         name="filter"
         value={@filter}
@@ -65,20 +70,21 @@
         class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-1.5 text-th-primary text-sm focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 transition-colors"
       />
     </form>
-    <span class="ml-auto text-xs text-th-tertiary">
+    <span data-testid="stream-count" class="ml-auto text-xs text-th-tertiary">
       {@message_count} messages received {if @paused, do: " (paused)"}
     </span>
   </div>
 
   <%!-- Message feed --%>
   <div
+    data-testid="stream-feed"
     class="flex-1 bg-surface border border-brd rounded-panel overflow-y-auto font-mono text-xs shadow-panel"
     id="stream-feed"
     phx-hook="ScrollBottom"
   >
     <%= case @status do %>
       <% :connecting -> %>
-        <div class="p-6 text-center">
+        <div data-testid="stream-connecting" class="p-6 text-center">
           <div class="inline-flex items-center gap-2 text-th-tertiary">
             <svg
               class="animate-spin h-4 w-4"
@@ -106,18 +112,21 @@
           </div>
         </div>
       <% :error -> %>
-        <div class="p-6 text-center text-danger-text">
+        <div data-testid="stream-error" class="p-6 text-center text-danger-text">
           Failed to connect to {@io_type} stream. Try navigating back and reopening.
         </div>
       <% :connected -> %>
         <% display_messages = filtered_messages(@messages, @filter) %>
         <%= if display_messages == [] do %>
-          <div class="p-6 text-th-muted text-center">
+          <div data-testid="stream-empty" class="p-6 text-th-muted text-center">
             Waiting for messages on {@io_type} stream...
           </div>
         <% else %>
           <%= for msg <- Enum.reverse(display_messages) do %>
-            <div class="flex gap-3 px-4 py-2 border-b border-brd-subtle hover:bg-surface-hover transition-colors">
+            <div
+              data-testid="stream-message"
+              class="flex gap-3 px-4 py-2 border-b border-brd-subtle hover:bg-surface-hover transition-colors"
+            >
               <span class="text-th-muted flex-shrink-0 w-28">
                 {Format.time_of_day(msg.timestamp)}
               </span>

@@ -20,7 +20,7 @@ Each phase follows this loop:
 
 - Compiles clean under `mix compile --warnings-as-errors`
 - `mix test` green, including distributed tests that start real peer nodes
-- `npm run cy:run` green against the running dev stack
+- `npm run e2e` (Playwright) green against the running dev stack
 - The dev stack is `docker compose -f docker-compose.dev.yml up --build`, which
   brings up the controller, a Rust runner, this UI, Postgres, and Kafka
 

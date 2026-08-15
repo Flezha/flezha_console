@@ -36,7 +36,7 @@ All calls from the UI into the flezha controller SHALL pass through `FlezhaUi.Se
 #### Scenario: Removed names are absent
 
 - **WHEN** the codebase is searched for `list_processors`, `list_compute_engines`, `start_processor`, `stop_processor`, or `processor_state`
-- **THEN** no occurrence exists in `lib/`, `test/`, or `cypress/`
+- **THEN** no occurrence exists in `lib/`, `test/`, or `e2e/`
 
 ### Requirement: Operative start builds a valid operative spec
 

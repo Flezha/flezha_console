@@ -37,7 +37,11 @@ defmodule FlezhaUi.Service.EventBridgeTest do
       # Both stand-ins: the relay source names both controller services, so a
       # peer missing either cannot compile it.
       {peer, node} =
-        PeerNode.start!("bridge_peer", [Flezha.Service.EventManager, Flezha.Service.AuditLog])
+        PeerNode.start!("bridge_peer", [
+          FakeController,
+          Flezha.Service.EventManager,
+          Flezha.Service.AuditLog
+        ])
 
       on_exit(fn -> PeerNode.stop(peer) end)
 

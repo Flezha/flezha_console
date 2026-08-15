@@ -56,10 +56,11 @@ defmodule FlezhaUi.Service.NodeManagerDistributedTest do
     end
 
     test "a renamed call on a live module still points at the real name" do
-      # The shape of the actual regression this change fixes: the controller
-      # kept the module and renamed the function.
-      assert {:error, {:api_missing, :maps, :list_processors, 1}} =
-               capture_quietly(fn -> NodeManager.erpc_call(:maps, :list_processors, [%{}]) end)
+      # The shape version skew actually takes: the controller keeps the module
+      # and renames the function, so the module resolves and only the call is
+      # missing.
+      assert {:error, {:api_missing, :maps, :list_entries, 1}} =
+               capture_quietly(fn -> NodeManager.erpc_call(:maps, :list_entries, [%{}]) end)
     end
   end
 

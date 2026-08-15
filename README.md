@@ -82,14 +82,32 @@ docker attach flezha_controller                      # controller iex (detach: C
 
 ## Tests
 
+Two layers, and an assertion lives at the layer that can produce the state it
+asserts.
+
 ```bash
-mix test           # unit + distributed integration (starts real peer nodes)
-npm run cy:run     # end-to-end, against the running dev stack
+mix test                      # ExUnit: units, LiveViews, distributed integration
+mix test --exclude distributed  # the fast loop — no peer nodes booted
+
+npx playwright install chromium  # one-time
+npm run e2e                   # browser suite, needs the dev stack running
+npm run e2e:ui                # same, in Playwright's UI mode
 ```
 
-The distributed tests start peer BEAM nodes with this app's own `ebin`
-excluded from their code path, standing in for a controller that carries none
-of this application's code.
+`npm run e2e` drives the running dev stack at `http://localhost:4000`, so bring
+it up first with `docker compose -f docker-compose.dev.yml up`. A failing test
+means the stack is not in the shape the suite requires — the specs assert
+unconditionally rather than skipping, so a green run means the assertions ran.
+
+The ExUnit LiveView tests boot a peer BEAM node with this app's own `ebin`
+excluded from its code path, standing in for a controller that carries none of
+this application's code. `test/support/fake_controller.ex` answers as the
+controller modules by name, which is how states a live stack refuses to enter —
+a populated dead-letter queue, audit switched off, a disconnected or
+version-skewed controller — get covered at all.
+
+See [docs/e2e-tests.md](docs/e2e-tests.md) for the browser suite's layout and
+the rule for deciding which layer a new assertion belongs to.
 
 ## How the UI talks to the controller
 

@@ -35,7 +35,11 @@ flezha_ui-*.tar
 npm-debug.log
 /assets/node_modules/
 node_modules/
-cypress/screenshots/
-cypress/videos/
-cypress/downloads/
 
+# Playwright. `.auth` holds a live dev session cookie.
+e2e/.auth/
+test-results/
+playwright-report/
+
+# Playwright MCP browser tool output.
+.playwright-mcp/

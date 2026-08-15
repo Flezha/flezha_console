@@ -21,7 +21,11 @@ defmodule FlezhaUi.Service.EventRelayTest do
     # The relay calls the controller's services by name, so the stand-ins have
     # to be present on the peer before the relay is compiled there.
     {peer, node} =
-      PeerNode.start!("relay_peer", [Flezha.Service.EventManager, Flezha.Service.AuditLog])
+      PeerNode.start!("relay_peer", [
+        FakeController,
+        Flezha.Service.EventManager,
+        Flezha.Service.AuditLog
+      ])
 
     on_exit(fn -> PeerNode.stop(peer) end)
 

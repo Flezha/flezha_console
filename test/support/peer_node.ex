@@ -45,6 +45,20 @@ defmodule FlezhaUi.PeerNode do
     {peer, node}
   end
 
+  @doc """
+  Starts a peer standing in for the whole controller.
+
+  Ships every stand-in `FakeController` names, so each call `NodeManager` makes
+  is answered on the peer rather than raising `:undef`. Returns `{peer, node}`
+  exactly as `start!/2` does.
+  """
+  def start_controller!(prefix \\ "controller") do
+    {peer, node} = start!(prefix, FakeController.modules())
+
+    FakeController.reset(node)
+    {peer, node}
+  end
+
   @doc "Stops a peer, tolerating one that has already gone away."
   def stop(peer) do
     :peer.stop(peer)

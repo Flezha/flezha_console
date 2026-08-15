@@ -257,6 +257,7 @@
     </h3>
     <button
       phx-click="close_attach_modal"
+      data-testid="attach-close-btn"
       class="text-th-muted hover:text-th-primary transition-colors"
     >
       <.icon name="hero-x-mark" class="w-5 h-5" />
@@ -354,6 +355,7 @@
                   name={"plugin[field_#{field}]"}
                   value={Map.get(@attach_form, "field_#{field}", "")}
                   data-testid={"input-field-#{field}"}
+                  data-required="true"
                   class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 transition-colors"
                 />
               </div>

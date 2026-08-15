@@ -6,14 +6,17 @@
   <.runtime_error error={@load_error} />
 
   <%= if @namespaces == [] do %>
-    <div class="bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel">
+    <div
+      data-testid="namespaces-empty"
+      class="bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel"
+    >
       <.icon name="hero-rectangle-stack" class="w-10 h-10 text-th-muted mx-auto mb-3" />
       <p class="text-th-tertiary">No namespaces found.</p>
       <p class="text-sm text-th-muted mt-1">Make sure the flezha agent is connected.</p>
     </div>
   <% else %>
     <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
-      <table class="w-full text-sm">
+      <table data-testid="namespaces-table" class="w-full text-sm">
         <thead>
           <tr class="border-b border-brd">
             <th class="text-left px-5 py-3 text-th-tertiary font-medium">Namespace</th>
@@ -24,12 +27,23 @@
         </thead>
         <tbody>
           <%= for ns <- @namespaces do %>
-            <tr class="border-b border-brd-subtle hover:bg-surface-hover transition-colors">
+            <tr
+              data-testid={"namespace-row-#{ns.name}"}
+              class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
+            >
               <td class="px-5 py-3 text-th-primary font-medium font-mono">{ns.name}</td>
-              <td class="px-5 py-3 text-th-secondary">{ns.operative_count}</td>
-              <td class="px-5 py-3 text-th-secondary">{ns.runner_count}</td>
+              <td
+                data-testid={"namespace-operatives-#{ns.name}"}
+                class="px-5 py-3 text-th-secondary"
+              >
+                {ns.operative_count}
+              </td>
+              <td data-testid={"namespace-runners-#{ns.name}"} class="px-5 py-3 text-th-secondary">
+                {ns.runner_count}
+              </td>
               <td class="px-5 py-3 text-right">
                 <a
+                  data-testid={"namespace-view-#{ns.name}"}
                   href={~p"/namespaces/#{ns.name}"}
                   class="text-sm font-medium text-accent-text hover:text-accent transition-colors"
                 >

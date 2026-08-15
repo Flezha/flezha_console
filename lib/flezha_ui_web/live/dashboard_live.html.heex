@@ -13,13 +13,13 @@
           </span>
           <span class="relative inline-flex rounded-full h-3 w-3 bg-success"></span>
         </span>
-        <div>
+        <div data-testid="node-connected">
           <p class="text-th-primary font-medium">{@stats.node}</p>
           <p class="text-xs text-th-tertiary">Transport: {@stats.transport}</p>
         </div>
       <% else %>
         <span class="w-3 h-3 rounded-full bg-danger flex-shrink-0"></span>
-        <div>
+        <div data-testid="node-disconnected">
           <p class="text-th-tertiary font-medium">Not connected</p>
           <p class="text-xs text-th-muted">Set FLEZHA_NODE environment variable</p>
         </div>
@@ -37,7 +37,9 @@
         />
         <p class="text-sm text-th-tertiary">Namespaces</p>
       </div>
-      <p class="text-3xl font-bold text-th-primary mt-1 font-mono">{@stats.namespace_count}</p>
+      <p data-testid="stat-namespaces" class="text-3xl font-bold text-th-primary mt-1 font-mono">
+        {@stats.namespace_count}
+      </p>
     </div>
     <div class="group bg-surface border border-brd rounded-panel p-6 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200 animate-fade-in-up animation-delay-100">
       <div class="flex items-center gap-2 mb-1">
@@ -47,7 +49,9 @@
         />
         <p class="text-sm text-th-tertiary">Operatives</p>
       </div>
-      <p class="text-3xl font-bold text-th-primary mt-1 font-mono">{@stats.operative_count}</p>
+      <p data-testid="stat-operatives" class="text-3xl font-bold text-th-primary mt-1 font-mono">
+        {@stats.operative_count}
+      </p>
     </div>
     <div class="group bg-surface border border-brd rounded-panel p-6 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200 animate-fade-in-up animation-delay-200">
       <div class="flex items-center gap-2 mb-1">
@@ -57,8 +61,12 @@
         />
         <p class="text-sm text-th-tertiary">Plugins</p>
       </div>
-      <p class="text-3xl font-bold text-th-primary mt-1 font-mono">{@stats.plugin_count}</p>
-      <p class="text-xs text-th-muted mt-1">{@stats.provider_count} providers available</p>
+      <p data-testid="stat-plugins" class="text-3xl font-bold text-th-primary mt-1 font-mono">
+        {@stats.plugin_count}
+      </p>
+      <p data-testid="stat-providers" class="text-xs text-th-muted mt-1">
+        {@stats.provider_count} providers available
+      </p>
     </div>
   </div>
 
@@ -71,9 +79,11 @@
       </h2>
     </div>
     <%= if @stats.runners == [] do %>
-      <div class="px-5 py-6 text-sm text-th-muted">No runners found.</div>
+      <div data-testid="dashboard-runners-empty" class="px-5 py-6 text-sm text-th-muted">
+        No runners found.
+      </div>
     <% else %>
-      <table class="w-full text-sm">
+      <table data-testid="dashboard-runners" class="w-full text-sm">
         <thead>
           <tr class="border-b border-brd">
             <th class="text-left px-5 py-2 text-th-tertiary font-medium">Runner ID</th>
@@ -82,7 +92,10 @@
         </thead>
         <tbody>
           <%= for runner <- @stats.runners do %>
-            <tr class="border-b border-brd-subtle hover:bg-surface-hover transition-colors">
+            <tr
+              data-testid={"dashboard-runner-row-#{runner.id}"}
+              class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
+            >
               <td class="px-5 py-2 text-th-secondary font-mono text-xs">{runner.id}</td>
               <td class="px-5 py-2 text-th-tertiary">{runner.namespace}</td>
             </tr>
@@ -100,9 +113,10 @@
           Namespaces
         </h2>
       </div>
-      <div class="px-5 py-3 flex flex-wrap gap-2">
+      <div data-testid="dashboard-namespaces" class="px-5 py-3 flex flex-wrap gap-2">
         <%= for ns <- @stats.namespaces do %>
           <a
+            data-testid={"dashboard-namespace-#{ns}"}
             href={~p"/namespaces/#{ns}"}
             class="px-3 py-1.5 bg-accent-subtle text-accent-text hover:bg-accent hover:text-white rounded-xl text-sm hover:scale-105 hover:shadow-sm transition-all duration-200"
           >
