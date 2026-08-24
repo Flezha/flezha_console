@@ -1,20 +1,17 @@
 <Layouts.auth flash={@flash} current_scope={@current_scope}>
   <div class="space-y-6">
-    <div>
-      <h2 class="text-xl font-semibold text-th-primary">Log in</h2>
-      <%= if @current_scope do %>
-        <p class="mt-1 text-sm text-th-tertiary">
-          You need to reauthenticate to perform sensitive actions on your account.
-        </p>
-      <% else %>
-        <p class="mt-1 text-sm text-th-tertiary">
-          No account?
-          <.link navigate={~p"/users/register"} class="text-accent-text hover:underline">
-            Register
-          </.link>
-        </p>
-      <% end %>
-    </div>
+    <.header>
+      Log in
+      <:subtitle :if={@current_scope}>
+        You need to reauthenticate to perform sensitive actions on your account.
+      </:subtitle>
+      <:subtitle :if={!@current_scope}>
+        No account?
+        <.link navigate={~p"/users/register"} class="text-accent-text hover:underline">
+          Register
+        </.link>
+      </:subtitle>
+    </.header>
 
     <.form :let={f} for={@form} as={:user} id="login_form_password" action={~p"/users/log-in"}>
       <div class="space-y-4">

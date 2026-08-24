@@ -1,6 +1,10 @@
 defmodule FlezhaUiWeb.UserSessionController do
   use FlezhaUiWeb, :controller
 
+  # These screens render `<Layouts.auth>` themselves — a centred panel on the
+  # bare canvas. Without this they would also be wrapped in the console shell.
+  plug :put_layout, html: false
+
   alias FlezhaUi.Accounts
   alias FlezhaUiWeb.UserAuth
 

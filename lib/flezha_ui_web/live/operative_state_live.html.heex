@@ -1,14 +1,8 @@
 <div class="space-y-6">
-  <div class="flex items-center gap-3">
-    <.link
-      navigate={~p"/namespaces/#{@ns}/operatives/#{@operative_id}"}
-      class="text-th-tertiary hover:text-th-primary transition-colors"
-    >
-      <.icon name="hero-arrow-left" class="w-4 h-4" />
-    </.link>
-    <h1 class="text-2xl font-bold text-th-primary font-mono">{@operative_id}</h1>
-    <span class="text-sm text-th-tertiary">durable state</span>
-  </div>
+  <.header back={~p"/namespaces/#{@ns}/operatives/#{@operative_id}"}>
+    <span class="flz-num">{@operative_id}</span>
+    <span class="ml-2 text-sm font-normal text-th-tertiary">durable state</span>
+  </.header>
 
   <.runtime_error error={@load_error} action="the state listing" />
 
@@ -34,52 +28,51 @@
       class="overflow-hidden"
     >
       <:title>Procedure <span class="font-mono normal-case">{procedure}</span></:title>
-      <table class="w-full text-sm">
+      <table class="flz-table">
         <thead>
-          <tr class="border-b border-brd">
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Entity</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">WAL seq</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Snapshot seq</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Flush p99</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Fsync lag</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Dedup drops</th>
-            <th class="px-5 py-2"></th>
+          <tr>
+            <th>Entity</th>
+            <th>WAL seq</th>
+            <th>Snapshot seq</th>
+            <th>Flush p99</th>
+            <th>Fsync lag</th>
+            <th>Dedup drops</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           <tr
             :for={entity <- entities}
             data-testid={"entity-#{entity.key}"}
-            class="border-b border-brd-subtle"
           >
-            <td class="px-5 py-2 text-th-primary font-mono text-xs">
+            <td class="text-th-primary flz-num text-xs">
               <%!-- A procedure holding one unkeyed entity reports an empty
                     key; naming it is clearer than rendering nothing. --%>
               {if entity.entity_key == "", do: "(unkeyed)", else: entity.entity_key}
               <span
                 :if={lagging?(entity)}
                 data-testid={"entity-lagging-#{entity.key}"}
-                class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-lg text-[11px] bg-warning/10 text-warning"
+                class="flz-badge flz-badge--accent ml-1"
               >
                 lagging
               </span>
             </td>
-            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+            <td class="flz-num text-xs">
               {entity.counters[:wal_seq]}
             </td>
-            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+            <td class="flz-num text-xs">
               {entity.counters[:snapshot_seq]}
             </td>
-            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+            <td class="flz-num text-xs">
               {entity.counters[:flush_latency_ms_p99]}
             </td>
-            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+            <td class="flz-num text-xs">
               {entity.counters[:fsync_durability_lag_ms]}
             </td>
-            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+            <td class="flz-num text-xs">
               {entity.counters[:dedup_drops_total]}
             </td>
-            <td class="px-5 py-2 text-right">
+            <td class="text-right">
               <button
                 phx-click="select_entity"
                 phx-value-entity={entity.key}
@@ -97,11 +90,11 @@
     <%!-- Durability lag, sampled by this UI --%>
     <div
       data-testid="lag-chart"
-      class="bg-surface border border-brd rounded-panel p-5 shadow-panel"
+      class="flz-panel p-5"
     >
       <div class="flex items-center gap-2 mb-1">
         <.icon name="hero-chart-bar-square" class="w-4 h-4 text-th-tertiary" />
-        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+        <h2 class="flz-panel-title">
           Durability lag and WAL-behind-snapshot
         </h2>
       </div>
@@ -130,44 +123,44 @@
     <div
       :if={@selected}
       data-testid="time-travel"
-      class="bg-surface border border-brd rounded-panel p-5 shadow-panel"
+      class="flz-panel p-5"
     >
       <div class="flex items-center gap-2 mb-4">
         <.icon name="hero-clock" class="w-4 h-4 text-th-tertiary" />
-        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+        <h2 class="flz-panel-title">
           State at a point in time — <span class="font-mono normal-case">{@selected}</span>
         </h2>
       </div>
 
       <form phx-change="travel_change" class="flex items-end gap-3 mb-4">
         <div>
-          <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">Target</label>
-          <select
+          <label class="flz-label mb-1">Target</label>
+          <.dropdown
+            id="travel-kind"
             name="travel[kind]"
-            data-testid="travel-kind"
-            class="bg-surface-input border border-brd-input rounded-xl px-3 py-1.5 text-th-primary text-xs focus:outline-none focus:border-brd-focus"
+            value={@travel_form["kind"]}
+            testid="travel-kind"
+            class="w-36"
           >
-            <option value="seq" selected={@travel_form["kind"] == "seq"}>sequence</option>
-            <option value="timestamp" selected={@travel_form["kind"] == "timestamp"}>
-              timestamp
-            </option>
-          </select>
+            <:option value="seq">sequence</:option>
+            <:option value="timestamp">timestamp</:option>
+          </.dropdown>
         </div>
         <div>
-          <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">Value</label>
+          <label class="flz-label mb-1">Value</label>
           <input
             type="text"
             name="travel[value]"
             data-testid="travel-value"
             value={@travel_form["value"]}
-            class="bg-surface-input border border-brd-input rounded-xl px-3 py-1.5 text-th-primary text-xs focus:outline-none focus:border-brd-focus"
+            class="form-field--compact"
           />
         </div>
       </form>
       <button
         phx-click="travel"
         data-testid="travel-submit"
-        class="px-3 py-1.5 text-xs rounded-xl bg-accent text-white hover:bg-accent-hover transition-colors"
+        class="flz-button flz-button--sm"
       >
         Read
       </button>
@@ -183,7 +176,7 @@
       <pre
         :if={@travel_result}
         data-testid="travel-result"
-        class="mt-2 p-3 bg-surface-input rounded-xl text-[11px] font-mono text-th-secondary overflow-auto max-h-64"
+        class="flz-code mt-2 max-h-64"
       >{inspect(@travel_result, pretty: true, limit: 50)}</pre>
 
       <.notice :if={@travel_error} kind={:error} testid="travel-error" class="mt-4">

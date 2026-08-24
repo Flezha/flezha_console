@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" id="html-root" class="[scrollbar-gutter:stable]">
+<html lang="en" data-theme="dark" class="[scrollbar-gutter:stable]">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,11 +7,18 @@
     <.live_title default="Flezha UI" suffix=" · Flezha">
       {assigns[:page_title]}
     </.live_title>
+    <%!-- Sets data-theme before first paint. Must stay ahead of the
+          stylesheet, and must stay a blocking classic script. --%>
+    <script>
+      <%= theme_hydrate() %>
+    </script>
+    <link rel="icon" href={~p"/favicon.svg"} type="image/svg+xml" />
+    <link rel="alternate icon" href={~p"/favicon.ico"} sizes="32x32" />
     <link phx-track-static rel="stylesheet" href={~p"/assets/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/app.js"}>
     </script>
   </head>
-  <body class="bg-surface-base text-th-secondary antialiased">
+  <body class="antialiased">
     {@inner_content}
   </body>
 </html>

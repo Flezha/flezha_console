@@ -1,4 +1,4 @@
-import { test, expect, testIds } from './fixtures';
+import { test, expect, testIds, chosen } from './fixtures';
 
 /**
  * The pipeline graph and the fleet summary, against the running dev stack.
@@ -146,7 +146,7 @@ test.describe('Fleet summary', () => {
     await expect(page.getByTestId('summary-runners')).toHaveText(/^\s*\d+\s*$/);
     await expect(page.getByTestId('summary-backpressure')).toHaveText(/^\s*\d+\s*$/);
     await expect(page.getByTestId('summary-parked')).toHaveText(/^\s*\d+\s*$/);
-    await expect(page.getByTestId('topology-namespace')).toHaveValue('default');
+    await expect(chosen(page, 'topology-namespace')).toHaveValue('default');
   });
 
   test('lists the busiest operatives, each linking to its own pipeline', async ({ page, live }) => {
@@ -184,7 +184,7 @@ test.describe('Fleet summary', () => {
 
     await first.click();
     await expect(page).toHaveURL(/\/operatives\?/);
-    await expect(page.getByTestId('filter-health')).not.toHaveValue('');
+    await expect(chosen(page, 'filter-health')).not.toHaveValue('');
   });
 
   test('surfaces an idle non-healthy operative despite zero throughput', async ({ page, live }) => {

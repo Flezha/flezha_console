@@ -26,80 +26,6 @@ defmodule FlezhaUiWeb.CoreComponents do
   alias Phoenix.LiveView.JS
 
   @doc """
-  Renders a modal.
-
-  ## Examples
-
-      <.modal id="confirm-modal">
-        This is a modal.
-      </.modal>
-
-  JS commands may be passed to the `:on_cancel` to configure
-  the closing/cancel event, for example:
-
-      <.modal id="confirm" on_cancel={JS.navigate(~p"/posts")}>
-        This is another modal.
-      </.modal>
-
-  """
-  attr :id, :string, required: true
-  attr :show, :boolean, default: false
-  attr :on_cancel, JS, default: %JS{}
-  slot :inner_block, required: true
-
-  def modal(assigns) do
-    ~H"""
-    <div
-      id={@id}
-      phx-mounted={@show && show_modal(@id)}
-      phx-remove={hide_modal(@id)}
-      data-cancel={JS.exec(@on_cancel, "phx-remove")}
-      class="relative z-50 hidden"
-    >
-      <div
-        id={"#{@id}-bg"}
-        class="bg-overlay fixed inset-0 transition-opacity backdrop-blur-sm"
-        aria-hidden="true"
-      />
-      <div
-        class="fixed inset-0 overflow-y-auto"
-        aria-labelledby={"#{@id}-title"}
-        aria-describedby={"#{@id}-description"}
-        role="dialog"
-        aria-modal="true"
-        tabindex="0"
-      >
-        <div class="flex min-h-full items-center justify-center">
-          <div class="w-full max-w-3xl p-4 sm:p-6 lg:py-8">
-            <.focus_wrap
-              id={"#{@id}-container"}
-              phx-window-keydown={JS.exec("data-cancel", to: "##{@id}")}
-              phx-key="escape"
-              phx-click-away={JS.exec("data-cancel", to: "##{@id}")}
-              class="relative hidden rounded-modal bg-modal-bg border border-modal-border p-14 shadow-modal transition animate-scale-in"
-            >
-              <div class="absolute top-6 right-5">
-                <button
-                  phx-click={JS.exec("data-cancel", to: "##{@id}")}
-                  type="button"
-                  class="-m-3 flex-none p-3 text-th-muted hover:text-th-secondary"
-                  aria-label={gettext("close")}
-                >
-                  <.icon name="hero-x-mark-solid" class="h-5 w-5" />
-                </button>
-              </div>
-              <div id={"#{@id}-content"}>
-                {render_slot(@inner_block)}
-              </div>
-            </.focus_wrap>
-          </div>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  @doc """
   The overlay and panel every dialog on the operator screens sits in.
 
   Padded and scrollable, so a panel taller than the viewport can still be
@@ -125,31 +51,27 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   attr :close_testid, :string, default: nil
   slot :title
+  slot :actions, doc: "controls in the dialog foot, right-aligned"
   slot :inner_block, required: true
 
   def dialog(assigns) do
     ~H"""
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm p-6">
-      <div
-        data-testid={@testid}
-        class={[
-          "bg-modal-bg border border-modal-border rounded-modal w-full p-6",
-          "shadow-modal animate-scale-in max-h-full overflow-y-auto",
-          @size
-        ]}
-      >
-        <div :if={@title != []} class="flex items-center justify-between mb-5">
-          <h3 class="text-lg font-semibold text-th-primary">{render_slot(@title)}</h3>
+    <div class="flz-modal">
+      <div data-testid={@testid} class={["flz-modal-surface animate-scale-in", @size]}>
+        <div :if={@title != []} class="flz-modal-head">
+          <h3 class="flz-modal-title">{render_slot(@title)}</h3>
           <button
             :if={@on_close}
             phx-click={@on_close}
             data-testid={@close_testid}
-            class="text-th-muted hover:text-th-primary transition-colors"
+            class="flz-button flz-button--sm flz-button--ghost"
+            aria-label={gettext("close")}
           >
             <.icon name="hero-x-mark" class="w-5 h-5" />
           </button>
         </div>
-        {render_slot(@inner_block)}
+        <div class="flz-modal-body">{render_slot(@inner_block)}</div>
+        <div :if={@actions != []} class="flz-modal-foot">{render_slot(@actions)}</div>
       </div>
     </div>
     """
@@ -189,14 +111,14 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   def confirm_dialog(assigns) do
     ~H"""
-    <.dialog testid={@testid}>
-      <h3 class="text-lg font-semibold text-th-primary mb-3">{@title}</h3>
-      <p class="text-sm text-th-tertiary mb-5">{render_slot(@inner_block)}</p>
-      <div class="flex justify-end gap-3">
+    <.dialog testid={@testid} size="max-w-md">
+      <:title>{@title}</:title>
+      <p>{render_slot(@inner_block)}</p>
+      <:actions>
         <button
           phx-click={@on_cancel}
           data-testid={@cancel_testid}
-          class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
+          class="flz-button flz-button--md flz-button--ghost"
         >
           Cancel
         </button>
@@ -204,15 +126,11 @@ defmodule FlezhaUiWeb.CoreComponents do
           phx-click={@on_confirm}
           {values_attrs(@values)}
           data-testid={@confirm_testid}
-          class={[
-            "px-4 py-2 text-sm font-medium text-white rounded-xl transition-colors",
-            @variant == "danger" && "bg-danger hover:bg-danger-hover",
-            @variant == "accent" && "bg-accent hover:bg-accent-hover"
-          ]}
+          class={"flz-button flz-button--md flz-button--#{@variant}"}
         >
           {@confirm_label}
         </button>
-      </div>
+      </:actions>
     </.dialog>
     """
   end
@@ -222,13 +140,51 @@ defmodule FlezhaUiWeb.CoreComponents do
   end
 
   @doc """
+  The Flezha UI lockup, in the variant its surface calls for.
+
+  On the plum chrome the flat mono lockup is the one that does not clash —
+  white letters with the gold sub-wordmark and node graph, which is the
+  chrome's own accent. On the content canvas the gradient pair follows the
+  theme, so only one of the two is ever painted.
+
+  ## Examples
+
+      <.brand_lockup on={:chrome} class="w-full" />
+  """
+  attr :on, :atom, default: :canvas, values: [:chrome, :canvas]
+  attr :class, :string, default: nil
+
+  def brand_lockup(assigns) do
+    ~H"""
+    <img
+      :if={@on == :chrome}
+      src={~p"/images/flezha-ui-gold-mono-on-dark.svg"}
+      alt="Flezha UI"
+      class={@class}
+    />
+    <span :if={@on == :canvas} class={["inline-block", @class]}>
+      <img
+        src={~p"/images/flezha-ui-purple-on-dark.svg"}
+        alt="Flezha UI"
+        class="show-in-dark w-full"
+      />
+      <img
+        src={~p"/images/flezha-ui-purple-on-light.svg"}
+        alt="Flezha UI"
+        class="show-in-light w-full"
+      />
+    </span>
+    """
+  end
+
+  @doc """
   An identifier rendered the way identifiers are rendered everywhere here.
   """
   slot :inner_block, required: true
 
   def mono(assigns) do
     ~H"""
-    <span class="text-th-primary font-mono">{render_slot(@inner_block)}</span>
+    <span class="flz-num text-th-primary">{render_slot(@inner_block)}</span>
     """
   end
 
@@ -259,10 +215,9 @@ defmodule FlezhaUiWeb.CoreComponents do
       role={@kind == :error && "alert"}
       data-testid={@testid}
       class={[
-        "flex items-start gap-3 px-4 py-3 rounded-xl border text-sm",
-        @kind == :info && "border-brd bg-surface-input text-th-secondary",
-        @kind == :error &&
-          "bg-[var(--color-danger-subtle-bg)] border-[var(--color-danger-subtle-border)] text-danger-text",
+        "flz-toast",
+        @kind == :info && "flz-toast--info",
+        @kind == :error && "flz-toast--negative",
         @class
       ]}
     >
@@ -410,17 +365,12 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   def panel(assigns) do
     ~H"""
-    <div
-      data-testid={@testid}
-      class={["bg-surface border border-brd rounded-panel shadow-panel", @class]}
-    >
-      <div class="px-5 py-4 border-b border-brd flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
-          <.icon :if={@icon} name={@icon} class="w-4 h-4 text-th-tertiary" />
-          <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
-            {render_slot(@title)}
-          </h2>
-        </div>
+    <div data-testid={@testid} class={["flz-panel", @class]}>
+      <div class="flz-panel-head">
+        <h2 class="flz-panel-title">
+          <.icon :if={@icon} name={@icon} class="w-4 h-4" />
+          {render_slot(@title)}
+        </h2>
         <div :if={@actions != []} class="flex items-center gap-3">
           {render_slot(@actions)}
         </div>
@@ -450,16 +400,10 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   def empty_state(assigns) do
     ~H"""
-    <div
-      data-testid={@testid}
-      class={
-        (@boxed && "bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel") ||
-          "px-5 py-10 text-center"
-      }
-    >
-      <.icon name={@icon} class="w-10 h-10 text-th-muted mx-auto mb-3" />
-      <p class="text-th-tertiary">{render_slot(@inner_block)}</p>
-      <p :if={@detail != []} class="text-sm text-th-muted mt-1">{render_slot(@detail)}</p>
+    <div data-testid={@testid} class={["flz-empty", @boxed && "flz-panel"]}>
+      <.icon name={@icon} class="flz-empty-icon w-10 h-10 block" />
+      <p>{render_slot(@inner_block)}</p>
+      <p :if={@detail != []}>{render_slot(@detail)}</p>
     </div>
     """
   end
@@ -480,16 +424,20 @@ defmodule FlezhaUiWeb.CoreComponents do
   attr :testid, :string, default: nil
 
   attr :tone, :string,
-    default: "text-th-primary font-mono",
-    doc: "classes for the value; nil when the value brings its own"
+    default: nil,
+    doc: "classes overriding the value's own treatment, such as a semantic colour"
+
+  attr :boxed, :boolean,
+    default: false,
+    doc: "true for a figure that brings its own tile, in a summary strip"
 
   slot :inner_block, required: true
 
   def stat(assigns) do
     ~H"""
-    <div>
-      <dt class="text-xs text-th-muted uppercase tracking-wider">{@label}</dt>
-      <dd data-testid={@testid} class={[@tone, "mt-1"]}>{render_slot(@inner_block)}</dd>
+    <div class={["flz-stat", @boxed && "flz-stat--boxed"]}>
+      <dt>{@label}</dt>
+      <dd data-testid={@testid} class={@tone}>{render_slot(@inner_block)}</dd>
     </div>
     """
   end
@@ -531,34 +479,24 @@ defmodule FlezhaUiWeb.CoreComponents do
     <span
       data-testid="health-badge"
       data-health={@health}
-      class={[
-        "inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium",
-        health_class(@health),
-        @class
-      ]}
+      class={["flz-badge", health_variant(@health), @class]}
     >
-      <span class={["w-1.5 h-1.5 rounded-full", health_dot(@health)]}></span>
-      <span :if={not is_nil(@count)} class="font-mono">{@count}</span>
+      <span class="flz-badge-dot"></span>
+      <span :if={not is_nil(@count)} class="flz-num">{@count}</span>
       {@health}
     </span>
     """
   end
 
-  defp health_class(:healthy), do: "bg-success/10 text-success"
+  # The dot takes the badge's own ink, so one variant colours both.
+  defp health_variant(:healthy), do: "flz-badge--positive"
   # Parked at a committed boundary, holding no runner: not running, not broken,
   # and not the same as a row nobody has looked at yet.
-  defp health_class(:suspended), do: "bg-accent/10 text-accent-text"
-  defp health_class(:degraded), do: "bg-warning/10 text-warning"
-  defp health_class(:unbound), do: "bg-warning/10 text-warning"
-  defp health_class(:failed), do: "bg-danger/10 text-danger-text"
-  defp health_class(_health), do: "bg-surface-input text-th-tertiary"
-
-  defp health_dot(:healthy), do: "bg-success"
-  defp health_dot(:suspended), do: "bg-accent"
-  defp health_dot(:degraded), do: "bg-warning"
-  defp health_dot(:unbound), do: "bg-warning"
-  defp health_dot(:failed), do: "bg-danger"
-  defp health_dot(_health), do: "bg-th-muted"
+  defp health_variant(:suspended), do: "flz-badge--brand"
+  defp health_variant(:degraded), do: "flz-badge--warning"
+  defp health_variant(:unbound), do: "flz-badge--warning"
+  defp health_variant(:failed), do: "flz-badge--negative"
+  defp health_variant(_health), do: nil
 
   @doc """
   The controller's authorization posture, as a banner.
@@ -618,13 +556,13 @@ defmodule FlezhaUiWeb.CoreComponents do
     <span
       :if={@status.principal}
       data-testid="authz-identity"
-      class="flex items-center gap-1.5 text-xs text-th-tertiary font-mono"
+      class="flz-num flz-topbar-muted flex items-center gap-1.5 text-xs"
       title={"flezha principal #{@status.principal}"}
     >
       <.icon name="hero-key" class="w-3.5 h-3.5" />
       {@status.principal}
-      <span :if={@status.namespace} class="text-th-muted">/{@status.namespace}</span>
-      <span :if={@status.role} class="text-th-muted">({@status.role})</span>
+      <span :if={@status.namespace}>/{@status.namespace}</span>
+      <span :if={@status.role}>({@status.role})</span>
     </span>
     """
   end
@@ -655,20 +593,20 @@ defmodule FlezhaUiWeb.CoreComponents do
       phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
       role="alert"
       class={[
-        "fixed top-2 right-2 mr-2 w-80 sm:w-96 z-50 rounded-lg p-3 ring-1",
-        @kind == :info && "bg-emerald-50 text-emerald-800 ring-emerald-500 fill-cyan-900",
-        @kind == :error && "bg-rose-50 text-rose-900 shadow-md ring-rose-500 fill-rose-900"
+        "flz-toast",
+        @kind == :info && "flz-toast--positive",
+        @kind == :error && "flz-toast--negative"
       ]}
       {@rest}
     >
-      <p :if={@title} class="flex items-center gap-1.5 text-sm font-semibold leading-6">
-        <.icon :if={@kind == :info} name="hero-information-circle-mini" class="h-4 w-4" />
-        <.icon :if={@kind == :error} name="hero-exclamation-circle-mini" class="h-4 w-4" />
-        {@title}
-      </p>
-      <p class="mt-2 text-sm leading-5">{msg}</p>
-      <button type="button" class="group absolute top-1 right-1 p-2" aria-label={gettext("close")}>
-        <.icon name="hero-x-mark-solid" class="h-5 w-5 opacity-40 group-hover:opacity-70" />
+      <.icon :if={@kind == :info} name="hero-information-circle-mini" class="h-4 w-4 shrink-0" />
+      <.icon :if={@kind == :error} name="hero-exclamation-circle-mini" class="h-4 w-4 shrink-0" />
+      <div class="min-w-0 flex-1">
+        <p :if={@title} class="font-semibold text-th-primary">{@title}</p>
+        <p>{msg}</p>
+      </div>
+      <button type="button" class="group shrink-0" aria-label={gettext("close")}>
+        <.icon name="hero-x-mark-solid" class="h-4 w-4 opacity-40 group-hover:opacity-70" />
       </button>
     </div>
     """
@@ -686,7 +624,7 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   def flash_group(assigns) do
     ~H"""
-    <div id={@id}>
+    <div id={@id} class="flz-toast-stack">
       <.flash kind={:info} title={gettext("Success!")} flash={@flash} />
       <.flash kind={:error} title={gettext("Error!")} flash={@flash} />
       <.flash
@@ -717,42 +655,6 @@ defmodule FlezhaUiWeb.CoreComponents do
   end
 
   @doc """
-  Renders a simple form.
-
-  ## Examples
-
-      <.simple_form for={@form} phx-change="validate" phx-submit="save">
-        <.input field={@form[:email]} label="Email"/>
-        <.input field={@form[:username]} label="Username" />
-        <:actions>
-          <.button>Save</.button>
-        </:actions>
-      </.simple_form>
-  """
-  attr :for, :any, required: true, doc: "the data structure for the form"
-  attr :as, :any, default: nil, doc: "the server side parameter to collect all input under"
-
-  attr :rest, :global,
-    include: ~w(autocomplete name rel action enctype method novalidate target multipart),
-    doc: "the arbitrary HTML attributes to apply to the form tag"
-
-  slot :inner_block, required: true
-  slot :actions, doc: "the slot for form actions, such as a submit button"
-
-  def simple_form(assigns) do
-    ~H"""
-    <.form :let={f} for={@for} as={@as} {@rest}>
-      <div class="mt-10 space-y-8">
-        {render_slot(@inner_block, f)}
-        <div :for={action <- @actions} class="mt-2 flex items-center justify-between gap-6">
-          {render_slot(action, f)}
-        </div>
-      </div>
-    </.form>
-    """
-  end
-
-  @doc """
   Renders a button.
 
   ## Examples
@@ -764,7 +666,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   """
   attr :type, :string, default: nil
   attr :class, :string, default: nil
-  attr :variant, :string, default: "primary", values: ~w(primary secondary danger ghost outline)
+  attr :variant, :string, default: "primary", values: ~w(primary secondary danger ghost accent)
   attr :size, :string, default: "md", values: ~w(sm md lg)
   attr :icon, :string, default: nil
   attr :icon_right, :string, default: nil
@@ -779,12 +681,8 @@ defmodule FlezhaUiWeb.CoreComponents do
       type={@type}
       disabled={@loading}
       class={[
-        "phx-submit-loading:opacity-75 inline-flex items-center justify-center gap-2 rounded-xl font-semibold leading-6",
-        "hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 ease-out",
-        "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
-        "disabled:opacity-50 disabled:pointer-events-none",
-        button_size_classes(@size),
-        button_variant_classes(@variant),
+        "phx-submit-loading:opacity-75 flz-button flz-button--#{@size}",
+        @variant != "primary" && "flz-button--#{@variant}",
         @class
       ]}
       {@rest}
@@ -797,27 +695,82 @@ defmodule FlezhaUiWeb.CoreComponents do
     """
   end
 
-  defp button_variant_classes("primary"),
-    do: "bg-accent hover:bg-accent-hover text-white hover:shadow-btn-hover"
-
-  defp button_variant_classes("secondary"),
-    do: "bg-surface-input border border-brd text-th-secondary hover:bg-surface-hover"
-
-  defp button_variant_classes("danger"), do: "bg-danger hover:bg-danger-hover text-white"
-
-  defp button_variant_classes("ghost"),
-    do: "text-th-tertiary hover:text-th-primary hover:bg-surface-hover"
-
-  defp button_variant_classes("outline"),
-    do: "border border-accent text-accent-text hover:bg-accent hover:text-white"
-
-  defp button_size_classes("sm"), do: "py-1.5 px-2.5 text-xs"
-  defp button_size_classes("md"), do: "py-2 px-3 text-sm"
-  defp button_size_classes("lg"), do: "py-2.5 px-5 text-base"
-
   defp icon_size("sm"), do: "h-3.5 w-3.5"
   defp icon_size("md"), do: "h-4 w-4"
   defp icon_size("lg"), do: "h-5 w-5"
+
+  @doc """
+  A dropdown that picks one value.
+
+  For a picker — a filter, a namespace switch — where the OS-drawn menu of a
+  native `select` cannot be styled to match. Form fields keep their `select`,
+  which is the better control inside a dialog.
+
+  The value lives in a hidden input under the enclosing form's own name, so the
+  form's `phx-change` fires with exactly the params a `select` would have sent
+  and no event handler changes. Opening, closing and the keyboard come from the
+  stylebook's `initDropdowns()`.
+
+  ## Examples
+
+      <.dropdown id="ns" name="filters[namespace]" value={@filters["namespace"]} prompt="all">
+        <:option value="">all</:option>
+        <:option :for={ns <- @namespaces} value={ns}>{ns}</:option>
+      </.dropdown>
+  """
+  attr :id, :string, required: true
+  attr :name, :string, required: true
+  attr :value, :any, default: nil
+  attr :prompt, :string, default: nil, doc: "shown when the value matches no option"
+  attr :testid, :string, default: nil
+  attr :disabled, :boolean, default: false
+  attr :class, :string, default: nil
+
+  slot :option, required: true do
+    attr :value, :string, required: true
+  end
+
+  def dropdown(assigns) do
+    value = to_string(assigns.value || "")
+
+    assigns =
+      assigns
+      |> assign(:value, value)
+      |> assign(:chosen, Enum.find(assigns.option, &(&1.value == value)))
+
+    ~H"""
+    <div id={@id} phx-hook="FlzDropdown" data-flz-dropdown class={["relative", @class]}>
+      <input type="hidden" id={"#{@id}-value"} name={@name} value={@value} />
+      <button
+        type="button"
+        class="flz-dropdown-trigger form-field--compact w-full"
+        data-testid={@testid}
+        disabled={@disabled}
+      >
+        <span class="flex-1 truncate text-left">
+          {(@chosen && render_slot(@chosen)) || @prompt}
+        </span>
+        <.icon name="hero-chevron-down-micro" class="shrink-0" />
+      </button>
+      <div class="flz-dropdown mt-1 min-w-full" role="menu" hidden>
+        <button
+          :for={option <- @option}
+          type="button"
+          role="menuitemradio"
+          aria-checked={to_string(option.value == @value)}
+          data-testid={@testid && "#{@testid}-#{option.value}"}
+          phx-click={
+            JS.set_attribute({"value", option.value}, to: "##{@id}-value")
+            |> JS.dispatch("change", to: "##{@id}-value", bubbles: true)
+          }
+          class="flz-dropdown-option"
+        >
+          {render_slot(option)}
+        </button>
+      </div>
+    </div>
+    """
+  end
 
   @doc """
   Renders an input with label and error messages.
@@ -886,8 +839,8 @@ defmodule FlezhaUiWeb.CoreComponents do
       end)
 
     ~H"""
-    <div>
-      <label class="flex items-center gap-4 text-sm leading-6 text-th-secondary">
+    <div class="flz-field">
+      <label class="flz-field-label gap-4">
         <input type="hidden" name={@name} value="false" disabled={@rest[:disabled]} />
         <input
           type="checkbox"
@@ -895,7 +848,6 @@ defmodule FlezhaUiWeb.CoreComponents do
           name={@name}
           value="true"
           checked={@checked}
-          class="rounded border-brd-input text-accent focus:ring-0 bg-surface-input"
           {@rest}
         />
         {@label}
@@ -907,12 +859,13 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   def input(%{type: "select"} = assigns) do
     ~H"""
-    <div>
+    <div class="flz-field">
       <.label for={@id}>{@label}</.label>
       <select
         id={@id}
         name={@name}
-        class="mt-2 block w-full rounded-xl border border-brd-input bg-surface-input text-th-primary shadow-sm focus:border-brd-focus focus:ring-0 focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 sm:text-sm"
+        class="block w-full"
+        aria-invalid={@errors != [] && "true"}
         multiple={@multiple}
         {@rest}
       >
@@ -926,16 +879,13 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   def input(%{type: "textarea"} = assigns) do
     ~H"""
-    <div>
+    <div class="flz-field">
       <.label for={@id}>{@label}</.label>
       <textarea
         id={@id}
         name={@name}
-        class={[
-          "mt-2 block w-full rounded-xl bg-surface-input text-th-primary focus:ring-0 focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 sm:text-sm sm:leading-6 min-h-[6rem]",
-          @errors == [] && "border-brd-input focus:border-brd-focus",
-          @errors != [] && "border-danger focus:border-danger"
-        ]}
+        class="block w-full min-h-[6rem]"
+        aria-invalid={@errors != [] && "true"}
         {@rest}
       >{Phoenix.HTML.Form.normalize_value("textarea", @value)}</textarea>
       <.error :for={msg <- @errors}>{msg}</.error>
@@ -946,18 +896,15 @@ defmodule FlezhaUiWeb.CoreComponents do
   # All other inputs text, datetime-local, url, password, etc. are handled here...
   def input(assigns) do
     ~H"""
-    <div>
+    <div class="flz-field">
       <.label for={@id}>{@label}</.label>
       <input
         type={@type}
         name={@name}
         id={@id}
         value={Phoenix.HTML.Form.normalize_value(@type, @value)}
-        class={[
-          "mt-2 block w-full rounded-xl bg-surface-input text-th-primary focus:ring-0 focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 sm:text-sm sm:leading-6",
-          @errors == [] && "border-brd-input focus:border-brd-focus",
-          @errors != [] && "border-danger focus:border-danger"
-        ]}
+        class="block w-full"
+        aria-invalid={@errors != [] && "true"}
         {@rest}
       />
       <.error :for={msg <- @errors}>{msg}</.error>
@@ -973,7 +920,7 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   def label(assigns) do
     ~H"""
-    <label for={@for} class="block text-sm font-semibold leading-6 text-th-primary">
+    <label for={@for} class="flz-field-label">
       {render_slot(@inner_block)}
     </label>
     """
@@ -986,17 +933,33 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   def error(assigns) do
     ~H"""
-    <p class="mt-3 flex gap-3 text-sm leading-6 text-danger-text">
-      <.icon name="hero-exclamation-circle-mini" class="mt-0.5 h-5 w-5 flex-none" />
+    <p class="flz-field-error">
+      <.icon name="hero-exclamation-circle-mini" class="h-4 w-4 flex-none" />
       {render_slot(@inner_block)}
     </p>
     """
   end
 
   @doc """
-  Renders a header with title.
+  A screen's heading, with an optional return path and controls beside it.
+
+  Every screen opens with one, so the title's type, the way back and the
+  action row are one decision rather than one per screen.
+
+  ## Examples
+
+      <.header back={~p"/namespaces"} mono>
+        {@ns}
+        <:actions><.button icon="hero-plus">Start Operative</.button></:actions>
+      </.header>
   """
   attr :class, :string, default: nil
+
+  attr :back, :string,
+    default: nil,
+    doc: "where the leading arrow returns to; without it there is no arrow"
+
+  attr :mono, :boolean, default: false, doc: "true when the title is an identifier"
 
   slot :inner_block, required: true
   slot :subtitle
@@ -1004,16 +967,25 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   def header(assigns) do
     ~H"""
-    <header class={[@actions != [] && "flex items-center justify-between gap-6", @class]}>
-      <div>
-        <h1 class="text-lg font-semibold leading-8 text-th-primary">
-          {render_slot(@inner_block)}
-        </h1>
-        <p :if={@subtitle != []} class="mt-2 text-sm leading-6 text-th-tertiary">
-          {render_slot(@subtitle)}
-        </p>
+    <header class={["flex items-center justify-between gap-6", @class]}>
+      <div class="flex items-center gap-3">
+        <.link
+          :if={@back}
+          navigate={@back}
+          class="text-th-tertiary hover:text-th-primary transition-colors"
+        >
+          <.icon name="hero-arrow-left" class="w-4 h-4" />
+        </.link>
+        <div>
+          <h1 class={["flz-title-lg text-th-primary", @mono && "flz-num"]}>
+            {render_slot(@inner_block)}
+          </h1>
+          <p :if={@subtitle != []} class="mt-2 text-sm text-th-secondary">
+            {render_slot(@subtitle)}
+          </p>
+        </div>
       </div>
-      <div class="flex-none">{render_slot(@actions)}</div>
+      <div :if={@actions != []} class="flex-none">{render_slot(@actions)}</div>
     </header>
     """
   end
@@ -1050,99 +1022,36 @@ defmodule FlezhaUiWeb.CoreComponents do
       end
 
     ~H"""
-    <div class="overflow-y-auto px-4 sm:overflow-visible sm:px-0">
-      <table class="w-[40rem] mt-11 sm:w-full">
-        <thead class="text-sm text-left leading-6 text-th-tertiary">
+    <div class="table-scroll">
+      <table class="flz-table">
+        <thead>
           <tr>
-            <th :for={col <- @col} class="p-0 pb-4 pr-6 font-normal">{col[:label]}</th>
-            <th :if={@action != []} class="relative p-0 pb-4">
+            <th :for={col <- @col}>{col[:label]}</th>
+            <th :if={@action != []}>
               <span class="sr-only">{gettext("Actions")}</span>
             </th>
           </tr>
         </thead>
-        <tbody
-          id={@id}
-          phx-update={match?(%Phoenix.LiveView.LiveStream{}, @rows) && "stream"}
-          class="relative divide-y divide-brd-subtle border-t border-brd text-sm leading-6 text-th-secondary"
-        >
-          <tr :for={row <- @rows} id={@row_id && @row_id.(row)} class="group hover:bg-surface-hover">
+        <tbody id={@id} phx-update={match?(%Phoenix.LiveView.LiveStream{}, @rows) && "stream"}>
+          <tr :for={row <- @rows} id={@row_id && @row_id.(row)}>
             <td
-              :for={{col, i} <- Enum.with_index(@col)}
+              :for={col <- @col}
               phx-click={@row_click && @row_click.(row)}
-              class={["relative p-0", @row_click && "hover:cursor-pointer"]}
+              class={@row_click && "cursor-pointer"}
             >
-              <div class="block py-4 pr-6">
-                <span class="absolute -inset-y-px right-0 -left-4 group-hover:bg-surface-hover sm:rounded-l-xl" />
-                <span class={["relative", i == 0 && "font-semibold text-th-primary"]}>
-                  {render_slot(col, @row_item.(row))}
-                </span>
-              </div>
+              {render_slot(col, @row_item.(row))}
             </td>
-            <td :if={@action != []} class="relative w-14 p-0">
-              <div class="relative whitespace-nowrap py-4 text-right text-sm font-medium">
-                <span class="absolute -inset-y-px -right-4 left-0 group-hover:bg-surface-hover sm:rounded-r-xl" />
-                <span
-                  :for={action <- @action}
-                  class="relative ml-4 font-semibold leading-6 text-accent-text hover:text-accent"
-                >
-                  {render_slot(action, @row_item.(row))}
-                </span>
-              </div>
+            <td :if={@action != []} class="w-14 whitespace-nowrap text-right">
+              <span
+                :for={action <- @action}
+                class="ml-4 font-semibold text-accent-text hover:text-accent"
+              >
+                {render_slot(action, @row_item.(row))}
+              </span>
             </td>
           </tr>
         </tbody>
       </table>
-    </div>
-    """
-  end
-
-  @doc """
-  Renders a data list.
-
-  ## Examples
-
-      <.list>
-        <:item title="Title">{@post.title}</:item>
-        <:item title="Views">{@post.views}</:item>
-      </.list>
-  """
-  slot :item, required: true do
-    attr :title, :string, required: true
-  end
-
-  def list(assigns) do
-    ~H"""
-    <div class="mt-14">
-      <dl class="-my-4 divide-y divide-brd-subtle">
-        <div :for={item <- @item} class="flex gap-4 py-4 text-sm leading-6 sm:gap-8">
-          <dt class="w-1/4 flex-none text-th-tertiary">{item.title}</dt>
-          <dd class="text-th-secondary">{render_slot(item)}</dd>
-        </div>
-      </dl>
-    </div>
-    """
-  end
-
-  @doc """
-  Renders a back navigation link.
-
-  ## Examples
-
-      <.back navigate={~p"/posts"}>Back to posts</.back>
-  """
-  attr :navigate, :any, required: true
-  slot :inner_block, required: true
-
-  def back(assigns) do
-    ~H"""
-    <div class="mt-16">
-      <.link
-        navigate={@navigate}
-        class="text-sm font-semibold leading-6 text-accent-text hover:text-accent"
-      >
-        <.icon name="hero-arrow-left-solid" class="h-3 w-3" />
-        {render_slot(@inner_block)}
-      </.link>
     </div>
     """
   end
@@ -1196,31 +1105,6 @@ defmodule FlezhaUiWeb.CoreComponents do
          "opacity-100 translate-y-0 sm:scale-100",
          "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"}
     )
-  end
-
-  def show_modal(js \\ %JS{}, id) when is_binary(id) do
-    js
-    |> JS.show(to: "##{id}")
-    |> JS.show(
-      to: "##{id}-bg",
-      time: 300,
-      transition: {"transition-all transform ease-out duration-300", "opacity-0", "opacity-100"}
-    )
-    |> show("##{id}-container")
-    |> JS.add_class("overflow-hidden", to: "body")
-    |> JS.focus_first(to: "##{id}-content")
-  end
-
-  def hide_modal(js \\ %JS{}, id) do
-    js
-    |> JS.hide(
-      to: "##{id}-bg",
-      transition: {"transition-all transform ease-in duration-200", "opacity-100", "opacity-0"}
-    )
-    |> hide("##{id}-container")
-    |> JS.hide(to: "##{id}", transition: {"block", "block", "hidden"})
-    |> JS.remove_class("overflow-hidden", to: "body")
-    |> JS.pop_focus()
   end
 
   @doc """

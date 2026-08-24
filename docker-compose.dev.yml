@@ -182,6 +182,13 @@ services:
       - fui_web_deps:/flezha_ui/deps
       - fui_web_build:/flezha_ui/_build
       - fui_auth_data:/auth:ro
+      # The stylebook is an npm `file:` dependency, and npm writes a relative
+      # symlink for one. From assets/node_modules/@flezha/ it walks up four
+      # levels, which lands on the container root — so this path is the one
+      # the symlink resolves to and cannot be chosen freely. A dangling
+      # symlink fails silently: @import resolves to nothing and the console
+      # renders unstyled.
+      - ../flezha-stylebook:/flezha-stylebook:ro
     networks:
       - fui_network
     restart: unless-stopped

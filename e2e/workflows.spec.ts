@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, choose } from './fixtures';
 
 /**
  * The workflow profile, journal and inbox, against the seeded instances.
@@ -83,7 +83,7 @@ test.describe('Workflow instances', () => {
 
   test('a suspended instance can be found through the index filter', async ({ page, live }) => {
     await live('/operatives');
-    await page.getByTestId('filter-health').selectOption('suspended');
+    await choose(page, 'filter-health', 'suspended');
 
     await expect(page.getByTestId('operative-index-row-testnet_chat')).toBeVisible();
     await expect(page.getByTestId('operative-index-row-testnet_store_1')).toHaveCount(0);

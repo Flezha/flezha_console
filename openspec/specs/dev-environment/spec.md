@@ -33,7 +33,7 @@ The Rust runner SHALL run as a dedicated compose service that waits for the cont
 
 ### Requirement: One command brings up the whole stack
 
-`docker compose -f docker-compose.dev.yml up` SHALL start the controller, the UI, the database, and Kafka, and the UI SHALL connect to the controller node with no manual step.
+`docker compose -f docker-compose.dev.yml up` SHALL start the controller, the UI, the database, and Kafka, and the UI SHALL connect to the controller node with no manual step. The UI service SHALL also have the `flezha-stylebook` sibling repository bind-mounted at the container path that the resolved package symlink points to, so the asset watchers can build the stylesheet without a further step.
 
 #### Scenario: Cold start
 
@@ -44,6 +44,16 @@ The Rust runner SHALL run as a dedicated compose service that waits for the cont
 
 - **WHEN** the controller container restarts
 - **THEN** the UI reconnects on its own and screens recover
+
+#### Scenario: The stylebook is reachable from the UI container
+
+- **WHEN** the resolved stylebook package path is dereferenced inside the running UI container
+- **THEN** it points at the mounted sibling repository and its `css` directory is readable
+
+#### Scenario: The stylesheet builds inside the container
+
+- **WHEN** the Tailwind watcher rebuilds after the stack is up
+- **THEN** the generated stylesheet contains the stylebook's tokens and component recipes, and the console renders styled rather than bare
 
 ### Requirement: Dev seeding populates the dashboard
 
@@ -123,4 +133,23 @@ Dev seeding SHALL start at least one stream operative and one workflow instance,
 
 - **WHEN** a seeded workflow instance runs to completion
 - **THEN** it appears in the finished-instance listing within its retention window
+
+### Requirement: The asset build resolves the stylebook from a clean checkout
+
+Asset setup SHALL install the `flezha_ui` asset dependencies and place the stylebook's fonts and brand SVGs into the served static tree. It SHALL fail with an actionable message when the sibling `flezha-stylebook` repository is absent, rather than producing an unstyled build.
+
+#### Scenario: Setting up a clean checkout
+
+- **WHEN** a developer runs the project's setup command with the sibling repository present
+- **THEN** the stylebook is installed, the fonts and brand SVGs land in the static tree, and the asset build produces a styled stylesheet
+
+#### Scenario: The sibling repository is missing
+
+- **WHEN** asset setup runs without `flezha-stylebook` alongside the project
+- **THEN** it stops with a message naming the missing repository and the expected location
+
+#### Scenario: A developer looks up the prerequisite
+
+- **WHEN** a developer reads `README.md`
+- **THEN** the sibling-repository requirement and the asset setup command are documented
 

@@ -49,12 +49,24 @@ The UI uses the controller's terms exactly. If a name here disagrees with
 ## Dev setup
 
 The compose file brings up the controller, a Rust runner, this UI, Postgres,
-and Kafka in one command. It expects the `flezha` repo checked out alongside
-this one at `../flezha`.
+and Kafka in one command. It expects two sibling checkouts alongside this one:
+
+| Path | Why |
+| --- | --- |
+| `../flezha` | The controller, built and bind-mounted into its container |
+| `../flezha-stylebook` | The design system. Its tokens, component recipes, fonts and brand lockups are what this console is skinned with. |
+
+The stylebook is an npm `file:` dependency, so install the asset dependencies
+once on the host — the `web` container has no Node, and the relative symlink
+`npm install` writes travels into it through the repository bind mount:
 
 ```bash
+mix assets.setup                 # npm install + copy fonts, lockups, favicons
 docker compose -f docker-compose.dev.yml up --build
 ```
+
+Without the stylebook, `mix assets.stylebook` stops with a message naming it
+and where it is expected, rather than producing an unstyled build.
 
 The controller enforces authorization by default, so the stack claims its own
 bootstrap: a one-shot `bootstrap` service waits for the controller node, claims
@@ -123,7 +135,15 @@ mix test --exclude distributed  # the fast loop — no peer nodes booted
 npx playwright install chromium  # one-time
 npm run e2e                   # browser suite, needs the dev stack running
 npm run e2e:ui                # same, in Playwright's UI mode
+
+npm run tokens                # the design-token gate over assets/ and lib/
 ```
+
+`npm run tokens` runs the stylebook's own `check-tokens.mjs` over this
+repository. It fails on a `var()` naming a token nobody defines, a token
+defined but never referenced, and any ink/surface pairing below its WCAG AA
+floor in either theme — so a colour that only looks fine in dark mode is caught
+before it ships.
 
 `npm run e2e` drives the running dev stack at `http://localhost:4000`, so bring
 it up first with `docker compose -f docker-compose.dev.yml up`. A failing test
@@ -139,6 +159,51 @@ version-skewed controller — get covered at all.
 
 See [docs/e2e-tests.md](docs/e2e-tests.md) for the browser suite's layout and
 the rule for deciding which layer a new assertion belongs to.
+
+## How it looks
+
+Everything visual comes from [`flezha-stylebook`](../flezha-stylebook), the
+Flezha group's design system. This repository defines **no colours of its own**
+— `npm run tokens` enforces that.
+
+- **Three CSS layers**, imported in order from `assets/css/app.css`:
+  `tokens.css`, `base.css`, `components.css`. They land after Tailwind's base
+  layer and before its utilities, so the stylebook's reset and form baseline
+  win over preflight while a utility still wins over a component recipe.
+  Tailwind keeps doing layout and spacing; the stylebook owns colour, type and
+  component skins.
+- **The alias layer** in `assets/tailwind.config.js` maps every colour, font
+  and shadow utility onto a stylebook token, so existing utility classes
+  inherit the palette rather than being rewritten one by one.
+- **Theme contract**: attribute `data-theme="light|dark"` on `<html>`, storage
+  key `flezha-theme`, dark by default, no `prefers-color-scheme` fallback. The
+  stylebook's `theme-hydrate.js` is inlined in `<head>` at compile time, so the
+  attribute is set before the first paint and there is no flash of the wrong
+  theme. The topbar control is `<button data-flz-theme-toggle>`, bound by the
+  stylebook's own `bindThemeToggles()`.
+- **Chrome is theme-invariant.** The sidebar and topbar stay deep plum in both
+  themes with gold marking hover and the current destination; only the content
+  canvas flips.
+- **Fonts and brand assets** are copied out of the stylebook into
+  `priv/static/` by `mix assets.stylebook` (wired into `assets.setup`,
+  `assets.build` and `assets.deploy`) and committed, so the Node-less container
+  serves them with no extra step.
+- **Controls come from one vocabulary.** Text inputs, selects, textareas,
+  checkboxes and the dropdown trigger are all skinned by the stylebook's
+  `base.css`, so they are the same box; labels, hints and errors are
+  `.flz-field-*`. A picker whose menu needs styling — a filter, the namespace
+  switch — is a `<.dropdown>` (a menu button, since the OS draws a `select`'s
+  menu and it cannot be themed); a `select` stays the control inside a dialog.
+  An exclusive pair or triple is `.flz-segmented`.
+- **Status colour states an outcome, and is never a brand colour.** Green
+  (`--positive`), amber (`--warning`) and red (`--negative`) say healthy,
+  degraded and failed. Gold (`--accent-solid`) marks interaction and magenta
+  (`--brand-solid`) is the brand fill; neither is a status. Every solid fill
+  uses its matched foreground token — never white on amber.
+- **A component another Flezha surface could reuse goes upstream**, into the
+  stylebook's `components.css` — not into a local stylesheet. The topology
+  graph's `topo-*` rules stay here because nothing else would use them; they
+  consume stylebook tokens like everything else.
 
 ## How the UI talks to the controller
 

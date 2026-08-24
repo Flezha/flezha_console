@@ -13,80 +13,68 @@ module.exports = {
   ],
   theme: {
     extend: {
+      // Every alias resolves to a flezha-stylebook token, so the utility
+      // classes already spread across these templates inherit the brand
+      // palette without being rewritten one by one. The stylebook's three ink
+      // levels carry the four this UI names: `tertiary` folds into secondary.
+      // `font-mono` / `font-sans` land on the self-hosted faces, so the
+      // hundred-odd existing utility usages pick up JetBrains Mono and Inter
+      // without being rewritten.
+      fontFamily: {
+        sans: "var(--font-body)",
+        mono: "var(--font-mono)",
+        display: "var(--font-display)",
+      },
       colors: {
-        brand: "var(--color-accent)",
+        brand: "var(--brand-solid)",
         surface: {
-          base: "var(--color-bg-base)",
-          DEFAULT: "var(--color-bg-surface)",
-          hover: "var(--color-bg-surface-hover)",
-          input: "var(--color-bg-input)",
+          base: "var(--surface-base)",
+          DEFAULT: "var(--surface-raised)",
+          hover: "var(--surface-hover)",
+          input: "var(--surface-sunken)",
         },
         th: {
-          primary: "var(--color-text-primary)",
-          secondary: "var(--color-text-secondary)",
-          tertiary: "var(--color-text-tertiary)",
-          muted: "var(--color-text-muted)",
+          primary: "var(--text-primary)",
+          secondary: "var(--text-secondary)",
+          tertiary: "var(--text-secondary)",
+          muted: "var(--text-muted)",
         },
+        // `accent` here predates the stylebook and means the brand fill, not
+        // the stylebook's gold `--accent-solid`. Gold is `warning` below and
+        // the hover language the component recipes already carry.
         accent: {
-          DEFAULT: "var(--color-accent)",
-          hover: "var(--color-accent-hover)",
-          text: "var(--color-accent-text)",
-          subtle: "var(--color-accent-subtle)",
+          DEFAULT: "var(--brand-solid)",
+          hover: "var(--brand-solid-hover)",
+          text: "var(--text-brand)",
+          subtle: "color-mix(in srgb, var(--brand-solid) 15%, transparent)",
         },
         brd: {
-          DEFAULT: "var(--color-border)",
-          subtle: "var(--color-border-subtle)",
-          input: "var(--color-border-input)",
-          focus: "var(--color-border-focus)",
+          DEFAULT: "var(--border-default)",
+          subtle: "var(--border-subtle)",
+          input: "var(--border-default)",
+          focus: "var(--brand-solid)",
         },
-        sidebar: {
-          bg: "var(--color-sidebar-bg)",
-          border: "var(--color-sidebar-border)",
-          hover: "var(--color-sidebar-hover)",
-          active: "var(--color-sidebar-active)",
-        },
-        modal: {
-          bg: "var(--color-modal-bg)",
-          border: "var(--color-modal-border)",
-        },
-        badge: {
-          bg: "var(--color-badge-bg)",
-          text: "var(--color-badge-text)",
-        },
-        success: "var(--color-success)",
+        success: "var(--positive)",
         danger: {
-          DEFAULT: "var(--color-danger)",
-          hover: "var(--color-danger-hover)",
-          text: "var(--color-danger-text)",
+          DEFAULT: "var(--negative)",
+          text: "var(--negative)",
         },
-        warning: "var(--color-warning)",
-        code: "var(--color-code-text)",
+        warning: "var(--warning)",
+        code: "var(--text-brand)",
       },
-      borderRadius: {
-        panel: "var(--radius-panel)",
-        modal: "var(--radius-modal)",
-      },
+      // Radius stays literal, per the stylebook: 6px controls, 8px cards,
+      // 12px large surfaces. Tailwind's own md/lg/xl already are those.
       boxShadow: {
-        panel: "var(--shadow-panel)",
-        modal: "var(--shadow-modal)",
-        "panel-hover": "var(--shadow-panel-hover)",
-        "btn-hover": "var(--shadow-btn-hover)",
-        "btn-active": "0 1px 4px rgba(0, 0, 0, 0.2)",
-      },
-      backgroundColor: {
-        overlay: "var(--color-bg-overlay)",
+        sm: "var(--shadow-sm)",
+        DEFAULT: "var(--shadow-md)",
+        md: "var(--shadow-md)",
+        lg: "var(--shadow-lg)",
       },
       animation: {
-        "fade-in": "fade-in 300ms ease-out both",
         "fade-in-up": "fade-in-up 400ms ease-out both",
         "scale-in": "scale-in 200ms ease-out both",
-        "pulse-dot": "pulse-dot 2s ease-in-out infinite",
       },
       keyframes: {
-        "fade-in": {
-          from: { opacity: "0", transform: "translateY(8px)" },
-          to: { opacity: "1", transform: "translateY(0)" },
-        },
         "fade-in-up": {
           from: { opacity: "0", transform: "translateY(12px)" },
           to: { opacity: "1", transform: "translateY(0)" },
@@ -95,18 +83,13 @@ module.exports = {
           from: { opacity: "0", transform: "scale(0.95)" },
           to: { opacity: "1", transform: "scale(1)" },
         },
-        "pulse-dot": {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0.5" },
-        },
-      },
-      transitionTimingFunction: {
-        "out-expo": "cubic-bezier(0.16, 1, 0.3, 1)",
       },
     },
   },
   plugins: [
-    require("@tailwindcss/forms"),
+    // No @tailwindcss/forms: the stylebook's base.css is the form baseline,
+    // and the plugin's `[type='text']` selectors would outrank its
+    // zero-specificity `:where()` rules and re-declare the same properties.
     // Allows prefixing tailwind classes with LiveView classes to add rules
     // only when LiveView classes are applied, for example:
     //

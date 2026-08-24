@@ -1,14 +1,16 @@
 <div class="space-y-6">
-  <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-th-primary">Schedules</h1>
-    <button
-      phx-click="open_form"
-      data-testid="schedule-new-btn"
-      class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white bg-accent hover:bg-accent-hover hover:shadow-btn-hover hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
-    >
-      <.icon name="hero-plus" class="w-4 h-4" /> New Schedule
-    </button>
-  </div>
+  <.header>
+    Schedules
+    <:actions>
+      <button
+        phx-click="open_form"
+        data-testid="schedule-new-btn"
+        class="flz-button flz-button--md"
+      >
+        <.icon name="hero-plus" class="w-4 h-4" /> New Schedule
+      </button>
+    </:actions>
+  </.header>
 
   <.runtime_error error={@load_error} />
 
@@ -21,57 +23,56 @@
       </.empty_state>
     <% else %>
       <div class="overflow-x-auto">
-        <table data-testid="schedule-table" class="w-full text-sm">
+        <table data-testid="schedule-table" class="flz-table">
           <thead>
-            <tr class="border-b border-brd">
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Name</th>
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Cron</th>
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Timezone</th>
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Namespace</th>
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Factory</th>
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Status</th>
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Last fire</th>
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Next fire</th>
-              <th class="px-5 py-3"></th>
+            <tr>
+              <th>Name</th>
+              <th>Cron</th>
+              <th>Timezone</th>
+              <th>Namespace</th>
+              <th>Factory</th>
+              <th>Status</th>
+              <th>Last fire</th>
+              <th>Next fire</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             <tr
               :for={schedule <- @schedules}
               data-testid={"schedule-row-#{schedule.name}"}
-              class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
             >
-              <td class="px-5 py-3 text-th-primary font-mono text-xs">{schedule.name}</td>
-              <td class="px-5 py-3 text-th-secondary font-mono text-xs">{schedule.cron}</td>
-              <td class="px-5 py-3 text-th-tertiary text-xs">{schedule.timezone}</td>
-              <td class="px-5 py-3 text-th-tertiary text-xs">{schedule.namespace}</td>
-              <td class="px-5 py-3 text-th-secondary font-mono text-xs">{schedule.factory_id}</td>
-              <td class="px-5 py-3 text-xs">
+              <td class="text-th-primary flz-num text-xs">{schedule.name}</td>
+              <td class="flz-num text-xs">{schedule.cron}</td>
+              <td class="text-xs">{schedule.timezone}</td>
+              <td class="text-xs">{schedule.namespace}</td>
+              <td class="flz-num text-xs">{schedule.factory_id}</td>
+              <td class="text-xs">
                 <span
                   :if={schedule.armed}
                   data-testid={"schedule-status-#{schedule.name}"}
-                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface-input border border-brd text-th-secondary"
+                  class="flz-badge"
                 >
                   <span class="w-1.5 h-1.5 rounded-full bg-success"></span> Armed
                 </span>
                 <span
                   :if={!schedule.armed}
                   data-testid={"schedule-status-#{schedule.name}"}
-                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface-input border border-brd text-th-muted"
+                  class="flz-badge"
                 >
                   <span class="w-1.5 h-1.5 rounded-full bg-th-muted"></span> Not armed
                 </span>
               </td>
-              <td class="px-5 py-3 text-th-tertiary text-xs">
+              <td class="text-xs">
                 {Format.timestamp(schedule.last_fire)}
               </td>
               <td
                 data-testid={"schedule-next-fire-#{schedule.name}"}
-                class="px-5 py-3 text-th-tertiary text-xs"
+                class="text-xs"
               >
                 {Format.timestamp(schedule.next_fire)}
               </td>
-              <td class="px-5 py-3 text-right">
+              <td class="text-right">
                 <button
                   phx-click="confirm_remove"
                   phx-value-name={schedule.name}
@@ -99,7 +100,7 @@
 
   <form phx-submit="create" phx-change="form_change" class="space-y-4">
     <div>
-      <label class="block text-sm font-medium text-th-secondary mb-1">
+      <label class="flz-field-label mb-1">
         Name
         <%!-- The controller composes `<name>@<slot-iso>` as the operative id,
                 and that must fit its 32-byte limit — so the name gets 11. --%>
@@ -111,54 +112,54 @@
         value={@form["name"]}
         maxlength="11"
         data-testid="schedule-input-name"
-        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus transition-colors"
+        class="w-full"
       />
     </div>
     <div>
-      <label class="block text-sm font-medium text-th-secondary mb-1">Cron expression</label>
+      <label class="flz-field-label mb-1">Cron expression</label>
       <input
         type="text"
         name="schedule[cron]"
         value={@form["cron"]}
         placeholder="*/5 * * * *"
         data-testid="schedule-input-cron"
-        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm font-mono focus:outline-none focus:border-brd-focus transition-colors"
+        class="form-field--mono w-full"
       />
     </div>
     <div>
-      <label class="block text-sm font-medium text-th-secondary mb-1">Timezone</label>
+      <label class="flz-field-label mb-1">Timezone</label>
       <input
         type="text"
         name="schedule[timezone]"
         value={@form["timezone"]}
         data-testid="schedule-input-timezone"
-        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus transition-colors"
+        class="w-full"
       />
     </div>
     <div class="grid grid-cols-2 gap-4">
       <div>
-        <label class="block text-sm font-medium text-th-secondary mb-1">Namespace</label>
+        <label class="flz-field-label mb-1">Namespace</label>
         <input
           type="text"
           name="schedule[namespace]"
           value={@form["namespace"]}
           data-testid="schedule-input-namespace"
-          class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm font-mono focus:outline-none focus:border-brd-focus transition-colors"
+          class="form-field--mono w-full"
         />
       </div>
       <div>
-        <label class="block text-sm font-medium text-th-secondary mb-1">Factory ID</label>
+        <label class="flz-field-label mb-1">Factory ID</label>
         <input
           type="text"
           name="schedule[factory_id]"
           value={@form["factory_id"]}
           data-testid="schedule-input-factory"
-          class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm font-mono focus:outline-none focus:border-brd-focus transition-colors"
+          class="form-field--mono w-full"
         />
       </div>
     </div>
     <div>
-      <label class="block text-sm font-medium text-th-secondary mb-1">
+      <label class="flz-field-label mb-1">
         Init Values <span class="text-th-muted font-normal">(JSON, optional)</span>
       </label>
       <input
@@ -167,7 +168,7 @@
         value={@form["init_values"]}
         placeholder="{}"
         data-testid="schedule-input-init-values"
-        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm font-mono focus:outline-none focus:border-brd-focus transition-colors"
+        class="form-field--mono w-full"
       />
     </div>
 
@@ -183,7 +184,7 @@
       <button
         type="submit"
         data-testid="schedule-form-submit"
-        class="px-4 py-2 text-sm font-medium text-white rounded-xl bg-accent hover:bg-accent-hover hover:shadow-btn-hover transition-all duration-200"
+        class="flz-button flz-button--md"
       >
         Create
       </button>

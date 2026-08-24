@@ -85,6 +85,26 @@ export async function expectHealthBadges(
 }
 
 /**
+ * Chooses `value` in a `.flz-dropdown` picker, named by its trigger's test id.
+ *
+ * The pickers are menu buttons rather than native selects — the OS draws a
+ * `select`'s menu and it cannot be styled to match — so a spec opens the menu
+ * and clicks the row instead of calling `selectOption`.
+ */
+export async function choose(page: Page, testid: string, value: string): Promise<void> {
+  await page.getByTestId(testid).click();
+  await page.getByTestId(`${testid}-${value}`).click();
+}
+
+/**
+ * The hidden input a `.flz-dropdown` picker submits under, so a spec can
+ * assert on what it currently holds with `toHaveValue`.
+ */
+export function chosen(page: Page, testid: string) {
+  return page.locator(`#${testid}-value`);
+}
+
+/**
  * `test` with a `live` helper bound to the page, so a spec reads
  * `await live('/audit')` instead of repeating the connect wait everywhere.
  */

@@ -87,9 +87,18 @@ defmodule FlezhaUi.MixProject do
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["tailwind flezha_ui", "esbuild flezha_ui"],
+      # `npm install` is a host step: it writes the relative symlink to the
+      # sibling stylebook checkout, which then travels into the Node-less web
+      # container through the repository bind mount.
+      "assets.setup": [
+        "cmd npm install --prefix assets",
+        "assets.stylebook",
+        "tailwind.install --if-missing",
+        "esbuild.install --if-missing"
+      ],
+      "assets.build": ["assets.stylebook", "tailwind flezha_ui", "esbuild flezha_ui"],
       "assets.deploy": [
+        "assets.stylebook",
         "tailwind flezha_ui --minify",
         "esbuild flezha_ui --minify",
         "phx.digest"

@@ -1,51 +1,43 @@
 <div class="flex flex-col h-full space-y-4">
-  <div class="flex items-center justify-between flex-shrink-0">
-    <div class="flex items-center gap-3">
-      <.link
-        navigate={~p"/namespaces/#{@ns}/operatives/#{@operative_id}"}
-        class="text-th-tertiary hover:text-th-primary transition-colors"
-      >
-        <.icon name="hero-arrow-left" class="w-4 h-4" />
-      </.link>
-      <h1 class="text-xl font-bold text-th-primary">
-        Stream: <span class="font-mono text-base">{@operative_id}</span>
-      </h1>
-    </div>
-
-    <%!-- IO type tabs --%>
-    <div class="flex items-center gap-2">
-      <%= if @status == :connecting do %>
-        <span class="text-xs text-th-muted mr-1">Connecting...</span>
-      <% end %>
-      <div class="flex items-center gap-1 bg-surface-input border border-brd rounded-xl p-1">
-        <button
-          data-testid="stream-io-input"
-          phx-click="switch_io"
-          phx-value-type="input"
-          disabled={@status == :connecting}
-          class={"px-3 py-1.5 text-sm rounded-lg transition-all duration-200 " <> if @io_type == "input", do: "bg-accent text-white", else: "text-th-tertiary hover:text-th-primary disabled:opacity-40"}
-        >
-          Input
-        </button>
-        <button
-          data-testid="stream-io-output"
-          phx-click="switch_io"
-          phx-value-type="output"
-          disabled={@status == :connecting}
-          class={"px-3 py-1.5 text-sm rounded-lg transition-all duration-200 " <> if @io_type == "output", do: "bg-accent text-white", else: "text-th-tertiary hover:text-th-primary disabled:opacity-40"}
-        >
-          Output
-        </button>
+  <.header
+    back={~p"/namespaces/#{@ns}/operatives/#{@operative_id}"}
+    class="flex-shrink-0"
+  >
+    Stream: <span class="font-mono text-base">{@operative_id}</span>
+    <:actions>
+      <%!-- IO type tabs --%>
+      <div class="flex items-center gap-2">
+        <%= if @status == :connecting do %>
+          <span class="text-xs text-th-muted mr-1">Connecting...</span>
+        <% end %>
+        <div class="flz-segmented">
+          <button
+            :for={io <- ~w(input output)}
+            data-testid={"stream-io-#{io}"}
+            phx-click="switch_io"
+            phx-value-type={io}
+            disabled={@status == :connecting}
+            aria-pressed={to_string(@io_type == io)}
+            class="flz-segmented-option"
+          >
+            {String.capitalize(io)}
+          </button>
+        </div>
       </div>
-    </div>
-  </div>
+    </:actions>
+  </.header>
 
   <%!-- Controls bar --%>
   <div class="flex items-center gap-3 flex-shrink-0">
     <button
       data-testid="stream-pause"
       phx-click="toggle_pause"
-      class={"inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl transition-all duration-200 " <> if @paused, do: "bg-warning text-white", else: "bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover"}
+      aria-pressed={to_string(@paused)}
+      class={[
+        "flz-button flz-button--sm",
+        !@paused && "flz-button--secondary",
+        @paused && "flz-button--warning"
+      ]}
     >
       <%= if @paused do %>
         <.icon name="hero-play" class="w-3.5 h-3.5" /> Resume
@@ -56,7 +48,7 @@
     <button
       data-testid="stream-clear"
       phx-click="clear"
-      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover rounded-xl transition-colors"
+      class="flz-button flz-button--md flz-button--secondary"
     >
       <.icon name="hero-trash" class="w-3.5 h-3.5" /> Clear
     </button>
@@ -67,7 +59,7 @@
         name="filter"
         value={@filter}
         placeholder="Filter regex..."
-        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-1.5 text-th-primary text-sm focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 transition-colors"
+        class="form-field--compact w-full"
       />
     </form>
     <span data-testid="stream-count" class="ml-auto text-xs text-th-tertiary">
@@ -78,7 +70,7 @@
   <%!-- Message feed --%>
   <div
     data-testid="stream-feed"
-    class="flex-1 bg-surface border border-brd rounded-panel overflow-y-auto font-mono text-xs shadow-panel"
+    class="flz-panel flex-1 overflow-y-auto font-mono text-xs"
     id="stream-feed"
     phx-hook="ScrollBottom"
   >

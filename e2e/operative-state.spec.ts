@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, choose } from './fixtures';
 
 /**
  * An operative's durable state: its entities, their counters, and the
@@ -49,7 +49,7 @@ test.describe('Operative durable state', () => {
     const travel = page.getByTestId('time-travel');
     await expect(travel).toBeVisible();
 
-    await page.getByTestId('travel-kind').selectOption('seq');
+    await choose(page, 'travel-kind', 'seq');
     await page.getByTestId('travel-value').fill('1');
     await page.getByTestId('travel-submit').click();
 

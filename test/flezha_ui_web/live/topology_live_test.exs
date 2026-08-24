@@ -393,7 +393,9 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       # The controller listed "staging" first; sorted order is what decides.
       {:ok, view, _html} = live(conn, ~p"/")
 
-      assert has_element?(view, ~s(option[value="default"][selected]))
+      # The picker is a dropdown, so the chosen value lives in the hidden input
+      # the enclosing form submits.
+      assert has_element?(view, ~s(input#topology-namespace-value[value="default"]))
     end
 
     test "the selector moves the summary and the query parameter together", %{

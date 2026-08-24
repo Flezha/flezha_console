@@ -5,6 +5,8 @@ import {
   expectHealthBadges,
   healthBadge,
   healthMatcher,
+  choose,
+  chosen,
 } from './fixtures';
 
 /**
@@ -50,7 +52,7 @@ test.describe('Operatives index', () => {
   });
 
   test('filtering by kind narrows the listing to matching operatives', async ({ page }) => {
-    await page.getByTestId('filter-kind').selectOption('workflow');
+    await choose(page, 'filter-kind', 'workflow');
 
     await expect(page.getByTestId('operative-index-row-testnet_chat')).toBeVisible();
     await expect(page.getByTestId('operative-index-row-testnet_store_1')).toHaveCount(0);
@@ -61,7 +63,7 @@ test.describe('Operatives index', () => {
   });
 
   test('filtering by health narrows the listing', async ({ page }) => {
-    await page.getByTestId('filter-health').selectOption('healthy');
+    await choose(page, 'filter-health', 'healthy');
 
     // The suspended instance leaving is the signal the filter has applied;
     // counting badges before the re-render would count the unfiltered list.
@@ -76,7 +78,7 @@ test.describe('Operatives index', () => {
   }) => {
     await live('/operatives?namespace=default&health=healthy');
 
-    await expect(page.getByTestId('filter-health')).toHaveValue('healthy');
-    await expect(page.getByTestId('filter-namespace')).toHaveValue('default');
+    await expect(chosen(page, 'filter-health')).toHaveValue('healthy');
+    await expect(chosen(page, 'filter-namespace')).toHaveValue('default');
   });
 });

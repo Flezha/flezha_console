@@ -943,7 +943,7 @@ defmodule FlezhaUiWeb.Topology do
     >
       <div class="flex items-start justify-between gap-2">
         <div>
-          <p class="text-xs text-th-muted uppercase tracking-wider">{@node.kind}</p>
+          <p class="flz-label">{@node.kind}</p>
           <p class="text-sm font-mono text-th-primary break-all">{@node.label}</p>
         </div>
         <button
@@ -1130,25 +1130,26 @@ defmodule FlezhaUiWeb.Topology do
       </div>
 
       <div :if={@topology.state == :ok} class="space-y-4">
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <.tile testid="summary-operatives" label="Operatives">
+        <dl class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <.stat boxed testid="summary-operatives" label="Operatives">
             {@topology.operative_count}
-          </.tile>
-          <.tile testid="summary-runners" label="Runners">{@topology.runner_count}</.tile>
-          <.tile
+          </.stat>
+          <.stat boxed testid="summary-runners" label="Runners">{@topology.runner_count}</.stat>
+          <.stat
+            boxed
             testid="summary-backpressure"
             label="Backpressured"
-            alert?={@topology.backpressured != []}
+            tone={alert_tone(@topology.backpressured != [])}
           >
             {length(@topology.backpressured)}
-          </.tile>
-          <.tile testid="summary-parked" label="Parked" alert?={@topology.parked > 0}>
+          </.stat>
+          <.stat boxed testid="summary-parked" label="Parked" tone={alert_tone(@topology.parked > 0)}>
             {@topology.parked}
-          </.tile>
-        </div>
+          </.stat>
+        </dl>
 
         <div :if={@topology.health != []} data-testid="summary-health">
-          <h3 class="text-xs text-th-muted uppercase tracking-wider mb-2">Health</h3>
+          <h3 class="flz-label mb-2">Health</h3>
           <div class="flex flex-wrap gap-2">
             <.link
               :for={bucket <- @topology.health}
@@ -1162,7 +1163,7 @@ defmodule FlezhaUiWeb.Topology do
         </div>
 
         <div :if={@topology.attention != []} data-testid="summary-attention">
-          <h3 class="text-xs text-th-muted uppercase tracking-wider mb-2">
+          <h3 class="flz-label mb-2">
             Needs attention ({length(@topology.attention)})
           </h3>
           <ul class="divide-y divide-brd-subtle">
@@ -1187,7 +1188,7 @@ defmodule FlezhaUiWeb.Topology do
         </div>
 
         <div>
-          <h3 class="text-xs text-th-muted uppercase tracking-wider mb-2">Busiest operatives</h3>
+          <h3 class="flz-label mb-2">Busiest operatives</h3>
           <p
             :if={@topology.busiest == []}
             data-testid="summary-busiest-empty"
@@ -1261,25 +1262,8 @@ defmodule FlezhaUiWeb.Topology do
     """
   end
 
-  attr :label, :string, required: true
-  attr :testid, :string, required: true
-  attr :alert?, :boolean, default: false
-  slot :inner_block, required: true
-
-  defp tile(assigns) do
-    ~H"""
-    <div class="bg-surface-input border border-brd rounded-xl px-4 py-3">
-      <p class="text-[11px] text-th-muted uppercase tracking-wider">{@label}</p>
-      <p
-        data-testid={@testid}
-        class={[
-          "text-2xl font-bold font-mono mt-1",
-          (@alert? && "text-warning") || "text-th-primary"
-        ]}
-      >
-        {render_slot(@inner_block)}
-      </p>
-    </div>
-    """
-  end
+  # A summary figure the operator should look at reads in the warning colour;
+  # every other one keeps the stat's own ink.
+  defp alert_tone(true), do: "text-warning"
+  defp alert_tone(false), do: nil
 end

@@ -1,11 +1,11 @@
 <div class="space-y-6">
-  <h1 class="text-2xl font-bold text-th-primary">Dashboard</h1>
+  <.header>Dashboard</.header>
 
   <.runtime_error error={@stats.error} />
 
   <%!-- Node status card --%>
-  <div class="bg-surface border border-brd rounded-panel p-5 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200">
-    <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider mb-3">Node</h2>
+  <div class="flz-panel p-5 transition-shadow hover:shadow-md">
+    <h2 class="flz-panel-title mb-3">Node</h2>
     <div class="flex items-center gap-3">
       <%= if @stats.node do %>
         <.status_dot connected?={true} size="h-3 w-3" class="flex-shrink-0" />
@@ -26,16 +26,16 @@
   <.fleet_summary topology={@topology}>
     <:controls>
       <form :if={@stats.namespaces != []} phx-change="select_namespace">
-        <select
+        <.dropdown
+          id="topology-namespace"
           name="ns"
-          data-testid="topology-namespace"
+          value={@namespace}
+          testid="topology-namespace"
           disabled={match?({:namespace, _}, @stats.token_scope)}
-          class="bg-surface-input border border-brd-input rounded-xl px-3 py-1.5 text-th-primary text-xs focus:outline-none focus:border-brd-focus transition-colors disabled:opacity-60"
+          class="w-44"
         >
-          <option :for={ns <- Enum.sort(@stats.namespaces)} value={ns} selected={ns == @namespace}>
-            {ns}
-          </option>
-        </select>
+          <:option :for={ns <- Enum.sort(@stats.namespaces)} value={ns}>{ns}</:option>
+        </.dropdown>
       </form>
       <span
         :if={match?({:namespace, _}, @stats.token_scope)}
@@ -49,7 +49,7 @@
 
   <%!-- Stats grid --%>
   <div class="grid grid-cols-3 gap-4">
-    <div class="group bg-surface border border-brd rounded-panel p-6 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200 animate-fade-in-up">
+    <div class="flz-panel group p-6 animate-fade-in-up transition-shadow hover:shadow-md">
       <div class="flex items-center gap-2 mb-1">
         <.icon
           name="hero-rectangle-stack"
@@ -61,7 +61,7 @@
         {@stats.namespace_count}
       </p>
     </div>
-    <div class="group bg-surface border border-brd rounded-panel p-6 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200 animate-fade-in-up animation-delay-100">
+    <div class="flz-panel group p-6 animate-fade-in-up animation-delay-100 transition-shadow hover:shadow-md">
       <div class="flex items-center gap-2 mb-1">
         <.icon
           name="hero-cpu-chip"
@@ -91,7 +91,7 @@
         {@stats.unplaced_count} unplaced
       </p>
     </div>
-    <div class="group bg-surface border border-brd rounded-panel p-6 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 transition-all duration-200 animate-fade-in-up animation-delay-200">
+    <div class="flz-panel group p-6 animate-fade-in-up animation-delay-200 transition-shadow hover:shadow-md">
       <div class="flex items-center gap-2 mb-1">
         <.icon
           name="hero-puzzle-piece"
@@ -112,25 +112,22 @@
   <.panel icon="hero-server-stack">
     <:title>Runners</:title>
     <%= if @stats.runners == [] do %>
-      <div data-testid="dashboard-runners-empty" class="px-5 py-6 text-sm text-th-muted">
+      <.empty_state icon="hero-server-stack" testid="dashboard-runners-empty">
         No runners found.
-      </div>
+      </.empty_state>
     <% else %>
-      <table data-testid="dashboard-runners" class="w-full text-sm">
+      <table data-testid="dashboard-runners" class="flz-table">
         <thead>
-          <tr class="border-b border-brd">
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Runner ID</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Namespace</th>
+          <tr>
+            <th>Runner ID</th>
+            <th>Namespace</th>
           </tr>
         </thead>
         <tbody>
           <%= for runner <- @stats.runners do %>
-            <tr
-              data-testid={"dashboard-runner-row-#{runner.id}"}
-              class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
-            >
-              <td class="px-5 py-2 text-th-secondary font-mono text-xs">{runner.id}</td>
-              <td class="px-5 py-2 text-th-tertiary">{runner.namespace}</td>
+            <tr data-testid={"dashboard-runner-row-#{runner.id}"}>
+              <td class="flz-num text-xs">{runner.id}</td>
+              <td>{runner.namespace}</td>
             </tr>
           <% end %>
         </tbody>
@@ -147,7 +144,7 @@
           <a
             data-testid={"dashboard-namespace-#{ns}"}
             href={~p"/namespaces/#{ns}"}
-            class="px-3 py-1.5 bg-accent-subtle text-accent-text hover:bg-accent hover:text-white rounded-xl text-sm hover:scale-105 hover:shadow-sm transition-all duration-200"
+            class="flz-button flz-button--sm flz-button--secondary"
           >
             {ns}
           </a>

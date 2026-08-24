@@ -1,89 +1,85 @@
 <div class="space-y-6">
-  <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-th-primary">Operatives</h1>
-    <span class="text-sm text-th-tertiary font-mono" data-testid="operatives-count">
-      {length(@rows)} across {length(@namespaces)} namespaces
-    </span>
-  </div>
+  <.header>
+    Operatives
+    <:actions>
+      <span class="text-sm text-th-tertiary font-mono" data-testid="operatives-count">
+        {length(@rows)} across {length(@namespaces)} namespaces
+      </span>
+    </:actions>
+  </.header>
 
   <.runtime_error error={@load_error} action="the operative listing" />
 
   <form phx-change="filter" class="flex flex-wrap items-end gap-3">
     <div>
-      <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">Namespace</label>
-      <select
+      <label class="flz-label mb-1">Namespace</label>
+      <.dropdown
+        id="filter-namespace"
         name="filters[namespace]"
-        data-testid="filter-namespace"
-        class="bg-surface-input border border-brd-input rounded-xl px-3 py-1.5 text-th-primary text-xs focus:outline-none focus:border-brd-focus"
+        value={@filters["namespace"]}
+        testid="filter-namespace"
+        prompt="all"
+        class="w-40"
       >
-        <option value="">all</option>
-        <option :for={ns <- @namespaces} value={ns} selected={@filters["namespace"] == ns}>
-          {ns}
-        </option>
-      </select>
+        <:option value="">all</:option>
+        <:option :for={ns <- @namespaces} value={ns}>{ns}</:option>
+      </.dropdown>
     </div>
     <div>
-      <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">Health</label>
-      <select
+      <label class="flz-label mb-1">Health</label>
+      <.dropdown
+        id="filter-health"
         name="filters[health]"
-        data-testid="filter-health"
-        class="bg-surface-input border border-brd-input rounded-xl px-3 py-1.5 text-th-primary text-xs focus:outline-none focus:border-brd-focus"
+        value={@filters["health"]}
+        testid="filter-health"
+        prompt="all"
+        class="w-36"
       >
-        <option value="">all</option>
-        <option
-          :for={health <- health_options()}
-          value={health}
-          selected={@filters["health"] == to_string(health)}
-        >
-          {health}
-        </option>
-      </select>
+        <:option value="">all</:option>
+        <:option :for={health <- health_options()} value={to_string(health)}>{health}</:option>
+      </.dropdown>
     </div>
     <div>
-      <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">Kind</label>
-      <select
+      <label class="flz-label mb-1">Kind</label>
+      <.dropdown
+        id="filter-kind"
         name="filters[kind]"
-        data-testid="filter-kind"
-        class="bg-surface-input border border-brd-input rounded-xl px-3 py-1.5 text-th-primary text-xs focus:outline-none focus:border-brd-focus"
+        value={@filters["kind"]}
+        testid="filter-kind"
+        prompt="all"
+        class="w-32"
       >
-        <option value="">all</option>
-        <option
-          :for={kind <- ~w(stream workflow)}
-          value={kind}
-          selected={@filters["kind"] == kind}
-        >
-          {kind}
-        </option>
-      </select>
+        <:option value="">all</:option>
+        <:option :for={kind <- ~w(stream workflow)} value={kind}>{kind}</:option>
+      </.dropdown>
     </div>
   </form>
 
-  <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
+  <div class="flz-panel overflow-hidden">
     <%= if @rows == [] do %>
       <.empty_state icon="hero-cpu-chip" testid="operatives-empty">
         No operatives are running in any reachable namespace.
       </.empty_state>
     <% else %>
-      <table data-testid="operatives-index-table" class="w-full text-sm">
+      <table data-testid="operatives-index-table" class="flz-table">
         <thead>
-          <tr class="border-b border-brd">
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Operative ID</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Namespace</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Factory</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Health</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Kind</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Node</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Runner</th>
-            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Plugins</th>
+          <tr>
+            <th>Operative ID</th>
+            <th>Namespace</th>
+            <th>Factory</th>
+            <th>Health</th>
+            <th>Kind</th>
+            <th>Node</th>
+            <th>Runner</th>
+            <th>Plugins</th>
           </tr>
         </thead>
         <tbody>
           <tr
             :for={row <- @rows}
             data-testid={"operative-index-row-#{row.id}"}
-            class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
           >
-            <td class="px-5 py-2 font-mono text-xs">
+            <td class="flz-num text-xs">
               <.link
                 navigate={~p"/namespaces/#{row.namespace}/operatives/#{row.id}"}
                 class="text-accent-text hover:text-accent transition-colors"
@@ -91,18 +87,18 @@
                 {row.id}
               </.link>
             </td>
-            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">{row.namespace}</td>
-            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">{row[:factory] || "—"}</td>
-            <td class="px-5 py-2"><.health_badge health={row.health} /></td>
-            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+            <td class="flz-num text-xs">{row.namespace}</td>
+            <td class="flz-num text-xs">{row[:factory] || "—"}</td>
+            <td><.health_badge health={row.health} /></td>
+            <td class="flz-num text-xs">
               {row.kind}
             </td>
-            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+            <td class="flz-num text-xs">
               <span :if={row[:node]}>{row[:node]}</span>
               <span :if={is_nil(row[:node])} class="text-warning">unplaced</span>
             </td>
-            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">{row[:runner] || "—"}</td>
-            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">{row.plugins}</td>
+            <td class="flz-num text-xs">{row[:runner] || "—"}</td>
+            <td class="flz-num text-xs">{row.plugins}</td>
           </tr>
         </tbody>
       </table>

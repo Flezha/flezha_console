@@ -1,12 +1,9 @@
-<div class="min-h-screen bg-surface-base flex flex-col items-center justify-center px-4">
-  <div class="mb-8 text-center">
-    <a href="/" class="inline-flex items-center gap-2">
-      <span class="text-3xl font-bold text-accent">flezha</span>
-      <span class="text-sm text-th-muted font-medium uppercase tracking-wider">UI</span>
-    </a>
-  </div>
+<div class="min-h-screen flex flex-col items-center justify-center px-4 py-10">
+  <.link navigate={~p"/"} class="mb-8 w-64">
+    <.brand_lockup on={:canvas} />
+  </.link>
 
-  <div class="w-full max-w-sm bg-surface border border-brd rounded-modal p-8 shadow-modal">
+  <div class="flz-panel w-full max-w-sm p-8">
     <.flash_group flash={@flash} />
     <%= if assigns[:inner_block] do %>
       {render_slot(@inner_block)}

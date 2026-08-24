@@ -1,125 +1,129 @@
-<Layouts.auth flash={@flash} current_scope={@current_scope}>
-  <div class="text-center">
-    <.header>
-      Account Settings
-      <:subtitle>Manage your account email address and password settings</:subtitle>
-    </.header>
-  </div>
+<div class="max-w-xl space-y-6">
+  <.header>
+    Account settings
+    <:subtitle>Manage your account email address and password settings</:subtitle>
+  </.header>
 
-  <.form :let={f} for={@email_changeset} action={~p"/users/settings"} id="update_email">
-    <input type="hidden" name="action" value="update_email" />
+  <.panel icon="hero-envelope">
+    <:title>Email</:title>
+    <div class="flz-panel-body">
+      <.form :let={f} for={@email_changeset} action={~p"/users/settings"} id="update_email">
+        <input type="hidden" name="action" value="update_email" />
 
-    <.input
-      field={f[:email]}
-      type="email"
-      label="Email"
-      autocomplete="username"
-      spellcheck="false"
-      required
-    />
+        <.input
+          field={f[:email]}
+          type="email"
+          label="Email"
+          autocomplete="username"
+          spellcheck="false"
+          required
+        />
 
-    <.button phx-disable-with="Changing...">Change Email</.button>
-  </.form>
+        <.button class="mt-4" phx-disable-with="Changing...">Change Email</.button>
+      </.form>
+    </div>
+  </.panel>
 
-  <div class="divider" />
+  <.panel icon="hero-lock-closed">
+    <:title>Password</:title>
+    <div class="flz-panel-body">
+      <.form :let={f} for={@password_changeset} action={~p"/users/settings"} id="update_password">
+        <input type="hidden" name="action" value="update_password" />
 
-  <.form :let={f} for={@password_changeset} action={~p"/users/settings"} id="update_password">
-    <input type="hidden" name="action" value="update_password" />
+        <.input
+          field={f[:password]}
+          type="password"
+          label="New password"
+          autocomplete="new-password"
+          spellcheck="false"
+          required
+        />
+        <.input
+          field={f[:password_confirmation]}
+          type="password"
+          label="Confirm new password"
+          autocomplete="new-password"
+          spellcheck="false"
+          required
+        />
+        <.button class="mt-4" phx-disable-with="Changing...">
+          Save Password
+        </.button>
+      </.form>
+    </div>
+  </.panel>
 
-    <.input
-      field={f[:password]}
-      type="password"
-      label="New password"
-      autocomplete="new-password"
-      spellcheck="false"
-      required
-    />
-    <.input
-      field={f[:password_confirmation]}
-      type="password"
-      label="Confirm new password"
-      autocomplete="new-password"
-      spellcheck="false"
-      required
-    />
-    <.button phx-disable-with="Changing...">
-      Save Password
-    </.button>
-  </.form>
-
-  <div class="divider" />
-
-  <section data-testid="flezha-token-settings" class="space-y-3">
-    <.header>
-      Flezha token
-      <:subtitle>
+  <.panel testid="flezha-token-settings" icon="hero-key">
+    <:title>Flezha token</:title>
+    <div class="flz-panel-body space-y-4">
+      <p class="text-sm text-th-secondary">
         The credential this UI presents to the controller. Stored encrypted and never shown again —
         issue one with <code class="font-mono">flz token issue</code>.
-      </:subtitle>
-    </.header>
+      </p>
 
-    <dl class="text-sm space-y-1" data-testid="flezha-token-binding">
-      <div class="flex gap-2">
-        <dt class="text-th-tertiary w-32">Stored for you</dt>
-        <dd>{if @user_token_stored?, do: "yes", else: "no — using the service token"}</dd>
-      </div>
-      <div :if={@authz.principal} class="flex gap-2">
-        <dt class="text-th-tertiary w-32">Principal</dt>
-        <dd class="font-mono">{@authz.principal}</dd>
-      </div>
-      <div :if={@authz.namespace} class="flex gap-2">
-        <dt class="text-th-tertiary w-32">Namespace</dt>
-        <dd class="font-mono">{@authz.namespace}</dd>
-      </div>
-      <div :if={@authz.role} class="flex gap-2">
-        <dt class="text-th-tertiary w-32">Role</dt>
-        <dd class="font-mono">{@authz.role}</dd>
-      </div>
-      <div :if={@authz.expires_at} class="flex gap-2">
-        <dt class="text-th-tertiary w-32">Expires</dt>
-        <dd class="font-mono">{Format.token_expiry(@authz.expires_at)}</dd>
-      </div>
-      <div :if={is_nil(@authz.principal)} class="flex gap-2">
-        <dt class="text-th-tertiary w-32">Bound identity</dt>
-        <dd>
-          none — {if @authz.reason,
-            do: token_error_reason(@authz.reason),
-            else: "no token is presented."}
-        </dd>
-      </div>
-    </dl>
+      <dl class="text-sm space-y-1" data-testid="flezha-token-binding">
+        <div class="flex gap-2">
+          <dt class="text-th-tertiary w-32">Stored for you</dt>
+          <dd>{if @user_token_stored?, do: "yes", else: "no — using the service token"}</dd>
+        </div>
+        <div :if={@authz.principal} class="flex gap-2">
+          <dt class="text-th-tertiary w-32">Principal</dt>
+          <dd class="flz-num">{@authz.principal}</dd>
+        </div>
+        <div :if={@authz.namespace} class="flex gap-2">
+          <dt class="text-th-tertiary w-32">Namespace</dt>
+          <dd class="flz-num">{@authz.namespace}</dd>
+        </div>
+        <div :if={@authz.role} class="flex gap-2">
+          <dt class="text-th-tertiary w-32">Role</dt>
+          <dd class="flz-num">{@authz.role}</dd>
+        </div>
+        <div :if={@authz.expires_at} class="flex gap-2">
+          <dt class="text-th-tertiary w-32">Expires</dt>
+          <dd class="flz-num">{Format.token_expiry(@authz.expires_at)}</dd>
+        </div>
+        <div :if={is_nil(@authz.principal)} class="flex gap-2">
+          <dt class="text-th-tertiary w-32">Bound identity</dt>
+          <dd>
+            none — {if @authz.reason,
+              do: token_error_reason(@authz.reason),
+              else: "no token is presented."}
+          </dd>
+        </div>
+      </dl>
 
-    <.form
-      for={%{}}
-      as={:flezha_token}
-      action={~p"/users/settings"}
-      method="put"
-      id="update_flezha_token"
-    >
-      <input type="hidden" name="action" value="update_flezha_token" />
-      <.input
-        type="password"
-        name="flezha_token[token]"
-        id="flezha_token_token"
-        value=""
-        label={if @user_token_stored?, do: "Replace token", else: "Token"}
-        autocomplete="off"
-        spellcheck="false"
-        placeholder="flz_..."
-      />
-      <.button>Save token</.button>
-    </.form>
+      <.form
+        for={%{}}
+        as={:flezha_token}
+        action={~p"/users/settings"}
+        method="put"
+        id="update_flezha_token"
+      >
+        <input type="hidden" name="action" value="update_flezha_token" />
+        <.input
+          type="password"
+          name="flezha_token[token]"
+          id="flezha_token_token"
+          value=""
+          label={if @user_token_stored?, do: "Replace token", else: "Token"}
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="flz_..."
+        />
+        <.button class="mt-4">Save token</.button>
+      </.form>
 
-    <.form
-      :if={@user_token_stored?}
-      for={%{}}
-      as={:flezha_token}
-      action={~p"/users/settings"}
-      method="put"
-      id="clear_flezha_token"
-    >
-      <input type="hidden" name="action" value="clear_flezha_token" />
-      <.button>Clear token</.button>
-    </.form>
-  </section>
-</Layouts.auth>
+      <.form
+        :if={@user_token_stored?}
+        for={%{}}
+        as={:flezha_token}
+        action={~p"/users/settings"}
+        method="put"
+        id="clear_flezha_token"
+      >
+        <input type="hidden" name="action" value="clear_flezha_token" />
+        <.button variant="secondary">Clear token</.button>
+      </.form>
+    </div>
+  </.panel>
+</div>

@@ -1,5 +1,5 @@
 <div class="space-y-6">
-  <h1 class="text-2xl font-bold text-th-primary">Plugins</h1>
+  <.header>Plugins</.header>
 
   <%!-- Available Providers Grid --%>
   <%= if @available_providers == [] do %>
@@ -9,7 +9,7 @@
   <% else %>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       <%= for provider <- @available_providers do %>
-        <div class="group bg-surface border border-brd rounded-panel p-5 flex flex-col gap-3 shadow-panel hover:shadow-panel-hover hover:-translate-y-0.5 hover:border-accent/30 transition-all duration-200">
+        <div class="flz-panel group p-5 flex flex-col gap-3 transition-shadow hover:shadow-md">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <.icon
@@ -21,7 +21,7 @@
               </h3>
             </div>
             <%= if provider.internal? do %>
-              <span class="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-badge-bg text-badge-text rounded-full border border-brd-subtle">
+              <span class="flz-badge uppercase tracking-wider">
                 Internal
               </span>
             <% end %>
@@ -43,10 +43,10 @@
 
           <%= if provider.required_fields != [] do %>
             <div>
-              <p class="text-[10px] text-th-tertiary uppercase tracking-wider mb-1">Required</p>
+              <p class="flz-label mb-1">Required</p>
               <div class="flex flex-wrap gap-1">
                 <%= for field <- provider.required_fields do %>
-                  <span class="px-1.5 py-0.5 bg-badge-bg text-badge-text rounded-full border border-brd-subtle text-[11px] font-mono">
+                  <span class="flz-badge flz-num">
                     {field}
                   </span>
                 <% end %>
@@ -56,10 +56,10 @@
 
           <%= if provider.optional_fields != [] do %>
             <div>
-              <p class="text-[10px] text-th-tertiary uppercase tracking-wider mb-1">Optional</p>
+              <p class="flz-label mb-1">Optional</p>
               <div class="flex flex-wrap gap-1">
                 <%= for field <- provider.optional_fields do %>
-                  <span class="px-1.5 py-0.5 bg-accent-subtle text-accent-text rounded-full border border-brd-subtle text-[11px] font-mono">
+                  <span class="flz-badge flz-num opacity-70">
                     {field}
                   </span>
                 <% end %>
@@ -72,39 +72,36 @@
   <% end %>
 
   <%!-- Active Plugins --%>
-  <h2 class="text-lg font-bold text-th-primary pt-2">Active Plugins</h2>
+  <h2 class="flz-modal-title pt-2">Active Plugins</h2>
 
   <%= if @plugins == [] do %>
     <.empty_state icon="hero-puzzle-piece" boxed={true}>
       No active plugins found.
     </.empty_state>
   <% else %>
-    <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
-      <table class="w-full text-sm">
+    <div class="flz-panel overflow-hidden">
+      <table class="flz-table">
         <thead>
-          <tr class="border-b border-brd">
-            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Plugin ID</th>
-            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Provider</th>
-            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Extensions</th>
-            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Namespace</th>
-            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Operative</th>
-            <th class="px-5 py-3"></th>
+          <tr>
+            <th>Plugin ID</th>
+            <th>Provider</th>
+            <th>Extensions</th>
+            <th>Namespace</th>
+            <th>Operative</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           <%= for plugin <- @plugins do %>
-            <tr
-              data-testid={"plugin-row-#{plugin.id}"}
-              class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
-            >
-              <td class="px-5 py-3 text-th-primary font-mono text-xs">{plugin.id}</td>
-              <td class="px-5 py-3 text-th-secondary text-xs">{plugin.provider}</td>
-              <td class="px-5 py-3 text-th-secondary text-xs">{plugin.extensions}</td>
-              <td class="px-5 py-3 text-th-tertiary text-xs">{plugin.namespace || "—"}</td>
-              <td class="px-5 py-3 text-th-tertiary font-mono text-xs">
+            <tr data-testid={"plugin-row-#{plugin.id}"}>
+              <td class="text-th-primary flz-num text-xs">{plugin.id}</td>
+              <td class="text-xs">{plugin.provider}</td>
+              <td class="text-xs">{plugin.extensions}</td>
+              <td class="text-xs">{plugin.namespace || "—"}</td>
+              <td class="flz-num text-xs">
                 {plugin.operative_id || "—"}
               </td>
-              <td class="px-5 py-3 text-right">
+              <td class="text-right">
                 <button
                   phx-click="confirm_disable"
                   phx-value-plugin_id={plugin.id}
@@ -151,28 +148,27 @@
     still list normally.
   </.notice>
 
-  <p :if={@catalog == [] and is_nil(@catalog_error)} class="px-5 py-6 text-sm text-th-muted">
+  <.empty_state :if={@catalog == [] and is_nil(@catalog_error)} icon="hero-archive-box">
     No plugins are installed on the controller host.
-  </p>
+  </.empty_state>
 
-  <table :if={@catalog != []} class="w-full text-sm">
+  <table :if={@catalog != []} class="flz-table">
     <thead>
-      <tr class="border-b border-brd">
-        <th class="text-left px-5 py-2 text-th-tertiary font-medium">Plugin</th>
-        <th class="text-left px-5 py-2 text-th-tertiary font-medium">Version</th>
-        <th class="text-left px-5 py-2 text-th-tertiary font-medium">Status</th>
-        <th class="text-left px-5 py-2 text-th-tertiary font-medium">Description</th>
+      <tr>
+        <th>Plugin</th>
+        <th>Version</th>
+        <th>Status</th>
+        <th>Description</th>
       </tr>
     </thead>
     <tbody>
       <tr
         :for={plugin <- @catalog}
         data-testid={"installed-#{plugin[:id]}"}
-        class="border-b border-brd-subtle"
       >
-        <td class="px-5 py-2 text-th-primary font-mono text-xs">{plugin[:id]}</td>
-        <td class="px-5 py-2 text-th-tertiary font-mono text-xs">{plugin[:version]}</td>
-        <td class="px-5 py-2">
+        <td class="text-th-primary flz-num text-xs">{plugin[:id]}</td>
+        <td class="flz-num text-xs">{plugin[:version]}</td>
+        <td>
           <span
             data-testid={"installed-status-#{plugin[:id]}"}
             class={[
@@ -186,7 +182,7 @@
             {plugin[:status]}
           </span>
         </td>
-        <td class="px-5 py-2 text-th-tertiary text-xs">{plugin[:description] || "—"}</td>
+        <td class="text-xs">{plugin[:description] || "—"}</td>
       </tr>
     </tbody>
   </table>

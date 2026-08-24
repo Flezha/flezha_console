@@ -1,5 +1,5 @@
 <div class="space-y-6">
-  <h1 class="text-2xl font-bold text-th-primary">Cluster</h1>
+  <.header>Cluster</.header>
 
   <.runtime_error error={@load_error} />
 
@@ -7,9 +7,9 @@
   <.panel icon="hero-server-stack">
     <:title>Nodes ({length(@cluster_nodes)})</:title>
     <%= if @cluster_nodes == [] do %>
-      <div data-testid="cluster-nodes-empty" class="px-5 py-6 text-sm text-th-muted">
+      <.empty_state icon="hero-server" testid="cluster-nodes-empty">
         No controller node is reachable.
-      </div>
+      </.empty_state>
     <% else %>
       <ul data-testid="cluster-nodes" class="divide-y divide-brd-subtle">
         <li
@@ -24,7 +24,7 @@
           <span class="text-th-primary font-mono text-sm">{node.name}</span>
           <span
             :if={node.connected?}
-            class="ml-auto text-xs px-2 py-0.5 rounded-lg bg-surface-input border border-brd text-th-secondary"
+            class="flz-badge ml-auto"
           >
             connected to this UI
           </span>
@@ -46,7 +46,7 @@
   <div
     :for={ns <- @namespaces}
     data-testid={"cluster-namespace-#{ns.name}"}
-    class="bg-surface border border-brd rounded-panel shadow-panel"
+    class="flz-panel"
   >
     <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
       <div class="flex items-center gap-2">
@@ -73,34 +73,34 @@
       <p :if={ns.per_node == []} class="text-sm text-th-muted">
         No operative is placed in this namespace.
       </p>
-      <table :if={ns.per_node != []} class="w-full text-sm">
+      <table :if={ns.per_node != []} class="flz-table">
         <thead>
-          <tr class="border-b border-brd-subtle">
-            <th class="text-left py-2 text-th-tertiary font-medium">Node</th>
-            <th class="text-left py-2 text-th-tertiary font-medium">Operatives</th>
-            <th class="text-left py-2 text-th-tertiary font-medium">Health</th>
-            <th class="text-left py-2 text-th-tertiary font-medium">Hub recovery</th>
+          <tr>
+            <th>Node</th>
+            <th>Operatives</th>
+            <th>Health</th>
+            <th>Hub recovery</th>
           </tr>
         </thead>
         <tbody>
           <tr
             :for={row <- ns.per_node}
             data-testid={"node-#{row.node}"}
-            class="border-b border-brd-subtle last:border-b-0"
+            class="last:border-b-0"
           >
-            <td class="py-2 text-th-primary font-mono text-xs">{row.node}</td>
+            <td class="text-th-primary flz-num text-xs">{row.node}</td>
             <td
               data-testid={"node-count-#{row.node}"}
-              class="py-2 text-th-secondary font-mono text-xs"
+              class="flz-num text-xs"
             >
               {row.count}
             </td>
-            <td class="py-2">
+            <td>
               <span class="flex flex-wrap gap-1">
                 <.health_badge :for={{health, count} <- row.health} health={health} count={count} />
               </span>
             </td>
-            <td class="py-2 font-mono text-xs">
+            <td class="flz-num text-xs">
               <span
                 :if={row.recovery in [:unavailable, :unreachable]}
                 data-testid={"recovery-unavailable-#{row.node}"}
@@ -174,12 +174,8 @@
           phx-value-namespace={ns.name}
           phx-value-factory={factory}
           data-testid={"factory-#{factory}"}
-          class={
-            "px-3 py-1.5 text-xs font-mono rounded-lg border transition-colors " <>
-              if @selected_factory == {ns.name, factory},
-                do: "bg-accent text-white border-accent",
-                else: "bg-surface-input text-th-secondary border-brd hover:bg-surface-hover"
-          }
+          aria-pressed={to_string(@selected_factory == {ns.name, factory})}
+          class="flz-segmented-option flz-num"
         >
           {factory}
         </button>

@@ -57,7 +57,10 @@ defmodule FlezhaUiWeb.Router do
     get "/users/settings/confirm-email/:token", UserSettingsController, :confirm_email
 
     live_session :authenticated,
-      on_mount: [{FlezhaUiWeb.UserAuth, :ensure_authenticated}] do
+      on_mount: [
+        {FlezhaUiWeb.UserAuth, :ensure_authenticated},
+        {FlezhaUiWeb.Layouts, :current_path}
+      ] do
       live "/", DashboardLive
       live "/namespaces", NamespaceLive.Index
       live "/operatives", OperativeIndexLive
