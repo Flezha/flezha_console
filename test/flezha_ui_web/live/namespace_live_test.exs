@@ -10,11 +10,23 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
 
   use FlezhaUiWeb.LiveCase
 
+  alias Flezha.Service.HubManager
+
   defp with_namespaces(node, names, opts \\ []) do
     FakeController.set(node, {Flezha, :list_namespaces}, {:ok, names})
     FakeController.set(node, {Flezha, :list_operatives}, {:ok, opts[:operatives] || []})
+    FakeController.set(node, {HubManager, :operative_rows}, rows(opts[:operatives] || []))
     FakeController.set(node, {Flezha, :list_runners}, {:ok, opts[:runners] || []})
   end
+
+  # The registry rows a listing reads. An id alone is the ordinary case; a map
+  # is a row a test wants to say more about.
+  defp rows(operatives), do: Enum.map(operatives, &row/1)
+
+  defp row(%{} = row), do: Map.merge(default_row(row[:id] || "op"), row)
+  defp row(id), do: default_row(id)
+
+  defp default_row(id), do: FakeController.operative_row(id)
 
   defp start_form(overrides \\ %{}) do
     Map.merge(
@@ -88,6 +100,243 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       {:ok, _view, html} = live(conn, ~p"/namespaces/default")
 
       assert html =~ ~s(data-testid="no-operatives-msg")
+    end
+  end
+
+  describe "operative health" do
+    test "every health the loop reports is stated distinctly", %{conn: conn, node: node} do
+      with_namespaces(node, ["default"],
+        operatives: [
+          %{id: "op_ok", health: :healthy},
+          %{id: "op_deg", health: :degraded},
+          %{id: "op_unb", health: :unbound},
+          %{id: "op_fail", health: :failed}
+        ]
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      for health <- ~w(healthy degraded unbound failed) do
+        assert html =~ ~s(data-health="#{health}")
+      end
+    end
+
+    test "a row the loop has not classified reads unknown, not healthy", %{
+      conn: conn,
+      node: node
+    } do
+      with_namespaces(node, ["default"], operatives: [%{id: "op_new", health: :unknown}])
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert html =~ ~s(data-health="unknown")
+      refute html =~ ~s(data-health="healthy")
+    end
+
+    test "a row carrying no health at all is still not healthy", %{conn: conn, node: node} do
+      FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["default"]})
+
+      FakeController.set(node, {HubManager, :operative_rows}, [
+        %{id: "op_new", runner: nil, factory: nil, partition: nil, node: nil}
+      ])
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert html =~ ~s(data-health="unknown")
+    end
+
+    test "an operative with no live node is named as unplaced", %{conn: conn, node: node} do
+      with_namespaces(node, ["default"], operatives: [%{id: "op_a", node: nil}])
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert html =~ ~s(data-testid="unplaced-op_a")
+      assert html =~ "unplaced"
+    end
+
+    test "the node, factory and runner come from the same rows", %{conn: conn, node: node} do
+      with_namespaces(node, ["default"],
+        operatives: [
+          %{id: "op_a", node: :"flezha@node-b", factory: "compare_filter", runner: "runner-z"}
+        ]
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert html =~ "flezha@node-b"
+      assert html =~ "compare_filter"
+      assert html =~ "runner-z"
+    end
+
+    test "plugin counts are read for the whole namespace, not per operative", %{
+      conn: conn,
+      node: node
+    } do
+      with_namespaces(node, ["default"], operatives: ["op_a", "op_b"])
+
+      FakeController.set(node, {HubManager, :operative_plugins}, [
+        {"op_a", [%{id: "p1"}, %{id: "p2"}]}
+      ])
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert html =~ "operative-row-op_a"
+
+      # One rows read and one plugins read per render — the whole namespace at
+      # a time, never a call per row, and never the same dump twice.
+      assert length(FakeController.calls(node, {HubManager, :operative_plugins})) ==
+               length(FakeController.calls(node, {HubManager, :operative_rows}))
+    end
+
+    test "a listing tick costs the same whether the namespace holds two or fifty", %{
+      conn: conn,
+      node: node
+    } do
+      with_namespaces(node, ["default"], operatives: ["op_a", "op_b"])
+      {:ok, _view, _html} = live(conn, ~p"/namespaces/default")
+      small = length(FakeController.calls(node, {HubManager, :operative_rows}))
+
+      FakeController.reset(node)
+      with_namespaces(node, ["default"], operatives: Enum.map(1..50, &"op_#{&1}"))
+      {:ok, _view, _html} = live(conn, ~p"/namespaces/default")
+      large = length(FakeController.calls(node, {HubManager, :operative_rows}))
+
+      assert small == large
+
+      # And nothing was asked per operative.
+      assert FakeController.calls(node, {Flezha.Service.OperativeManager, :get_overwatch_state}) ==
+               []
+    end
+  end
+
+  describe "partition groups" do
+    alias Flezha.Partition
+    alias Flezha.Service.CliManager
+
+    defp group(overrides) do
+      members = [
+        Map.merge(default_row("orders_p0"), %{
+          partition: %{group: "orders", index: 0, count: 2, range: {0, 127}}
+        }),
+        Map.merge(default_row("orders_p1"), %{
+          health: :degraded,
+          partition: %{group: "orders", index: 1, count: 2, range: {128, 255}}
+        })
+      ]
+
+      Map.merge(
+        %{
+          id: "orders",
+          health: :degraded,
+          runner: "p0→runner-a, p1→runner-b",
+          factory: "store_input",
+          partitions: "2/2",
+          node: :"flezha@node-a",
+          members: members
+        },
+        overrides
+      )
+    end
+
+    defp with_group(node), do: with_group(node, %{})
+
+    defp with_group(node, overrides) do
+      with_namespaces(node, ["default"], operatives: ["orders_p0", "orders_p1"])
+      FakeController.set(node, {CliManager, :group_partition_rows}, [group(overrides)])
+    end
+
+    test "a complete group shows its member count and is not faulted", %{conn: conn, node: node} do
+      with_group(node)
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert html =~ ~s(data-testid="partition-groups")
+      assert html =~ ~s(data-testid="partition-group-orders")
+      assert html =~ ~s(data-testid="group-members-orders")
+      assert html =~ "2/2"
+      refute html =~ ~s(data-testid="group-faulted-orders")
+    end
+
+    test "the group reports its sickest member's health", %{conn: conn, node: node} do
+      with_group(node)
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      # The controller rolls this up; the screen renders what it answered.
+      assert html =~ ~s(data-health="degraded")
+    end
+
+    test "members are listed with partition index, key range, runner and health", %{
+      conn: conn,
+      node: node
+    } do
+      with_group(node)
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert html =~ "p0"
+      assert html =~ "p1"
+      assert html =~ "0–127"
+      assert html =~ "128–255"
+      assert html =~ "orders_p0"
+    end
+
+    test "a coverage gap is a fault, and the uncovered range is named", %{conn: conn, node: node} do
+      with_group(node)
+
+      FakeController.set(
+        node,
+        {Partition, :coverage},
+        {:error, %{gaps: [{128, 255}], overlaps: []}}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert html =~ ~s(data-testid="group-faulted-orders")
+      assert html =~ ~s(data-testid="group-coverage-orders")
+      assert html =~ "128–255"
+      assert html =~ "owned by no member"
+    end
+
+    test "overlapping owners are a fault, and both are named", %{conn: conn, node: node} do
+      with_group(node)
+
+      FakeController.set(
+        node,
+        {Partition, :coverage},
+        {:error, %{gaps: [], overlaps: [{7, ["orders_p0", "orders_p1"]}]}}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert html =~ ~s(data-testid="group-faulted-orders")
+      assert html =~ "claimed by orders_p0, orders_p1"
+    end
+
+    test "a controller that cannot answer coverage says so rather than reading as covered", %{
+      conn: conn,
+      node: node
+    } do
+      with_group(node)
+
+      FakeController.set(
+        node,
+        {Partition, :coverage},
+        {:error, {:api_missing, Flezha.Partition, :coverage, 1}}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert html =~ "coverage unavailable"
+      refute html =~ ~s(data-testid="group-faulted-orders")
+    end
+
+    test "a namespace with no groups renders no group panel", %{conn: conn, node: node} do
+      with_namespaces(node, ["default"], operatives: ["op_a"])
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      refute html =~ ~s(data-testid="partition-groups")
     end
   end
 

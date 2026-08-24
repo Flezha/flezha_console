@@ -11,7 +11,12 @@ defmodule FlezhaUi.MixProject do
       # that exists only there. Every other controller call goes through
       # `NodeManager`, which names modules as `:erpc` arguments.
       elixirc_options: [
-        no_warn_undefined: [Flezha.Service.EventManager, Flezha.Service.AuditLog]
+        no_warn_undefined: [
+          Flezha.Service.EventManager,
+          Flezha.Service.AuditLog,
+          Flezha.Service.Observability,
+          Flezha.Observability
+        ]
       ],
       start_permanent: Mix.env() == :prod,
       compilers: [:phoenix_live_view] ++ Mix.compilers(),

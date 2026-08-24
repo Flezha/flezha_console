@@ -394,4 +394,98 @@ defmodule FlezhaUi.AccountsTest do
       refute inspect(%User{password: "123456"}) =~ "password: \"123456\""
     end
   end
+
+  describe "flezha token" do
+    setup do
+      # The service token is process-global config; a test that sets it must
+      # not leave it set for the next one.
+      previous = System.get_env("FLEZHA_TOKEN")
+      System.delete_env("FLEZHA_TOKEN")
+
+      on_exit(fn ->
+        if previous,
+          do: System.put_env("FLEZHA_TOKEN", previous),
+          else: System.delete_env("FLEZHA_TOKEN")
+      end)
+
+      %{user: user_fixture()}
+    end
+
+    test "a stored token is read back", %{user: user} do
+      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
+
+      assert Accounts.user_flezha_token(user) == "flz_personal"
+      assert Accounts.flezha_token(user) == "flz_personal"
+    end
+
+    test "the token is not stored in the clear", %{user: user} do
+      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
+
+      # Read past the field's type: a `select:` on the schema would decrypt it.
+      %{rows: [[raw]]} =
+        Ecto.Adapters.SQL.query!(Repo, "SELECT flezha_token FROM users WHERE id = $1", [user.id])
+
+      assert is_binary(raw)
+      refute raw =~ "flz_personal"
+    end
+
+    test "the column is never loaded by an ordinary query", %{user: user} do
+      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
+
+      reloaded = Repo.get!(User, user.id)
+
+      assert reloaded.flezha_token == nil
+      refute inspect(reloaded) =~ "flz_personal"
+    end
+
+    test "a user without a token falls back to the service token", %{user: user} do
+      System.put_env("FLEZHA_TOKEN", "flz_service")
+
+      assert Accounts.user_flezha_token(user) == nil
+      assert Accounts.flezha_token(user) == "flz_service"
+    end
+
+    test "a user's own token wins over the service token", %{user: user} do
+      System.put_env("FLEZHA_TOKEN", "flz_service")
+      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
+
+      assert Accounts.flezha_token(user) == "flz_personal"
+    end
+
+    test "neither token leaves the caller unbound", %{user: user} do
+      assert Accounts.flezha_token(user) == nil
+      assert Accounts.flezha_token(nil) == nil
+    end
+
+    test "clearing falls back to the service token", %{user: user} do
+      System.put_env("FLEZHA_TOKEN", "flz_service")
+      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
+      {:ok, _user} = Accounts.clear_user_flezha_token(user)
+
+      assert Accounts.user_flezha_token(user) == nil
+      assert Accounts.flezha_token(user) == "flz_service"
+    end
+
+    test "a blank token clears rather than storing an empty credential", %{user: user} do
+      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
+      {:ok, _user} = Accounts.update_user_flezha_token(user, "   ")
+
+      assert Accounts.user_flezha_token(user) == nil
+    end
+
+    test "surrounding whitespace is trimmed off a pasted token", %{user: user} do
+      {:ok, _user} = Accounts.update_user_flezha_token(user, "  flz_personal\n")
+
+      assert Accounts.user_flezha_token(user) == "flz_personal"
+    end
+
+    test "the scope carries the resolved token", %{user: user} do
+      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
+
+      scope = FlezhaUi.Accounts.Scope.for_user(Repo.get!(User, user.id))
+
+      assert FlezhaUi.Accounts.Scope.flezha_token(scope) == "flz_personal"
+      refute inspect(scope) =~ "flz_personal"
+    end
+  end
 end

@@ -34,10 +34,21 @@ async function factoryOptions(page: Page): Promise<string[]> {
 }
 
 /** Selects the first real factory option and returns its id. */
+/**
+ * A factory that can actually be started as a `:stream` operative.
+ *
+ * The runner registers its whole catalogue, most of which are workflow
+ * factories — and the first one alphabetically (`bench_chain_1`) is one of
+ * them. Taking whichever sorts first asks the controller to run a workflow as
+ * a stream, which it refuses. `store_input` is the stream factory the dev
+ * stack documents and seeds against.
+ */
 async function selectFirstFactory(page: Page): Promise<string> {
-  const [factoryId] = await factoryOptions(page);
+  const options = await factoryOptions(page);
 
-  expect(factoryId, 'at least one factory must be available').toBeTruthy();
+  expect(options.length, 'at least one factory must be available').toBeGreaterThan(0);
+
+  const factoryId = options.includes('store_input') ? 'store_input' : options[0];
   await page.getByTestId('input-factory-id').selectOption(factoryId);
   return factoryId;
 }

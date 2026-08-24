@@ -54,7 +54,7 @@ All calls from the UI into the flezha controller SHALL pass through `FlezhaUi.Se
 
 ### Requirement: Errors are normalized into a closed set
 
-`NodeManager` SHALL classify every remote-call failure into exactly one of `{:error, :node_not_connected}`, `{:error, {:api_missing, module, function, arity}}`, `{:error, :timeout}`, or `{:error, {:remote_error, term}}`. Raw `:erpc` exits and `:badrpc` tuples SHALL NOT escape `NodeManager`.
+`NodeManager` SHALL classify every remote-call failure into exactly one of `{:error, :node_not_connected}`, `{:error, {:api_missing, module, function, arity}}`, `{:error, :timeout}`, `{:error, {:forbidden, reason}}`, or `{:error, {:remote_error, term}}`. Raw `:erpc` exits and `:badrpc` tuples SHALL NOT escape `NodeManager`.
 
 #### Scenario: No controller node is connected
 
@@ -72,6 +72,11 @@ All calls from the UI into the flezha controller SHALL pass through `FlezhaUi.Se
 
 - **WHEN** a remote call exceeds its timeout
 - **THEN** `NodeManager` returns `{:error, :timeout}`
+
+#### Scenario: The controller refuses the call
+
+- **WHEN** a remote call returns `{:error, {:forbidden, reason}}` because authorization refused it or no principal is bound
+- **THEN** `NodeManager` returns `{:error, {:forbidden, reason}}` as its own shape rather than folding it into `{:remote_error, term}`
 
 #### Scenario: The controller returns a domain error
 
@@ -158,3 +163,67 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 
 - **WHEN** a liveness snapshot reports a channel whose name is `{:via, Registry, {scope, id}}`
 - **THEN** `identifier_id/1` answers `id` as text, rather than failing to render it
+
+### Requirement: The caller context carries a bound principal
+
+`NodeManager.caller_context/1` SHALL build the context the way `Flezha.Service.CliManager` builds its own: `source: :ui` plus the `principal`, `namespace`, and `role` returned by `Flezha.AuthZ.TokenStore.verify/1`. Exactly one helper SHALL construct it, and every call into an authorized controller service SHALL use it.
+
+#### Scenario: A verified token binds the context
+
+- **WHEN** the UI's token verifies
+- **THEN** the caller context carries `source: :ui`, the principal, the namespace, and the role from the verification result
+
+#### Scenario: No token resolves
+
+- **WHEN** no token verifies
+- **THEN** the caller context carries `source: :ui` and no principal
+
+#### Scenario: One construction site
+
+- **WHEN** the codebase is searched for caller-context construction
+- **THEN** exactly one helper constructs it
+
+### Requirement: Namespace-flat listing reads
+
+`NodeManager` SHALL expose the controller's bulk reads — `Flezha.Service.HubManager.operative_rows/1` and `operative_plugins/1` — so a listing costs one call per namespace regardless of how many operatives it holds. `Flezha.Service.CliManager.group_partition_rows/1` SHALL be used to collapse partition members into group rows rather than the UI deriving groups itself.
+
+#### Scenario: Listing a namespace's operatives
+
+- **WHEN** a screen lists a namespace's operatives
+- **THEN** one `operative_rows/1` call answers every row's id, health, runner, factory, partition, and node
+
+#### Scenario: Listing plugin counts
+
+- **WHEN** a screen shows a plugin count per operative
+- **THEN** one `operative_plugins/1` call answers the whole namespace
+
+#### Scenario: Partition groups are collapsed by the controller's rule
+
+- **WHEN** a namespace holds partition group members
+- **THEN** `group_partition_rows/1` produces the group rows
+- **AND** the UI contains no second implementation of group rollup
+
+#### Scenario: Call count does not grow with fleet size
+
+- **WHEN** a namespace's operative count changes
+- **THEN** the number of controller calls a listing tick makes does not change
+
+### Requirement: Overwatch decoding covers the workflow fields
+
+`NodeManager.overwatch_facts/2` SHALL additionally decode `durable_workflow`, `correction_window_ms`, `arrived_via_hotswap?`, and `init_error` from the overwatch state, alongside the fields it already decodes, so every screen reading operative facts receives them from one decoder.
+
+#### Scenario: A durable workflow instance
+
+- **WHEN** the overwatch state reports `durable_workflow: true`
+- **THEN** the decoded facts carry it
+
+#### Scenario: A field the controller does not carry
+
+- **WHEN** an older controller's overwatch state omits one of the fields
+- **THEN** the decoded facts carry a default for it rather than failing the decode
+
+#### Scenario: One decoder
+
+- **WHEN** the codebase is searched for overwatch field extraction
+- **THEN** only `overwatch_facts/2` reads overwatch fields
+

@@ -60,9 +60,13 @@ defmodule FlezhaUiWeb.Router do
       on_mount: [{FlezhaUiWeb.UserAuth, :ensure_authenticated}] do
       live "/", DashboardLive
       live "/namespaces", NamespaceLive.Index
+      live "/operatives", OperativeIndexLive
       live "/namespaces/:ns", NamespaceLive.Show
       live "/namespaces/:ns/operatives/:id", OperativeLive
       live "/namespaces/:ns/operatives/:id/stream", StreamLive
+      live "/namespaces/:ns/operatives/:id/state", OperativeStateLive
+      live "/observability", ObservabilityLive
+      live "/controller", ControllerLive
       live "/plugins", PluginLive
       live "/cluster", ClusterLive
       live "/schedules", ScheduleLive

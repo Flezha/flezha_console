@@ -17,6 +17,12 @@ defmodule FlezhaUiWeb.CoreComponents do
   use Phoenix.Component
   use Gettext, backend: FlezhaUiWeb.Gettext
 
+  # Refusals link to where a token is stored, so the components need routes.
+  use Phoenix.VerifiedRoutes,
+    endpoint: FlezhaUiWeb.Endpoint,
+    router: FlezhaUiWeb.Router,
+    statics: FlezhaUiWeb.static_paths()
+
   alias Phoenix.LiveView.JS
 
   @doc """
@@ -99,14 +105,26 @@ defmodule FlezhaUiWeb.CoreComponents do
   Padded and scrollable, so a panel taller than the viewport can still be
   reached — a provider declaring many fields makes one.
 
+  A `:title` slot heads the dialog and, with `on_close`, gives it the dismiss
+  control — so the heading and its close button are one decision rather than
+  one per modal.
+
   ## Examples
 
-      <.dialog :if={@open} testid="start-modal" size="max-w-md">
+      <.dialog :if={@open} testid="start-modal" size="max-w-md" on_close="close_start">
+        <:title>Start an operative</:title>
         ...
       </.dialog>
   """
   attr :testid, :string, default: nil
   attr :size, :string, default: "max-w-sm", doc: "max-width class for the panel"
+
+  attr :on_close, :string,
+    default: nil,
+    doc: "the event the header's dismiss control sends; without it there is no control"
+
+  attr :close_testid, :string, default: nil
+  slot :title
   slot :inner_block, required: true
 
   def dialog(assigns) do
@@ -120,6 +138,17 @@ defmodule FlezhaUiWeb.CoreComponents do
           @size
         ]}
       >
+        <div :if={@title != []} class="flex items-center justify-between mb-5">
+          <h3 class="text-lg font-semibold text-th-primary">{render_slot(@title)}</h3>
+          <button
+            :if={@on_close}
+            phx-click={@on_close}
+            data-testid={@close_testid}
+            class="text-th-muted hover:text-th-primary transition-colors"
+          >
+            <.icon name="hero-x-mark" class="w-5 h-5" />
+          </button>
+        </div>
         {render_slot(@inner_block)}
       </div>
     </div>
@@ -260,36 +289,345 @@ defmodule FlezhaUiWeb.CoreComponents do
   attr :error, :any, default: nil, doc: "a normalised NodeManager error, or nil"
   attr :class, :string, default: nil
 
+  attr :action, :string,
+    default: nil,
+    doc: "what was refused, named in a refusal — \"read the audit log\", \"stop the operative\""
+
   def runtime_error(assigns) do
-    assigns = assign(assigns, :message, runtime_error_message(assigns.error))
+    assigns =
+      assigns
+      |> assign(:message, runtime_error_message(assigns.error, assigns[:action]))
+      |> assign(:settings_link?, settings_link?(assigns.error))
 
     ~H"""
     <.notice :if={@message} kind={:error} testid="runtime-error" class={@class}>
       {@message}
+      <.link
+        :if={@settings_link?}
+        navigate={~p"/users/settings"}
+        class="underline hover:no-underline"
+      >
+        Store a flezha token in settings.
+      </.link>
     </.notice>
     """
   end
 
-  defp runtime_error_message(nil), do: nil
+  defp settings_link?({:forbidden, reason})
+       when reason in [:principal_not_bound, :no_role_binding],
+       do: true
 
-  defp runtime_error_message(:node_not_connected) do
+  defp settings_link?(_error), do: false
+
+  defp runtime_error_message(nil, _action), do: nil
+
+  defp runtime_error_message(:node_not_connected, _action) do
     "Not connected to a flezha controller. Screens will recover automatically once it is reachable."
   end
 
-  defp runtime_error_message({:api_missing, module, function, arity}) do
+  defp runtime_error_message({:api_missing, module, function, arity}, _action) do
     "This UI and the flezha controller have diverged: the controller does not export " <>
       "#{inspect(module)}.#{function}/#{arity}."
   end
 
-  defp runtime_error_message(:timeout) do
+  defp runtime_error_message(:timeout, _action) do
     "The flezha controller did not answer in time."
   end
 
-  defp runtime_error_message({:remote_error, reason}) do
+  defp runtime_error_message({:forbidden, reason}, action) do
+    "The controller refused #{action || "this call"}: #{forbidden_reason(reason)}"
+  end
+
+  defp runtime_error_message({:remote_error, reason}, _action) do
     "The flezha controller reported an error: #{inspect(reason)}"
   end
 
-  defp runtime_error_message(reason), do: "Error: #{inspect(reason)}"
+  defp runtime_error_message(reason, _action), do: "Error: #{inspect(reason)}"
+
+  @doc """
+  A refusal reason from `Flezha.AuthZ`, in the controller's own terms.
+
+  Public because a form states a refusal inline rather than as a banner.
+  """
+  def forbidden_reason(:principal_not_bound),
+    do: "no flezha principal is bound to this UI — a verified token is required."
+
+  def forbidden_reason(:bootstrap_pending),
+    do:
+      "authorization is enforced but unclaimed. Run `flz auth bootstrap <token>` on the controller."
+
+  def forbidden_reason(:no_role_binding),
+    do: "the bound principal has no role in this namespace. `flz role bind` grants one."
+
+  def forbidden_reason(:role_insufficient),
+    do: "the bound principal's role does not grant this action."
+
+  def forbidden_reason(:namespace_mismatch),
+    do: "the bound token is scoped to another namespace."
+
+  def forbidden_reason(:cross_namespace_admin_denied),
+    do: "the bound principal may not administer another namespace."
+
+  def forbidden_reason(:unknown_role),
+    do: "the bound principal's role is not one the controller knows."
+
+  def forbidden_reason(:unknown_action), do: "the controller does not know that action."
+  def forbidden_reason(:invalid_scope), do: "the scope the call was made against is not valid."
+  def forbidden_reason(reason), do: inspect(reason)
+
+  @doc """
+  Why a presented flezha token did not bind, in the token store's own terms.
+  """
+  def token_error_reason(:malformed), do: "the token is malformed."
+  def token_error_reason(:unknown), do: "the controller does not know this token."
+  def token_error_reason(:token_revoked), do: "the token has been revoked."
+  def token_error_reason(:token_expired), do: "the token has expired."
+  def token_error_reason(:no_token), do: "no token was presented."
+  def token_error_reason(reason), do: inspect(reason)
+
+  @doc """
+  A titled section of a screen, in the standard panel chrome.
+
+  The header carries an icon and the title; `:actions` puts controls on its
+  right. The body is the default slot, undecorated — a table, a list or an
+  empty-state paragraph fills it.
+
+      <.panel testid="role-bindings" icon="hero-key" class="overflow-hidden">
+        <:title>Role bindings ({length(@role_bindings)})</:title>
+        <table>...</table>
+      </.panel>
+
+  Every panel on every screen is drawn here, so the chrome is one decision
+  rather than one per section.
+  """
+  attr :testid, :string, default: nil
+  attr :icon, :string, default: nil, doc: "a heroicon name, or nil for a panel with no icon"
+  attr :class, :string, default: nil
+
+  slot :title, required: true
+  slot :actions, doc: "controls rendered at the right of the header"
+  slot :inner_block, required: true
+
+  def panel(assigns) do
+    ~H"""
+    <div
+      data-testid={@testid}
+      class={["bg-surface border border-brd rounded-panel shadow-panel", @class]}
+    >
+      <div class="px-5 py-4 border-b border-brd flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <.icon :if={@icon} name={@icon} class="w-4 h-4 text-th-tertiary" />
+          <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+            {render_slot(@title)}
+          </h2>
+        </div>
+        <div :if={@actions != []} class="flex items-center gap-3">
+          {render_slot(@actions)}
+        </div>
+      </div>
+      {render_slot(@inner_block)}
+    </div>
+    """
+  end
+
+  @doc """
+  What a screen shows in place of a listing that has nothing in it.
+
+  `boxed` is for a section that stands on its own; the default sits inside a
+  `panel/1` whose chrome is already drawn. Every "nothing here" on every screen
+  reads the same way, rather than drifting one copy-paste at a time.
+
+      <.empty_state icon="hero-clock" testid="schedule-empty">
+        No schedule has been created.
+      </.empty_state>
+  """
+  attr :icon, :string, required: true
+  attr :testid, :string, default: nil
+  attr :boxed, :boolean, default: false, doc: "true for a section with no panel around it"
+
+  slot :inner_block, required: true
+  slot :detail, doc: "a second line, for what the operator might do about it"
+
+  def empty_state(assigns) do
+    ~H"""
+    <div
+      data-testid={@testid}
+      class={
+        (@boxed && "bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel") ||
+          "px-5 py-10 text-center"
+      }
+    >
+      <.icon name={@icon} class="w-10 h-10 text-th-muted mx-auto mb-3" />
+      <p class="text-th-tertiary">{render_slot(@inner_block)}</p>
+      <p :if={@detail != []} class="text-sm text-th-muted mt-1">{render_slot(@detail)}</p>
+    </div>
+    """
+  end
+
+  @doc """
+  One labelled figure in a grid of them — the shape every facts panel is made
+  of.
+
+  Belongs inside a `<dl>`, which is what the grid around it is. `tone` carries
+  the value's own treatment: the default is the mono figure, and `nil` is for a
+  value that brings its own markup, such as a badge.
+
+      <dl class="grid grid-cols-3 gap-4 text-sm">
+        <.stat label="Uptime" testid="operative-uptime">{Format.duration(@uptime_ms)}</.stat>
+      </dl>
+  """
+  attr :label, :any, required: true
+  attr :testid, :string, default: nil
+
+  attr :tone, :string,
+    default: "text-th-primary font-mono",
+    doc: "classes for the value; nil when the value brings its own"
+
+  slot :inner_block, required: true
+
+  def stat(assigns) do
+    ~H"""
+    <div>
+      <dt class="text-xs text-th-muted uppercase tracking-wider">{@label}</dt>
+      <dd data-testid={@testid} class={[@tone, "mt-1"]}>{render_slot(@inner_block)}</dd>
+    </div>
+    """
+  end
+
+  @doc """
+  Whether this UI holds a connection to the controller, as a dot.
+
+  Live is a pulse rather than a static mark, because the thing it reports is a
+  connection that can drop while the page is open.
+  """
+  attr :connected?, :boolean, required: true
+  attr :size, :string, default: "h-2 w-2"
+  attr :class, :string, default: nil
+
+  def status_dot(assigns) do
+    ~H"""
+    <span :if={@connected?} class={["relative flex", @size, @class]}>
+      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75">
+      </span>
+      <span class={["relative inline-flex rounded-full bg-success", @size]}></span>
+    </span>
+    <span :if={!@connected?} class={["rounded-full bg-danger", @size, @class]}></span>
+    """
+  end
+
+  @doc """
+  An operative's health, as the Convergence Loop classified it.
+
+  Every value gets its own colour, `:unknown` included — a row the loop has not
+  observed is not a healthy row, and rendering it like one would hide the case
+  the column exists for.
+  """
+  attr :health, :any, required: true
+  attr :count, :any, default: nil, doc: "how many rows carry this health, for a rollup"
+  attr :class, :string, default: nil
+
+  def health_badge(assigns) do
+    ~H"""
+    <span
+      data-testid="health-badge"
+      data-health={@health}
+      class={[
+        "inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium",
+        health_class(@health),
+        @class
+      ]}
+    >
+      <span class={["w-1.5 h-1.5 rounded-full", health_dot(@health)]}></span>
+      <span :if={not is_nil(@count)} class="font-mono">{@count}</span>
+      {@health}
+    </span>
+    """
+  end
+
+  defp health_class(:healthy), do: "bg-success/10 text-success"
+  # Parked at a committed boundary, holding no runner: not running, not broken,
+  # and not the same as a row nobody has looked at yet.
+  defp health_class(:suspended), do: "bg-accent/10 text-accent-text"
+  defp health_class(:degraded), do: "bg-warning/10 text-warning"
+  defp health_class(:unbound), do: "bg-warning/10 text-warning"
+  defp health_class(:failed), do: "bg-danger/10 text-danger-text"
+  defp health_class(_health), do: "bg-surface-input text-th-tertiary"
+
+  defp health_dot(:healthy), do: "bg-success"
+  defp health_dot(:suspended), do: "bg-accent"
+  defp health_dot(:degraded), do: "bg-warning"
+  defp health_dot(:unbound), do: "bg-warning"
+  defp health_dot(:failed), do: "bg-danger"
+  defp health_dot(_health), do: "bg-th-muted"
+
+  @doc """
+  The controller's authorization posture, as a banner.
+
+  Renders nothing when there is nothing an operator needs to act on: an open
+  controller, or an enforced one with a bound principal. A posture the
+  controller could not be asked for renders nothing either — the disconnected
+  indicator already says why.
+  """
+  attr :status, :map, required: true, doc: "a `NodeManager.authz_status/1` map"
+
+  def authz_banner(assigns) do
+    ~H"""
+    <.notice
+      :if={@status.posture == :bootstrap_pending}
+      kind={:error}
+      testid="authz-bootstrap-pending"
+      class="mb-4"
+    >
+      Authorization is enforced on this controller but has not been claimed. Run
+      <code class="font-mono">flz auth bootstrap &lt;token&gt;</code>
+      on the controller to claim it; until then every operator verb is refused.
+    </.notice>
+
+    <.notice
+      :if={@status.posture == :enforced and is_nil(@status.principal)}
+      kind={:error}
+      testid="authz-unbound"
+      class="mb-4"
+    >
+      <span :if={@status.token?}>
+        The flezha token this UI presents did not bind an identity — {token_error_reason(
+          @status.reason
+        )}
+      </span>
+      <span :if={!@status.token?}>
+        No flezha token is bound to this UI.
+      </span>
+      Reads of the audit log and observability, and every mutation, will be refused.
+      <.link navigate={~p"/users/settings"} class="underline hover:no-underline">
+        Store a token in settings.
+      </.link>
+    </.notice>
+    """
+  end
+
+  @doc """
+  The bound principal, its namespace scope and its role, for the top bar.
+
+  Absent rather than guessed when nothing is bound — `authz_banner/1` is what
+  says so.
+  """
+  attr :status, :map, required: true, doc: "a `NodeManager.authz_status/1` map"
+
+  def authz_identity(assigns) do
+    ~H"""
+    <span
+      :if={@status.principal}
+      data-testid="authz-identity"
+      class="flex items-center gap-1.5 text-xs text-th-tertiary font-mono"
+      title={"flezha principal #{@status.principal}"}
+    >
+      <.icon name="hero-key" class="w-3.5 h-3.5" />
+      {@status.principal}
+      <span :if={@status.namespace} class="text-th-muted">/{@status.namespace}</span>
+      <span :if={@status.role} class="text-th-muted">({@status.role})</span>
+    </span>
+    """
+  end
 
   @doc """
   Renders flash notices.

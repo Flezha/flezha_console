@@ -20,27 +20,109 @@
 
   <.fleet_summary topology={@topology} />
 
+  <%!-- Quotas --%>
+  <.panel testid="quota-panel" icon="hero-chart-bar" class="overflow-hidden">
+    <:title>Quotas</:title>
+    <:actions>
+      <button
+        :if={@declared}
+        phx-click="open_quotas"
+        data-testid="edit-quotas-btn"
+        class="px-3 py-1.5 text-xs rounded-xl bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover transition-colors"
+      >
+        Edit
+      </button>
+    </:actions>
+    <p
+      :if={is_nil(@declared)}
+      data-testid="namespace-undeclared"
+      class="px-5 py-3 text-xs text-th-muted"
+    >
+      This namespace has a running hub but no declaration, so no limits apply to its counters.
+    </p>
+    <table class="w-full text-sm">
+      <tbody>
+        <tr
+          :for={row <- @quotas}
+          data-testid={"quota-#{row.kind}"}
+          class="border-b border-brd-subtle last:border-b-0"
+        >
+          <td class="px-5 py-2 text-th-secondary font-mono text-xs w-48">{row.kind}</td>
+          <td class="px-5 py-2 text-th-primary font-mono text-xs w-32">{row.value || "—"}</td>
+          <td class="px-5 py-2">
+            <div :if={row.limit} class="flex items-center gap-2">
+              <div class="h-1.5 w-40 rounded-full bg-surface-input overflow-hidden">
+                <div
+                  class={[
+                    "h-full rounded-full",
+                    if(row.breached?, do: "bg-danger", else: "bg-accent")
+                  ]}
+                  style={"width: #{min(100, round((row.value || 0) * 100 / max(row.limit, 1)))}%"}
+                >
+                </div>
+              </div>
+              <span class="text-[11px] text-th-muted font-mono">of {row.limit}</span>
+              <span
+                :if={row.breached?}
+                data-testid={"quota-breached-#{row.kind}"}
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] bg-danger/10 text-danger-text"
+              >
+                breached
+              </span>
+            </div>
+            <span
+              :if={is_nil(row.limit)}
+              data-testid={"quota-unset-#{row.kind}"}
+              class="text-[11px] text-th-muted"
+            >
+              no limit applies
+            </span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </.panel>
+
+  <%!-- Role bindings, read-only --%>
+  <.panel testid="role-bindings" icon="hero-key" class="overflow-hidden">
+    <:title>Role bindings ({length(@role_bindings)})</:title>
+    <%= if @role_bindings == [] do %>
+      <p data-testid="role-bindings-empty" class="px-5 py-6 text-sm text-th-muted">
+        No principal is bound to this namespace. Bind one with <code class="font-mono">flz role bind</code>.
+      </p>
+    <% else %>
+      <table class="w-full text-sm">
+        <tbody>
+          <tr
+            :for={binding <- @role_bindings}
+            data-testid={"role-binding-#{binding[:principal]}"}
+            class="border-b border-brd-subtle last:border-b-0"
+          >
+            <td class="px-5 py-2 text-th-primary font-mono text-xs">{binding[:principal]}</td>
+            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">{binding[:role]}</td>
+          </tr>
+        </tbody>
+      </table>
+    <% end %>
+  </.panel>
+
   <%!-- Operatives panel --%>
-  <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
-    <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <.icon name="hero-cpu-chip" class="w-4 h-4 text-th-tertiary" />
-        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
-          Operatives ({length(@operatives)})
-        </h2>
-      </div>
-    </div>
+  <.panel icon="hero-cpu-chip" class="overflow-hidden">
+    <:title>Operatives ({length(@operatives)})</:title>
     <%= if @operatives == [] do %>
-      <div data-testid="no-operatives-msg" class="px-5 py-10 text-center">
-        <.icon name="hero-cpu-chip" class="w-10 h-10 text-th-muted mx-auto mb-3" />
-        <p class="text-sm text-th-muted">No operatives running.</p>
-      </div>
+      <.empty_state icon="hero-cpu-chip" testid="no-operatives-msg">
+        No operatives running.
+      </.empty_state>
     <% else %>
       <table data-testid="operatives-table" class="w-full text-sm">
         <thead>
           <tr class="border-b border-brd">
             <th class="text-left px-5 py-2 text-th-tertiary font-medium">Operative ID</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Health</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Node</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Factory</th>
             <th class="text-left px-5 py-2 text-th-tertiary font-medium">Runner</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Plugins</th>
             <th class="px-5 py-2"></th>
           </tr>
         </thead>
@@ -51,8 +133,27 @@
               class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
             >
               <td class="px-5 py-2 text-th-primary font-mono text-xs">{operative.id}</td>
+              <td class="px-5 py-2">
+                <.health_badge health={operative.health} />
+              </td>
               <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
-                {operative.runner_id || "—"}
+                <span :if={operative[:node]}>{operative[:node]}</span>
+                <span
+                  :if={is_nil(operative[:node])}
+                  data-testid={"unplaced-#{operative.id}"}
+                  class="text-warning"
+                >
+                  unplaced
+                </span>
+              </td>
+              <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+                {operative[:factory] || "—"}
+              </td>
+              <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+                {operative[:runner] || "—"}
+              </td>
+              <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+                {Map.get(@plugin_counts, to_string(operative.id), 0)}
               </td>
               <td class="px-5 py-2 text-right flex items-center justify-end gap-3">
                 <a
@@ -76,16 +177,162 @@
         </tbody>
       </table>
     <% end %>
-  </div>
+  </.panel>
+
+  <%!-- Partition groups panel --%>
+  <.panel
+    :if={@groups != []}
+    testid="partition-groups"
+    icon="hero-squares-plus"
+    class="overflow-hidden"
+  >
+    <:title>Partition groups ({length(@groups)})</:title>
+    <div :for={group <- @groups} class="border-b border-brd-subtle last:border-b-0">
+      <details data-testid={"partition-group-#{group.id}"} class="group">
+        <summary class="px-5 py-3 flex items-center gap-3 cursor-pointer hover:bg-surface-hover transition-colors">
+          <.icon
+            name="hero-chevron-right"
+            class="w-3.5 h-3.5 text-th-muted group-open:rotate-90 transition-transform"
+          />
+          <span class="font-mono text-xs text-th-primary">{group.id}</span>
+          <.health_badge health={group.health} />
+          <span
+            class="text-xs text-th-tertiary font-mono"
+            data-testid={"group-members-#{group.id}"}
+          >
+            {group.partitions} members
+          </span>
+          <span
+            :if={is_map(group.coverage)}
+            data-testid={"group-faulted-#{group.id}"}
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium bg-danger/10 text-danger-text"
+          >
+            <.icon name="hero-exclamation-triangle" class="w-3 h-3" /> coverage faulted
+          </span>
+          <span :if={group.coverage == :unavailable} class="text-[11px] text-th-muted">
+            coverage unavailable on this controller
+          </span>
+          <button
+            type="button"
+            phx-click="open_rescale"
+            phx-value-group={group.id}
+            data-testid={"rescale-#{group.id}"}
+            class="ml-auto px-2.5 py-1 text-[11px] rounded-lg bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover transition-colors"
+          >
+            Rescale
+          </button>
+        </summary>
+
+        <div :if={is_map(group.coverage)} class="px-5 pb-3">
+          <.notice kind={:error} testid={"group-coverage-#{group.id}"}>
+            Key-group coverage is broken — traffic for the named groups is lost.
+            <span :for={{from, to} <- group.coverage.gaps} class="block font-mono text-xs">
+              gap: key groups {from}–{to} are owned by no member
+            </span>
+            <span
+              :for={{key_group, owners} <- group.coverage.overlaps}
+              class="block font-mono text-xs"
+            >
+              overlap: key group {key_group} is claimed by {Enum.join(owners, ", ")}
+            </span>
+          </.notice>
+        </div>
+
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-t border-brd-subtle">
+              <th class="text-left px-5 py-2 text-th-tertiary font-medium">Partition</th>
+              <th class="text-left px-5 py-2 text-th-tertiary font-medium">Operative</th>
+              <th class="text-left px-5 py-2 text-th-tertiary font-medium">Key groups</th>
+              <th class="text-left px-5 py-2 text-th-tertiary font-medium">Runner</th>
+              <th class="text-left px-5 py-2 text-th-tertiary font-medium">Health</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={member <- group.members} class="border-t border-brd-subtle">
+              <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+                p{member.partition.index}
+              </td>
+              <td class="px-5 py-2 font-mono text-xs">
+                <.link
+                  navigate={~p"/namespaces/#{@ns}/operatives/#{member.id}"}
+                  class="text-accent-text hover:text-accent transition-colors"
+                >
+                  {member.id}
+                </.link>
+              </td>
+              <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+                {elem(member.partition.range, 0)}–{elem(member.partition.range, 1)}
+              </td>
+              <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+                {member[:runner] || "—"}
+              </td>
+              <td class="px-5 py-2"><.health_badge health={member.health} /></td>
+            </tr>
+          </tbody>
+        </table>
+      </details>
+    </div>
+  </.panel>
+
+  <%!-- Finished instances: retained completions, not live operatives --%>
+  <.panel testid="finished-instances" icon="hero-flag" class="overflow-hidden">
+    <:title>Finished instances ({length(@finished)})</:title>
+    <:actions>
+      <button
+        phx-click="reload_finished"
+        data-testid="reload-finished"
+        class="px-3 py-1.5 text-xs rounded-xl bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover transition-colors"
+      >
+        Reload
+      </button>
+    </:actions>
+    <.runtime_error
+      :if={@finished_error}
+      error={@finished_error}
+      action="the finished-instance listing"
+      class="m-5"
+    />
+    <%= if @finished == [] and is_nil(@finished_error) do %>
+      <p class="px-5 py-6 text-sm text-th-muted">
+        No workflow instance has finished inside its retention window.
+      </p>
+    <% else %>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-brd">
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Instance</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Status</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Finished at</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={{id, record} <- @finished}
+            data-testid={"finished-row-#{id}"}
+            class="border-b border-brd-subtle"
+          >
+            <td class="px-5 py-2 font-mono text-xs">
+              <.link
+                navigate={~p"/namespaces/#{@ns}/operatives/#{id}"}
+                class="text-accent-text hover:text-accent transition-colors"
+              >
+                {id}
+              </.link>
+            </td>
+            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">{record[:status] || "—"}</td>
+            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+              {Format.token_expiry(record[:finished_at])}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    <% end %>
+  </.panel>
 
   <%!-- Runners panel --%>
-  <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
-    <div class="px-5 py-4 border-b border-brd flex items-center gap-2">
-      <.icon name="hero-server-stack" class="w-4 h-4 text-th-tertiary" />
-      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
-        Runners ({length(@runners)})
-      </h2>
-    </div>
+  <.panel icon="hero-server-stack" class="overflow-hidden">
+    <:title>Runners ({length(@runners)})</:title>
     <%= if @runners == [] do %>
       <div class="px-5 py-6 text-sm text-th-muted">No runners connected.</div>
     <% else %>
@@ -95,29 +342,21 @@
         <% end %>
       </ul>
     <% end %>
-  </div>
+  </.panel>
 </div>
 
 <%!-- Start Operative Modal --%>
-<.dialog :if={@show_start_modal} testid="start-modal" size="max-w-md">
-  <div class="flex items-center justify-between mb-5">
-    <h3 class="text-lg font-semibold text-th-primary">Start Operative</h3>
-    <button
-      phx-click="close_start_modal"
-      class="text-th-muted hover:text-th-primary transition-colors"
-    >
-      <.icon name="hero-x-mark" class="w-5 h-5" />
-    </button>
-  </div>
+<.dialog
+  :if={@show_start_modal}
+  testid="start-modal"
+  size="max-w-md"
+  on_close="close_start_modal"
+>
+  <:title>Start Operative</:title>
 
-  <%= if @start_error do %>
-    <div
-      data-testid="start-error"
-      class="mb-4 px-4 py-3 bg-[var(--color-danger-subtle-bg)] border border-[var(--color-danger-subtle-border)] rounded-lg text-sm text-danger-text"
-    >
-      {@start_error}
-    </div>
-  <% end %>
+  <.notice :if={@start_error} kind={:error} testid="start-error" class="mb-4">
+    {@start_error}
+  </.notice>
 
   <form phx-submit="start_operative" phx-change="start_form_change" class="space-y-4">
     <div>
@@ -216,3 +455,74 @@
 >
   Are you sure you want to stop <.mono>{@confirm_stop}</.mono>?
 </.confirm_dialog>
+
+<.dialog :if={@rescale} testid="rescale-modal" size="max-w-md">
+  <h3 class="text-lg font-semibold text-th-primary mb-3">Rescale partition group</h3>
+  <p class="text-sm text-th-secondary mb-4">
+    Set the member count for <.mono>{@rescale.group}</.mono>. Key ranges are redistributed across
+    the new member set, and the group re-renders on the next tick.
+  </p>
+  <form phx-change="select_rescale" class="mb-4">
+    <label class="block text-sm font-medium text-th-secondary mb-1">Target members</label>
+    <input
+      type="number"
+      min="1"
+      name="rescale[target]"
+      data-testid="rescale-target"
+      value={@rescale.target}
+      class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus"
+    />
+  </form>
+  <div class="flex justify-end gap-3">
+    <button
+      phx-click="cancel_rescale"
+      data-testid="rescale-cancel-btn"
+      class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
+    >
+      Cancel
+    </button>
+    <button
+      phx-click="rescale"
+      data-testid="rescale-confirm-btn"
+      class="px-4 py-2 text-sm font-medium text-white rounded-xl bg-accent hover:bg-accent-hover transition-all"
+    >
+      Rescale to {@rescale.target}
+    </button>
+  </div>
+</.dialog>
+
+<.dialog :if={@quota_form} testid="quota-modal" size="max-w-md" on_close="close_quotas">
+  <:title>Edit quotas</:title>
+
+  <.notice :if={@quota_error} kind={:error} testid="quota-error" class="mb-4">
+    {@quota_error}
+  </.notice>
+
+  <form phx-change="quota_change" class="space-y-3">
+    <div :for={row <- @quotas}>
+      <label class="block text-sm font-medium text-th-secondary mb-1">{row.limit_key}</label>
+      <input
+        type="number"
+        name={"quota[#{row.limit_key}]"}
+        data-testid={"quota-input-#{row.limit_key}"}
+        value={@quota_form[to_string(row.limit_key)]}
+        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus"
+      />
+    </div>
+  </form>
+  <div class="flex justify-end gap-3 pt-4">
+    <button
+      phx-click="close_quotas"
+      class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
+    >
+      Cancel
+    </button>
+    <button
+      phx-click="save_quotas"
+      data-testid="quota-save"
+      class="px-4 py-2 text-sm font-medium text-white rounded-xl bg-accent hover:bg-accent-hover transition-all"
+    >
+      Save
+    </button>
+  </div>
+</.dialog>

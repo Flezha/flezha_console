@@ -1,0 +1,194 @@
+<div class="space-y-6">
+  <div class="flex items-center gap-3">
+    <.link
+      navigate={~p"/namespaces/#{@ns}/operatives/#{@operative_id}"}
+      class="text-th-tertiary hover:text-th-primary transition-colors"
+    >
+      <.icon name="hero-arrow-left" class="w-4 h-4" />
+    </.link>
+    <h1 class="text-2xl font-bold text-th-primary font-mono">{@operative_id}</h1>
+    <span class="text-sm text-th-tertiary">durable state</span>
+  </div>
+
+  <.runtime_error error={@load_error} action="the state listing" />
+
+  <div class="flex items-center gap-4 text-xs text-th-muted">
+    <span data-testid="state-retention">
+      Retention: {if @retention_hours, do: "#{@retention_hours} hours", else: "not reported"}
+    </span>
+    <span data-testid="state-verbs">
+      Deleting and rotating state are <code class="font-mono">flz state</code> verbs — this screen
+      only reads.
+    </span>
+  </div>
+
+  <%= if @entities == [] do %>
+    <.empty_state icon="hero-circle-stack" testid="state-empty" boxed={true}>
+      This operative has no durable state yet.
+    </.empty_state>
+  <% else %>
+    <.panel
+      :for={{procedure, entities} <- Enum.group_by(@entities, & &1.procedure)}
+      testid={"procedure-#{procedure}"}
+      icon="hero-circle-stack"
+      class="overflow-hidden"
+    >
+      <:title>Procedure <span class="font-mono normal-case">{procedure}</span></:title>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-brd">
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Entity</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">WAL seq</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Snapshot seq</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Flush p99</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Fsync lag</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Dedup drops</th>
+            <th class="px-5 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={entity <- entities}
+            data-testid={"entity-#{entity.key}"}
+            class="border-b border-brd-subtle"
+          >
+            <td class="px-5 py-2 text-th-primary font-mono text-xs">
+              <%!-- A procedure holding one unkeyed entity reports an empty
+                    key; naming it is clearer than rendering nothing. --%>
+              {if entity.entity_key == "", do: "(unkeyed)", else: entity.entity_key}
+              <span
+                :if={lagging?(entity)}
+                data-testid={"entity-lagging-#{entity.key}"}
+                class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-lg text-[11px] bg-warning/10 text-warning"
+              >
+                lagging
+              </span>
+            </td>
+            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+              {entity.counters[:wal_seq]}
+            </td>
+            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+              {entity.counters[:snapshot_seq]}
+            </td>
+            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+              {entity.counters[:flush_latency_ms_p99]}
+            </td>
+            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+              {entity.counters[:fsync_durability_lag_ms]}
+            </td>
+            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+              {entity.counters[:dedup_drops_total]}
+            </td>
+            <td class="px-5 py-2 text-right">
+              <button
+                phx-click="select_entity"
+                phx-value-entity={entity.key}
+                data-testid={"select-#{entity.key}"}
+                class="text-sm text-accent-text hover:text-accent transition-colors"
+              >
+                Inspect
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </.panel>
+
+    <%!-- Durability lag, sampled by this UI --%>
+    <div
+      data-testid="lag-chart"
+      class="bg-surface border border-brd rounded-panel p-5 shadow-panel"
+    >
+      <div class="flex items-center gap-2 mb-1">
+        <.icon name="hero-chart-bar-square" class="w-4 h-4 text-th-tertiary" />
+        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+          Durability lag and WAL-behind-snapshot
+        </h2>
+      </div>
+      <p data-testid="chart-provenance" class="text-xs text-th-muted mb-4">
+        Sampled by this UI every 5s — not a series the controller records. A missed tick is drawn
+        as a gap, never interpolated.
+      </p>
+      <div :for={entity <- @entities} class="mb-4 last:mb-0">
+        <p class="text-xs font-mono text-th-secondary mb-1">{entity.key}</p>
+        <div class="flex items-end gap-px h-12" data-testid={"spark-#{entity.key}"}>
+          <span
+            :for={point <- Enum.reverse(Map.get(@history, entity.key, []))}
+            class={[
+              "w-1 rounded-sm",
+              if(is_nil(point.lag_ms), do: "bg-transparent", else: "bg-accent")
+            ]}
+            style={"height: #{min(48, (point.lag_ms || 0))}px"}
+            title={"lag #{point.lag_ms || "—"}ms, wal gap #{point.wal_gap || "—"}"}
+          >
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Point-in-time read --%>
+    <div
+      :if={@selected}
+      data-testid="time-travel"
+      class="bg-surface border border-brd rounded-panel p-5 shadow-panel"
+    >
+      <div class="flex items-center gap-2 mb-4">
+        <.icon name="hero-clock" class="w-4 h-4 text-th-tertiary" />
+        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+          State at a point in time — <span class="font-mono normal-case">{@selected}</span>
+        </h2>
+      </div>
+
+      <form phx-change="travel_change" class="flex items-end gap-3 mb-4">
+        <div>
+          <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">Target</label>
+          <select
+            name="travel[kind]"
+            data-testid="travel-kind"
+            class="bg-surface-input border border-brd-input rounded-xl px-3 py-1.5 text-th-primary text-xs focus:outline-none focus:border-brd-focus"
+          >
+            <option value="seq" selected={@travel_form["kind"] == "seq"}>sequence</option>
+            <option value="timestamp" selected={@travel_form["kind"] == "timestamp"}>
+              timestamp
+            </option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-th-muted uppercase tracking-wider mb-1">Value</label>
+          <input
+            type="text"
+            name="travel[value]"
+            data-testid="travel-value"
+            value={@travel_form["value"]}
+            class="bg-surface-input border border-brd-input rounded-xl px-3 py-1.5 text-th-primary text-xs focus:outline-none focus:border-brd-focus"
+          />
+        </div>
+      </form>
+      <button
+        phx-click="travel"
+        data-testid="travel-submit"
+        class="px-3 py-1.5 text-xs rounded-xl bg-accent text-white hover:bg-accent-hover transition-colors"
+      >
+        Read
+      </button>
+
+      <p
+        :if={@travel_target && @travel_result}
+        data-testid="travel-target"
+        class="text-xs text-th-muted mt-4"
+      >
+        Resolved target: {target_label(@travel_target)}
+      </p>
+
+      <pre
+        :if={@travel_result}
+        data-testid="travel-result"
+        class="mt-2 p-3 bg-surface-input rounded-xl text-[11px] font-mono text-th-secondary overflow-auto max-h-64"
+      >{inspect(@travel_result, pretty: true, limit: 50)}</pre>
+
+      <.notice :if={@travel_error} kind={:error} testid="travel-error" class="mt-4">
+        {travel_reason(@travel_error)}
+      </.notice>
+    </div>
+  <% end %>
+</div>

@@ -35,6 +35,19 @@ defmodule FlezhaUiWeb.Live.Refresh do
     if module.refresh_paused?(socket), do: socket, else: module.refresh(socket)
   end
 
+  @doc """
+  Puts the caller's flezha token on the socket, once.
+
+  Every authorized controller call needs it, and resolving it per call would
+  re-read the user's stored credential on every panel of every tick. Held as an
+  assign so a screen threads a value it already has.
+  """
+  def assign_token(socket) do
+    Phoenix.Component.assign_new(socket, :flezha_token, fn ->
+      FlezhaUi.Accounts.Scope.flezha_token(socket.assigns[:current_scope])
+    end)
+  end
+
   defmacro __using__(opts) do
     interval = Keyword.fetch!(opts, :every)
     events = Keyword.get(opts, :on_events, [])
@@ -64,6 +77,8 @@ defmodule FlezhaUiWeb.Live.Refresh do
       Does nothing on the dead render: there is no process there to deliver to.
       """
       def start_refresh(socket) do
+        socket = FlezhaUiWeb.Live.Refresh.assign_token(socket)
+
         if Phoenix.LiveView.connected?(socket) do
           if @refresh_events != [] do
             Phoenix.PubSub.subscribe(FlezhaUi.PubSub, FlezhaUi.Service.EventBridge.topic())

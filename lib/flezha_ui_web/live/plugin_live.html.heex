@@ -3,10 +3,9 @@
 
   <%!-- Available Providers Grid --%>
   <%= if @available_providers == [] do %>
-    <div class="bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel">
-      <.icon name="hero-puzzle-piece" class="w-10 h-10 text-th-muted mx-auto mb-3" />
-      <p class="text-th-tertiary">No providers discovered from agent.</p>
-    </div>
+    <.empty_state icon="hero-puzzle-piece" boxed={true}>
+      No providers discovered from agent.
+    </.empty_state>
   <% else %>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       <%= for provider <- @available_providers do %>
@@ -76,10 +75,9 @@
   <h2 class="text-lg font-bold text-th-primary pt-2">Active Plugins</h2>
 
   <%= if @plugins == [] do %>
-    <div class="bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel">
-      <.icon name="hero-puzzle-piece" class="w-10 h-10 text-th-muted mx-auto mb-3" />
-      <p class="text-th-tertiary">No active plugins found.</p>
-    </div>
+    <.empty_state icon="hero-puzzle-piece" boxed={true}>
+      No active plugins found.
+    </.empty_state>
   <% else %>
     <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
       <table class="w-full text-sm">
@@ -133,3 +131,63 @@
 >
   Disable plugin <.mono>{@confirm_disable}</.mono>?
 </.confirm_dialog>
+
+<.panel testid="installed-catalog" icon="hero-archive-box" class="overflow-hidden mt-6">
+  <:title>Installed on the controller ({length(@catalog)})</:title>
+
+  <p class="px-5 py-2 text-xs text-th-muted border-b border-brd-subtle">
+    Installing, upgrading and uninstalling move files on the controller host — those are
+    <code class="font-mono">flz plugin</code>
+    verbs, not control-panel actions.
+  </p>
+
+  <.notice
+    :if={@catalog_error}
+    kind={:info}
+    testid="catalog-unavailable"
+    class="m-5"
+  >
+    The installed-plugin catalog is unavailable on this controller. The enabled plugins above
+    still list normally.
+  </.notice>
+
+  <p :if={@catalog == [] and is_nil(@catalog_error)} class="px-5 py-6 text-sm text-th-muted">
+    No plugins are installed on the controller host.
+  </p>
+
+  <table :if={@catalog != []} class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-brd">
+        <th class="text-left px-5 py-2 text-th-tertiary font-medium">Plugin</th>
+        <th class="text-left px-5 py-2 text-th-tertiary font-medium">Version</th>
+        <th class="text-left px-5 py-2 text-th-tertiary font-medium">Status</th>
+        <th class="text-left px-5 py-2 text-th-tertiary font-medium">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr
+        :for={plugin <- @catalog}
+        data-testid={"installed-#{plugin[:id]}"}
+        class="border-b border-brd-subtle"
+      >
+        <td class="px-5 py-2 text-th-primary font-mono text-xs">{plugin[:id]}</td>
+        <td class="px-5 py-2 text-th-tertiary font-mono text-xs">{plugin[:version]}</td>
+        <td class="px-5 py-2">
+          <span
+            data-testid={"installed-status-#{plugin[:id]}"}
+            class={[
+              "inline-flex items-center px-2 py-0.5 rounded-lg text-[11px]",
+              if(plugin[:status] == :enabled,
+                do: "bg-success/10 text-success",
+                else: "bg-surface-input text-th-tertiary"
+              )
+            ]}
+          >
+            {plugin[:status]}
+          </span>
+        </td>
+        <td class="px-5 py-2 text-th-tertiary text-xs">{plugin[:description] || "—"}</td>
+      </tr>
+    </tbody>
+  </table>
+</.panel>

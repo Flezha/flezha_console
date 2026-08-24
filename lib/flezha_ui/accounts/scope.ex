@@ -18,16 +18,29 @@ defmodule FlezhaUi.Accounts.Scope do
 
   alias FlezhaUi.Accounts.User
 
-  defstruct user: nil
+  @derive {Inspect, except: [:flezha_token]}
+  defstruct user: nil, flezha_token: nil
 
   @doc """
   Creates a scope for the given user.
 
+  The scope carries the flezha token this caller presents to the controller,
+  resolved once here rather than per remote call: `FlezhaUi.Accounts` owns the
+  precedence between a user's own token and the service token.
+
   Returns nil if no user is given.
   """
   def for_user(%User{} = user) do
-    %__MODULE__{user: user}
+    %__MODULE__{user: user, flezha_token: FlezhaUi.Accounts.flezha_token(user)}
   end
 
   def for_user(nil), do: nil
+
+  @doc """
+  The flezha token a scope presents, or the service token when there is no
+  scope at all — a controller-rendered page outside a session still identifies
+  the app.
+  """
+  def flezha_token(%__MODULE__{flezha_token: token}), do: token
+  def flezha_token(_scope), do: FlezhaUi.Accounts.service_flezha_token()
 end

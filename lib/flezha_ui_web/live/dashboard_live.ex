@@ -35,7 +35,7 @@ defmodule FlezhaUiWeb.DashboardLive do
 
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
-    stats = load_stats()
+    stats = load_stats(socket.assigns.flezha_token)
     namespace = resolve_namespace(socket.assigns.ns_param, stats.namespaces)
 
     socket
@@ -51,21 +51,29 @@ defmodule FlezhaUiWeb.DashboardLive do
     if requested in sorted, do: requested, else: List.first(sorted)
   end
 
-  defp load_stats do
+  defp load_stats(token) do
     node = NodeManager.connected_node()
     transport = System.get_env("FLEZHA_TRANSPORT", "uds")
+    scope = NodeManager.token_scope(token)
 
-    {namespaces, operatives, runners, plugins, provider_count, error} =
+    {namespaces, known_namespaces, operatives, runners, plugins, provider_count, error} =
       if node do
-        {ns_list, ns_error} =
-          case NodeManager.list_namespaces() do
-            {:ok, list} -> {list, nil}
-            {:error, reason} -> {[], reason}
-          end
+        {ns_list, ns_error} = NodeManager.scoped_namespaces(token)
 
+        # The count is the same population the namespace listing shows, derived
+        # by the same function, so the two screens cannot disagree. The
+        # selector below stays on running hubs: a declared namespace with no
+        # hub has no data plane to graph.
+        known =
+          NodeManager.declared_namespaces()
+          |> NodeManager.ok_or([])
+          |> NodeManager.known_namespace_names(ns_list, scope)
+
+        # One registry dump per namespace, carrying health — the per-namespace
+        # id list it replaced could only ever answer "how many".
         operatives =
           Enum.flat_map(ns_list, fn ns ->
-            ns |> NodeManager.list_operatives() |> NodeManager.ok_or([])
+            ns |> NodeManager.operative_rows() |> NodeManager.ok_or([])
           end)
 
         runners =
@@ -84,20 +92,23 @@ defmodule FlezhaUiWeb.DashboardLive do
 
         provider_count = NodeManager.get_provider_info() |> NodeManager.ok_or([]) |> length()
 
-        {ns_list, operatives, runners, plugins, provider_count, ns_error}
+        {ns_list, known, operatives, runners, plugins, provider_count, ns_error}
       else
-        {[], [], [], %{}, 0, :node_not_connected}
+        {[], [], [], [], %{}, 0, :node_not_connected}
       end
 
     %{
       node: node,
       transport: transport,
-      namespace_count: length(namespaces),
+      namespace_count: length(known_namespaces),
       namespaces: namespaces,
       operative_count: length(operatives),
+      operative_health: NodeManager.health_counts(operatives),
+      unplaced_count: length(NodeManager.unplaced_rows(operatives)),
       runners: runners,
       plugin_count: map_size(plugins),
       provider_count: provider_count,
+      token_scope: scope,
       error: error
     }
   end

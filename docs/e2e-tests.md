@@ -46,7 +46,15 @@ e2e/
   login.spec.ts     the form itself, with no stored session
   dashboard.spec.ts namespaces.spec.ts stream.spec.ts
   audit.spec.ts cluster.spec.ts dlq.spec.ts schedules.spec.ts
-  operative-lifecycle.spec.ts plugin-attach.spec.ts
+  operative-lifecycle.spec.ts plugin-attach.spec.ts topology.spec.ts
+  authz.spec.ts              the posture banner and the flezha-token round-trip
+  operatives-index.spec.ts   the cross-namespace index and its filters
+  namespace-health.spec.ts   the health column on a namespace
+  namespace-admin.spec.ts    quota meters, create and delete
+  workflows.spec.ts          the workflow profile, journal, inbox, completions
+  controller-health.spec.ts  durability posture, shutdown, boot, memory
+  observability.spec.ts      sources, sinks, toggles, the live tail
+  operative-state.spec.ts    durable entities and point-in-time reads
 playwright.config.ts
 ```
 

@@ -7,24 +7,21 @@ defmodule FlezhaUiWeb.AuditLive do
   """
 
   use FlezhaUiWeb, :live_view
+  use FlezhaUiWeb.Live.Tail, tag: :audit_tail, max: 200
 
-  alias FlezhaUi.Service.EventBridge
   alias FlezhaUi.Service.NodeManager
-
-  @max_tail_records 200
 
   @impl true
   def mount(_params, _session, socket) do
     socket =
       socket
+      |> FlezhaUiWeb.Live.Refresh.assign_token()
+      |> init_tail()
       |> assign(
         page_title: "Audit log",
         filter: %{"file" => "", "source" => "", "name" => "", "limit" => "100"},
         records: nil,
         truncated: false,
-        tailing: false,
-        tail_relay: nil,
-        tail_records: [],
         disabled_reason: nil
       )
       |> load_catalog()
@@ -32,11 +29,16 @@ defmodule FlezhaUiWeb.AuditLive do
     {:ok, socket}
   end
 
-  @impl true
-  def terminate(_reason, socket) do
-    stop_tail(socket)
-    :ok
-  end
+  @doc """
+  The record a relayed audit message carries.
+
+  The writer sends `{:audit_record, ref, record}`; the relay forwards whatever
+  it receives, so the envelope is unwrapped here rather than in the relay,
+  which serves other subscriptions too.
+  """
+  @impl FlezhaUiWeb.Live.Tail
+  def unwrap_tail({:audit_record, _ref, record}), do: record
+  def unwrap_tail(record), do: record
 
   @impl true
   def handle_event("filter_change", %{"filter" => params}, socket) do
@@ -51,7 +53,7 @@ defmodule FlezhaUiWeb.AuditLive do
     # result was cut off rather than simply short.
     params = read_params(socket.assigns.filter, limit + 1)
 
-    case NodeManager.audit_read(params) do
+    case NodeManager.audit_read(params, socket.assigns.flezha_token) do
       {:ok, records} when is_list(records) ->
         {:noreply,
          assign(socket,
@@ -67,64 +69,41 @@ defmodule FlezhaUiWeb.AuditLive do
 
   @impl true
   def handle_event("start_tail", _params, socket) do
-    case NodeManager.connected_node() do
-      nil ->
-        {:noreply, assign(socket, read_error: :node_not_connected)}
+    # The same relay the event bridge ships; only the subscription differs.
+    subscription =
+      {:audit_tail, read_params(socket.assigns.filter, 0),
+       NodeManager.caller_context(socket.assigns.flezha_token)}
 
-      node ->
-        # The same relay the event bridge ships; only the subscription differs.
-        subscription = {:audit_tail, read_params(socket.assigns.filter, 0)}
-
-        case EventBridge.start_relay(node, EventBridge.relay_source(), self(), [
-               subscription,
-               :audit_tail
-             ]) do
-          {:ok, relay} ->
-            {:noreply, assign(socket, tailing: true, tail_relay: relay, tail_records: [])}
-
-          {:error, reason} ->
-            {:noreply, assign(socket, read_error: reason)}
-        end
-    end
+    {:noreply, start_tail(socket, subscription)}
   end
 
   @impl true
   def handle_event("stop_tail", _params, socket) do
-    stop_tail(socket)
-    {:noreply, assign(socket, tailing: false, tail_relay: nil)}
-  end
-
-  # The writer sends `{:audit_record, ref, record}`; the relay forwards whatever
-  # it receives, so the envelope is unwrapped here rather than in the relay,
-  # which serves other subscriptions too.
-  @impl true
-  def handle_info({:relay_event, :audit_tail, {:audit_record, _ref, record}}, socket) do
-    {:noreply, prepend_tail(socket, record)}
-  end
-
-  @impl true
-  def handle_info({:relay_event, :audit_tail, record}, socket) do
-    {:noreply, prepend_tail(socket, record)}
+    {:noreply, stop_tail(socket)}
   end
 
   @impl true
   def handle_info(_msg, socket), do: {:noreply, socket}
 
-  defp prepend_tail(socket, record) do
-    assign(socket,
-      tail_records: Enum.take([record | socket.assigns.tail_records], @max_tail_records)
-    )
-  end
-
-  defp stop_tail(%{assigns: %{tail_relay: relay}}), do: EventBridge.stop_relay(relay)
-
   defp load_catalog(socket) do
-    case NodeManager.audit_files() do
+    case NodeManager.audit_files(socket.assigns.flezha_token) do
       {:ok, files} when is_list(files) ->
         assign(socket,
           files: files,
-          stats: NodeManager.ok_or(NodeManager.audit_stats(), nil),
+          stats: NodeManager.ok_or(NodeManager.audit_stats(socket.assigns.flezha_token), nil),
           load_error: nil,
+          read_error: nil,
+          disabled_reason: nil
+        )
+
+      # A refusal is not an empty log: the screen has to say a token is missing,
+      # or the operator reads "nothing was audited" from "we were not allowed
+      # to look".
+      {:error, {:forbidden, _reason} = refusal} ->
+        assign(socket,
+          files: [],
+          stats: nil,
+          load_error: refusal,
           read_error: nil,
           disabled_reason: nil
         )
@@ -165,16 +144,6 @@ defmodule FlezhaUiWeb.AuditLive do
       _ -> 100
     end
   end
-
-  # Authorization being on with no bound principal is a configuration state,
-  # not a malfunction — saying which is the difference between an operator
-  # fixing it and filing a bug.
-  defp audit_error({:forbidden, :principal_not_bound}) do
-    "Authorization is enabled on the controller and this UI has no bound principal."
-  end
-
-  defp audit_error({:forbidden, reason}), do: "Refused by the controller: #{inspect(reason)}"
-  defp audit_error(reason), do: reason
 
   defp disabled_message(:audit_log_disabled) do
     "Audit logging is off on the controller. Enable it with FLEZHA_AUDIT_ENABLED=true."

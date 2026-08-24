@@ -5,17 +5,23 @@ TBD - created by archiving change resync-with-flezha-runtime. Update Purpose aft
 ## Requirements
 ### Requirement: Audit calls carry a UI caller context
 
-Every call into `Flezha.Service.AuditLog` SHALL supply a caller context with `source: :ui`, built by a single shared helper so a principal can be bound later in one place.
+Every call into `Flezha.Service.AuditLog` SHALL supply the caller context built by `NodeManager.caller_context/1` — `source: :ui` plus the principal, namespace, and role resolved from a verified token. A single shared helper SHALL build it. When no principal is bound, the audit screen SHALL state that its reads are refused for want of a bound principal rather than rendering as an empty log.
 
 #### Scenario: Reading the audit log
 
 - **WHEN** any audit function is called
-- **THEN** the caller context carries `source: :ui`
+- **THEN** the caller context carries `source: :ui` and the bound principal, namespace, and role
 
 #### Scenario: The caller context is built in one place
 
 - **WHEN** the codebase is searched for audit caller-context construction
 - **THEN** exactly one helper constructs it
+
+#### Scenario: No principal is bound
+
+- **WHEN** an audit read answers `{:error, {:forbidden, :principal_not_bound}}`
+- **THEN** the screen states that a flezha token is required and links to settings
+- **AND** the log is not rendered as empty
 
 ### Requirement: Audit file catalog
 

@@ -102,10 +102,12 @@ defmodule FlezhaUiWeb.Topology do
   def load_pipeline(socket) do
     %{ns: namespace, operative_id: operative_id, overwatch: facts} = socket.assigns
     state = socket.assigns.topology_state
+    token = socket.assigns[:flezha_token]
 
     if NodeManager.connected_node() do
       {snapshot, skew} = snapshot()
       {rates, state} = advance(state, snapshot, [operative_id])
+      {verdicts, stall_notice} = stall(token)
 
       assign_topology(
         socket,
@@ -118,7 +120,8 @@ defmodule FlezhaUiWeb.Topology do
           rate: Map.get(rates, operative_id),
           history: state.history |> Map.get(operative_id, []) |> Enum.reverse(),
           parked: parked_for(facts),
-          verdicts: verdicts(),
+          verdicts: verdicts,
+          stall_notice: stall_notice,
           skew: skew,
           selected: state.selected
         })
@@ -133,10 +136,12 @@ defmodule FlezhaUiWeb.Topology do
 
   Deliberately issues no per-operative call: the liveness snapshot already
   carries every operative's counters, so the cost is flat in the size of the
-  fleet.
+  fleet. `prefetched_rows` lets a host that has already read
+  `operative_rows/1` this tick avoid a second identical read.
   """
-  def load_summary(socket, namespace) do
+  def load_summary(socket, namespace, prefetched \\ nil) do
     state = socket.assigns.topology_state
+    token = socket.assigns[:flezha_token]
 
     cond do
       is_nil(NodeManager.connected_node()) ->
@@ -147,21 +152,34 @@ defmodule FlezhaUiWeb.Topology do
 
       true ->
         {snapshot, skew} = snapshot()
-        operatives = NodeManager.ok_or(NodeManager.list_operatives(namespace), [])
-        ids = Enum.map(operatives, &NodeManager.identifier_id/1)
+
+        # Health comes from the same registry dump the listings read, so the
+        # summary can break its counts down rather than reporting liveness
+        # alone — still one call for the namespace, whatever its size.
+        # A host that already read the namespace's rows and groups hands them
+        # over rather than paying for the same registry dump — and the same
+        # per-group coverage check — twice on one tick.
+        rows = (prefetched && prefetched.rows) || NodeManager.namespace_rows(namespace)
+        groups = (prefetched && prefetched.groups) || NodeManager.partition_groups(rows)
+
+        ids = Enum.map(rows, &to_string(&1.id))
         {rates, state} = advance(state, snapshot, ids)
+        {verdicts, stall_notice} = stall(token)
 
         assign_topology(
           socket,
           state,
           summary(%{
             namespace: namespace,
+            rows: rows,
             operative_ids: ids,
+            faulted_groups: NodeManager.faulted_group_ids(groups),
             runners: runner_ids(namespace),
             snapshot: snapshot,
             rates: rates,
             dlq: NodeManager.ok_or(NodeManager.dlq_stats(), []),
-            verdicts: verdicts(),
+            verdicts: verdicts,
+            stall_notice: stall_notice,
             skew: skew
           })
         )
@@ -249,18 +267,35 @@ defmodule FlezhaUiWeb.Topology do
     |> Enum.reduce(0, &(&2 + Map.get(&1, :entries, 0)))
   end
 
-  # The controller's clock is only read when there is something to age, so a
-  # quiet ring buffer costs one call per tick rather than two.
-  defp verdicts do
-    with {:ok, signals} when is_list(signals) <- NodeManager.observability_query(@stall_query),
-         [_ | _] = stalls <- Enum.filter(signals, &(Map.get(&1, :name) == :stall_localized)),
+  @doc """
+  Recent stall verdicts, and why there are none when there are none.
+
+  Answers `{verdicts, notice}`. The notice is what separates "nothing is
+  stalled" from "we were not allowed to look": a refusal and a switched-off
+  subsystem are stated, and every other failure stays silent, because a
+  transport blip is not news about the data plane.
+
+  The controller's clock is only read when there is something to age, so a
+  quiet ring buffer costs one call per tick rather than two.
+  """
+  def stall(token) do
+    case NodeManager.observability_query(@stall_query, token) do
+      {:ok, signals} when is_list(signals) -> {recent(signals), nil}
+      {:error, {:forbidden, reason}} -> {[], {:refused, reason}}
+      {:error, :observability_disabled} -> {[], :disabled}
+      _other -> {[], nil}
+    end
+  end
+
+  defp recent(signals) do
+    with [_ | _] = stalls <- Enum.filter(signals, &(Map.get(&1, :name) == :stall_localized)),
          now when is_integer(now) <- NodeManager.controller_monotonic_us() do
       stalls
       |> Enum.filter(fn signal -> now - signal_ts(signal) < @stall_window_us end)
       |> Enum.sort_by(&signal_ts/1, :desc)
       |> Enum.map(&verdict/1)
     else
-      _other -> []
+      _none -> []
     end
   end
 
@@ -316,6 +351,7 @@ defmodule FlezhaUiWeb.Topology do
       height: canvas_height(all),
       selected: Enum.find(all, &(&1.id == input.selected && &1.selectable?)),
       stall: List.first(input.verdicts),
+      stall_notice: Map.get(input, :stall_notice),
       skew: input.skew,
       plugin_count: length(facts.bindings)
     }
@@ -494,10 +530,43 @@ defmodule FlezhaUiWeb.Topology do
       |> Enum.sort_by(&(-(&1.in + &1.out)))
       |> Enum.take(5)
 
+    rows = Map.get(input, :rows, [])
+    faulted = Map.get(input, :faulted_groups, [])
+
+    # Surfaced whatever their throughput: an operative that is unhealthy,
+    # unplaced, or owning a broken key range is exactly the one whose counters
+    # have stopped moving, so a ranking by throughput would bury it.
+    attention =
+      rows
+      |> Enum.filter(fn row ->
+        NodeManager.row_health(row) != :healthy or is_nil(row[:node]) or
+          (row[:partition] && row.partition.group in faulted)
+      end)
+      |> Enum.map(fn row ->
+        %{
+          id: to_string(row.id),
+          health: NodeManager.row_health(row),
+          unplaced?: is_nil(row[:node]),
+          faulted_group: row[:partition] && row.partition.group in faulted && row.partition.group,
+          href: ~p"/namespaces/#{input.namespace}/operatives/#{row.id}"
+        }
+      end)
+      |> Enum.sort_by(& &1.id)
+
     summary_view(%{
       state: ((input.operative_ids == [] and input.runners == []) && :empty) || :ok,
       namespace: input.namespace,
       operative_count: length(input.operative_ids),
+      health:
+        Enum.map(NodeManager.health_counts(rows), fn {health, count} ->
+          %{
+            health: health,
+            count: count,
+            href: ~p"/operatives?#{[namespace: input.namespace, health: health]}"
+          }
+        end),
+      attention: attention,
+      stall_notice: Map.get(input, :stall_notice),
       runner_count: length(input.runners),
       backpressured:
         Enum.filter(input.runners, fn runner ->
@@ -521,6 +590,9 @@ defmodule FlezhaUiWeb.Topology do
         backpressured: [],
         parked: 0,
         stall: nil,
+        stall_notice: nil,
+        health: [],
+        attention: [],
         busiest: [],
         skew: nil
       },
@@ -643,19 +715,61 @@ defmodule FlezhaUiWeb.Topology do
 
   def pipeline_graph(assigns) do
     ~H"""
-    <div
-      data-testid="topology-graph"
-      class="bg-surface border border-brd rounded-panel shadow-panel overflow-hidden"
+    <.graph_frame
+      topology={@topology}
+      kind={:pipeline}
+      testid="topology-graph"
+      icon="hero-share"
+      title="Pipeline"
     >
-      <div class="px-5 py-4 border-b border-brd flex flex-wrap items-center gap-2">
-        <.icon name="hero-share" class="w-4 h-4 text-th-tertiary" />
-        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider mr-auto">
-          Pipeline
-        </h2>
+      <:header>
         <span :if={@topology && @topology.kind == :pipeline} class="text-xs text-th-muted">
           {@topology.plugin_count} plugin{if @topology.plugin_count == 1, do: "", else: "s"} attached
         </span>
+      </:header>
+
+      <div class="flex flex-col lg:flex-row gap-4">
+        <.detail :if={@topology.selected} node={@topology.selected} />
+        {render_slot(@tap)}
+
+        <div class="flex-1 order-last">
+          <svg
+            viewBox={"0 0 #{@topology.width} #{@topology.height}"}
+            width={@topology.width}
+            height={@topology.height}
+            class="max-w-full h-auto mx-auto"
+            role="img"
+            aria-label={"Pipeline of #{@topology.operative_id}"}
+          >
+            <g><.edge :for={edge <- @topology.edges} edge={edge} /></g>
+            <g>
+              <.graph_node :for={node <- @topology.nodes} node={node} selected={@topology.selected} />
+            </g>
+          </svg>
+
+          <.legend />
+        </div>
       </div>
+    </.graph_frame>
+    """
+  end
+
+  # Both graphs are the same frame around a different body: the panel chrome, an
+  # honest word when the controller is unreachable, and the notices neither of
+  # them may go without.
+  attr :topology, :any, required: true
+  attr :kind, :atom, required: true, doc: "the topology kind whose body this frame holds"
+  attr :testid, :string, required: true
+  attr :icon, :string, required: true
+  attr :title, :string, required: true
+  slot :header, doc: "controls at the right of the panel header"
+  slot :inner_block, required: true
+
+  defp graph_frame(assigns) do
+    ~H"""
+    <.panel testid={@testid} icon={@icon} class="overflow-hidden">
+      <:title>{@title}</:title>
+      <:actions :if={@header != []}>{render_slot(@header)}</:actions>
 
       <div
         :if={@topology && @topology.state == :disconnected}
@@ -665,48 +779,11 @@ defmodule FlezhaUiWeb.Topology do
         <.runtime_error error={:node_not_connected} />
       </div>
 
-      <div :if={@topology && @topology.kind == :pipeline} class="p-5 space-y-4">
-        <div :if={@topology.skew} data-testid="topology-skew">
-          <.runtime_error error={@topology.skew} />
-        </div>
-
-        <.notice :if={@topology.stall} kind={:error} testid="topology-stall">
-          Data-plane stall localized at
-          <.mono>{Format.humanize(@topology.stall.layer)}</.mono>
-          <span :if={@topology.stall.entity}>
-            on
-            <.mono>{@topology.stall.entity}</.mono>
-          </span>
-        </.notice>
-
-        <div class="flex flex-col lg:flex-row gap-4">
-          <.detail :if={@topology.selected} node={@topology.selected} />
-          {render_slot(@tap)}
-
-          <div class="flex-1 order-last">
-            <svg
-              viewBox={"0 0 #{@topology.width} #{@topology.height}"}
-              width={@topology.width}
-              height={@topology.height}
-              class="max-w-full h-auto mx-auto"
-              role="img"
-              aria-label={"Pipeline of #{@topology.operative_id}"}
-            >
-              <g><.edge :for={edge <- @topology.edges} edge={edge} /></g>
-              <g>
-                <.graph_node
-                  :for={node <- @topology.nodes}
-                  node={node}
-                  selected={@topology.selected}
-                />
-              </g>
-            </svg>
-
-            <.legend />
-          </div>
-        </div>
+      <div :if={@topology && @topology.kind == @kind} class="p-5 space-y-4">
+        <.graph_notices topology={@topology} />
+        {render_slot(@inner_block)}
       </div>
-    </div>
+    </.panel>
     """
   end
 
@@ -1039,93 +1116,148 @@ defmodule FlezhaUiWeb.Topology do
 
   def fleet_summary(assigns) do
     ~H"""
-    <div
-      data-testid="topology-summary"
-      class="bg-surface border border-brd rounded-panel shadow-panel overflow-hidden"
+    <.graph_frame
+      topology={@topology}
+      kind={:summary}
+      testid="topology-summary"
+      icon="hero-signal"
+      title="Data plane"
     >
-      <div class="px-5 py-4 border-b border-brd flex flex-wrap items-center gap-3">
-        <.icon name="hero-signal" class="w-4 h-4 text-th-tertiary" />
-        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider mr-auto">
-          Data plane
-        </h2>
-        {render_slot(@controls)}
+      <:header :if={@controls != []}>{render_slot(@controls)}</:header>
+
+      <div :if={@topology.state == :empty} data-testid="topology-empty" class="py-8 text-center">
+        <p class="text-sm text-th-muted">Nothing running in {@topology.namespace} yet.</p>
       </div>
 
-      <div
-        :if={@topology && @topology.state == :disconnected}
-        data-testid="topology-disconnected"
-        class="p-5"
-      >
-        <.runtime_error error={:node_not_connected} />
-      </div>
-
-      <div :if={@topology && @topology.kind == :summary} class="p-5 space-y-4">
-        <div :if={@topology.skew} data-testid="topology-skew">
-          <.runtime_error error={@topology.skew} />
+      <div :if={@topology.state == :ok} class="space-y-4">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <.tile testid="summary-operatives" label="Operatives">
+            {@topology.operative_count}
+          </.tile>
+          <.tile testid="summary-runners" label="Runners">{@topology.runner_count}</.tile>
+          <.tile
+            testid="summary-backpressure"
+            label="Backpressured"
+            alert?={@topology.backpressured != []}
+          >
+            {length(@topology.backpressured)}
+          </.tile>
+          <.tile testid="summary-parked" label="Parked" alert?={@topology.parked > 0}>
+            {@topology.parked}
+          </.tile>
         </div>
 
-        <.notice :if={@topology.stall} kind={:error} testid="topology-stall">
-          Data-plane stall localized at
-          <.mono>{Format.humanize(@topology.stall.layer)}</.mono>
-          <span :if={@topology.stall.entity}>
-            on
-            <.mono>{@topology.stall.entity}</.mono>
-          </span>
-        </.notice>
-
-        <div :if={@topology.state == :empty} data-testid="topology-empty" class="py-8 text-center">
-          <p class="text-sm text-th-muted">Nothing running in {@topology.namespace} yet.</p>
-        </div>
-
-        <div :if={@topology.state == :ok} class="space-y-4">
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <.tile testid="summary-operatives" label="Operatives">
-              {@topology.operative_count}
-            </.tile>
-            <.tile testid="summary-runners" label="Runners">{@topology.runner_count}</.tile>
-            <.tile
-              testid="summary-backpressure"
-              label="Backpressured"
-              alert?={@topology.backpressured != []}
+        <div :if={@topology.health != []} data-testid="summary-health">
+          <h3 class="text-xs text-th-muted uppercase tracking-wider mb-2">Health</h3>
+          <div class="flex flex-wrap gap-2">
+            <.link
+              :for={bucket <- @topology.health}
+              navigate={bucket.href}
+              data-testid={"summary-health-#{bucket.health}"}
+              class="hover:opacity-80 transition-opacity"
             >
-              {length(@topology.backpressured)}
-            </.tile>
-            <.tile testid="summary-parked" label="Parked" alert?={@topology.parked > 0}>
-              {@topology.parked}
-            </.tile>
-          </div>
-
-          <div>
-            <h3 class="text-xs text-th-muted uppercase tracking-wider mb-2">Busiest operatives</h3>
-            <p
-              :if={@topology.busiest == []}
-              data-testid="summary-busiest-empty"
-              class="text-xs text-th-muted"
-            >
-              No throughput measured yet — rates need two ticks.
-            </p>
-            <ul
-              :if={@topology.busiest != []}
-              data-testid="summary-busiest"
-              class="divide-y divide-brd-subtle"
-            >
-              <li :for={row <- @topology.busiest} class="py-2 flex items-center gap-3 text-xs">
-                <.link
-                  navigate={row.href}
-                  data-testid={"summary-operative-#{row.id}"}
-                  class="font-mono text-accent-text hover:text-accent transition-colors truncate"
-                >
-                  {row.id}
-                </.link>
-                <span class="ml-auto font-mono text-th-secondary shrink-0">
-                  {row.in}/s in · {row.out}/s out
-                </span>
-              </li>
-            </ul>
+              <.health_badge health={bucket.health} count={bucket.count} />
+            </.link>
           </div>
         </div>
+
+        <div :if={@topology.attention != []} data-testid="summary-attention">
+          <h3 class="text-xs text-th-muted uppercase tracking-wider mb-2">
+            Needs attention ({length(@topology.attention)})
+          </h3>
+          <ul class="divide-y divide-brd-subtle">
+            <li
+              :for={row <- @topology.attention}
+              data-testid={"summary-attention-#{row.id}"}
+              class="py-2 flex items-center gap-3 text-xs"
+            >
+              <.link
+                navigate={row.href}
+                class="font-mono text-accent-text hover:text-accent transition-colors truncate"
+              >
+                {row.id}
+              </.link>
+              <.health_badge health={row.health} />
+              <span :if={row.unplaced?} class="text-warning">unplaced</span>
+              <span :if={row.faulted_group} class="text-danger-text">
+                group {row.faulted_group} coverage faulted
+              </span>
+            </li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 class="text-xs text-th-muted uppercase tracking-wider mb-2">Busiest operatives</h3>
+          <p
+            :if={@topology.busiest == []}
+            data-testid="summary-busiest-empty"
+            class="text-xs text-th-muted"
+          >
+            No throughput measured yet — rates need two ticks.
+          </p>
+          <ul
+            :if={@topology.busiest != []}
+            data-testid="summary-busiest"
+            class="divide-y divide-brd-subtle"
+          >
+            <li :for={row <- @topology.busiest} class="py-2 flex items-center gap-3 text-xs">
+              <.link
+                navigate={row.href}
+                data-testid={"summary-operative-#{row.id}"}
+                class="font-mono text-accent-text hover:text-accent transition-colors truncate"
+              >
+                {row.id}
+              </.link>
+              <span class="ml-auto font-mono text-th-secondary shrink-0">
+                {row.in}/s in · {row.out}/s out
+              </span>
+            </li>
+          </ul>
+        </div>
       </div>
+    </.graph_frame>
+    """
+  end
+
+  # The notices both graphs carry: clock skew, a stall verdict, and — when
+  # there is no verdict because nobody was allowed to look — why. One component
+  # rather than one per graph, because a stall the pipeline explains and the
+  # summary does not would be worse than either.
+  attr :topology, :map, required: true
+
+  defp graph_notices(assigns) do
+    ~H"""
+    <div :if={@topology.skew} data-testid="topology-skew">
+      <.runtime_error error={@topology.skew} />
     </div>
+
+    <.notice :if={@topology.stall} kind={:error} testid="topology-stall">
+      Data-plane stall localized at
+      <.mono>{Format.humanize(@topology.stall.layer)}</.mono>
+      <span :if={@topology.stall.entity}>
+        on
+        <.mono>{@topology.stall.entity}</.mono>
+      </span>
+    </.notice>
+
+    <%!-- Silence about stalls has to be explained when it is not the
+          controller's silence but a refusal. --%>
+    <.notice
+      :if={match?({:refused, _}, Map.get(@topology, :stall_notice))}
+      kind={:error}
+      testid="topology-stall-refused"
+    >
+      Stall detection is unavailable: {forbidden_reason(elem(Map.get(@topology, :stall_notice), 1))}
+    </.notice>
+
+    <.notice
+      :if={Map.get(@topology, :stall_notice) == :disabled}
+      kind={:info}
+      testid="topology-stall-disabled"
+    >
+      Stall detection is switched off on this controller — observability is disabled, so no
+      verdicts are produced.
+    </.notice>
     """
   end
 

@@ -1,27 +1,37 @@
 <div class="space-y-6">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-bold text-th-primary">Namespaces</h1>
+    <button
+      phx-click="open_create"
+      data-testid="create-namespace-btn"
+      class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white bg-accent hover:bg-accent-hover hover:shadow-btn-hover hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+    >
+      <.icon name="hero-plus" class="w-4 h-4" /> Declare Namespace
+    </button>
   </div>
 
-  <.runtime_error error={@load_error} />
+  <.runtime_error error={@load_error} action="the namespace listing" />
+
+  <.notice :if={@declarations_unavailable?} kind={:info} testid="declarations-unavailable">
+    This controller does not report declared namespaces, so only running hubs are listed and no
+    quotas are shown.
+  </.notice>
 
   <%= if @namespaces == [] do %>
-    <div
-      data-testid="namespaces-empty"
-      class="bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel"
-    >
-      <.icon name="hero-rectangle-stack" class="w-10 h-10 text-th-muted mx-auto mb-3" />
-      <p class="text-th-tertiary">No namespaces found.</p>
-      <p class="text-sm text-th-muted mt-1">Make sure the flezha agent is connected.</p>
-    </div>
+    <.empty_state icon="hero-rectangle-stack" testid="namespaces-empty" boxed={true}>
+      No namespaces found.
+      <:detail>Make sure the flezha agent is connected.</:detail>
+    </.empty_state>
   <% else %>
     <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
       <table data-testid="namespaces-table" class="w-full text-sm">
         <thead>
           <tr class="border-b border-brd">
             <th class="text-left px-5 py-3 text-th-tertiary font-medium">Namespace</th>
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">State</th>
             <th class="text-left px-5 py-3 text-th-tertiary font-medium">Operatives</th>
             <th class="text-left px-5 py-3 text-th-tertiary font-medium">Runners</th>
+            <th class="text-left px-5 py-3 text-th-tertiary font-medium">Quotas</th>
             <th class="px-5 py-3"></th>
           </tr>
         </thead>
@@ -32,6 +42,29 @@
               class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
             >
               <td class="px-5 py-3 text-th-primary font-medium font-mono">{ns.name}</td>
+              <td class="px-5 py-3">
+                <span
+                  :if={ns.declared? and ns.running?}
+                  data-testid={"namespace-state-#{ns.name}"}
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] bg-success/10 text-success"
+                >
+                  declared &amp; running
+                </span>
+                <span
+                  :if={ns.declared? and not ns.running?}
+                  data-testid={"namespace-state-#{ns.name}"}
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] bg-surface-input text-th-tertiary"
+                >
+                  declared, no hub
+                </span>
+                <span
+                  :if={not ns.declared? and ns.running?}
+                  data-testid={"namespace-state-#{ns.name}"}
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] bg-warning/10 text-warning"
+                >
+                  running, undeclared
+                </span>
+              </td>
               <td
                 data-testid={"namespace-operatives-#{ns.name}"}
                 class="px-5 py-3 text-th-secondary"
@@ -41,14 +74,39 @@
               <td data-testid={"namespace-runners-#{ns.name}"} class="px-5 py-3 text-th-secondary">
                 {ns.runner_count}
               </td>
-              <td class="px-5 py-3 text-right">
-                <a
+              <td class="px-5 py-3">
+                <span
+                  :if={ns.breaches != []}
+                  data-testid={"namespace-breach-#{ns.name}"}
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] bg-danger/10 text-danger-text"
+                >
+                  <.icon name="hero-exclamation-triangle" class="w-3 h-3" />
+                  {length(ns.breaches)} breached
+                </span>
+                <span :if={ns.breaches == [] and ns.declared?} class="text-[11px] text-th-muted">
+                  within limits
+                </span>
+                <span :if={not ns.declared?} class="text-[11px] text-th-muted">
+                  no declaration
+                </span>
+              </td>
+              <td class="px-5 py-3 text-right flex items-center justify-end gap-3">
+                <.link
                   data-testid={"namespace-view-#{ns.name}"}
-                  href={~p"/namespaces/#{ns.name}"}
+                  navigate={~p"/namespaces/#{ns.name}"}
                   class="text-sm font-medium text-accent-text hover:text-accent transition-colors"
                 >
                   View &rarr;
-                </a>
+                </.link>
+                <button
+                  :if={ns.declared?}
+                  phx-click="confirm_delete"
+                  phx-value-name={ns.name}
+                  data-testid={"namespace-delete-#{ns.name}"}
+                  class="text-sm text-danger-text hover:text-danger transition-colors"
+                >
+                  Delete
+                </button>
               </td>
             </tr>
           <% end %>
@@ -57,3 +115,107 @@
     </div>
   <% end %>
 </div>
+
+<.dialog
+  :if={@show_create}
+  testid="create-namespace-modal"
+  size="max-w-md"
+  on_close="close_create"
+>
+  <:title>Declare Namespace</:title>
+
+  <.notice :if={@create_error} kind={:error} testid="create-namespace-error" class="mb-4">
+    {@create_error}
+  </.notice>
+
+  <form phx-submit="create" phx-change="create_change" class="space-y-4">
+    <div>
+      <label class="block text-sm font-medium text-th-secondary mb-1">Name *</label>
+      <input
+        type="text"
+        name="create[name]"
+        data-testid="create-namespace-name"
+        value={@create_form["name"]}
+        placeholder="analytics"
+        class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus"
+      />
+    </div>
+    <p class="text-xs text-th-muted">
+      Quota overrides are optional — a kind left blank keeps the controller's default.
+    </p>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-sm font-medium text-th-secondary mb-1">Max operatives</label>
+        <input
+          type="number"
+          name="create[max_operatives]"
+          data-testid="create-max-operatives"
+          value={@create_form["max_operatives"]}
+          class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus"
+        />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-th-secondary mb-1">Max runners</label>
+        <input
+          type="number"
+          name="create[max_runners]"
+          data-testid="create-max-runners"
+          value={@create_form["max_runners"]}
+          class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus"
+        />
+      </div>
+    </div>
+    <div class="flex justify-end gap-3 pt-2">
+      <button
+        type="button"
+        phx-click="close_create"
+        class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
+      >
+        Cancel
+      </button>
+      <button
+        type="submit"
+        data-testid="create-namespace-submit"
+        class="px-4 py-2 text-sm font-medium text-white rounded-xl bg-accent hover:bg-accent-hover transition-all"
+      >
+        Declare
+      </button>
+    </div>
+  </form>
+</.dialog>
+
+<.dialog :if={@confirm_delete} testid="delete-namespace-modal" size="max-w-md">
+  <h3 class="text-lg font-semibold text-th-primary mb-3">Delete namespace</h3>
+  <p class="text-sm text-th-secondary mb-4">
+    Type
+    <.mono>{@confirm_delete}</.mono>
+    to confirm. This removes the declaration and its quotas.
+  </p>
+  <form phx-change="delete_confirmation_change" class="mb-4">
+    <input
+      type="text"
+      name="confirm[name]"
+      data-testid="delete-namespace-confirmation"
+      value={@delete_confirmation}
+      autocomplete="off"
+      class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus"
+    />
+  </form>
+  <div class="flex justify-end gap-3">
+    <button
+      phx-click="cancel_delete"
+      data-testid="delete-namespace-cancel"
+      class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
+    >
+      Cancel
+    </button>
+    <button
+      phx-click="delete"
+      disabled={@delete_confirmation != @confirm_delete}
+      data-testid="delete-namespace-confirm"
+      class="px-4 py-2 text-sm font-medium text-white rounded-xl bg-danger hover:bg-danger-hover transition-all disabled:opacity-40"
+    >
+      Delete
+    </button>
+  </div>
+</.dialog>

@@ -167,6 +167,81 @@ defmodule FlezhaUi.Accounts do
     |> update_user_and_delete_all_tokens()
   end
 
+  ## Flezha token
+
+  @doc """
+  The flezha token the UI presents on this user's behalf.
+
+  Precedence is the user's own token, then the service token from
+  `FLEZHA_TOKEN`. The service token keeps a fresh stack usable for a user who
+  never pasted one; a personal token makes the controller's audit log name the
+  human instead of the app.
+
+  This is the only reader of the encrypted column, which is not loaded by any
+  other query.
+  """
+  def flezha_token(user_or_nil)
+
+  def flezha_token(%User{} = user), do: user_flezha_token(user) || service_flezha_token()
+
+  def flezha_token(nil), do: service_flezha_token()
+
+  @doc """
+  This user's own stored flezha token, without the service-token fallback.
+
+  For the settings screen, which has to distinguish "this user stored one" from
+  "the app has one".
+  """
+  def user_flezha_token(%User{id: id}) do
+    Repo.one(from u in User, where: u.id == ^id, select: u.flezha_token)
+  end
+
+  def user_flezha_token(nil), do: nil
+
+  @doc """
+  The service token this app presents when no user token applies.
+
+  `FLEZHA_TOKEN` first; failing that, the file named by `FLEZHA_TOKEN_FILE`.
+  The file form is what lets a bootstrap step issue the token *after* this
+  container started, which is the order a compose stack can actually achieve —
+  an env var would have to be known before the controller existed.
+  """
+  def service_flezha_token do
+    case System.get_env("FLEZHA_TOKEN") do
+      value when value not in [nil, ""] -> value
+      _ -> token_from_file(System.get_env("FLEZHA_TOKEN_FILE"))
+    end
+  end
+
+  defp token_from_file(path) when is_binary(path) and path != "" do
+    case File.read(path) do
+      {:ok, contents} ->
+        case String.trim(contents) do
+          "" -> nil
+          token -> token
+        end
+
+      # Not yet written, or unreadable: an unbound UI, which the posture banner
+      # already explains.
+      {:error, _reason} ->
+        nil
+    end
+  end
+
+  defp token_from_file(_path), do: nil
+
+  @doc "Stores `token` as this user's flezha token, replacing any previous one."
+  def update_user_flezha_token(%User{} = user, token) do
+    user
+    |> User.flezha_token_changeset(token)
+    |> Repo.update()
+  end
+
+  @doc "Removes this user's flezha token, falling the UI back to the service token."
+  def clear_user_flezha_token(%User{} = user) do
+    update_user_flezha_token(user, nil)
+  end
+
   ## Session
 
   @doc """

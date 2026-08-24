@@ -13,12 +13,14 @@ defmodule FlezhaUiWeb.DlqLiveTest do
 
   @ref "orders/charge/17"
 
-  defp entry(overrides \\ %{}) do
+  defp entry(overrides \\ %{}), do: entry("orders", "charge", "17", overrides)
+
+  defp entry(operative_class, procedure_id, id, overrides) do
     Map.merge(
       %{
-        "operative_class" => "orders",
-        "procedure_id" => "charge",
-        "id" => "17",
+        "operative_class" => operative_class,
+        "procedure_id" => procedure_id,
+        "id" => id,
         "entity_key" => "cust-9",
         "channel" => "payments",
         "generation" => 2,
@@ -222,6 +224,63 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       html = render(view)
       assert html =~ ~s(data-testid="replay-reparked")
       assert html =~ "refused again"
+    end
+  end
+
+  describe "grouping across procedures" do
+    test "entries spanning procedures are grouped, each with its parked count", %{
+      conn: conn,
+      node: node
+    } do
+      with_entries(node, [
+        entry("op_a", "orders", "1", %{}),
+        entry("op_a", "orders", "2", %{}),
+        entry("op_a", "shipments", "3", %{})
+      ])
+
+      {:ok, _view, html} = live(conn, ~p"/dlq")
+
+      assert html =~ ~s(data-testid="dlq-group-op_a-orders")
+      assert html =~ ~s(data-testid="dlq-group-op_a-shipments")
+      assert html =~ ~s(data-testid="dlq-group-count-op_a-orders")
+      assert html =~ "2 parked"
+      assert html =~ "1 parked"
+    end
+
+    test "entries stay oldest first inside a group", %{conn: conn, node: node} do
+      now = System.system_time(:millisecond)
+
+      with_entries(node, [
+        entry("op_a", "orders", "new", %{"ts_ms" => now - 1_000}),
+        entry("op_a", "orders", "old", %{"ts_ms" => now - 600_000})
+      ])
+
+      {:ok, _view, html} = live(conn, ~p"/dlq")
+
+      assert :binary.match(html, "dlq-row-op_a/orders/old") <
+               :binary.match(html, "dlq-row-op_a/orders/new")
+    end
+
+    test "the class filter narrows the procedures asked for", %{conn: conn, node: node} do
+      with_entries(node, [entry("op_a", "orders", "1", %{})])
+
+      {:ok, view, _html} = live(conn, ~p"/dlq")
+      render_change(view, "filter", %{"filter" => %{"operative_class" => "op_a"}})
+
+      assert ["op_a"] = FakeController.calls(node, {Flezha.Dlq.Store, :procedures}) |> List.last()
+    end
+
+    test "a procedure the store knows but with nothing parked is not invented", %{
+      conn: conn,
+      node: node
+    } do
+      with_entries(node, [])
+      FakeController.set(node, {Flezha.Dlq.Store, :procedures}, [{"op_a", "orders"}])
+
+      {:ok, _view, html} = live(conn, ~p"/dlq")
+
+      # An empty queue reads as empty, not as a list of empty groups.
+      assert html =~ ~s(data-testid="dlq-empty")
     end
   end
 end

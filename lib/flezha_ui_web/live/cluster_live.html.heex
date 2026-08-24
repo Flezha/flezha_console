@@ -4,13 +4,8 @@
   <.runtime_error error={@load_error} />
 
   <%!-- Nodes --%>
-  <div class="bg-surface border border-brd rounded-panel shadow-panel">
-    <div class="px-5 py-4 border-b border-brd flex items-center gap-2">
-      <.icon name="hero-server-stack" class="w-4 h-4 text-th-tertiary" />
-      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
-        Nodes ({length(@cluster_nodes)})
-      </h2>
-    </div>
+  <.panel icon="hero-server-stack">
+    <:title>Nodes ({length(@cluster_nodes)})</:title>
     <%= if @cluster_nodes == [] do %>
       <div data-testid="cluster-nodes-empty" class="px-5 py-6 text-sm text-th-muted">
         No controller node is reachable.
@@ -36,17 +31,17 @@
         </li>
       </ul>
     <% end %>
-  </div>
+  </.panel>
 
   <%!-- Per-namespace hubs and fleet --%>
-  <div
+  <.empty_state
     :if={@namespaces == []}
-    data-testid="cluster-namespaces-empty"
-    class="bg-surface border border-brd rounded-panel px-6 py-10 text-center shadow-panel"
+    icon="hero-rectangle-stack"
+    testid="cluster-namespaces-empty"
+    boxed={true}
   >
-    <.icon name="hero-rectangle-stack" class="w-10 h-10 text-th-muted mx-auto mb-3" />
-    <p class="text-th-tertiary">No namespace is running.</p>
-  </div>
+    No namespace is running.
+  </.empty_state>
 
   <div
     :for={ns <- @namespaces}
@@ -70,10 +65,82 @@
       </div>
     </div>
 
+    <%!-- Per-node operative rollup --%>
+    <div data-testid={"node-rollup-#{ns.name}"} class="px-5 py-4 border-b border-brd-subtle">
+      <p class="text-xs text-th-muted uppercase tracking-wider mb-3">
+        Operatives per node
+      </p>
+      <p :if={ns.per_node == []} class="text-sm text-th-muted">
+        No operative is placed in this namespace.
+      </p>
+      <table :if={ns.per_node != []} class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-brd-subtle">
+            <th class="text-left py-2 text-th-tertiary font-medium">Node</th>
+            <th class="text-left py-2 text-th-tertiary font-medium">Operatives</th>
+            <th class="text-left py-2 text-th-tertiary font-medium">Health</th>
+            <th class="text-left py-2 text-th-tertiary font-medium">Hub recovery</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={row <- ns.per_node}
+            data-testid={"node-#{row.node}"}
+            class="border-b border-brd-subtle last:border-b-0"
+          >
+            <td class="py-2 text-th-primary font-mono text-xs">{row.node}</td>
+            <td
+              data-testid={"node-count-#{row.node}"}
+              class="py-2 text-th-secondary font-mono text-xs"
+            >
+              {row.count}
+            </td>
+            <td class="py-2">
+              <span class="flex flex-wrap gap-1">
+                <.health_badge :for={{health, count} <- row.health} health={health} count={count} />
+              </span>
+            </td>
+            <td class="py-2 font-mono text-xs">
+              <span
+                :if={row.recovery in [:unavailable, :unreachable]}
+                data-testid={"recovery-unavailable-#{row.node}"}
+                class="text-th-muted"
+              >
+                unavailable
+              </span>
+              <span
+                :if={row.recovery not in [:unavailable, :unreachable]}
+                data-testid={"recovery-#{row.node}"}
+                class={if row.recovery == :normal, do: "text-success", else: "text-warning"}
+              >
+                {if row.recovery == :normal, do: "serving", else: row.recovery}
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div :if={ns.unplaced != []} data-testid={"unplaced-#{ns.name}"} class="mt-3">
+        <p class="text-xs text-warning mb-1">
+          {length(ns.unplaced)} operative(s) have no live node:
+        </p>
+        <p class="text-xs font-mono text-th-tertiary">
+          {Enum.map_join(ns.unplaced, ", ", &to_string(&1.id))}
+        </p>
+      </div>
+    </div>
+
     <%!-- Runners --%>
     <div class="px-5 py-4">
       <p class="text-xs text-th-muted uppercase tracking-wider mb-3">
         Runners ({length(ns.runners)})
+        <span
+          :if={ns.runner_principal}
+          data-testid={"runner-principal-#{ns.name}"}
+          class="ml-2 normal-case font-mono text-th-tertiary tracking-normal"
+        >
+          principal {ns.runner_principal}
+        </span>
       </p>
       <%= if ns.runners == [] do %>
         <p data-testid={"runners-empty-#{ns.name}"} class="text-sm text-th-muted">

@@ -26,6 +26,18 @@ services:
       # Off by default on the controller; on here so the UI's audit screen has
       # something to show in dev.
       FLEZHA_AUDIT_ENABLED: ${FLEZHA_AUDIT_ENABLED:-true}
+      # Enforced, not switched off. The controller only enables authorization by
+      # default under MIX_ENV=prod, and a dev stack that opted out would leave
+      # the UI's whole identity path — token, principal, refusals — untested
+      # locally. The `bootstrap` service below claims it.
+      FLEZHA_AUTHZ_ENABLED: "true"
+      # Absolute, so the bootstrap token's path does not depend on the cwd the
+      # controller happened to start in.
+      FLEZHA_AUTHZ_DIR: /flezha/app_data/auth
+      # The dev default already, stated because a controller with no durability
+      # posture refuses to boot under prod config and the difference is worth
+      # being able to see here.
+      FLEZHA_DURABILITY_BACKEND: ${FLEZHA_DURABILITY_BACKEND:-none}
     depends_on:
       kafka:
         condition: service_healthy
@@ -92,6 +104,40 @@ services:
     networks:
       - fui_network
 
+  # Claims the controller's authorization bootstrap and issues the token the UI
+  # presents, once, after the controller is up. It has to be a step rather than
+  # an env var: the token does not exist until the controller has booted, and
+  # `flz` cannot reach a controller running under `iex -S mix` (it shells out to
+  # the release launcher, which a source checkout does not build).
+  bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fui_bootstrap
+    hostname: fui_bootstrap
+    # Named volumes are created root-owned; this step has to write into one.
+    user: root
+    restart: "no"
+    depends_on:
+      controller:
+        condition: service_started
+    environment:
+      ERLANG_COOKIE: flezha_dev_cookie
+      FLEZHA_NODE: flezha@flezha_controller
+      FLEZHA_TOKEN_FILE: /auth/ui.token
+      FLEZHA_UI_PRINCIPAL: flezha-ui
+    volumes:
+      - .:/flezha_ui
+      - fui_auth_data:/auth
+    networks:
+      - fui_network
+    # The script waits for the controller node itself, which is a better signal
+    # than any file: a reachable node is one that can answer the claim.
+    command:
+      - sh
+      - -c
+      - exec elixir --sname fui_bootstrap --cookie "$$ERLANG_COOKIE" /flezha_ui/priv/dev/bootstrap_authz.exs
+
   db:
     image: postgres:16
     container_name: flezha_ui_db
@@ -123,13 +169,19 @@ services:
       MIX_ENV: dev
       ERLANG_COOKIE: flezha_dev_cookie
       FLEZHA_NODE: flezha@flezha_controller
+      # Written by the `bootstrap` service. Read as a file rather than an env
+      # var because it is issued after this container starts.
+      FLEZHA_TOKEN_FILE: /auth/ui.token
     depends_on:
       db:
         condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
     volumes:
       - .:/flezha_ui
       - fui_web_deps:/flezha_ui/deps
       - fui_web_build:/flezha_ui/_build
+      - fui_auth_data:/auth:ro
     networks:
       - fui_network
     restart: unless-stopped
@@ -196,6 +248,7 @@ services:
       - fui_network
 
 volumes:
+  fui_auth_data:
   fui_socket_data:
   fui_flezha_build:
   fui_flezha_deps:

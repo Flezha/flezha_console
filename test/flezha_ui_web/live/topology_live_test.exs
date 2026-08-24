@@ -33,6 +33,8 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     }
   end
 
+  defp summary_row(id, overrides \\ %{}), do: FakeController.operative_row(id, overrides)
+
   defp stack(node, opts \\ []) do
     FakeController.set(
       node,
@@ -40,10 +42,15 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       {:ok, Keyword.get(opts, :namespaces, ["staging", "default"])}
     )
 
+    operatives = Keyword.get(opts, :operatives, ["op_a"])
+
+    FakeController.set(node, {Flezha, :list_operatives}, {:ok, operatives})
+
+    # The summary reads health from the registry rows, not from the id list.
     FakeController.set(
       node,
-      {Flezha, :list_operatives},
-      {:ok, Keyword.get(opts, :operatives, ["op_a"])}
+      {Flezha.Service.HubManager, :operative_rows},
+      Keyword.get(opts, :rows, Enum.map(operatives, &summary_row/1))
     )
 
     FakeController.set(
@@ -405,7 +412,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       conn: conn,
       node: node
     } do
-      FakeController.set(node, {Flezha, :list_operatives}, {:ok, ["op_a", "op_b"]})
+      stack(node, operatives: ["op_a", "op_b"])
       snapshot(node, [{"op_a", 100, 100}, {"op_b", 10, 10}])
 
       {:ok, view, html} = live(conn, ~p"/?ns=default")
@@ -425,7 +432,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     end
 
     test "assembling it costs no per-operative controller call", %{conn: conn, node: node} do
-      FakeController.set(node, {Flezha, :list_operatives}, {:ok, Enum.map(1..50, &"op_#{&1}")})
+      stack(node, operatives: Enum.map(1..50, &"op_#{&1}"))
 
       {:ok, view, _html} = live(conn, ~p"/?ns=default")
       tick(view)
@@ -487,6 +494,145 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       render(view)
 
       assert has_element?(view, ~s([data-testid="summary-runners"]), "0")
+    end
+  end
+
+  describe "fleet summary health" do
+    test "counts are broken down by health, each bucket linking to those operatives", %{
+      conn: conn,
+      node: node
+    } do
+      stack(node,
+        rows: [
+          summary_row("op_a"),
+          summary_row("op_b", %{health: :failed})
+        ]
+      )
+
+      {:ok, view, html} = live(conn, ~p"/?ns=default")
+
+      assert html =~ ~s(data-testid="summary-health")
+      assert html =~ ~s(data-testid="summary-health-healthy")
+      assert html =~ ~s(data-testid="summary-health-failed")
+
+      assert has_element?(
+               view,
+               ~s(a[data-testid="summary-health-failed"][href="/operatives?namespace=default&health=failed"])
+             )
+    end
+
+    test "an unhealthy operative is surfaced even at zero throughput", %{conn: conn, node: node} do
+      stack(node, rows: [summary_row("idle_but_sick", %{health: :degraded})])
+
+      {:ok, _view, html} = live(conn, ~p"/?ns=default")
+
+      # No snapshot has advanced, so it can never rank as busiest.
+      assert html =~ ~s(data-testid="summary-busiest-empty")
+      assert html =~ ~s(data-testid="summary-attention")
+      assert html =~ ~s(data-testid="summary-attention-idle_but_sick")
+    end
+
+    test "an unplaced operative is surfaced and named as unplaced", %{conn: conn, node: node} do
+      stack(node, rows: [summary_row("stranded", %{node: nil})])
+
+      {:ok, _view, html} = live(conn, ~p"/?ns=default")
+
+      assert html =~ ~s(data-testid="summary-attention-stranded")
+      assert html =~ "unplaced"
+    end
+
+    test "a member of a coverage-faulted group is surfaced", %{conn: conn, node: node} do
+      member =
+        summary_row("orders_p0", %{
+          partition: %{group: "orders", index: 0, count: 2, range: {0, 127}}
+        })
+
+      stack(node, rows: [member])
+
+      FakeController.set(node, {Flezha.Service.CliManager, :group_partition_rows}, [
+        %{
+          id: "orders",
+          health: :healthy,
+          runner: "p0",
+          factory: "store_input",
+          partitions: "1/2",
+          node: :"flezha@node-a",
+          members: [member]
+        }
+      ])
+
+      FakeController.set(
+        node,
+        {Flezha.Partition, :coverage},
+        {:error, %{gaps: [{128, 255}], overlaps: []}}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/?ns=default")
+
+      assert html =~ ~s(data-testid="summary-attention-orders_p0")
+      assert html =~ "coverage faulted"
+    end
+
+    test "a healthy fleet needs no attention list", %{conn: conn, node: node} do
+      stack(node, rows: [summary_row("op_a")])
+
+      {:ok, _view, html} = live(conn, ~p"/?ns=default")
+
+      refute html =~ ~s(data-testid="summary-attention")
+    end
+
+    test "the health breakdown costs no per-operative call", %{conn: conn, node: node} do
+      stack(node, operatives: Enum.map(1..50, &"op_#{&1}"))
+
+      {:ok, view, _html} = live(conn, ~p"/?ns=default")
+      tick(view)
+
+      assert FakeController.calls(node, {OperativeManager, :get_overwatch_state}) == []
+    end
+  end
+
+  describe "stall detection outcomes" do
+    test "a refusal is stated with its reason", %{conn: conn, node: node} do
+      stack(node)
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Observability, :query},
+        {:error, {:forbidden, :principal_not_bound}}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/?ns=default")
+
+      assert html =~ ~s(data-testid="topology-stall-refused")
+      assert html =~ "no flezha principal"
+      # The rest of the summary still renders.
+      assert html =~ ~s(data-testid="summary-operatives")
+    end
+
+    test "a switched-off subsystem is stated as switched off", %{conn: conn, node: node} do
+      stack(node)
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Observability, :query},
+        {:error, :observability_disabled}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/?ns=default")
+
+      assert html =~ ~s(data-testid="topology-stall-disabled")
+      assert html =~ "switched off"
+    end
+
+    test "any other failure stays silent", %{conn: conn, node: node} do
+      stack(node)
+      FakeController.set(node, {Flezha.Service.Observability, :query}, {:error, :timeout})
+
+      {:ok, _view, html} = live(conn, ~p"/?ns=default")
+
+      refute html =~ ~s(data-testid="topology-stall-refused")
+      refute html =~ ~s(data-testid="topology-stall-disabled")
+      refute html =~ ~s(data-testid="topology-stall")
     end
   end
 end

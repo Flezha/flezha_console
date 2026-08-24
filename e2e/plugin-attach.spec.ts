@@ -311,3 +311,25 @@ test.describe('Plugin attachment', () => {
     );
   });
 });
+
+/**
+ * The catalog of what is installed on the controller host, which is a
+ * different list from the plugins enabled on an operative.
+ */
+test.describe('Installed-plugin catalog', () => {
+  test('renders separately from the enabled instances, with no installer controls', async ({
+    page,
+    live,
+  }) => {
+    await live('/plugins');
+
+    const catalog = page.getByTestId('installed-catalog');
+    await expect(catalog).toBeVisible();
+    // Installing is a deploy action, named rather than offered.
+    await expect(catalog).toContainText('flz plugin');
+
+    await expect(page.locator('[phx-click="install_plugin"]')).toHaveCount(0);
+    await expect(page.locator('[phx-click="uninstall_plugin"]')).toHaveCount(0);
+    await expect(page.locator('[phx-click="upgrade_plugin"]')).toHaveCount(0);
+  });
+});

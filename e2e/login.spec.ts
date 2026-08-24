@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { DEV_EMAIL, DEV_PASSWORD } from './global-setup';
+import { DEV_EMAIL, DEV_PASSWORD, submitLogin } from './global-setup';
 
 /**
  * The login form itself.
@@ -19,10 +19,7 @@ test.describe('Login', () => {
   test('the seeded dev credentials land on the dashboard', async ({ page }) => {
     await page.goto('/users/log-in');
 
-    const form = page.locator('#login_form_password');
-    await form.locator('input[name="user[email]"]').fill(DEV_EMAIL);
-    await form.locator('input[name="user[password]"]').fill(DEV_PASSWORD);
-    await form.getByRole('button', { name: /log in/i }).click();
+    await submitLogin(page, { email: DEV_EMAIL, password: DEV_PASSWORD });
 
     await expect(page).toHaveURL(/localhost:4000\/$/);
     await expect(page.locator('body')).toContainText('Dashboard');
@@ -31,10 +28,7 @@ test.describe('Login', () => {
   test('a wrong password does not authenticate', async ({ page }) => {
     await page.goto('/users/log-in');
 
-    const form = page.locator('#login_form_password');
-    await form.locator('input[name="user[email]"]').fill(DEV_EMAIL);
-    await form.locator('input[name="user[password]"]').fill('definitely_not_the_password');
-    await form.getByRole('button', { name: /log in/i }).click();
+    await submitLogin(page, { email: DEV_EMAIL, password: 'definitely_not_the_password' });
 
     await expect(page).toHaveURL(/\/users\/log-in$/);
     await expect(page.locator('body')).toContainText(/invalid/i);

@@ -59,6 +59,19 @@ defmodule FlezhaUi.PeerNode do
     {peer, node}
   end
 
+  @doc """
+  Boots a controller peer for the calling test and stops it when the test ends.
+
+  The `setup` form of `start_controller!/1`. Forgetting the `on_exit` leaks a
+  node that then competes to be *the* controller for whatever runs next, so the
+  pairing is written once rather than at each test that wants a peer.
+  """
+  def setup_controller(prefix \\ "controller") do
+    {peer, node} = start_controller!(prefix)
+    ExUnit.Callbacks.on_exit(fn -> stop(peer) end)
+    %{peer: peer, node: node}
+  end
+
   @doc "Stops a peer, tolerating one that has already gone away."
   def stop(peer) do
     :peer.stop(peer)

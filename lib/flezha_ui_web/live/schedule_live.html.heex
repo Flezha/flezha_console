@@ -12,19 +12,13 @@
 
   <.runtime_error error={@load_error} />
 
-  <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
-    <div class="px-5 py-4 border-b border-brd flex items-center gap-2">
-      <.icon name="hero-clock" class="w-4 h-4 text-th-tertiary" />
-      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
-        Entries ({length(@schedules)})
-      </h2>
-    </div>
+  <.panel icon="hero-clock" class="overflow-hidden">
+    <:title>Entries ({length(@schedules)})</:title>
 
     <%= if @schedules == [] do %>
-      <div data-testid="schedule-empty" class="px-5 py-10 text-center">
-        <.icon name="hero-clock" class="w-10 h-10 text-th-muted mx-auto mb-3" />
-        <p class="text-th-tertiary">No schedule has been created.</p>
-      </div>
+      <.empty_state icon="hero-clock" testid="schedule-empty">
+        No schedule has been created.
+      </.empty_state>
     <% else %>
       <div class="overflow-x-auto">
         <table data-testid="schedule-table" class="w-full text-sm">
@@ -92,17 +86,12 @@
         </table>
       </div>
     <% end %>
-  </div>
+  </.panel>
 </div>
 
 <%!-- Create --%>
-<.dialog :if={@show_form} testid="schedule-form-modal" size="max-w-md">
-  <div class="flex items-center justify-between mb-5">
-    <h3 class="text-lg font-semibold text-th-primary">New Schedule</h3>
-    <button phx-click="close_form" class="text-th-muted hover:text-th-primary transition-colors">
-      <.icon name="hero-x-mark" class="w-5 h-5" />
-    </button>
-  </div>
+<.dialog :if={@show_form} testid="schedule-form-modal" size="max-w-md" on_close="close_form">
+  <:title>New Schedule</:title>
 
   <.notice :if={@form_error} kind={:error} testid="schedule-form-error" class="mb-4">
     {@form_error}

@@ -5,7 +5,6 @@ The live picture of the flezha data plane: one operative's pipeline — what is
 attached to it, in what order, what is flowing through it and what is stuck —
 plus a namespace-level summary whose cost does not grow with the size of the
 fleet.
-
 ## Requirements
 ### Requirement: Operative pipeline graph
 
@@ -110,7 +109,7 @@ The graph and the summary SHALL refresh their snapshot-derived data on a periodi
 
 ### Requirement: Backpressure and stall surfacing
 
-The system SHALL surface channel credit state — a backpressure indicator when the operative's channel reports credit active with an exhausted ledger — and SHALL query recent observability signals for data-plane stall verdicts each tick, rendering verdicts younger than 60 seconds as a banner naming the stalled layer and affected entity. Verdict age SHALL be measured against the controller's own clock, since the controller stamps those signals with its monotonic time.
+The system SHALL surface channel credit state — a backpressure indicator when the operative's channel reports credit active with an exhausted ledger — and SHALL query recent observability signals for data-plane stall verdicts each tick, rendering verdicts younger than 60 seconds as a banner naming the stalled layer and affected entity. Verdict age SHALL be measured against the controller's own clock, since the controller stamps those signals with its monotonic time. When the observability query is refused for want of a bound principal, the graph SHALL state that stall detection is unavailable and why, rather than rendering as though no stall exists.
 
 #### Scenario: Channel exhausts credit
 
@@ -127,9 +126,20 @@ The system SHALL surface channel credit state — a backpressure indicator when 
 - **WHEN** the newest `stall_localized` event is older than 60 seconds
 - **THEN** no banner renders
 
-#### Scenario: Observability is unavailable
+#### Scenario: Observability is refused
 
-- **WHEN** the observability query returns any error, including the subsystem being disabled
+- **WHEN** the observability query returns `{:error, {:forbidden, reason}}`
+- **THEN** the graph states that stall detection is unavailable and names the reason
+- **AND** the rest of the graph renders normally
+
+#### Scenario: Observability is switched off
+
+- **WHEN** the observability query reports the subsystem is disabled
+- **THEN** the graph states that stall detection is switched off on this controller
+
+#### Scenario: Observability fails for another reason
+
+- **WHEN** the observability query returns any other error
 - **THEN** the graph renders normally with no stall banner and no error notice
 
 ### Requirement: Node detail and legend
@@ -158,7 +168,7 @@ The system SHALL show a detail panel for a selected node — for the core, its r
 
 ### Requirement: Fleet summary at fixed cost
 
-The system SHALL render, on the dashboard and on a namespace page, a summary of the namespace's data plane: operative and runner counts, runners whose channels report backpressure, dead-letter pressure, recent stall verdicts, and the busiest operatives by measured throughput. The summary SHALL be assembled from a number of controller calls that does not grow with the number of operatives, and each listed operative SHALL link to its pipeline graph.
+The system SHALL render, on the dashboard and on a namespace page, a summary of the namespace's data plane: operative and runner counts broken down by the health `Flezha.Service.HubManager.operative_rows/1` reports, runners whose channels report backpressure, dead-letter pressure, recent stall verdicts, and the busiest operatives by measured throughput. An operative that is unhealthy, unplaced, suspended, or a member of a group whose coverage is faulted SHALL be surfaced by the summary even when its throughput is zero. The summary SHALL be assembled from a number of controller calls that does not grow with the number of operatives, and each listed operative SHALL link to its pipeline graph.
 
 #### Scenario: Dashboard summarises the selected namespace
 
@@ -169,6 +179,17 @@ The system SHALL render, on the dashboard and on a namespace page, a summary of 
 
 - **WHEN** an operator opens a namespace's show page
 - **THEN** the same summary renders scoped to that namespace, without a namespace selector
+
+#### Scenario: Health is broken out
+
+- **WHEN** the summary renders for a namespace whose operatives are not all healthy
+- **THEN** the counts are broken down by health
+- **AND** each non-healthy bucket links to those operatives
+
+#### Scenario: An idle unhealthy operative is not hidden
+
+- **WHEN** an operative is unhealthy or unplaced but its counters have not advanced
+- **THEN** the summary surfaces it despite its zero throughput
 
 #### Scenario: Busiest operatives are ranked and linked
 
@@ -203,3 +224,4 @@ Every entity on the graph SHALL link to the screen that owns it: the operative c
 
 - **WHEN** the operator activates the dead-letter node
 - **THEN** the browser navigates to the DLQ page
+

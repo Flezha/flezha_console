@@ -131,6 +131,37 @@
       <p class="text-xs text-th-muted uppercase tracking-wider">Default Input Type</p>
       <p class="text-th-primary font-mono mt-1">{format_input_type(@default_input_type)}</p>
     </div>
+    <div>
+      <p class="text-xs text-th-muted uppercase tracking-wider">Health</p>
+      <p data-testid="operative-health" class="mt-1">
+        <.health_badge :if={@row} health={@row.health} />
+        <span :if={is_nil(@row)} class="text-th-muted font-mono">—</span>
+      </p>
+    </div>
+    <div>
+      <p class="text-xs text-th-muted uppercase tracking-wider">Node</p>
+      <p data-testid="operative-node" class="text-th-primary font-mono mt-1">
+        <span :if={@row && @row[:node]}>{@row[:node]}</span>
+        <span :if={@row && is_nil(@row[:node])} class="text-warning">unplaced</span>
+        <span :if={is_nil(@row)} class="text-th-muted">—</span>
+      </p>
+    </div>
+    <div :if={@row && @row[:partition]}>
+      <p class="text-xs text-th-muted uppercase tracking-wider">Partition</p>
+      <p data-testid="operative-partition" class="text-th-primary font-mono mt-1">
+        p{@row.partition.index}/{@row.partition.count}
+        <span class="text-th-tertiary">
+          keys {elem(@row.partition.range, 0)}–{elem(@row.partition.range, 1)}
+        </span>
+      </p>
+      <.link
+        navigate={~p"/namespaces/#{@ns}"}
+        data-testid="operative-partition-group"
+        class="text-xs text-accent-text hover:text-accent transition-colors font-mono"
+      >
+        group {@row.partition.group}
+      </.link>
+    </div>
     <div class="col-span-3 flex items-center gap-3">
       <span
         :if={@suspended}
@@ -149,28 +180,157 @@
     </div>
   </div>
 
-  <%!-- SDK State Panel --%>
-  <div class="bg-surface border border-brd rounded-panel shadow-panel">
-    <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <.icon name="hero-code-bracket" class="w-4 h-4 text-th-tertiary" />
-        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">SDK State</h2>
-      </div>
-      <div class="flex items-center gap-3">
-        <button
-          phx-click="toggle_auto_refresh"
-          class={"px-3 py-1.5 text-xs rounded-xl transition-colors " <> if @auto_refresh_state, do: "bg-accent text-white", else: "bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover"}
-        >
-          {if @auto_refresh_state, do: "Auto-refresh ON", else: "Auto-refresh OFF"}
-        </button>
-        <button
-          phx-click="fetch_state"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover rounded-xl transition-colors"
-        >
-          <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> Fetch State
-        </button>
-      </div>
+  <%!-- Completion record: a finished instance is not in the registry at all --%>
+  <div
+    :if={@completion}
+    data-testid="completion-record"
+    class="bg-surface border border-brd rounded-panel p-5 shadow-panel space-y-2"
+  >
+    <div class="flex items-center gap-2">
+      <.icon name="hero-flag" class="w-4 h-4 text-th-tertiary" />
+      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+        Finished instance
+      </h2>
     </div>
+    <dl class="grid grid-cols-3 gap-4 text-sm">
+      <.stat label="Status">{@completion[:status] || "—"}</.stat>
+      <.stat label="Finished at">{Format.token_expiry(@completion[:finished_at])}</.stat>
+      <.stat
+        :if={@completion[:error] not in [nil, ""]}
+        label="Error"
+        tone="text-danger-text font-mono"
+      >
+        {@completion[:error]}
+      </.stat>
+    </dl>
+    <p class="text-xs text-th-muted">
+      This instance has completed and is retained only until its window expires. Actions that need
+      a live operative are not offered.
+    </p>
+  </div>
+
+  <%!-- Workflow profile --%>
+  <div
+    :if={@kind == :workflow}
+    data-testid="workflow-panel"
+    class="bg-surface border border-brd rounded-panel p-5 shadow-panel"
+  >
+    <div class="flex items-center gap-2 mb-4">
+      <.icon name="hero-arrow-path-rounded-square" class="w-4 h-4 text-th-tertiary" />
+      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">Workflow</h2>
+    </div>
+    <dl class="grid grid-cols-3 gap-4 text-sm">
+      <.stat label="Durable" testid="workflow-durable">
+        {if @durable_workflow, do: "yes", else: "no"}
+      </.stat>
+      <.stat label="Effectively once">{if @effectively_once, do: "yes", else: "no"}</.stat>
+      <.stat label="Correction window" testid="workflow-correction-window">
+        {Format.duration(@correction_window_ms)}
+      </.stat>
+      <.stat label="Arrived via hotswap">
+        {if @arrived_via_hotswap?, do: "yes", else: "no"}
+      </.stat>
+      <.stat label="Suspended">{if @suspended, do: "yes", else: "no"}</.stat>
+    </dl>
+    <.notice :if={@init_error} kind={:error} testid="workflow-init-error" class="mt-4">
+      This instance failed to initialise: {inspect(@init_error)}
+    </.notice>
+  </div>
+
+  <%!-- Proc journal, durable workflows only --%>
+  <.panel :if={@journal} testid="journal-panel" icon="hero-book-open">
+    <:title>Proc journal</:title>
+    <:actions>
+      <button
+        :if={@committed_iterations != []}
+        phx-click="open_rewind"
+        data-testid="open-rewind-btn"
+        class="px-3 py-1.5 text-xs rounded-xl bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover transition-colors"
+      >
+        Rewind
+      </button>
+    </:actions>
+    <div class="px-5 py-3 text-xs text-th-tertiary font-mono border-b border-brd-subtle">
+      committed iterations: {Enum.join(@committed_iterations, ", ")}
+    </div>
+    <%= if @journal == [] do %>
+      <p class="px-5 py-6 text-sm text-th-muted">No journal entries yet.</p>
+    <% else %>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-brd">
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Seq</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Type</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Iteration</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Proc</th>
+            <th class="text-left px-5 py-2 text-th-tertiary font-medium">Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={entry <- @journal}
+            data-testid={"journal-entry-#{entry[:seq]}"}
+            class="border-b border-brd-subtle"
+          >
+            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">{entry[:seq]}</td>
+            <td class="px-5 py-2 text-th-primary font-mono text-xs">{entry[:type]}</td>
+            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">{entry[:iter]}</td>
+            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">{entry[:proc_idx]}</td>
+            <td class="px-5 py-2 text-th-tertiary font-mono text-xs">
+              <span :if={entry[:type] == :parked} data-testid={"journal-parked-#{entry[:seq]}"}>
+                wakes at {(entry[:payload] || %{})[:wake_deadline_ms] || "no deadline"}
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    <% end %>
+  </.panel>
+
+  <%!-- Proc inbox --%>
+  <div
+    :if={@inbox}
+    data-testid="inbox-panel"
+    class="bg-surface border border-brd rounded-panel p-5 shadow-panel"
+  >
+    <div class="flex items-center gap-2 mb-4">
+      <.icon name="hero-inbox" class="w-4 h-4 text-th-tertiary" />
+      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">Proc inbox</h2>
+    </div>
+    <dl class="grid grid-cols-3 gap-4 text-sm">
+      <.stat label="Undelivered" testid="inbox-undelivered">{@inbox.undelivered}</.stat>
+      <.stat label="Last offset" testid="inbox-last-offset">{@inbox.last_offset || "—"}</.stat>
+      <.stat label="Consumed offset">{@inbox.consumed_offset || "—"}</.stat>
+    </dl>
+  </div>
+
+  <div class="flex justify-end">
+    <.link
+      navigate={~p"/namespaces/#{@ns}/operatives/#{@operative_id}/state"}
+      data-testid="operative-state-link"
+      class="text-sm text-accent-text hover:text-accent transition-colors"
+    >
+      Durable state &rarr;
+    </.link>
+  </div>
+
+  <%!-- SDK State Panel --%>
+  <.panel icon="hero-code-bracket">
+    <:title>SDK State</:title>
+    <:actions>
+      <button
+        phx-click="toggle_auto_refresh"
+        class={"px-3 py-1.5 text-xs rounded-xl transition-colors " <> if @auto_refresh_state, do: "bg-accent text-white", else: "bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover"}
+      >
+        {if @auto_refresh_state, do: "Auto-refresh ON", else: "Auto-refresh OFF"}
+      </button>
+      <button
+        phx-click="fetch_state"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover rounded-xl transition-colors"
+      >
+        <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> Fetch State
+      </button>
+    </:actions>
     <div class="p-5 space-y-4">
       <form phx-change="selector_change" class="grid grid-cols-2 gap-4">
         <div>
@@ -224,17 +384,12 @@
         </p>
       <% end %>
     </div>
-  </div>
+  </.panel>
 
   <%!-- Bindings / Plugins Panel --%>
-  <div class="bg-surface border border-brd rounded-panel shadow-panel">
-    <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <.icon name="hero-puzzle-piece" class="w-4 h-4 text-th-tertiary" />
-        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
-          Plugins / Bindings
-        </h2>
-      </div>
+  <.panel icon="hero-puzzle-piece">
+    <:title>Plugins / Bindings</:title>
+    <:actions>
       <button
         phx-click="open_attach_modal"
         data-testid="attach-plugin-btn"
@@ -242,7 +397,7 @@
       >
         <.icon name="hero-plus" class="w-3.5 h-3.5" /> Attach Plugin
       </button>
-    </div>
+    </:actions>
 
     <%= if @bindings == [] do %>
       <div data-testid="no-plugins-msg" class="px-5 py-6 text-sm text-th-muted">
@@ -284,7 +439,7 @@
         </tbody>
       </table>
     <% end %>
-  </div>
+  </.panel>
 
   <%!-- Stream links --%>
   <div class="bg-surface border border-brd rounded-panel p-5 shadow-panel">
@@ -330,19 +485,16 @@
 </.confirm_dialog>
 
 <%!-- Attach Plugin Modal --%>
-<.dialog :if={@show_attach_modal} testid="attach-modal" size="max-w-lg">
-  <div class="flex items-center justify-between mb-5">
-    <h3 class="text-lg font-semibold text-th-primary">
-      {if @attach_step == :choose_provider, do: "Choose Provider", else: "Configure Plugin"}
-    </h3>
-    <button
-      phx-click="close_attach_modal"
-      data-testid="attach-close-btn"
-      class="text-th-muted hover:text-th-primary transition-colors"
-    >
-      <.icon name="hero-x-mark" class="w-5 h-5" />
-    </button>
-  </div>
+<.dialog
+  :if={@show_attach_modal}
+  testid="attach-modal"
+  size="max-w-lg"
+  on_close="close_attach_modal"
+  close_testid="attach-close-btn"
+>
+  <:title>
+    {if @attach_step == :choose_provider, do: "Choose Provider", else: "Configure Plugin"}
+  </:title>
 
   <%= if @attach_step == :choose_provider do %>
     <div data-testid="provider-grid" class="grid grid-cols-2 gap-3">
@@ -366,14 +518,9 @@
     </div>
   <% else %>
     <% provider = Enum.find(@enabled_providers, fn p -> p.id == @attach_provider_id end) %>
-    <%= if @attach_error do %>
-      <div
-        data-testid="attach-error"
-        class="mb-4 px-4 py-3 bg-[var(--color-danger-subtle-bg)] border border-[var(--color-danger-subtle-border)] rounded-lg text-sm text-danger-text"
-      >
-        {@attach_error}
-      </div>
-    <% end %>
+    <.notice :if={@attach_error} kind={:error} testid="attach-error" class="mb-4">
+      {@attach_error}
+    </.notice>
 
     <form phx-submit="attach_plugin" phx-change="attach_form_change" class="space-y-4">
       <div class="grid grid-cols-2 gap-4">
@@ -393,9 +540,9 @@
           </label>
           <input
             type="number"
-            name="plugin[position]"
+            name="plugin[sub_position]"
             placeholder="unset"
-            value={@attach_form["position"]}
+            value={@attach_form["sub_position"]}
             data-testid="input-position"
             class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1 transition-colors"
           />
@@ -425,6 +572,14 @@
             <p class="text-xs text-th-muted uppercase tracking-wider mb-3">
               {Format.humanize(provider.id)} Settings
             </p>
+            <%!-- The provider's own help, when it exports any. Fields render
+                  bare when it does not, rather than the form failing. --%>
+            <details :if={@provider_help} data-testid="provider-help" class="mb-3">
+              <summary class="text-xs text-accent-text cursor-pointer hover:text-accent">
+                What do these options mean?
+              </summary>
+              <pre class="mt-2 p-3 bg-surface-input rounded-xl text-[11px] font-mono text-th-secondary overflow-auto max-h-64 whitespace-pre-wrap">{@provider_help}</pre>
+            </details>
             <%= for field <- provider.required_fields do %>
               <div class="mb-3">
                 <label class="block text-sm font-medium text-th-secondary mb-1">
@@ -477,4 +632,44 @@
       </div>
     </form>
   <% end %>
+</.dialog>
+
+<.dialog :if={@rewind_target} testid="rewind-modal" size="max-w-md">
+  <h3 class="text-lg font-semibold text-th-primary mb-3">Rewind instance</h3>
+  <.notice kind={:error} class="mb-4">
+    Rewinding discards every iteration after the one you choose. The instance resumes from that
+    boundary and the work in between is unwound.
+  </.notice>
+  <form phx-change="select_rewind" class="mb-4">
+    <label class="block text-sm font-medium text-th-secondary mb-1">Committed iteration</label>
+    <select
+      name="rewind[iteration]"
+      data-testid="rewind-iteration"
+      class="w-full bg-surface-input border border-brd-input rounded-xl px-3 py-2 text-th-primary text-sm focus:outline-none focus:border-brd-focus"
+    >
+      <option
+        :for={iteration <- @committed_iterations}
+        value={iteration}
+        selected={iteration == @rewind_target}
+      >
+        {iteration}
+      </option>
+    </select>
+  </form>
+  <div class="flex justify-end gap-3">
+    <button
+      phx-click="cancel_rewind"
+      data-testid="rewind-cancel-btn"
+      class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
+    >
+      Cancel
+    </button>
+    <button
+      phx-click="rewind"
+      data-testid="rewind-confirm-btn"
+      class="px-4 py-2 text-sm font-medium text-white rounded-xl bg-danger hover:bg-danger-hover transition-all"
+    >
+      Rewind to {@rewind_target}
+    </button>
+  </div>
 </.dialog>

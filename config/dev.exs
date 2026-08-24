@@ -97,12 +97,25 @@ config :swoosh, :api_client, false
 config :flezha_ui, :dev_setup,
   enabled: true,
   namespace: "default",
+  # Overrides only: the controller merges these over its own defaults, so a
+  # kind left out here keeps whatever the controller ships.
+  quotas: %{max_operatives: 50, max_runners: 8},
   operatives: [
     %{id: "testnet_store_1", factory_id: "store_input", init_values: %{}},
     %{id: "testnet_store_2", factory_id: "store_input", init_values: %{}},
     %{id: "testnet_store_3", factory_id: "store_input", init_values: %{}},
     %{id: "testnet_filter", factory_id: "compare_filter", init_values: %{}},
-    %{id: "testnet_noop", factory_id: "do_nothing", init_values: %{}}
+    %{id: "testnet_noop", factory_id: "do_nothing", init_values: %{}},
+    # A long-lived durable workflow instance, so the workflow, journal and
+    # inbox panels have something to show, and a run-once one that completes
+    # so the finished-instance listing is not empty either.
+    %{
+      id: "testnet_chat",
+      factory_id: "chat_loop_workflow",
+      init_values: %{},
+      kind: :workflow
+    },
+    %{id: "testnet_echo", factory_id: "echo_workflow", init_values: %{}, kind: :workflow}
   ],
   plugins:
     Enum.map(

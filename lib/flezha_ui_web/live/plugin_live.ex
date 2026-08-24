@@ -10,17 +10,20 @@ defmodule FlezhaUiWeb.PluginLive do
     {:ok,
      socket
      |> start_refresh()
-     |> assign(
-       plugins: load_plugins(),
-       available_providers: NodeManager.providers(),
-       confirm_disable: nil,
-       page_title: "Plugins"
-     )}
+     |> assign(confirm_disable: nil, page_title: "Plugins")
+     |> refresh()}
   end
 
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
-    assign(socket, plugins: load_plugins(), available_providers: NodeManager.providers())
+    {catalog, catalog_error} = NodeManager.ok_or_error(NodeManager.installed_plugins(), [])
+
+    assign(socket,
+      plugins: load_plugins(),
+      available_providers: NodeManager.providers(),
+      catalog: catalog,
+      catalog_error: catalog_error
+    )
   end
 
   @impl true
@@ -90,8 +93,8 @@ defmodule FlezhaUiWeb.PluginLive do
     |> Enum.uniq()
     |> Enum.filter(fn {ns, operative_id} -> is_binary(ns) and is_binary(operative_id) end)
     |> Enum.flat_map(fn {ns, operative_id} ->
-      case NodeManager.get_overwatch_state(ns, operative_id) do
-        {:ok, state} -> NodeManager.extension_entries(state)
+      case NodeManager.overwatch_facts(ns, operative_id) do
+        {:ok, facts} -> facts.bindings
         _ -> []
       end
     end)

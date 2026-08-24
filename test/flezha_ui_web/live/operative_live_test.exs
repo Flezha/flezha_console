@@ -19,6 +19,75 @@ defmodule FlezhaUiWeb.OperativeLiveTest do
     FakeController.set(node, {OperativeManager, :get_overwatch_state}, {:ok, state})
   end
 
+  alias Flezha.Service.HubManager
+
+  defp registry_row(node, overrides) do
+    row = FakeController.operative_row("op_a", overrides)
+
+    FakeController.set(node, {HubManager, :operative_rows}, [row])
+  end
+
+  describe "registry facts" do
+    test "health and node come from the namespace's rows", %{conn: conn, node: node} do
+      overwatch(node, %{factory_id: "store_input"})
+      registry_row(node, %{health: :degraded, node: :"flezha@node-b"})
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert html =~ ~s(data-testid="operative-health")
+      assert html =~ ~s(data-health="degraded")
+      assert html =~ ~s(data-testid="operative-node")
+      assert html =~ "flezha@node-b"
+    end
+
+    test "an operative with no live node reads as unplaced", %{conn: conn, node: node} do
+      overwatch(node, %{factory_id: "store_input"})
+      registry_row(node, %{node: nil})
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert html =~ "unplaced"
+    end
+
+    test "a partition member shows its index, key range and group", %{conn: conn, node: node} do
+      overwatch(node, %{factory_id: "store_input"})
+
+      registry_row(node, %{
+        partition: %{group: "orders", index: 1, count: 4, range: {64, 127}}
+      })
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert html =~ ~s(data-testid="operative-partition")
+      assert html =~ "p1/4"
+      assert html =~ "64–127"
+      assert html =~ ~s(data-testid="operative-partition-group")
+      assert html =~ "orders"
+    end
+
+    test "an operative with no partition shows no partition panel", %{conn: conn, node: node} do
+      overwatch(node, %{factory_id: "store_input"})
+      registry_row(node, %{})
+
+      {:ok, _view, html} = live(conn, @url)
+
+      refute html =~ ~s(data-testid="operative-partition")
+    end
+
+    test "an operative absent from the rows still renders its overwatch facts", %{
+      conn: conn,
+      node: node
+    } do
+      overwatch(node, %{factory_id: "store_input"})
+      FakeController.set(node, {HubManager, :operative_rows}, [])
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert html =~ "store_input"
+      refute html =~ ~s(data-health=)
+    end
+  end
+
   describe "the overwatch panel" do
     test "renders what the controller reports about the operative", %{conn: conn, node: node} do
       overwatch(node, %{

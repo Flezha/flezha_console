@@ -163,9 +163,13 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/audit")
+      html = render_click(view, "read", %{})
 
-      assert render_click(view, "read", %{}) =~
-               "Authorization is enabled on the controller and this UI has no bound principal."
+      # Phrased once, by `CoreComponents.forbidden_reason/1`, so a refusal reads
+      # the same wherever it surfaces.
+      assert html =~ "refused this audit read"
+      assert html =~ "no flezha principal is bound"
+      assert html =~ ~s(href="/users/settings")
     end
   end
 

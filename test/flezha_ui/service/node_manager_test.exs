@@ -195,6 +195,31 @@ defmodule FlezhaUi.Service.NodeManagerTest do
     end
   end
 
+  describe "provider_form/2" do
+    test "carries a declared field through to the plugin's opts" do
+      provider = %{
+        module: "Flezha.Plugin.Provider.OperativeWebsocket",
+        required_fields: ["uri"],
+        optional_fields: []
+      }
+
+      form = NodeManager.provider_form(%{"uri" => "ws://host:4500"}, ["on_terminate"])
+
+      # A form built from plain settings has to satisfy the same reader the
+      # attach form does, so a caller that never spells the prefix still lands
+      # its options rather than enabling with an empty map.
+      assert %{"field_uri" => "ws://host:4500", "extensions" => ["on_terminate"]} = form
+
+      assert {:error, :node_not_connected} =
+               NodeManager.enable_plugin("p1", provider, form, "default", "op-1")
+    end
+
+    test "accepts atom-keyed settings" do
+      assert %{"field_uri" => "ws://host"} =
+               NodeManager.provider_form(%{uri: "ws://host"}, ["on_input"])
+    end
+  end
+
   describe "extension_entries/1" do
     test "flattens an extension table into one row per subscription" do
       state = %{
@@ -240,8 +265,10 @@ defmodule FlezhaUi.Service.NodeManagerTest do
       assert %{source: :ui} == NodeManager.caller_context()
     end
 
-    test "carries a principal once one is bound" do
-      assert %{source: :ui, principal: "svc-ui"} == NodeManager.caller_context("svc-ui")
+    test "a caller-supplied value is not a principal" do
+      # Identity comes only from a verified token, and with no controller to
+      # verify against nothing binds — a name typed into the UI never can.
+      assert %{source: :ui} == NodeManager.caller_context("svc-ui")
     end
   end
 

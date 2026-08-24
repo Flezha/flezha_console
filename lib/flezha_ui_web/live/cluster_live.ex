@@ -43,24 +43,14 @@ defmodule FlezhaUiWeb.ClusterLive do
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
     connected = NodeManager.connected_node()
+    {namespaces, load_error} = NodeManager.ok_or_error(NodeManager.list_namespaces(), [])
 
-    case NodeManager.list_namespaces() do
-      {:ok, namespaces} ->
-        assign(socket,
-          load_error: nil,
-          connected_node: connected,
-          cluster_nodes: cluster_nodes(connected),
-          namespaces: Enum.map(namespaces, &describe_namespace/1)
-        )
-
-      {:error, reason} ->
-        assign(socket,
-          load_error: reason,
-          connected_node: connected,
-          cluster_nodes: cluster_nodes(connected),
-          namespaces: []
-        )
-    end
+    assign(socket,
+      load_error: load_error,
+      connected_node: connected,
+      cluster_nodes: cluster_nodes(connected),
+      namespaces: Enum.map(namespaces, &describe_namespace/1)
+    )
   end
 
   defp cluster_nodes(connected) do
@@ -75,6 +65,32 @@ defmodule FlezhaUiWeb.ClusterLive do
   end
 
   defp describe_namespace(ns) do
+    # The same rows `flz cluster status` reads, so the UI and the CLI cannot
+    # disagree about where operatives are or how healthy they are.
+    rows = NodeManager.namespace_rows(ns)
+
+    hub_nodes = NodeManager.ok_or(NodeManager.hub_nodes(ns), [])
+    recovery = NodeManager.cluster_recovery(ns, hub_nodes)
+
+    placed = NodeManager.placed_rows(rows)
+
+    per_node =
+      placed
+      |> Enum.group_by(& &1[:node])
+      |> Enum.map(fn {node, node_rows} ->
+        %{
+          node: node,
+          count: length(node_rows),
+          health: NodeManager.health_counts(node_rows),
+          recovery: Map.get(recovery, node, :unavailable)
+        }
+      end)
+      |> Enum.sort_by(&inspect(&1.node))
+
+    describe_fleet(ns, rows, hub_nodes, per_node)
+  end
+
+  defp describe_fleet(ns, rows, hub_nodes, per_node) do
     factories =
       ns
       |> NodeManager.list_factories()
@@ -105,9 +121,15 @@ defmodule FlezhaUiWeb.ClusterLive do
 
     %{
       name: ns,
-      hub_nodes: NodeManager.ok_or(NodeManager.hub_nodes(ns), []),
+      hub_nodes: hub_nodes,
       runners: runners,
-      factories: factories
+      # Namespace-derived and the same for every runner in it — the controller
+      # mints it at connect, and it is what the audit log will name.
+      runner_principal: NodeManager.runner_principal(ns),
+      factories: factories,
+      per_node: per_node,
+      health: NodeManager.health_counts(rows),
+      unplaced: NodeManager.unplaced_rows(rows)
     }
   end
 end

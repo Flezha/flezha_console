@@ -38,9 +38,7 @@ defmodule FlezhaUiWeb.LiveCase do
       @moduletag :distributed
 
       setup_all do
-        {peer, node} = PeerNode.start_controller!()
-        on_exit(fn -> PeerNode.stop(peer) end)
-        %{peer: peer, node: node}
+        PeerNode.setup_controller()
       end
 
       setup %{conn: conn, node: node} do

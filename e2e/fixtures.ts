@@ -32,6 +32,59 @@ export async function testIds(page: Page, prefix: string): Promise<string[]> {
 }
 
 /**
+ * Every health the Convergence Loop can report, in the order
+ * `NodeManager.health_kinds/0` lists them.
+ *
+ * Written once so a health added on the controller side fails in one place
+ * rather than silently passing a stale regex in two specs.
+ */
+export const HEALTH_KINDS = [
+  'healthy',
+  'suspended',
+  'degraded',
+  'unbound',
+  'failed',
+  'unknown',
+] as const;
+
+/**
+ * What a `data-health` attribute is allowed to say: one named health, or any
+ * health the controller can report.
+ *
+ * Every health assertion goes through this, so none of them can settle for a
+ * matcher like `/\w+/` that a typo would satisfy.
+ */
+export function healthMatcher(expected?: string): string | RegExp {
+  return expected ?? new RegExp(`^(${HEALTH_KINDS.join('|')})$`);
+}
+
+/** One row's health badge, for an assertion about that row alone. */
+export function healthBadge(page: Page, rowTestId: string) {
+  return page.getByTestId(rowTestId).getByTestId('health-badge');
+}
+
+/**
+ * Asserts every health badge under `rowPrefix` carries a health.
+ *
+ * `expected` is a single health when the caller filtered to one, and omitted
+ * when the assertion is only that the column is populated and legitimate.
+ */
+export async function expectHealthBadges(
+  page: Page,
+  rowPrefix: string,
+  expected?: string,
+): Promise<void> {
+  const badges = page.locator(`[data-testid^="${rowPrefix}"] [data-testid="health-badge"]`);
+  const count = await badges.count();
+
+  expect(count, `expected at least one health badge under ${rowPrefix}`).toBeGreaterThan(0);
+
+  for (let i = 0; i < count; i++) {
+    await expect(badges.nth(i)).toHaveAttribute('data-health', healthMatcher(expected));
+  }
+}
+
+/**
  * `test` with a `live` helper bound to the page, so a spec reads
  * `await live('/audit')` instead of repeating the connect wait everywhere.
  */

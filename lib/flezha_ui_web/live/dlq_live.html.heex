@@ -54,90 +54,100 @@
   </div>
 
   <%!-- Entries --%>
-  <div class="bg-surface border border-brd rounded-panel overflow-hidden shadow-panel">
-    <div class="px-5 py-4 border-b border-brd flex items-center gap-2">
-      <.icon name="hero-inbox-stack" class="w-4 h-4 text-th-tertiary" />
-      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
-        Parked entries ({length(@entries)})
-      </h2>
-    </div>
+  <.panel icon="hero-inbox-stack" class="overflow-hidden">
+    <:title>Parked entries ({length(@entries)})</:title>
 
     <%= if @entries == [] do %>
-      <div data-testid="dlq-empty" class="px-5 py-10 text-center">
-        <.icon name="hero-check-circle" class="w-10 h-10 text-th-muted mx-auto mb-3" />
-        <p class="text-th-tertiary">
-          {if @filter == "",
-            do: "The dead-letter queue is empty.",
-            else: "No parked entries for that operative class."}
-        </p>
-      </div>
+      <.empty_state icon="hero-check-circle" testid="dlq-empty">
+        {if @filter == "",
+          do: "The dead-letter queue is empty.",
+          else: "No parked entries for that operative class."}
+      </.empty_state>
     <% else %>
-      <div class="overflow-x-auto">
-        <table data-testid="dlq-table" class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-brd">
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Entry</th>
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Entity</th>
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Channel</th>
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Gen</th>
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Age</th>
-              <th class="text-left px-5 py-3 text-th-tertiary font-medium">Error</th>
-              <th class="px-5 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              :for={entry <- @entries}
-              data-testid={"dlq-row-#{entry.ref}"}
-              class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
-            >
-              <td class="px-5 py-3 text-th-primary font-mono text-xs">{entry.ref}</td>
-              <td class="px-5 py-3 text-th-secondary font-mono text-xs">
-                {entry.entity_key || "—"}
-              </td>
-              <td class="px-5 py-3 text-th-secondary text-xs">{entry.channel || "—"}</td>
-              <td class="px-5 py-3 text-th-tertiary text-xs">{entry.generation}</td>
-              <td class="px-5 py-3 text-th-tertiary text-xs">{Format.age(entry.age_s)}</td>
-              <td
-                class="px-5 py-3 text-th-secondary text-xs max-w-xs truncate"
-                title={entry.error}
+      <div
+        :for={group <- @groups}
+        data-testid={"dlq-group-#{group.operative_class}-#{group.procedure_id}"}
+        class="border-b border-brd last:border-b-0"
+      >
+        <div class="px-5 py-3 flex items-center gap-3 bg-surface-input/40">
+          <.icon name="hero-folder" class="w-3.5 h-3.5 text-th-tertiary" />
+          <span class="font-mono text-xs text-th-primary">
+            {group.operative_class}/{group.procedure_id}
+          </span>
+          <span
+            data-testid={"dlq-group-count-#{group.operative_class}-#{group.procedure_id}"}
+            class="text-[11px] text-th-tertiary font-mono"
+          >
+            {group.parked} parked
+          </span>
+        </div>
+        <div class="overflow-x-auto">
+          <table data-testid="dlq-table" class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-brd">
+                <th class="text-left px-5 py-3 text-th-tertiary font-medium">Entry</th>
+                <th class="text-left px-5 py-3 text-th-tertiary font-medium">Entity</th>
+                <th class="text-left px-5 py-3 text-th-tertiary font-medium">Channel</th>
+                <th class="text-left px-5 py-3 text-th-tertiary font-medium">Gen</th>
+                <th class="text-left px-5 py-3 text-th-tertiary font-medium">Age</th>
+                <th class="text-left px-5 py-3 text-th-tertiary font-medium">Error</th>
+                <th class="px-5 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                :for={entry <- group.entries}
+                data-testid={"dlq-row-#{entry.ref}"}
+                class="border-b border-brd-subtle hover:bg-surface-hover transition-colors"
               >
-                {entry.error || "—"}
-              </td>
-              <td class="px-5 py-3 text-right whitespace-nowrap">
-                <button
-                  phx-click="inspect"
-                  phx-value-ref={entry.ref}
-                  data-testid={"dlq-inspect-#{entry.ref}"}
-                  class="text-xs text-th-secondary hover:text-th-primary transition-colors mr-3"
+                <td class="px-5 py-3 text-th-primary font-mono text-xs">{entry.ref}</td>
+                <td class="px-5 py-3 text-th-secondary font-mono text-xs">
+                  {entry.entity_key || "—"}
+                </td>
+                <td class="px-5 py-3 text-th-secondary text-xs">{entry.channel || "—"}</td>
+                <td class="px-5 py-3 text-th-tertiary text-xs">{entry.generation}</td>
+                <td class="px-5 py-3 text-th-tertiary text-xs">{Format.age(entry.age_s)}</td>
+                <td
+                  class="px-5 py-3 text-th-secondary text-xs max-w-xs truncate"
+                  title={entry.error}
                 >
-                  Inspect
-                </button>
-                <button
-                  phx-click="confirm"
-                  phx-value-action="replay"
-                  phx-value-ref={entry.ref}
-                  data-testid={"dlq-replay-#{entry.ref}"}
-                  class="text-xs text-accent hover:text-accent-hover transition-colors mr-3"
-                >
-                  Replay
-                </button>
-                <button
-                  phx-click="confirm"
-                  phx-value-action="drop"
-                  phx-value-ref={entry.ref}
-                  data-testid={"dlq-drop-#{entry.ref}"}
-                  class="text-xs text-danger-text hover:text-danger transition-colors"
-                >
-                  Drop
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                  {entry.error || "—"}
+                </td>
+                <td class="px-5 py-3 text-right whitespace-nowrap">
+                  <button
+                    phx-click="inspect"
+                    phx-value-ref={entry.ref}
+                    data-testid={"dlq-inspect-#{entry.ref}"}
+                    class="text-xs text-th-secondary hover:text-th-primary transition-colors mr-3"
+                  >
+                    Inspect
+                  </button>
+                  <button
+                    phx-click="confirm"
+                    phx-value-action="replay"
+                    phx-value-ref={entry.ref}
+                    data-testid={"dlq-replay-#{entry.ref}"}
+                    class="text-xs text-accent hover:text-accent-hover transition-colors mr-3"
+                  >
+                    Replay
+                  </button>
+                  <button
+                    phx-click="confirm"
+                    phx-value-action="drop"
+                    phx-value-ref={entry.ref}
+                    data-testid={"dlq-drop-#{entry.ref}"}
+                    class="text-xs text-danger-text hover:text-danger transition-colors"
+                  >
+                    Drop
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     <% end %>
-  </div>
+  </.panel>
 </div>
 
 <%!-- Inspect --%>

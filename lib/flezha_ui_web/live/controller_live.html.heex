@@ -1,0 +1,194 @@
+<div class="space-y-6">
+  <h1 class="text-2xl font-bold text-th-primary">Controller</h1>
+
+  <%!-- Durability --%>
+  <div
+    data-testid="durability-panel"
+    class="bg-surface border border-brd rounded-panel p-5 shadow-panel"
+  >
+    <div class="flex items-center gap-2 mb-4">
+      <.icon name="hero-circle-stack" class="w-4 h-4 text-th-tertiary" />
+      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">Durability</h2>
+    </div>
+    <dl class="grid grid-cols-4 gap-4 text-sm">
+      <.stat label="Backend" testid="durability-backend">{backend_label(@backend)}</.stat>
+      <.stat label="Posture" testid="durability-posture">{inspect(@posture)}</.stat>
+      <.stat label="RPO breaches" testid="durability-breaches">{length(@breaches)}</.stat>
+      <.stat label="Superseded" testid="durability-superseded">{superseded(@shipments)}</.stat>
+    </dl>
+
+    <%!-- A stated posture, not an alarm: one copy is a choice, not a failure. --%>
+    <.notice
+      :if={@posture == :local_only}
+      kind={:info}
+      testid="durability-local-only"
+      class="mt-4"
+    >
+      This controller is <span class="font-mono">local_only</span>: durable state has exactly one
+      copy, on the node that wrote it. No remote tier is shipping it.
+    </.notice>
+
+    <div :if={@breaches != []} class="mt-4">
+      <table data-testid="durability-breach-table" class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-brd">
+            <th class="text-left px-3 py-2 text-th-tertiary font-medium">Reference</th>
+            <th class="text-left px-3 py-2 text-th-tertiary font-medium">Past target by</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={breach <- @breaches} class="border-b border-brd-subtle">
+            <td class="px-3 py-2 text-th-primary font-mono text-xs">
+              {inspect(breach[:ref] || breach[:reference])}
+            </td>
+            <td class="px-3 py-2 text-danger-text font-mono text-xs">
+              {Format.duration(breach[:lag_ms])}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <%!-- Shutdown and boot --%>
+  <div class="grid grid-cols-2 gap-6">
+    <div
+      data-testid="shutdown-panel"
+      class="bg-surface border border-brd rounded-panel p-5 shadow-panel"
+    >
+      <div class="flex items-center gap-2 mb-4">
+        <.icon name="hero-power" class="w-4 h-4 text-th-tertiary" />
+        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">Shutdown</h2>
+      </div>
+      <p :if={is_nil(@shutdown)} data-testid="shutdown-unavailable" class="text-sm text-th-muted">
+        Shutdown status is unavailable on this controller.
+      </p>
+      <dl :if={@shutdown} class="space-y-2 text-sm">
+        <div class="flex gap-2">
+          <dt class="text-th-tertiary w-48">In progress</dt>
+          <dd data-testid="shutdown-in-progress" class="font-mono">
+            {if @shutdown.shutdown_in_progress, do: "yes", else: "no"}
+          </dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-th-tertiary w-48">Phase</dt>
+          <dd data-testid="shutdown-phase" class="font-mono">
+            {@shutdown.shutdown_phase || "none"}
+          </dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-th-tertiary w-48">Signal handler</dt>
+          <dd class="font-mono">{inspect(@shutdown.signal_handler_status)}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-th-tertiary w-48">Graceful shutdown</dt>
+          <dd class="font-mono">
+            {if @shutdown.graceful_shutdown_enabled, do: "enabled", else: "disabled"}, {Format.duration(
+              @shutdown.graceful_shutdown_timeout_ms
+            )}
+          </dd>
+        </div>
+      </dl>
+    </div>
+
+    <div
+      data-testid="boot-panel"
+      class="bg-surface border border-brd rounded-panel p-5 shadow-panel"
+    >
+      <div class="flex items-center gap-2 mb-4">
+        <.icon name="hero-rocket-launch" class="w-4 h-4 text-th-tertiary" />
+        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">Boot</h2>
+      </div>
+      <p :if={@boot == []} class="text-sm text-th-muted">No namespace hub is running.</p>
+      <ul class="space-y-1 text-sm">
+        <li :for={row <- @boot} data-testid={"boot-#{row.namespace}"} class="flex gap-3">
+          <span class="font-mono text-th-primary w-48">{row.namespace}</span>
+          <span class="font-mono text-th-tertiary">{row.recovery_state}</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <%!-- Authorization --%>
+  <div
+    data-testid="authz-panel"
+    class="bg-surface border border-brd rounded-panel p-5 shadow-panel"
+  >
+    <div class="flex items-center gap-2 mb-4">
+      <.icon name="hero-key" class="w-4 h-4 text-th-tertiary" />
+      <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+        Authorization
+      </h2>
+    </div>
+    <p data-testid="authz-posture" class="text-sm text-th-secondary">
+      Posture: <span class="font-mono">{inspect(@authz.posture)}</span>
+    </p>
+    <%!-- A wide-open controller is a fact an operator should be able to find. --%>
+    <.notice :if={@authz.posture == :open} kind={:error} testid="authz-open" class="mt-3">
+      Authorization is disabled on this controller. Every call is allowed, whoever makes it.
+    </.notice>
+    <p :if={@authz.posture == :enforced} class="text-sm text-th-secondary mt-2">
+      Authorization is enforced. Calls are policy-checked against the caller's role binding.
+    </p>
+  </div>
+
+  <%!-- Memory hot spots, operator-triggered --%>
+  <div
+    data-testid="memory-panel"
+    class="bg-surface border border-brd rounded-panel p-5 shadow-panel"
+  >
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <.icon name="hero-chart-pie" class="w-4 h-4 text-th-tertiary" />
+        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
+          Memory hot spots
+        </h2>
+      </div>
+      <button
+        phx-click="memory_snapshot"
+        data-testid="memory-snapshot-btn"
+        class="px-3 py-1.5 text-xs rounded-xl bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover transition-colors"
+      >
+        Take snapshot
+      </button>
+    </div>
+
+    <.runtime_error error={@memory_error} action="the memory snapshot" />
+
+    <p :if={is_nil(@memory) and is_nil(@memory_error)} class="text-sm text-th-muted">
+      Not taken. A snapshot scans every process and the allocator, so it runs only when asked.
+    </p>
+
+    <div :if={@memory}>
+      <p data-testid="memory-captured-at" class="text-xs text-th-muted mb-3">
+        Captured at {@memory[:captured_at]} on {@memory[:node]} — a point reading, not live.
+      </p>
+      <dl class="grid grid-cols-4 gap-4 text-sm mb-4">
+        <.stat :for={{key, value} <- Enum.sort(@memory[:erlang_memory] || %{})} label={key}>
+          {Format.bytes(value)}
+        </.stat>
+      </dl>
+      <table data-testid="memory-top-processes" class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-brd">
+            <th class="text-left px-3 py-2 text-th-tertiary font-medium">Process</th>
+            <th class="text-left px-3 py-2 text-th-tertiary font-medium">Memory</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={proc <- Enum.take(@memory[:top_processes] || [], 10)}
+            class="border-b border-brd-subtle"
+          >
+            <td class="px-3 py-2 text-th-primary font-mono text-xs">
+              {inspect(proc[:name] || proc[:pid])}
+            </td>
+            <td class="px-3 py-2 text-th-tertiary font-mono text-xs">
+              {Format.bytes(proc[:memory])}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

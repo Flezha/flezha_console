@@ -122,9 +122,7 @@ defmodule FlezhaUi.Service.NodeManagerDataPlaneTest do
   @moduletag :distributed
 
   setup do
-    {peer, node} = PeerNode.start_controller!("nm_dp_peer")
-    on_exit(fn -> PeerNode.stop(peer) end)
-    {:ok, peer: peer, node: node}
+    PeerNode.setup_controller("nm_dp_peer")
   end
 
   test "the liveness snapshot is passed through as the controller produced it", %{node: node} do

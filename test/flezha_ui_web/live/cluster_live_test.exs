@@ -12,6 +12,8 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
 
   alias Flezha.Cluster.Directory
   alias Flezha.Runner.FleetManager
+  alias Flezha.Service.CliManager
+  alias Flezha.Service.HubManager
 
   defp one_namespace(node, opts) do
     FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["default"]})
@@ -164,6 +166,112 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       send(view.pid, {:flezha_event, :runner_connected, %{}})
 
       assert render(view) =~ "runner-late"
+    end
+  end
+
+  describe "per-node rollup" do
+    defp row(id, overrides \\ %{}), do: FakeController.operative_row(id, overrides)
+
+    defp placed(node, opts) do
+      FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["default"]})
+      FakeController.set(node, {HubManager, :operative_rows}, opts[:rows] || [])
+
+      FakeController.set(
+        node,
+        {Directory, :hub_nodes},
+        {:ok, opts[:hub_nodes] || [:"flezha@node-a"]}
+      )
+
+      FakeController.set(node, {CliManager, :cluster_status_recovery}, opts[:recovery] || %{})
+    end
+
+    test "each node shows its operative count broken down by health", %{conn: conn, node: node} do
+      placed(node,
+        rows: [
+          row("a"),
+          row("b", %{health: :degraded}),
+          row("c", %{node: :"flezha@node-b"})
+        ],
+        hub_nodes: [:"flezha@node-a", :"flezha@node-b"]
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert html =~ ~s(data-testid="node-rollup-default")
+      assert html =~ ~s(data-testid="node-count-flezha@node-a")
+      assert html =~ ~s(data-health="degraded")
+    end
+
+    test "a split view makes the disagreement visible", %{conn: conn, node: node} do
+      # One node hosts everything; its peer hosts none.
+      placed(node,
+        rows: [row("a"), row("b")],
+        hub_nodes: [:"flezha@node-a", :"flezha@node-b"]
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert html =~ ~s(data-testid="node-flezha@node-a")
+      refute html =~ ~s(data-testid="node-flezha@node-b")
+    end
+
+    test "operatives with no live node are named", %{conn: conn, node: node} do
+      placed(node, rows: [row("stranded", %{node: nil})])
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert html =~ ~s(data-testid="unplaced-default")
+      assert html =~ "stranded"
+    end
+
+    test "a hub mid-recovery is distinguishable from one serving", %{conn: conn, node: node} do
+      placed(node,
+        rows: [row("a")],
+        recovery: %{:"flezha@node-a" => :replaying}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert html =~ ~s(data-testid="recovery-flezha@node-a")
+      assert html =~ "replaying"
+      refute html =~ "serving"
+    end
+
+    test "unavailable recovery state does not fail the screen", %{conn: conn, node: node} do
+      placed(node, rows: [row("a")], recovery: %{})
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert html =~ ~s(data-testid="recovery-unavailable-flezha@node-a")
+      assert html =~ ~s(data-testid="node-rollup-default")
+    end
+
+    test "each namespace's runner principal is shown", %{conn: conn, node: node} do
+      placed(node, rows: [row("a")])
+      FakeController.set(node, {FleetManager, :active_runners}, {:ok, ["runner-a"]})
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert html =~ ~s(data-testid="runner-principal-default")
+      assert html =~ "runner@default"
+    end
+
+    test "the column is absent when the controller does not carry principals", %{
+      conn: conn,
+      node: node
+    } do
+      placed(node, rows: [row("a")])
+
+      FakeController.set(
+        node,
+        {FleetManager, :runner_caller_context},
+        {:error, {:api_missing, FleetManager, :runner_caller_context, 1}}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      refute html =~ ~s(data-testid="runner-principal-default")
+      assert html =~ ~s(data-testid="node-rollup-default")
     end
   end
 end

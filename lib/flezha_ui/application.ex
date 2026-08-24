@@ -5,6 +5,10 @@ defmodule FlezhaUi.Application do
 
   @impl true
   def start(_type, _args) do
+    # Owned by the application master, which outlives every request, so the
+    # cached identities survive a supervised child restarting.
+    FlezhaUi.Service.NodeManager.init_cache()
+
     children =
       [
         FlezhaUiWeb.Telemetry,

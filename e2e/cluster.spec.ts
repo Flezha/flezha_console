@@ -51,4 +51,25 @@ test.describe('Cluster and fleet', () => {
     await page.getByRole('button', { name: 'Clear' }).click();
     await expect(result).toHaveCount(0);
   });
+
+  test('per-node counts break down by health, with hub recovery', async ({ page }) => {
+    await expect(page.getByTestId('node-rollup-default')).toBeVisible();
+
+    const counts = page.locator('[data-testid^="node-count-"]');
+    await expect(counts.first()).toHaveText(/^\s*\d+\s*$/);
+
+    // Recovery is either a state or an honest "unavailable" — never a guess.
+    const recovery = page.locator(
+      '[data-testid^="recovery-"], [data-testid^="recovery-unavailable-"]',
+    );
+    await expect(recovery.first()).toBeVisible();
+  });
+
+  test('the runner principal is the one the controller mints', async ({ page }) => {
+    const principal = page.getByTestId('runner-principal-default');
+
+    if (await principal.count()) {
+      await expect(principal).toContainText('runner@default');
+    }
+  });
 });

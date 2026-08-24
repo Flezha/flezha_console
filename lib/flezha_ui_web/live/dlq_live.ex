@@ -22,6 +22,7 @@ defmodule FlezhaUiWeb.DlqLive do
       |> assign(
         page_title: "Dead-letter queue",
         filter: "",
+        groups: [],
         selected: nil,
         confirm: nil,
         replay_outcome: nil
@@ -131,15 +132,47 @@ defmodule FlezhaUiWeb.DlqLive do
   def refresh(socket) do
     case NodeManager.dlq_list(socket.assigns.filter) do
       {:ok, entries} ->
+        decorated = Enum.map(entries, &decorate/1)
+
         assign(socket,
-          entries: Enum.map(entries, &decorate/1),
+          entries: decorated,
+          groups: group_by_procedure(decorated, socket.assigns.filter),
           load_error: nil,
           stats: NodeManager.ok_or(NodeManager.dlq_stats(), [])
         )
 
       {:error, reason} ->
-        assign(socket, entries: [], stats: [], load_error: reason)
+        assign(socket, entries: [], groups: [], stats: [], load_error: reason)
     end
+  end
+
+  # Grouped the way the tier stores and ships them: one directory per
+  # `{operative_class, procedure_id}` pair. The store is asked which pairs
+  # exist so a procedure whose entries are filtered out still shows as a group
+  # with a count, rather than vanishing.
+  defp group_by_procedure(entries, filter) do
+    parked = Enum.group_by(entries, &{&1.operative_class, &1.procedure_id})
+
+    known =
+      NodeManager.dlq_procedures(filter)
+      |> NodeManager.ok_or([])
+      |> Enum.map(fn {class, procedure} -> {to_string(class), to_string(procedure)} end)
+
+    (known ++ Map.keys(parked))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.map(fn {class, procedure} = key ->
+      group_entries = Map.get(parked, key, [])
+
+      %{
+        operative_class: class,
+        procedure_id: procedure,
+        # Oldest first within a group, as the flat listing was.
+        entries: Enum.sort_by(group_entries, &(&1.age_s || 0), :desc),
+        parked: length(group_entries)
+      }
+    end)
+    |> Enum.reject(&(&1.parked == 0 and &1.entries == []))
   end
 
   # `entry_ref` is the `class/procedure/id` triple the controller's own verbs
@@ -148,6 +181,7 @@ defmodule FlezhaUiWeb.DlqLive do
     %{
       ref: "#{entry["operative_class"]}/#{entry["procedure_id"]}/#{entry["id"]}",
       operative_class: entry["operative_class"],
+      procedure_id: entry["procedure_id"],
       entity_key: entry["entity_key"],
       channel: entry["channel"],
       generation: entry["generation"] || 1,

@@ -5,17 +5,23 @@ TBD - created by archiving change resync-with-flezha-runtime. Update Purpose aft
 ## Requirements
 ### Requirement: Parked entry listing
 
-The UI SHALL list dead-letter entries oldest first, showing each entry's reference, entity key, channel, generation, age, and error, and SHALL allow filtering by operative class.
+The UI SHALL list dead-letter entries oldest first, showing each entry's reference, entity key, channel, generation, age, and error, and SHALL allow filtering by operative class. Entries SHALL be grouped by procedure, matching how the controller stores and ships them, with each procedure's parked count shown on its group.
 
 #### Scenario: Entries are parked
 
 - **WHEN** an operator opens the dead-letter queue
 - **THEN** parked entries are listed oldest first with reference, entity key, channel, generation, age, and error
 
+#### Scenario: Entries span procedures
+
+- **WHEN** parked entries belong to more than one procedure
+- **THEN** they are grouped by procedure with a parked count per group
+
 #### Scenario: Filtering by operative class
 
 - **WHEN** an operator filters by an operative class
 - **THEN** only entries belonging to that class are listed
+- **AND** the procedures listed are those `Flezha.Dlq.Store.procedures/1` reports for that class
 
 #### Scenario: The queue is empty
 

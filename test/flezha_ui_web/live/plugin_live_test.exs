@@ -9,6 +9,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
   use FlezhaUiWeb.LiveCase
 
+  alias Flezha.Plugin.Installer
   alias Flezha.Service.ConfigManager
   alias Flezha.Service.OperativeManager
   alias Flezha.Service.PluginManager
@@ -159,6 +160,54 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       assert render_click(view, "disable_plugin", %{"plugin_id" => "plug_1"}) =~
                "Failed: :not_found"
+    end
+  end
+
+  describe "installed catalog" do
+    test "installed plugins are listed with id, version and enabled state", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {Installer, :list}, [
+        %{id: "kafka", version: "1.2.0", status: :enabled, description: "Kafka sink"},
+        %{id: "s3", version: "0.9.0", status: :installed, description: nil}
+      ])
+
+      {:ok, _view, html} = live(conn, ~p"/plugins")
+
+      assert html =~ ~s(data-testid="installed-catalog")
+      assert html =~ ~s(data-testid="installed-kafka")
+      assert html =~ "1.2.0"
+      assert html =~ ~s(data-testid="installed-status-s3")
+      assert html =~ "installed"
+    end
+
+    test "no control installs, upgrades or uninstalls, and flz is named", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {Installer, :list}, [
+        %{id: "kafka", version: "1.2.0", status: :enabled, description: nil}
+      ])
+
+      {:ok, _view, html} = live(conn, ~p"/plugins")
+
+      assert html =~ "flz plugin"
+      refute html =~ "phx-click=\"install_plugin\""
+      refute html =~ "phx-click=\"uninstall_plugin\""
+      refute html =~ "phx-click=\"upgrade_plugin\""
+    end
+
+    test "an unavailable installer states so and the enabled list still renders", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {Installer, :list}, {:error, {:api_missing, Installer, :list, 0}})
+
+      {:ok, _view, html} = live(conn, ~p"/plugins")
+
+      assert html =~ ~s(data-testid="catalog-unavailable")
+      assert html =~ ~s(data-testid="installed-catalog")
     end
   end
 end

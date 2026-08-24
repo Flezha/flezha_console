@@ -145,4 +145,69 @@ defmodule FlezhaUiWeb.UserSettingsControllerTest do
       assert redirected_to(conn) == ~p"/users/log-in"
     end
   end
+
+  describe "PUT /users/settings (flezha token)" do
+    setup do
+      previous = System.get_env("FLEZHA_TOKEN")
+      System.delete_env("FLEZHA_TOKEN")
+
+      on_exit(fn ->
+        if previous,
+          do: System.put_env("FLEZHA_TOKEN", previous),
+          else: System.delete_env("FLEZHA_TOKEN")
+      end)
+
+      :ok
+    end
+
+    test "the settings page states that no token is stored", %{conn: conn} do
+      response = conn |> get(~p"/users/settings") |> html_response(200)
+
+      assert response =~ "Flezha token"
+      assert response =~ "using the service token"
+    end
+
+    test "storing a token round-trips without echoing it", %{conn: conn, user: user} do
+      conn =
+        put(conn, ~p"/users/settings", %{
+          "action" => "update_flezha_token",
+          "flezha_token" => %{"token" => "flz_secret_value"}
+        })
+
+      assert redirected_to(conn) == ~p"/users/settings"
+      assert Accounts.user_flezha_token(user) == "flz_secret_value"
+
+      response =
+        conn
+        |> recycle()
+        |> log_in_user(user)
+        |> get(~p"/users/settings")
+        |> html_response(200)
+
+      # Presence is stated; the credential itself is not on the page.
+      assert response =~ "Stored for you"
+      refute response =~ "flz_secret_value"
+    end
+
+    test "clearing a token removes it", %{conn: conn, user: user} do
+      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_secret_value")
+
+      conn = put(conn, ~p"/users/settings", %{"action" => "clear_flezha_token"})
+
+      assert redirected_to(conn) == ~p"/users/settings"
+      assert Accounts.user_flezha_token(user) == nil
+      assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "cleared"
+    end
+
+    test "a blank submission clears rather than storing nothing", %{conn: conn, user: user} do
+      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_secret_value")
+
+      put(conn, ~p"/users/settings", %{
+        "action" => "update_flezha_token",
+        "flezha_token" => %{"token" => ""}
+      })
+
+      assert Accounts.user_flezha_token(user) == nil
+    end
+  end
 end

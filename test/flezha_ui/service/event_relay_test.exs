@@ -151,17 +151,19 @@ defmodule FlezhaUi.Service.EventRelayTest do
       assert_receive {:relay_event, :audit_tail, %{"event" => "operative.started"}}, 2_000
     end
 
-    test "still forwards when the controller refuses the subscription", %{node: node} do
+    test "reports a refused subscription instead of sitting on it", %{node: node} do
       # A relay that stayed up but silently dropped messages would look healthy
-      # while delivering nothing; it must not register a tail it did not get.
+      # while delivering nothing; it must not register a tail it did not get,
+      # and the screen has to learn that it did not get one.
       {:ok, relay} =
         EventBridge.start_relay(node, EventBridge.relay_source(), self(), [
-          {:audit_tail, %{refuse: true}},
+          {:audit_tail, %{refuse: true}, %{source: :ui}},
           :audit_tail
         ])
 
-      assert PeerNode.alive?(node, relay)
+      assert_receive {:relay_error, :audit_tail, :audit_log_disabled}, 2_000
       assert :erpc.call(node, Flezha.Service.AuditLog, :tails, []) == []
+      assert PeerNode.eventually(fn -> not PeerNode.alive?(node, relay) end)
     end
 
     test "unsubscribes when it unwinds", %{node: node} do
@@ -212,7 +214,7 @@ defmodule FlezhaUi.Service.EventRelayTest do
 
   defp start_audit_relay(node, owner) do
     EventBridge.start_relay(node, EventBridge.relay_source(), owner, [
-      {:audit_tail, %{}},
+      {:audit_tail, %{}, %{source: :ui}},
       :audit_tail
     ])
   end

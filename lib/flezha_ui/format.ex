@@ -98,6 +98,21 @@ defmodule FlezhaUi.Format do
 
   def time_of_day(_other), do: "—"
 
+  @doc """
+  A token's `expires_at`, which the controller answers as unix seconds or the
+  atom `:never`.
+  """
+  def token_expiry(:never), do: "never"
+
+  def token_expiry(seconds) when is_integer(seconds) do
+    case DateTime.from_unix(seconds) do
+      {:ok, dt} -> timestamp(dt)
+      _ -> to_string(seconds)
+    end
+  end
+
+  def token_expiry(_other), do: "—"
+
   @doc "A snake_case controller id as a human-readable label."
   def humanize(id) do
     id

@@ -51,8 +51,9 @@ defmodule Flezha.Service.AuditLog do
   end
 
   # The read side the audit screen calls. The context pattern is kept strict:
-  # the UI is expected to identify itself as `:ui` on every audited read.
-  defstub list_files(%{source: :ui}), do: {:ok, []}
+  # the UI is expected to identify itself as `:ui` on every audited read. The
+  # catalog read binds it too, so a test can assert which principal it named.
+  defstub list_files(%{source: :ui} = ctx), do: {:ok, []}
   defstub read(params, %{source: :ui}), do: {:ok, []}
   defstub stats(%{source: :ui}), do: {:ok, %{}}
 end

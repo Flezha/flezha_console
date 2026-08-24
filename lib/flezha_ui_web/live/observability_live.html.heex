@@ -1,0 +1,154 @@
+<div class="space-y-6">
+  <h1 class="text-2xl font-bold text-th-primary">Observability</h1>
+
+  <.runtime_error error={@load_error} action="the observability listing" />
+
+  <.notice :if={@disabled?} kind={:info} testid="observability-disabled">
+    Observability is switched off on this controller, so it emits no signals and there is nothing
+    to list or tail.
+  </.notice>
+
+  <.runtime_error error={@toggle_error} action="the source toggle" />
+
+  <.panel :if={not @disabled?} testid="sources-panel" icon="hero-signal" class="overflow-hidden">
+    <:title>Sources ({length(@sources)})</:title>
+    <p :if={@sources == []} class="px-5 py-6 text-sm text-th-muted">
+      This controller reports no observability sources.
+    </p>
+    <table :if={@sources != []} class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-brd">
+          <th class="text-left px-5 py-2 text-th-tertiary font-medium">Source</th>
+          <th class="text-left px-5 py-2 text-th-tertiary font-medium">Enabled</th>
+          <th class="px-5 py-2"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          :for={source <- @sources}
+          data-testid={"source-#{source[:name]}"}
+          class="border-b border-brd-subtle"
+        >
+          <td class="px-5 py-2 text-th-primary font-mono text-xs">{source[:name]}</td>
+          <td class="px-5 py-2">
+            <span
+              data-testid={"source-enabled-#{source[:name]}"}
+              class={[
+                "inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px]",
+                if(NodeManager.source_enabled?(source),
+                  do: "bg-success/10 text-success",
+                  else: "bg-surface-input text-th-tertiary"
+                )
+              ]}
+            >
+              {if NodeManager.source_enabled?(source), do: "enabled", else: "disabled"}
+            </span>
+          </td>
+          <td class="px-5 py-2 text-right flex items-center justify-end gap-3">
+            <button
+              phx-click="toggle_source"
+              phx-value-source={source[:name]}
+              data-testid={"toggle-#{source[:name]}"}
+              class="text-sm text-accent-text hover:text-accent transition-colors"
+            >
+              {if NodeManager.source_enabled?(source), do: "Disable", else: "Enable"}
+            </button>
+            <button
+              phx-click="start_tail"
+              phx-value-source={source[:name]}
+              data-testid={"tail-#{source[:name]}"}
+              class="text-sm text-th-secondary hover:text-th-primary transition-colors"
+            >
+              Tail
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </.panel>
+
+  <.panel
+    :if={not @disabled?}
+    testid="sinks-panel"
+    icon="hero-arrow-down-on-square"
+    class="overflow-hidden"
+  >
+    <:title>Sinks ({length(@sinks)})</:title>
+    <p :if={@sinks == []} class="px-5 py-6 text-sm text-th-muted">
+      This controller reports no observability sinks.
+    </p>
+    <ul class="divide-y divide-brd-subtle">
+      <li
+        :for={sink <- @sinks}
+        data-testid={"sink-#{sink[:name]}"}
+        class="px-5 py-3 flex items-center gap-3 text-xs font-mono"
+      >
+        <span class="text-th-primary">{sink[:name]}</span>
+        <span
+          data-testid={"sink-running-#{sink[:name]}"}
+          class={[
+            "inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px]",
+            if(NodeManager.sink_running?(sink),
+              do: "bg-success/10 text-success",
+              else: "bg-surface-input text-th-tertiary"
+            )
+          ]}
+        >
+          {if NodeManager.sink_running?(sink), do: "running", else: "not running"}
+        </span>
+      </li>
+    </ul>
+  </.panel>
+
+  <.panel
+    :if={@tailing || @tail_error}
+    testid="tail-panel"
+    icon="hero-play"
+    class="overflow-hidden"
+  >
+    <:title>Tailing <span class="font-mono normal-case">{@tailing}</span></:title>
+    <:actions>
+      <button
+        :if={@tailing}
+        phx-click="stop_tail"
+        data-testid="stop-tail"
+        class="px-3 py-1.5 text-xs rounded-xl bg-surface-input text-th-secondary border border-brd hover:bg-surface-hover transition-colors"
+      >
+        Stop
+      </button>
+    </:actions>
+
+    <.notice
+      :if={@tail_error == :pubsub_sink_disabled}
+      kind={:info}
+      testid="pubsub-sink-disabled"
+      class="m-5"
+    >
+      Live tailing is unavailable: the controller's pubsub sink is disabled. The query-based views
+      still work.
+    </.notice>
+
+    <.runtime_error
+      :if={@tail_error && @tail_error != :pubsub_sink_disabled}
+      error={@tail_error}
+      action="the live tail"
+      class="m-5"
+    />
+
+    <.notice :if={@tail_reconnected?} kind={:info} testid="tail-reconnected" class="m-5">
+      The tail reconnected after the controller-side relay restarted — signals emitted while it was
+      down are not shown.
+    </.notice>
+
+    <ul :if={@tailing} class="divide-y divide-brd-subtle max-h-96 overflow-auto">
+      <li :for={signal <- @tail_records} class="px-5 py-2 font-mono text-[11px] text-th-secondary">
+        <span class="text-th-muted">{signal[:ts]}</span>
+        <span class="text-th-primary">{signal[:source]}.{signal[:name]}</span>
+        <span class="text-th-tertiary">{inspect(signal[:measurements])}</span>
+      </li>
+      <li :if={@tail_records == []} class="px-5 py-6 text-sm text-th-muted">
+        Waiting for signals.
+      </li>
+    </ul>
+  </.panel>
+</div>

@@ -1,78 +1,97 @@
+<% node = FlezhaUi.Service.NodeManager.connected_node()
+
+authz =
+  FlezhaUi.Service.NodeManager.authz_status(
+    FlezhaUi.Accounts.Scope.flezha_token(assigns[:current_scope])
+  ) %>
 <div class="flex h-screen bg-surface-base text-th-secondary">
   <%!-- Sidebar --%>
   <aside class="w-56 flex-shrink-0 bg-sidebar-bg border-r border-sidebar-border flex flex-col">
     <div class="px-5 py-6 border-b border-sidebar-border bg-gradient-to-r from-accent/5 to-transparent">
-      <a href="/" class="flex items-center gap-2">
+      <.link navigate={~p"/"} class="flex items-center gap-2">
         <span class="text-xl font-bold text-accent">flezha</span>
         <span class="text-xs text-th-muted font-medium uppercase tracking-wider">UI</span>
-      </a>
+      </.link>
     </div>
 
     <nav class="flex-1 px-3 py-5 space-y-1">
-      <a
-        href="/"
+      <.link
+        navigate={~p"/"}
         data-nav-link
         class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
       >
         <.icon name="hero-squares-2x2" class="w-4 h-4" /> Dashboard
-      </a>
-      <a
-        href="/namespaces"
+      </.link>
+      <.link
+        navigate={~p"/namespaces"}
         data-nav-link
         class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
       >
         <.icon name="hero-rectangle-stack" class="w-4 h-4" /> Namespaces
-      </a>
-      <a
-        href="/plugins"
+      </.link>
+      <.link
+        navigate={~p"/operatives"}
+        data-nav-link
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
+      >
+        <.icon name="hero-cpu-chip" class="w-4 h-4" /> Operatives
+      </.link>
+      <.link
+        navigate={~p"/plugins"}
         data-nav-link
         class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
       >
         <.icon name="hero-puzzle-piece" class="w-4 h-4" /> Plugins
-      </a>
-      <a
-        href="/cluster"
+      </.link>
+      <.link
+        navigate={~p"/cluster"}
         data-nav-link
         class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
       >
         <.icon name="hero-server-stack" class="w-4 h-4" /> Cluster
-      </a>
-      <a
-        href="/schedules"
+      </.link>
+      <.link
+        navigate={~p"/observability"}
+        data-nav-link
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
+      >
+        <.icon name="hero-signal" class="w-4 h-4" /> Observability
+      </.link>
+      <.link
+        navigate={~p"/controller"}
+        data-nav-link
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
+      >
+        <.icon name="hero-server" class="w-4 h-4" /> Controller
+      </.link>
+      <.link
+        navigate={~p"/schedules"}
         data-nav-link
         class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
       >
         <.icon name="hero-clock" class="w-4 h-4" /> Schedules
-      </a>
-      <a
-        href="/dlq"
+      </.link>
+      <.link
+        navigate={~p"/dlq"}
         data-nav-link
         class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
       >
         <.icon name="hero-inbox-stack" class="w-4 h-4" /> Dead-letter
-      </a>
-      <a
-        href="/audit"
+      </.link>
+      <.link
+        navigate={~p"/audit"}
         data-nav-link
         class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-th-secondary hover:bg-sidebar-hover hover:text-th-primary transition-colors"
       >
         <.icon name="hero-document-text" class="w-4 h-4" /> Audit log
-      </a>
+      </.link>
     </nav>
 
     <div class="px-5 py-4 border-t border-sidebar-border">
       <div class="flex items-center gap-2 text-xs text-th-muted mb-2">
-        <%= if FlezhaUi.Service.NodeManager.connected_node() do %>
-          <span class="relative flex h-2 w-2">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75">
-            </span>
-            <span class="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
-          </span>
-          <span class="font-mono truncate">{FlezhaUi.Service.NodeManager.connected_node()}</span>
-        <% else %>
-          <span class="w-2 h-2 rounded-full bg-danger inline-block"></span>
-          <span>Disconnected</span>
-        <% end %>
+        <.status_dot connected?={!!node} />
+        <span :if={node} class="font-mono truncate">{node}</span>
+        <span :if={!node}>Disconnected</span>
       </div>
       <p class="text-[10px] text-th-muted font-mono">flezha_ui v0.1.0</p>
     </div>
@@ -83,22 +102,16 @@
     <%!-- Top bar --%>
     <header class="bg-surface border-b border-brd px-8 py-3 flex items-center justify-between flex-shrink-0 shadow-panel">
       <div class="flex items-center gap-3">
-        <%= if FlezhaUi.Service.NodeManager.connected_node() do %>
-          <span class="flex items-center gap-1.5 text-sm text-th-secondary">
-            <span class="relative flex h-2 w-2">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75">
-              </span>
-              <span class="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
-            </span>
-            {FlezhaUi.Service.NodeManager.connected_node()}
-          </span>
-        <% else %>
-          <span class="flex items-center gap-1.5 text-sm text-th-tertiary">
-            <span class="w-2 h-2 rounded-full bg-danger inline-block"></span> Not connected
-          </span>
-        <% end %>
+        <span :if={node} class="flex items-center gap-1.5 text-sm text-th-secondary">
+          <.status_dot connected?={true} />
+          {node}
+        </span>
+        <span :if={!node} class="flex items-center gap-1.5 text-sm text-th-tertiary">
+          <.status_dot connected?={false} /> Not connected
+        </span>
       </div>
       <div class="flex items-center gap-4 text-sm">
+        <.authz_identity status={authz} />
         <span class="text-th-tertiary">
           {assigns[:current_scope] && assigns[:current_scope].user &&
             assigns[:current_scope].user.email}
@@ -131,6 +144,7 @@
     <%!-- Page content --%>
     <main class="flex-1 overflow-auto p-8">
       <.flash_group flash={@flash} />
+      <.authz_banner status={authz} />
       <div class="animate-fade-in">
         <%= if assigns[:inner_block] do %>
           {render_slot(@inner_block)}

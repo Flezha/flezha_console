@@ -20,20 +20,30 @@ The UI uses the controller's terms exactly. If a name here disagrees with
 | **Provider** | The module implementing a plugin's behaviour (websocket, Kafka, stdout, …). |
 | **Extension** | A hook a plugin subscribes to: `on_input`, `on_output`, `on_interval`, `on_message`, `on_snapshot`, `on_terminate`, `on_operative_init`. |
 | **Hub** | The per-namespace supervision root, placed on one or more cluster nodes. |
+| **Posture** | The controller's authorization stance: `open`, `bootstrap_pending`, or `enforced`. |
+| **Principal** | The identity a call is made as. The UI's comes only from a verified flezha token — never from a form field. |
+| **Quota** | A per-namespace limit (operatives, runners, state bytes, …) paired with a live counter. |
+| **Partition group** | A set of operatives that split one keyspace between them, each owning a *key-group* range. |
+| **Coverage** | Whether a partition group's members own every key group exactly once. A gap or an overlap is a fault. |
+| **Health** | How the Convergence Loop classified an operative: `healthy`, `suspended`, `degraded`, `unbound`, `failed`, or `unknown` when it has not been observed yet. Suspension is a health value, not a separate flag — which is what makes it readable one call per namespace. |
 
 ## Screens
 
 | Route | Shows |
 | --- | --- |
-| `/` | Connected controller, counts, runners, namespace links |
-| `/namespaces` | Namespaces with operative and runner counts |
-| `/namespaces/:ns` | A namespace's operatives, runners, factories; start and stop operatives |
-| `/namespaces/:ns/operatives/:id` | Kind, runner, factory, uptime, entity state, attached plugins |
+| `/` | Connected controller, counts with a health breakdown, runners, namespace links |
+| `/namespaces` | Declared and running namespaces, their counts, and quota breaches |
+| `/namespaces/:ns` | Operatives with health, partition groups and coverage, quotas, role bindings, finished instances |
+| `/operatives` | Every operative across every reachable namespace, filterable by namespace, health and kind |
+| `/namespaces/:ns/operatives/:id` | Kind, runner, factory, uptime, health, node, workflow profile, journal, inbox, entity state, plugins |
+| `/namespaces/:ns/operatives/:id/state` | Durable entities with their WAL/snapshot sequences and durability lag; point-in-time reads |
 | `/namespaces/:ns/operatives/:id/stream` | Live input/output stream |
-| `/plugins` | Enabled plugins with provider, extensions, and target |
-| `/cluster` | Cluster nodes, hub placement, runner fleet, factory placement |
+| `/plugins` | Enabled plugins, and the catalog installed on the controller |
+| `/cluster` | Cluster nodes, per-node health rollup, hub recovery, runner fleet |
+| `/observability` | Observability sources and sinks, their enabled state, and a live signal tail |
+| `/controller` | Durability posture and RPO breaches, shutdown and boot state, authorization posture, memory hot spots |
 | `/schedules` | Cron schedules with live job status and next fire |
-| `/dlq` | Parked dead-letter entries; inspect, replay, drop |
+| `/dlq` | Parked dead-letter entries grouped by procedure; inspect, replay, drop |
 | `/audit` | Audit file catalog, filtered reads, live tail |
 
 ## Dev setup
@@ -46,12 +56,32 @@ this one at `../flezha`.
 docker compose -f docker-compose.dev.yml up --build
 ```
 
-First run only — create the database and the dev user:
+The controller enforces authorization by default, so the stack claims its own
+bootstrap: a one-shot `bootstrap` service waits for the controller node, claims
+the bootstrap, issues a `_system` token and writes it to a shared volume. The
+UI reads it through `FLEZHA_TOKEN_FILE` — a file rather than an env var because
+the token does not exist until the controller has booted. A restart reuses the
+token already written; nothing is re-claimed.
+
+`FLEZHA_AUTHZ_ENABLED` is set to `true` on the controller deliberately. A dev
+stack that switched enforcement off would leave the UI's whole identity path —
+token, principal, refusals — untested locally.
+
+A signed-in user may store their own flezha token under **Settings**, which then
+rides their calls so the controller's audit log names the human rather than the
+app. It is encrypted at rest and never rendered back.
+
+After every `docker compose down` — create the database and the dev user:
 
 ```bash
 docker exec fui_web mix ecto.migrate
 docker exec fui_web mix run priv/repo/seeds.exs
 ```
+
+The `db` service keeps its data in the container rather than a named volume, so
+`down` discards it and the next `up` starts on an empty database. A stack that
+was only stopped and started again keeps everything, and these two commands are
+then no-ops.
 
 Then log in at http://localhost:4000 with:
 
@@ -68,6 +98,7 @@ controller is reachable, so the dashboard is populated on arrival. See
 | --- | --- |
 | `flezha_controller` | The controller, built from `../flezha/docker/dev/Dockerfile.toolchain` |
 | `flezha_rust_runner` | `test/apps/rust_runner`, waits for the control socket then connects |
+| `fui_bootstrap` | One-shot: claims the authorization bootstrap and issues the UI's token |
 | `fui_web` | This app |
 | `flezha_ui_db` | Postgres |
 | `fui_kafka`, `fui_zookeeper`, `fui_kafka_ui` | Kafka, for the Kafka provider |
@@ -112,18 +143,27 @@ the rule for deciding which layer a new assertion belongs to.
 ## How the UI talks to the controller
 
 Every remote call goes through `FlezhaUi.Service.NodeManager`, which is the
-only module that names a `Flezha.*` module. It normalises failures into four
-shapes — not connected, API missing, timeout, remote error — so a controller
-that has moved on shows a banner naming the missing function instead of
-crashing a LiveView.
+only module that names a `Flezha.*` module. It normalises failures into five
+shapes — not connected, API missing, timeout, **forbidden**, remote error — so
+a controller that has moved on shows a banner naming the missing function
+instead of crashing a LiveView, and a refusal reads as a refusal with a remedy
+rather than an empty table.
 
-Subscriptions are different. The controller's event bus and audit tail both
-register the *calling* process, and an `:erpc` call runs in a process that dies
-when the call returns. So `FlezhaUi.Service.EventBridge` ships
-`FlezhaUi.Service.EventRelay`'s **source** to the controller, compiles it
+Identity works the way the controller's own CLI does it: a principal comes
+*only* from `Flezha.AuthZ.TokenStore.verify/1`. A name typed into this UI is
+never placed in a caller context, because that context is what the controller's
+audit log records. Verifications are cached briefly — never past the token's
+own expiry — and a refused call evicts the entry, so a revoked token stops
+working within one call rather than one cache lifetime.
+
+Subscriptions are different. The controller's event bus, audit tail and
+observability tail all register the *calling* process, and an `:erpc` call runs
+in a process that dies when the call returns. So `FlezhaUi.Service.EventBridge`
+ships `FlezhaUi.Service.EventRelay`'s **source** to the controller, compiles it
 there, and spawns it — a relay that lives on the controller and forwards back.
 Source rather than a compiled beam, because the two nodes need not run the same
-Erlang/OTP release.
+Erlang/OTP release. All three subscription kinds ride that one relay; there is
+no second mechanism.
 
 ## Manual setup (no Docker)
 

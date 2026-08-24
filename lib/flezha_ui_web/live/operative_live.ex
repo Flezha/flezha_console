@@ -36,7 +36,13 @@ defmodule FlezhaUiWeb.OperativeLive do
         attach_provider_id: nil,
         attach_form: %{},
         attach_error: nil,
+        provider_help: nil,
         confirm_detach: nil,
+        rewind_target: nil,
+        completion: nil,
+        journal: nil,
+        committed_iterations: [],
+        inbox: nil,
         tap: nil,
         enabled_providers: Enum.reject(NodeManager.providers(), & &1.internal?)
       )
@@ -107,6 +113,47 @@ defmodule FlezhaUiWeb.OperativeLive do
   end
 
   @impl true
+  def handle_event("open_rewind", _params, socket) do
+    {:noreply, assign(socket, rewind_target: List.first(socket.assigns.committed_iterations))}
+  end
+
+  @impl true
+  def handle_event("cancel_rewind", _params, socket) do
+    {:noreply, assign(socket, rewind_target: nil)}
+  end
+
+  @impl true
+  def handle_event("select_rewind", %{"rewind" => %{"iteration" => value}}, socket) do
+    {:noreply, assign(socket, rewind_target: parse_iteration(value))}
+  end
+
+  @impl true
+  def handle_event("rewind", _params, socket) do
+    %{ns: ns, operative_id: id, rewind_target: target} = socket.assigns
+
+    # Only an iteration the journal reported as committed is ever a target, so
+    # a stale form cannot ask for one the controller would refuse.
+    if target in socket.assigns.committed_iterations do
+      case NodeManager.rewind_instance(ns, id, target) do
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> assign(rewind_target: nil)
+           |> put_flash(:error, "Rewind failed: #{inspect(reason)}")}
+
+        _ok ->
+          {:noreply,
+           socket
+           |> assign(rewind_target: nil)
+           |> load_data()
+           |> put_flash(:info, "Rewound to iteration #{target}.")}
+      end
+    else
+      {:noreply, assign(socket, rewind_target: nil)}
+    end
+  end
+
+  @impl true
   def handle_event("confirm_stop", _params, socket) do
     {:noreply, assign(socket, confirm_stop: true)}
   end
@@ -147,7 +194,7 @@ defmodule FlezhaUiWeb.OperativeLive do
          "trigger" => "on_output",
          # Left blank, not defaulted: position only applies to ordered
          # extensions, and sending it for any other kind is refused outright.
-         "position" => ""
+         "sub_position" => ""
        },
        attach_error: nil
      )}
@@ -160,7 +207,15 @@ defmodule FlezhaUiWeb.OperativeLive do
 
   @impl true
   def handle_event("choose_provider", %{"provider_id" => pid}, socket) do
-    {:noreply, assign(socket, attach_provider_id: pid, attach_step: :configure)}
+    # The provider's own documentation for the options the form is about to
+    # ask for — read once on selection rather than on every keystroke.
+    help =
+      socket.assigns.enabled_providers
+      |> Enum.find(&(&1.id == pid))
+      |> NodeManager.provider_help()
+
+    {:noreply,
+     assign(socket, attach_provider_id: pid, attach_step: :configure, provider_help: help)}
   end
 
   @impl true
@@ -172,17 +227,13 @@ defmodule FlezhaUiWeb.OperativeLive do
   def handle_event("attach_plugin", %{"plugin" => params}, socket) do
     %{ns: ns, operative_id: operative_id, attach_provider_id: provider_id} = socket.assigns
     form = Map.merge(socket.assigns.attach_form, params)
-    plugin_id = form["plugin_id"]
 
-    provider = find_provider(socket.assigns.enabled_providers, provider_id)
+    # The form is handed over as submitted: its inputs are named with the
+    # seam's own `field_`/`sub_` prefixes, so translating them here would be a
+    # second copy of a rule `enable_plugin/5` already applies.
+    provider = Enum.find(socket.assigns.enabled_providers, &(&1.id == provider_id))
 
-    plugin_form =
-      provider
-      |> extract_provider_settings(form)
-      |> Map.put("trigger", form["trigger"])
-      |> Map.put("sub_position", form["position"] || "")
-
-    case NodeManager.enable_plugin(plugin_id, provider, plugin_form, ns, operative_id) do
+    case NodeManager.enable_plugin(form["plugin_id"], provider, form, ns, operative_id) do
       {:ok, _} ->
         socket =
           socket
@@ -258,10 +309,74 @@ defmodule FlezhaUiWeb.OperativeLive do
   defp load_data(socket) do
     %{ns: ns, operative_id: operative_id} = socket.assigns
 
-    case NodeManager.overwatch_facts(ns, operative_id) do
-      {:ok, facts} -> socket |> assign(load_error: nil) |> assign_facts(facts)
-      {:error, reason} -> socket |> assign(load_error: reason) |> assign_facts(overwatch_facts())
-    end
+    socket = assign(socket, row: namespace_row(ns, operative_id))
+
+    socket =
+      case NodeManager.overwatch_facts(ns, operative_id) do
+        {:ok, facts} ->
+          socket |> assign(load_error: nil) |> assign_facts(facts)
+
+        {:error, reason} ->
+          socket |> assign(load_error: reason) |> assign_facts(NodeManager.overwatch_facts())
+      end
+
+    socket |> load_completion() |> load_durability()
+  end
+
+  # An instance that has finished is not in the registry at all, so "no row and
+  # no overwatch" is the signal to look for a completion record rather than to
+  # report the operative missing.
+  defp load_completion(%{assigns: %{row: nil}} = socket) do
+    %{ns: ns, operative_id: operative_id} = socket.assigns
+
+    completion =
+      case NodeManager.finished_instances(ns, []) do
+        {:ok, finished} ->
+          finished |> Enum.find(&(elem(&1, 0) == to_string(operative_id))) |> record()
+
+        {:error, _reason} ->
+          nil
+      end
+
+    assign(socket, completion: completion)
+  end
+
+  defp load_completion(socket), do: assign(socket, completion: nil)
+
+  defp record(nil), do: nil
+  defp record({_id, completion}), do: completion
+
+  # The journal and inbox exist only for a durable workflow. Reading them for a
+  # stream operative would answer empty, which renders as "there is nothing
+  # here" rather than "this does not apply".
+  defp load_durability(%{assigns: %{kind: :workflow, durable_workflow: true}} = socket) do
+    id = socket.assigns.operative_id
+
+    assign(socket,
+      journal: NodeManager.ok_or(NodeManager.proc_journal(id), []),
+      committed_iterations: NodeManager.ok_or(NodeManager.journal_committed_iterations(id), []),
+      inbox: %{
+        undelivered: length(NodeManager.ok_or(NodeManager.inbox_undelivered(id), [])),
+        last_offset: integer_or_nil(NodeManager.inbox_last_offset(id)),
+        consumed_offset: integer_or_nil(NodeManager.journal_consumed_offset(id))
+      }
+    )
+  end
+
+  defp load_durability(socket) do
+    assign(socket, journal: nil, committed_iterations: [], inbox: nil)
+  end
+
+  defp integer_or_nil(value) when is_integer(value), do: value
+  defp integer_or_nil(_value), do: nil
+
+  # Health, live node and partition identity are registry facts, not overwatch
+  # ones — they come from the same namespace-wide read the listing makes, so
+  # this screen agrees with the listing it was reached from.
+  defp namespace_row(ns, operative_id) do
+    ns
+    |> NodeManager.namespace_rows()
+    |> Enum.find(&(to_string(&1.id) == to_string(operative_id)))
   end
 
   # Spread for the panels that read one field each, and kept whole for the
@@ -271,7 +386,12 @@ defmodule FlezhaUiWeb.OperativeLive do
     socket |> assign(facts) |> assign(overwatch: facts)
   end
 
-  defp overwatch_facts, do: NodeManager.overwatch_facts()
+  defp parse_iteration(value) do
+    case Integer.parse(to_string(value)) do
+      {int, ""} -> int
+      _ -> nil
+    end
+  end
 
   @doc """
   A tap's `field` per second, measured over the tap's own window.
@@ -327,21 +447,6 @@ defmodule FlezhaUiWeb.OperativeLive do
   end
 
   defp state_notice(reason), do: {:error, reason}
-
-  defp find_provider(providers, provider_id) do
-    Enum.find(providers, fn p -> p.id == provider_id end)
-  end
-
-  defp extract_provider_settings(nil, _form), do: %{}
-
-  defp extract_provider_settings(provider, form) do
-    all_fields = provider.required_fields ++ provider.optional_fields
-
-    Enum.reduce(all_fields, %{}, fn field, acc ->
-      raw = Map.get(form, "field_#{field}", "")
-      if raw == "", do: acc, else: Map.put(acc, field, raw)
-    end)
-  end
 
   defp generate_plugin_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)

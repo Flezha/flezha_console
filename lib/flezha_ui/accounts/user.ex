@@ -9,8 +9,41 @@ defmodule FlezhaUi.Accounts.User do
     field :confirmed_at, :utc_datetime
     field :authenticated_at, :utc_datetime, virtual: true
 
+    # Never selected by an ordinary query, so a user struct in a socket assign
+    # cannot carry the secret into a render. `Accounts.flezha_token/1` is the
+    # one reader, and it selects the column explicitly.
+    field :flezha_token, FlezhaUi.Accounts.EncryptedBinary,
+      redact: true,
+      load_in_query: false
+
     timestamps(type: :utc_datetime)
   end
+
+  @doc """
+  A changeset for storing or clearing the user's flezha token.
+
+  The token is a credential the controller issued, not something this app
+  validates the contents of beyond its shape — `TokenStore.verify/1` is the
+  authority, and an unverifiable token simply leaves the caller context
+  unbound.
+  """
+  def flezha_token_changeset(user, token) do
+    # Forced, because the field is never loaded: a struct's `flezha_token` is
+    # always `nil`, so `change/2` would read a clear as "no change" and leave
+    # the stored credential in place.
+    user
+    |> change()
+    |> force_change(:flezha_token, normalize_token(token))
+  end
+
+  defp normalize_token(token) when is_binary(token) do
+    case String.trim(token) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_token(_token), do: nil
 
   @doc """
   A user changeset for registering or changing the email.

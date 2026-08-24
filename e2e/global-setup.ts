@@ -1,10 +1,30 @@
-import { chromium, expect, type FullConfig } from '@playwright/test';
+import { chromium, expect, type FullConfig, type Page } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 /** Seeded by `priv/repo/seeds.exs` when the dev stack boots. */
 export const DEV_EMAIL = 'dev@flezha.local';
 export const DEV_PASSWORD = 'dev_password_123';
+
+/**
+ * Fills and submits the password login form.
+ *
+ * `email` is omitted when re-authenticating into sudo mode, where the field is
+ * readonly and only the password is asked for.
+ */
+export async function submitLogin(
+  page: Page,
+  { email, password = DEV_PASSWORD }: { email?: string; password?: string } = {},
+): Promise<void> {
+  const form = page.locator('#login_form_password');
+
+  if (email !== undefined) {
+    await form.locator('input[name="user[email]"]').fill(email);
+  }
+
+  await form.locator('input[name="user[password]"]').fill(password);
+  await form.getByRole('button', { name: /log in/i }).click();
+}
 
 /**
  * Logs in once and saves the session, so specs start authenticated instead of
@@ -30,10 +50,7 @@ async function globalSetup(config: FullConfig) {
   try {
     await page.goto('/users/log-in');
 
-    const form = page.locator('#login_form_password');
-    await form.locator('input[name="user[email]"]').fill(DEV_EMAIL);
-    await form.locator('input[name="user[password]"]').fill(DEV_PASSWORD);
-    await form.getByRole('button', { name: /log in/i }).click();
+    await submitLogin(page, { email: DEV_EMAIL, password: DEV_PASSWORD });
 
     await page.waitForURL(`${baseURL}/`);
     await expect(page.locator('body')).toContainText('Dashboard');

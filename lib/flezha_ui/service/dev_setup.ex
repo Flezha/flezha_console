@@ -59,7 +59,7 @@ defmodule FlezhaUi.Service.DevSetup do
 
     try do
       with {:node, node} when node != nil <- {:node, NodeManager.connected_node()},
-           :ok <- ensure_namespace(ns),
+           :ok <- ensure_namespace(ns, config[:quotas] || %{}),
            :ok <- ensure_operatives(ns, operatives),
            :ok <- ensure_plugins(ns, plugins) do
         Node.monitor(node, true)
@@ -89,13 +89,44 @@ defmodule FlezhaUi.Service.DevSetup do
     end
   end
 
-  defp ensure_namespace(ns) do
-    with {:ok, list} <- NodeManager.list_namespaces() do
+  # Two separate facts: the namespace is *declared* (an object with quotas and
+  # role bindings) and a hub is *running* for it. Seeding needs the hub;
+  # declaring it is what gives the namespace screens real quota data.
+  defp ensure_namespace(ns, quotas) do
+    with :ok <- declare_namespace(ns, quotas),
+         {:ok, list} <- NodeManager.list_namespaces() do
       if Enum.any?(list, fn n -> to_string(n) == ns end) do
         :ok
       else
         {:error, {:namespace_not_found, ns}}
       end
+    end
+  end
+
+  defp declare_namespace(ns, quotas) do
+    case NodeManager.create_namespace(ns, quotas, FlezhaUi.Accounts.service_flezha_token()) do
+      {:ok, _entry} ->
+        :ok
+
+      # Already declared on a previous boot — the declaration is left alone.
+      {:error, :already_exists} ->
+        :ok
+
+      # A controller predating declared namespaces still runs hubs, and the
+      # operatives are the part of seeding that matters.
+      {:error, {:api_missing, _module, _function, _arity}} ->
+        :ok
+
+      {:error, {:forbidden, reason}} ->
+        Logger.warning(
+          "[DevSetup] Controller refused to declare #{ns}: #{inspect(reason)}. " <>
+            "Namespace quotas will read as undeclared."
+        )
+
+        :ok
+
+      {:error, reason} ->
+        {:error, {:declare_namespace, ns, reason}}
     end
   end
 
@@ -130,7 +161,7 @@ defmodule FlezhaUi.Service.DevSetup do
         _ -> MapSet.new()
       end
 
-    providers = NodeManager.ok_or(NodeManager.get_provider_info(), [])
+    providers = NodeManager.providers()
 
     Enum.reduce_while(plugins, :ok, fn plugin, :ok ->
       if MapSet.member?(existing, plugin.plugin_id) do
@@ -160,36 +191,15 @@ defmodule FlezhaUi.Service.DevSetup do
   # Goes through the same NodeManager path the UI's attach form uses, so the
   # seeded plugins exercise the code an operator drives.
   defp enable_plugin(ns, plugin, providers) do
-    case find_provider(providers, plugin.provider_id) do
+    case Enum.find(providers, &(&1.id == plugin.provider_id)) do
       nil ->
         {:error, {:provider_not_enabled, plugin.provider_id}}
 
       provider ->
-        form =
-          plugin.provider_settings
-          |> Map.put("extensions", plugin.extensions)
-          |> merge_sub_opts(Map.get(plugin, :sub_opts, %{}))
+        form = NodeManager.provider_form(plugin.provider_settings, plugin.extensions)
 
         NodeManager.enable_plugin(plugin.plugin_id, provider, form, ns, plugin.operative_id)
     end
-  end
-
-  defp merge_sub_opts(form, sub_opts) do
-    Enum.reduce(sub_opts, form, fn {key, value}, acc ->
-      Map.put(acc, "sub_#{key}", to_string(value))
-    end)
-  end
-
-  defp find_provider(providers, provider_id) do
-    Enum.find_value(providers, fn info ->
-      if to_string(Map.get(info, :id)) == provider_id do
-        %{
-          module: Map.get(info, :module),
-          required_fields: Map.get(info, :required_fields, []),
-          optional_fields: Map.get(info, :optional_fields, [])
-        }
-      end
-    end)
   end
 
   defp schedule_retry(retries, reason) do

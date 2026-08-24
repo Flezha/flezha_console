@@ -72,3 +72,42 @@ Disabling a plugin SHALL be performed solely through `Flezha.Service.PluginManag
 - **WHEN** the codebase is searched for `IOBindingPlugin` or `disable_plugin_direct`
 - **THEN** no occurrence exists
 
+### Requirement: The installed-plugin catalog
+
+The plugins screen SHALL list the plugins installed on the controller from `Flezha.Plugin.Installer.list/0`, with each entry's id, version, and whether it is enabled, presented separately from the list of enabled plugin instances. The UI SHALL NOT install, upgrade, or uninstall a plugin.
+
+#### Scenario: Plugins are installed
+
+- **WHEN** an operator opens the plugins screen
+- **THEN** each installed plugin is listed with its id, version, and enabled state
+
+#### Scenario: An installed plugin is not enabled
+
+- **WHEN** an installed plugin has no enabled instance
+- **THEN** it appears in the catalog and not in the enabled list
+
+#### Scenario: Installer verbs are absent
+
+- **WHEN** the plugins screen is rendered
+- **THEN** no control installs, upgrades, or uninstalls a plugin
+- **AND** the screen names `flz plugin` as where those verbs live
+
+#### Scenario: The installer is not available
+
+- **WHEN** the installer read answers `{:error, {:api_missing, ...}}`
+- **THEN** the catalog states it is unavailable on this controller and the enabled list still renders
+
+### Requirement: Per-provider option help
+
+When a provider is selected on the attach form, the UI SHALL show the provider's own documentation for its option fields, so the form explains the options it asks for rather than presenting bare field names.
+
+#### Scenario: A provider with documented options
+
+- **WHEN** an operator selects a provider whose options are documented
+- **THEN** each option field carries its description
+
+#### Scenario: A provider without documentation
+
+- **WHEN** the controller reports no help for the selected provider
+- **THEN** the fields render without descriptions rather than the form failing
+

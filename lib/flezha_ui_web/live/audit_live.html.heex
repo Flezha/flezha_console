@@ -1,7 +1,7 @@
 <div class="space-y-6">
   <h1 class="text-2xl font-bold text-th-primary">Audit log</h1>
 
-  <.runtime_error error={@load_error} />
+  <.runtime_error error={@load_error} action="the audit log" />
 
   <.notice :if={@disabled_reason} testid="audit-disabled">
     {disabled_message(@disabled_reason)}
@@ -28,13 +28,8 @@
     </div>
 
     <%!-- Files --%>
-    <div class="bg-surface border border-brd rounded-panel shadow-panel">
-      <div class="px-5 py-4 border-b border-brd flex items-center gap-2">
-        <.icon name="hero-document-text" class="w-4 h-4 text-th-tertiary" />
-        <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
-          Files ({length(@files)})
-        </h2>
-      </div>
+    <.panel icon="hero-document-text">
+      <:title>Files ({length(@files)})</:title>
       <%= if @files == [] do %>
         <div data-testid="audit-files-empty" class="px-5 py-6 text-sm text-th-muted">
           <%!-- The catalog lists rotated files, so it is empty until the first
@@ -48,15 +43,12 @@
           </li>
         </ul>
       <% end %>
-    </div>
+    </.panel>
 
     <%!-- Read --%>
-    <div class="bg-surface border border-brd rounded-panel shadow-panel">
-      <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <.icon name="hero-magnifying-glass" class="w-4 h-4 text-th-tertiary" />
-          <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">Records</h2>
-        </div>
+    <.panel icon="hero-magnifying-glass">
+      <:title>Records</:title>
+      <:actions>
         <button
           phx-click="read"
           data-testid="audit-read-btn"
@@ -64,7 +56,7 @@
         >
           <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> Read
         </button>
-      </div>
+      </:actions>
 
       <div class="p-5 space-y-4">
         <form phx-change="filter_change" class="grid grid-cols-4 gap-4">
@@ -115,7 +107,7 @@
           </div>
         </form>
 
-        <.runtime_error :if={@read_error} error={audit_error(@read_error)} />
+        <.runtime_error :if={@read_error} error={@read_error} action="this audit read" />
 
         <.notice :if={@truncated} testid="audit-truncated">
           More records matched than the limit. Raise the limit or narrow the filter.
@@ -137,17 +129,12 @@
             </div>
         <% end %>
       </div>
-    </div>
+    </.panel>
 
     <%!-- Tail --%>
-    <div class="bg-surface border border-brd rounded-panel shadow-panel">
-      <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <.icon name="hero-signal" class="w-4 h-4 text-th-tertiary" />
-          <h2 class="text-sm font-semibold text-th-tertiary uppercase tracking-wider">
-            Live tail ({length(@tail_records)})
-          </h2>
-        </div>
+    <.panel icon="hero-signal">
+      <:title>Live tail ({length(@tail_records)})</:title>
+      <:actions>
         <button
           phx-click={if @tailing, do: "stop_tail", else: "start_tail"}
           data-testid="audit-tail-toggle"
@@ -160,10 +147,18 @@
         >
           {if @tailing, do: "Tailing — stop", else: "Start tail"}
         </button>
-      </div>
+      </:actions>
       <div class="p-5">
+        <%!-- A subscription the controller refused is stated: a tail that never
+              started looks exactly like a quiet one otherwise. --%>
+        <.runtime_error
+          :if={@tail_error}
+          error={@tail_error}
+          action="the live audit tail"
+          class="mb-4"
+        />
         <%= cond do %>
-          <% not @tailing -> %>
+          <% is_nil(@tailing) -> %>
             <p data-testid="audit-tail-idle" class="text-sm text-th-muted">
               The tail is stopped. Start it to stream new audit records as they are written.
             </p>
@@ -178,6 +173,6 @@
             </div>
         <% end %>
       </div>
-    </div>
+    </.panel>
   <% end %>
 </div>

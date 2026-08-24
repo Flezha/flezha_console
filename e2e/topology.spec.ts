@@ -169,4 +169,30 @@ test.describe('Fleet summary', () => {
     await expect(page.getByTestId('topology-summary')).toBeVisible();
     await expect(page.getByTestId('topology-namespace')).toHaveCount(0);
   });
+
+  test('breaks its counts down by health, each bucket linking out', async ({ page, live }) => {
+    await live('/');
+
+    const health = page.getByTestId('summary-health');
+    await expect(health).toBeVisible();
+
+    const buckets = page.locator('[data-testid^="summary-health-"]');
+    expect(await buckets.count()).toBeGreaterThan(0);
+
+    const first = buckets.first();
+    await expect(first).toHaveAttribute('href', /\/operatives\?/);
+
+    await first.click();
+    await expect(page).toHaveURL(/\/operatives\?/);
+    await expect(page.getByTestId('filter-health')).not.toHaveValue('');
+  });
+
+  test('surfaces an idle non-healthy operative despite zero throughput', async ({ page, live }) => {
+    await live('/');
+
+    // The seeded chat workflow is parked, so it never advances a counter.
+    const attention = page.getByTestId('summary-attention');
+    await expect(attention).toBeVisible();
+    await expect(page.getByTestId('summary-attention-testnet_chat')).toBeVisible();
+  });
 });
