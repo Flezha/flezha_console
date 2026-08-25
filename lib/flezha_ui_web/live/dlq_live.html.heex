@@ -2,14 +2,14 @@
   <.header>
     Dead-letter queue
     <:actions>
-      <form phx-change="filter">
-        <input
+      <form phx-change="filter" class="w-64">
+        <.input
           type="text"
           name="filter[operative_class]"
           value={@filter}
           placeholder="Filter by operative class"
+          compact
           data-testid="dlq-filter"
-          class="w-64"
         />
       </form>
     </:actions>
@@ -152,7 +152,7 @@
 </div>
 
 <%!-- Inspect --%>
-<.dialog :if={@selected} testid="dlq-inspect-modal" size="max-w-2xl">
+<.dialog :if={@selected} testid="dlq-inspect-modal" size="wide">
   <div class="flex items-center justify-between mb-4">
     <h3 class="flz-modal-title flz-num">{@selected.ref}</h3>
     <button

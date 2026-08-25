@@ -12,6 +12,7 @@ defmodule FlezhaUiWeb.ScheduleLive do
   use FlezhaUiWeb.Live.Refresh, every: 5_000
 
   alias FlezhaUi.Service.NodeManager
+  alias FlezhaUiWeb.Live.Target
 
   @impl true
   def mount(_params, _session, socket) do
@@ -23,7 +24,8 @@ defmodule FlezhaUiWeb.ScheduleLive do
         show_form: false,
         form: empty_form(),
         form_error: nil,
-        confirm_remove: nil
+        confirm_remove: nil,
+        target: Target.new()
       )
       |> refresh()
 
@@ -36,9 +38,22 @@ defmodule FlezhaUiWeb.ScheduleLive do
   def refresh_paused?(socket),
     do: socket.assigns.show_form or socket.assigns.confirm_remove != nil
 
+  # The target is listed here rather than on the tick: a schedule list that
+  # re-read a catalog per namespace every five seconds would pay for a form that
+  # is almost always closed.
   @impl true
   def handle_event("open_form", _params, socket) do
-    {:noreply, assign(socket, show_form: true, form: empty_form(), form_error: nil)}
+    form = empty_form()
+    target = Target.load_namespaces(Target.new(), socket.assigns.flezha_token)
+    namespace = Target.namespace(target, form["namespace"])
+
+    socket =
+      socket
+      |> assign(show_form: true, form_error: nil, target: target)
+      |> assign(form: Map.put(form, "namespace", namespace))
+      |> aim(namespace)
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -48,7 +63,15 @@ defmodule FlezhaUiWeb.ScheduleLive do
 
   @impl true
   def handle_event("form_change", %{"schedule" => params}, socket) do
-    {:noreply, assign(socket, form: Map.merge(socket.assigns.form, params))}
+    was = socket.assigns.form["namespace"]
+    form = Map.merge(socket.assigns.form, params)
+    socket = assign(socket, form: form)
+
+    if form["namespace"] == was do
+      {:noreply, socket}
+    else
+      {:noreply, aim(socket, form["namespace"])}
+    end
   end
 
   @impl true
@@ -165,6 +188,12 @@ defmodule FlezhaUiWeb.ScheduleLive do
 
   defp next_fire(_cron, _timezone), do: nil
 
+  defp aim(socket, namespace) do
+    {target, form} = Target.aim(socket.assigns.target, namespace, socket.assigns.form)
+
+    assign(socket, target: target, form: form)
+  end
+
   defp empty_form do
     %{
       "name" => "",
@@ -185,7 +214,7 @@ defmodule FlezhaUiWeb.ScheduleLive do
   end
 
   defp entry_fields(form) do
-    with {:ok, init_values} <- parse_init_values(form["init_values"]) do
+    with {:ok, init_values} <- NodeManager.parse_init_values(form["init_values"]) do
       {:ok,
        %{
          name: String.trim(form["name"]),
@@ -195,13 +224,6 @@ defmodule FlezhaUiWeb.ScheduleLive do
          factory_id: String.trim(form["factory_id"]),
          init_values: init_values
        }}
-    end
-  end
-
-  defp parse_init_values(value) do
-    case String.trim(value || "") do
-      "" -> {:ok, %{}}
-      json -> with {:error, _} <- Jason.decode(json), do: {:error, :invalid_init_values}
     end
   end
 
@@ -217,12 +239,13 @@ defmodule FlezhaUiWeb.ScheduleLive do
     "Required: #{labels}."
   end
 
-  defp schedule_error(:invalid_init_values), do: "Init Values must be valid JSON."
   defp schedule_error({:invalid_cron, detail}), do: "Invalid cron expression: #{detail}"
   defp schedule_error({:invalid_timezone, tz}), do: "Unknown timezone: #{tz}"
   defp schedule_error({:invalid_name, detail}), do: "Invalid name: #{detail}"
   defp schedule_error({:invalid_factory, detail}), do: "Invalid factory: #{detail}"
   defp schedule_error({:invalid_init_values, detail}), do: "Invalid init values: #{detail}"
   defp schedule_error(:already_exists), do: "A schedule with that name already exists."
+  # `NodeManager.parse_init_values/1` already answers what to put on the form.
+  defp schedule_error(message) when is_binary(message), do: message
   defp schedule_error(reason), do: "Schedule error: #{inspect(reason)}"
 end

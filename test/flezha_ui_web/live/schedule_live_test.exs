@@ -10,6 +10,7 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
 
   use FlezhaUiWeb.LiveCase
 
+  alias Flezha.Runner.FleetManager
   alias Flezha.Schedule.Cron
   alias Flezha.Schedule.Hub
   alias Flezha.Schedule.Store
@@ -194,6 +195,107 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
 
       assert render_submit(view, "create", %{"schedule" => valid_form()}) =~
                "A schedule with that name already exists."
+    end
+  end
+
+  describe "choosing a target" do
+    setup %{node: node} do
+      FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["default", "staging"]})
+
+      FakeController.set(
+        node,
+        {Flezha, :list_factories},
+        {:per_arg, 0,
+         %{
+           "default" => {:ok, [%{id: "default_factory", description: "spawns things"}]},
+           "staging" => {:ok, [%{id: "staging_factory", description: "spawns things"}]}
+         }, {:ok, []}}
+      )
+
+      FakeController.set(node, {FleetManager, :runners_for_factory}, {:ok, ["runner-a"]})
+
+      :ok
+    end
+
+    test "the namespace field offers the namespaces the token can reach", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+
+      render_click(view, "open_form", %{})
+
+      selector = ~s([data-testid="schedule-input-namespace"] option)
+      assert has_element?(view, selector <> ~s([value="default"]))
+      assert has_element?(view, selector <> ~s([value="staging"]))
+    end
+
+    test "the factory field offers the chosen namespace's factories", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+
+      html = render_click(view, "open_form", %{})
+
+      assert html =~ ~s(data-testid="schedule-input-factory")
+      assert html =~ "default_factory — spawns things"
+    end
+
+    test "a factory no runner serves is marked as such", %{conn: conn, node: node} do
+      FakeController.set(node, {FleetManager, :runners_for_factory}, {:ok, []})
+
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+
+      assert render_click(view, "open_form", %{}) =~ "(no runner)"
+    end
+
+    test "changing the namespace offers the new namespace's factories", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+      render_click(view, "open_form", %{})
+
+      html =
+        render_change(view, "form_change", %{
+          "schedule" => valid_form(%{"namespace" => "staging"})
+        })
+
+      assert html =~ "staging_factory"
+      refute html =~ "default_factory"
+    end
+
+    test "a factory the new namespace does not register stops being chosen", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+      render_click(view, "open_form", %{})
+
+      render_change(view, "form_change", %{
+        "schedule" => valid_form(%{"namespace" => "staging", "factory_id" => "default_factory"})
+      })
+
+      refute has_element?(view, ~s([data-testid="schedule-input-factory"] option[selected]))
+    end
+
+    test "a refused listing leaves both fields typeable and the form submittable", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {Flezha, :list_namespaces}, {:error, :node_not_connected})
+      FakeController.set(node, {Flezha, :list_factories}, {:error, :timeout})
+
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+      html = render_click(view, "open_form", %{})
+
+      assert html =~ "The choices could not be read"
+
+      render_submit(view, "create", %{"schedule" => valid_form()})
+
+      assert [[%{namespace: "default", factory_id: "echo_workflow"}]] =
+               FakeController.calls(node, {Store, :add})
+    end
+
+    test "opening the form is what reads the catalog, not the tick", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+      send(view.pid, :refresh)
+      _rendered = render(view)
+
+      assert FakeController.calls(node, {Flezha, :list_factories}) == []
+
+      render_click(view, "open_form", %{})
+
+      assert [["default"]] = FakeController.calls(node, {Flezha, :list_factories})
     end
   end
 

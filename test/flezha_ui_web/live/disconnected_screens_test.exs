@@ -39,10 +39,44 @@ defmodule FlezhaUiWeb.DisconnectedScreensTest do
     end
   end
 
+  test "the start form still opens, offering the kinds this UI knows", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/operatives")
+
+    html = render_click(view, "launcher_open", %{})
+
+    # The kinds fall back to this UI's candidates, without claiming
+    # capabilities it could not read.
+    assert html =~ ~s(data-testid="start-modal")
+    assert has_element?(view, ~s([data-testid="input-kind"] option[value="stream"]))
+    assert has_element?(view, ~s([data-testid="input-kind"] option[value="workflow"]))
+    refute html =~ "persistent_state?"
+  end
+
+  test "a start with nothing to start into is refused rather than attempted", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/operatives")
+    render_click(view, "launcher_open", %{})
+
+    html =
+      render_submit(view, "launcher_submit", %{
+        "start" => %{
+          "namespace" => "",
+          "id" => "op_a",
+          "factory_id" => "store_input",
+          "kind" => "stream",
+          "init_values" => "",
+          "snapshot_interval" => ""
+        }
+      })
+
+    assert html =~ ~s(data-testid="start-error")
+    assert html =~ "A namespace is required."
+  end
+
   test "the seam reports no connection rather than raising", _context do
     # The shape every one of those screens depends on.
     assert FlezhaUi.Service.NodeManager.connected_node() == nil
     assert {:error, :node_not_connected} = FlezhaUi.Service.NodeManager.operative_rows("default")
     assert {:error, :node_not_connected} = FlezhaUi.Service.NodeManager.enforcement_posture()
+    assert {:error, :node_not_connected} = FlezhaUi.Service.NodeManager.factory_catalog("default")
   end
 end

@@ -85,6 +85,104 @@ export async function expectHealthBadges(
 }
 
 /**
+ * The factory ids the start form offers, without its placeholder option.
+ *
+ * Read by value rather than by label: the labels carry the factory's
+ * description and a mark for the ones no runner serves, which is what an
+ * operator reads and not what a spec should match on.
+ */
+export async function factoryOptions(page: Page): Promise<string[]> {
+  const select = page.getByTestId('input-factory-id');
+  await expect(select).toBeEnabled();
+
+  return select
+    .locator('option')
+    .evaluateAll((opts) =>
+      opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== ''),
+    );
+}
+
+/**
+ * The factory the dev stack documents for each kind.
+ *
+ * The runner registers its whole catalogue, most of which are workflow
+ * factories — and the first one alphabetically (`bench_chain_1`) is one of
+ * them. Taking whichever sorts first asks the controller to run a workflow as
+ * a stream, which it refuses.
+ *
+ * The workflow factory is the long-lived one: `echo_workflow` runs once and
+ * completes, so an instance started from it is already in the finished listing
+ * by the time a spec looks for its row.
+ */
+const SEEDED_FACTORY: Record<string, string> = {
+  stream: 'store_input',
+  workflow: 'chat_loop_workflow',
+};
+
+/**
+ * Starts an operative through the launcher, from whichever screen is open.
+ *
+ * One helper because there is one form: the namespace screen pins its
+ * namespace and the operatives index asks for one, and a spec that drove them
+ * separately would stop catching the drift the shared launcher exists to
+ * prevent.
+ *
+ * Returns the factory it chose, so a caller can assert on it.
+ */
+export async function startOperative(
+  page: Page,
+  id: string,
+  opts: { namespace?: string; kind?: string; factory?: string } = {},
+): Promise<string> {
+  const kind = opts.kind ?? 'stream';
+
+  await page.getByTestId('start-operative-btn').click();
+  await expect(page.getByTestId('start-modal')).toBeVisible();
+
+  // Before the factory: changing the namespace re-reads its catalog, which
+  // re-renders the factory selector and drops whatever was chosen.
+  if (opts.namespace) {
+    await page.getByTestId('input-namespace').selectOption(opts.namespace);
+  }
+
+  await page.getByTestId('input-operative-id').fill(id);
+  await page.getByTestId('input-kind').selectOption(kind);
+
+  const factory = opts.factory ?? (await preferredFactory(page, kind));
+  await page.getByTestId('input-factory-id').selectOption(factory);
+
+  await page.getByTestId('start-submit-btn').click();
+  await expect(page.getByTestId('start-modal')).toHaveCount(0);
+
+  return factory;
+}
+
+async function preferredFactory(page: Page, kind: string): Promise<string> {
+  const options = await factoryOptions(page);
+
+  expect(options.length, 'at least one factory must be available').toBeGreaterThan(0);
+
+  const seeded = SEEDED_FACTORY[kind];
+  return seeded && options.includes(seeded) ? seeded : options[0];
+}
+
+/**
+ * Stops `id` from the namespace screen the caller is already on.
+ *
+ * Tolerating an already-stopped operative is what makes this safe to call from
+ * `finally` after the test stopped it itself; it never skips an assertion.
+ */
+export async function stopOperative(page: Page, id: string): Promise<void> {
+  const row = page.getByTestId(`operative-row-${id}`);
+  if ((await row.count()) === 0) return;
+
+  await page.getByTestId(`stop-operative-${id}`).click();
+  await expect(page.getByTestId('stop-confirm-modal')).toBeVisible();
+  await page.getByTestId('stop-confirm-btn').click();
+  await expect(row).toHaveCount(0);
+}
+
+/**
  * Chooses `value` in a `.flz-dropdown` picker, named by its trigger's test id.
  *
  * The pickers are menu buttons rather than native selects — the OS draws a

@@ -34,7 +34,7 @@ The UI uses the controller's terms exactly. If a name here disagrees with
 | `/` | Connected controller, counts with a health breakdown, runners, namespace links |
 | `/namespaces` | Declared and running namespaces, their counts, and quota breaches |
 | `/namespaces/:ns` | Operatives with health, partition groups and coverage, quotas, role bindings, finished instances |
-| `/operatives` | Every operative across every reachable namespace, filterable by namespace, health and kind |
+| `/operatives` | Every operative across every reachable namespace, filterable by namespace, health and kind; starts one into any of them |
 | `/namespaces/:ns/operatives/:id` | Kind, runner, factory, uptime, health, node, workflow profile, journal, inbox, entity state, plugins |
 | `/namespaces/:ns/operatives/:id/state` | Durable entities with their WAL/snapshot sequences and durability lag; point-in-time reads |
 | `/namespaces/:ns/operatives/:id/stream` | Live input/output stream |
@@ -195,6 +195,14 @@ Flezha group's design system. This repository defines **no colours of its own**
   switch — is a `<.dropdown>` (a menu button, since the OS draws a `select`'s
   menu and it cannot be themed); a `select` stays the control inside a dialog.
   An exclusive pair or triple is `.flz-segmented`.
+- **Every labelled control is `<.input>`**, the one field component in
+  `FlezhaUiWeb.CoreComponents`. It renders the label, the control, the hint and
+  the errors, and it is where a control class string lives — no template
+  carries one. A field whose values the controller can enumerate is
+  `<.enumerated_field>`, which offers them and falls back to free text only
+  when the listing was refused. A dialog names its *role* — `confirm`, `form`,
+  `wide` — and `<.dialog>` maps it to a width, so "how wide is a form modal" has
+  one answer.
 - **Status colour states an outcome, and is never a brand colour.** Green
   (`--positive`), amber (`--warning`) and red (`--negative`) say healthy,
   degraded and failed. Gold (`--accent-solid`) marks interaction and magenta
@@ -220,6 +228,15 @@ never placed in a caller context, because that context is what the controller's
 audit log records. Verifications are cached briefly — never past the token's
 own expiry — and a refused call evicts the entry, so a revoked token stops
 working within one call rather than one cache lifetime.
+
+Behaviour shared across screens is a `use`-able module rather than a copied
+block: `FlezhaUiWeb.Live.Refresh` (the tick and the relayed events),
+`FlezhaUiWeb.Live.Tail` (a controller-resident tail), `FlezhaUiWeb.Topology`
+(the pipeline graph and fleet summary), `FlezhaUiWeb.Live.Launcher` (starting an
+operative, rendered by both `/namespaces/:ns` and `/operatives`) and
+`FlezhaUiWeb.Live.Target` (the namespace and factory a write is aimed at, shared
+by the launcher and the schedule form). A write path implemented twice drifts,
+and the half that drifts is the one nobody is looking at.
 
 Subscriptions are different. The controller's event bus, audit tail and
 observability tail all register the *calling* process, and an `:erpc` call runs

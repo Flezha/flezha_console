@@ -7,6 +7,11 @@ defmodule FlezhaUiWeb.OperativeIndexLive do
   something is wrong. It is affordable because the per-namespace read is flat:
   one rows call, one plugins call and one kinds call per namespace, never a
   call per operative.
+
+  It also carries the start form, so an operator reading "everything, anywhere"
+  can act on it without first working out which namespace to navigate into. The
+  form's factory catalog is read when it opens, so the listing itself stays
+  flat.
   """
 
   use FlezhaUiWeb, :live_view
@@ -15,6 +20,8 @@ defmodule FlezhaUiWeb.OperativeIndexLive do
     every: 5_000,
     on_events: [:runner_connected, :runner_disconnected]
 
+  use FlezhaUiWeb.Live.Launcher
+
   alias FlezhaUi.Service.NodeManager
 
   @impl true
@@ -22,6 +29,7 @@ defmodule FlezhaUiWeb.OperativeIndexLive do
     {:ok,
      socket
      |> start_refresh()
+     |> launcher_init(nil)
      |> assign(
        page_title: "Operatives",
        filters: %{"namespace" => "", "health" => "", "kind" => ""},
@@ -31,6 +39,11 @@ defmodule FlezhaUiWeb.OperativeIndexLive do
      )
      |> refresh()}
   end
+
+  # The start form offers the namespaces this screen already listed, so asking
+  # where to start costs no second read.
+  @impl FlezhaUiWeb.Live.Launcher
+  def launcher_namespaces(socket), do: {socket.assigns.namespaces, socket.assigns.load_error}
 
   # Filters live in the query string as well as the form, so the fleet
   # summary's health buckets can link straight to the operatives they counted.

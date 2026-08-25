@@ -53,13 +53,14 @@
       <.icon name="hero-trash" class="w-3.5 h-3.5" /> Clear
     </button>
     <form phx-change="set_filter" class="flex-1 max-w-xs">
-      <input
-        data-testid="stream-filter"
+      <.input
         type="text"
         name="filter"
         value={@filter}
         placeholder="Filter regex..."
-        class="form-field--compact w-full"
+        compact
+        mono
+        data-testid="stream-filter"
       />
     </form>
     <span data-testid="stream-count" class="ml-auto text-xs text-th-tertiary">

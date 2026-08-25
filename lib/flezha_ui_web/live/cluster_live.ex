@@ -24,13 +24,16 @@ defmodule FlezhaUiWeb.ClusterLive do
      |> refresh()}
   end
 
+  # A lookup, not a read: the catalog this screen already loaded per namespace
+  # answers which runners serve each factory, so selecting one costs nothing.
   @impl true
   def handle_event("select_factory", %{"namespace" => ns, "factory" => factory}, socket) do
     runners =
-      ns
-      |> NodeManager.runners_for_factory(factory)
-      |> NodeManager.ok_or([])
-      |> Enum.map(&NodeManager.identifier_id/1)
+      socket.assigns.namespaces
+      |> Enum.find(%{}, &(&1.name == ns))
+      |> Map.get(:factories, [])
+      |> Enum.find(%{}, &(&1.id == factory))
+      |> Map.get(:runners, [])
 
     {:noreply, assign(socket, selected_factory: {ns, factory}, factory_runners: runners)}
   end
@@ -91,24 +94,8 @@ defmodule FlezhaUiWeb.ClusterLive do
   end
 
   defp describe_fleet(ns, rows, hub_nodes, per_node) do
-    factories =
-      ns
-      |> NodeManager.list_factories()
-      |> NodeManager.ok_or([])
-      |> Enum.map(&NodeManager.identifier_id/1)
-      |> Enum.sort()
-
-    # One lookup per factory, then inverted — rather than asking the controller
-    # once per runner-factory pair.
-    factories_by_runner =
-      Enum.reduce(factories, %{}, fn factory, acc ->
-        ns
-        |> NodeManager.runners_for_factory(factory)
-        |> NodeManager.ok_or([])
-        |> Enum.reduce(acc, fn runner, inner ->
-          Map.update(inner, NodeManager.identifier_id(runner), [factory], &[factory | &1])
-        end)
-      end)
+    catalog = ns |> NodeManager.factory_catalog() |> NodeManager.ok_or([])
+    factories_by_runner = NodeManager.factories_by_runner(catalog)
 
     runners =
       ns
@@ -116,7 +103,7 @@ defmodule FlezhaUiWeb.ClusterLive do
       |> NodeManager.ok_or([])
       |> Enum.map(fn runner ->
         id = NodeManager.identifier_id(runner)
-        %{id: id, factories: factories_by_runner |> Map.get(id, []) |> Enum.sort()}
+        %{id: id, factories: Map.get(factories_by_runner, id, [])}
       end)
 
     %{
@@ -126,7 +113,7 @@ defmodule FlezhaUiWeb.ClusterLive do
       # Namespace-derived and the same for every runner in it — the controller
       # mints it at connect, and it is what the audit log will name.
       runner_principal: NodeManager.runner_principal(ns),
-      factories: factories,
+      factories: catalog,
       per_node: per_node,
       health: NodeManager.health_counts(rows),
       unplaced: NodeManager.unplaced_rows(rows)

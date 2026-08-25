@@ -9,6 +9,7 @@ defmodule FlezhaUiWeb.OperativeIndexLiveTest do
 
   use FlezhaUiWeb.LiveCase
 
+  alias Flezha.Runner.FleetManager
   alias Flezha.Service.HubManager
   alias Flezha.Service.OperativeManager
 
@@ -29,6 +30,20 @@ defmodule FlezhaUiWeb.OperativeIndexLiveTest do
     FakeController.set(node, {HubManager, :operative_rows}, opts[:rows] || [])
     FakeController.set(node, {HubManager, :get_registry}, {:ok, registry(opts[:kinds] || [])})
     FakeController.set(node, {HubManager, :operative_plugins}, opts[:plugins] || [])
+  end
+
+  defp start_form(overrides) do
+    Map.merge(
+      %{
+        "namespace" => "default",
+        "id" => "op_new",
+        "factory_id" => "store_input",
+        "kind" => "stream",
+        "init_values" => "",
+        "snapshot_interval" => ""
+      },
+      overrides
+    )
   end
 
   describe "listing" do
@@ -175,6 +190,118 @@ defmodule FlezhaUiWeb.OperativeIndexLiveTest do
       render_change(view, "filter", %{"filters" => %{"health" => "suspended"}})
 
       assert FakeController.calls(node, {OperativeManager, :get_overwatch_state}) == []
+    end
+  end
+
+  describe "starting an operative from the index" do
+    setup %{node: node} do
+      with_fleet(node, namespaces: ["default", "staging"], rows: [])
+
+      FakeController.set(
+        node,
+        {Flezha, :list_factories},
+        {:ok, [%{id: "store_input", description: "stores its input"}]}
+      )
+
+      FakeController.set(node, {FleetManager, :runners_for_factory}, {:ok, ["runner-a"]})
+
+      :ok
+    end
+
+    test "the screen carries the control that starts one", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/operatives")
+
+      assert html =~ ~s(data-testid="start-operative-btn")
+    end
+
+    test "the form asks which namespace to start into", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/operatives")
+
+      render_click(view, "launcher_open", %{})
+
+      assert has_element?(view, ~s([data-testid="input-namespace"] option[value="default"]))
+      assert has_element?(view, ~s([data-testid="input-namespace"] option[value="staging"]))
+    end
+
+    test "a start from the index reaches the chosen namespace", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, ~p"/operatives")
+      render_click(view, "launcher_open", %{})
+
+      html =
+        render_submit(view, "launcher_submit", %{
+          "start" => start_form(%{"namespace" => "staging"})
+        })
+
+      assert html =~ "Operative op_new started in staging."
+
+      assert [["staging", %{id: "op_new", kind: :stream}]] =
+               FakeController.calls(node, {Flezha, :start_operative})
+    end
+
+    test "a started operative appears in the index", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, ~p"/operatives")
+      render_click(view, "launcher_open", %{})
+
+      # The listing reloads from the controller after the start, so what the
+      # index shows is what the controller now holds.
+      FakeController.set(node, {HubManager, :operative_rows}, [row("op_new")])
+
+      html = render_submit(view, "launcher_submit", %{"start" => start_form(%{})})
+
+      assert html =~ ~s(data-testid="operative-index-row-op_new")
+    end
+
+    test "changing the namespace re-reads that namespace's factories", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, ~p"/operatives")
+      render_click(view, "launcher_open", %{})
+
+      render_change(view, "launcher_change", %{"start" => start_form(%{"namespace" => "staging"})})
+
+      assert [["default"], ["staging"]] = FakeController.calls(node, {Flezha, :list_factories})
+    end
+
+    test "a workflow is startable from here", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, ~p"/operatives")
+      render_click(view, "launcher_open", %{})
+
+      render_submit(view, "launcher_submit", %{"start" => start_form(%{"kind" => "workflow"})})
+
+      assert [["default", %{kind: :workflow}]] =
+               FakeController.calls(node, {Flezha, :start_operative})
+    end
+
+    test "the kind filter offers the kinds the controller recognises", %{conn: conn, node: node} do
+      FakeController.set(
+        node,
+        {Flezha.Operative.Kind, :known?},
+        {:per_arg, 0, %{workflow: true}, false}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/operatives")
+
+      assert html =~ ~s(data-testid="filter-kind-workflow")
+      refute html =~ ~s(data-testid="filter-kind-stream")
+    end
+
+    test "a tick with the form closed reads no factories", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, ~p"/operatives")
+      send(view.pid, :refresh)
+      _rendered = render(view)
+
+      assert FakeController.calls(node, {Flezha, :list_factories}) == []
+    end
+
+    test "the screen holds still while the form is open", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, ~p"/operatives")
+      render_click(view, "launcher_open", %{})
+
+      FakeController.set(node, {HubManager, :operative_rows}, [row("op_late")])
+      send(view.pid, :refresh)
+      refute render(view) =~ ~s(data-testid="operative-index-row-op_late")
+
+      render_click(view, "launcher_close", %{})
+      send(view.pid, :refresh)
+      assert render(view) =~ ~s(data-testid="operative-index-row-op_late")
     end
   end
 

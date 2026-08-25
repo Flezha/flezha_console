@@ -10,6 +10,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
 
   use FlezhaUiWeb.LiveCase
 
+  alias Flezha.Runner.FleetManager
   alias Flezha.Service.HubManager
 
   defp with_namespaces(node, names, opts \\ []) do
@@ -33,11 +34,18 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       %{
         "id" => "op_1",
         "factory_id" => "store_input",
+        "kind" => "stream",
         "init_values" => "",
         "snapshot_interval" => ""
       },
       overrides
     )
+  end
+
+  defp open_launcher(conn) do
+    {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+    render_click(view, "launcher_open", %{})
+    view
   end
 
   describe "the index" do
@@ -351,14 +359,15 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
         {:ok, [%{id: "store_input", description: "stores its input"}]}
       )
 
+      FakeController.set(node, {FleetManager, :runners_for_factory}, {:ok, ["runner-a"]})
+
       :ok
     end
 
     test "sends the spec to the controller and reports it", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      render_click(view, "open_start_modal", %{})
+      view = open_launcher(conn)
 
-      html = render_submit(view, "start_operative", %{"start" => start_form()})
+      html = render_submit(view, "launcher_submit", %{"start" => start_form()})
 
       assert html =~ "Operative op_1 started."
 
@@ -366,11 +375,114 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
                FakeController.calls(node, {Flezha, :start_operative})
     end
 
-    test "requires an id and a factory", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      render_click(view, "open_start_modal", %{})
+    test "the namespace is this screen's, and is not asked for again", %{conn: conn, node: node} do
+      view = open_launcher(conn)
 
-      html = render_submit(view, "start_operative", %{"start" => start_form(%{"id" => ""})})
+      refute render(view) =~ ~s(data-testid="input-namespace")
+
+      # The form carries no namespace field, and the start still reaches this
+      # screen's namespace.
+      render_submit(view, "launcher_submit", %{"start" => start_form()})
+
+      assert [["default", _operative]] = FakeController.calls(node, {Flezha, :start_operative})
+    end
+
+    test "offers the kinds the controller recognises, with their capabilities", %{conn: conn} do
+      view = open_launcher(conn)
+
+      assert has_element?(view, ~s([data-testid="input-kind"] option[value="stream"]))
+      assert has_element?(view, ~s([data-testid="input-kind"] option[value="workflow"]))
+      assert render(view) =~ "persistent_state?"
+    end
+
+    test "a kind the controller does not recognise is not offered", %{conn: conn, node: node} do
+      FakeController.set(
+        node,
+        {Flezha.Operative.Kind, :known?},
+        {:per_arg, 0, %{stream: true}, false}
+      )
+
+      view = open_launcher(conn)
+
+      assert has_element?(view, ~s([data-testid="input-kind"] option[value="stream"]))
+      refute has_element?(view, ~s([data-testid="input-kind"] option[value="workflow"]))
+    end
+
+    test "the chosen kind is carried into the start call", %{conn: conn, node: node} do
+      view = open_launcher(conn)
+
+      render_submit(view, "launcher_submit", %{"start" => start_form(%{"kind" => "workflow"})})
+
+      assert [["default", %{kind: :workflow}]] =
+               FakeController.calls(node, {Flezha, :start_operative})
+    end
+
+    test "a kind the controller never offered is refused before calling", %{
+      conn: conn,
+      node: node
+    } do
+      view = open_launcher(conn)
+
+      html =
+        render_submit(view, "launcher_submit", %{"start" => start_form(%{"kind" => "batch"})})
+
+      assert html =~ ~s(data-testid="start-error")
+      assert FakeController.calls(node, {Flezha, :start_operative}) == []
+    end
+
+    test "the factory selector reports the runners serving each factory", %{conn: conn} do
+      html = conn |> open_launcher() |> render()
+
+      assert html =~ "store_input — stores its input"
+      refute html =~ "(no runner)"
+    end
+
+    test "a factory no runner serves is marked at the point of choosing", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {FleetManager, :runners_for_factory}, {:ok, []})
+
+      html = conn |> open_launcher() |> render()
+
+      assert html =~ "(no runner)"
+    end
+
+    test "a namespace with no factories says so and blocks the start", %{conn: conn, node: node} do
+      FakeController.set(node, {Flezha, :list_factories}, {:ok, []})
+
+      view = open_launcher(conn)
+      html = render(view)
+
+      assert html =~ "No factories are registered in this namespace"
+
+      html = render_submit(view, "launcher_submit", %{"start" => start_form()})
+
+      assert html =~ "No factories are registered in this namespace"
+      assert FakeController.calls(node, {Flezha, :start_operative}) == []
+    end
+
+    test "a refused catalog says so and leaves the factory id typeable", %{conn: conn, node: node} do
+      FakeController.set(
+        node,
+        {Flezha, :list_factories},
+        {:error, {:forbidden, :no_role_binding}}
+      )
+
+      view = open_launcher(conn)
+
+      assert render(view) =~ "The choices could not be read"
+
+      render_submit(view, "launcher_submit", %{"start" => start_form()})
+
+      assert [["default", %{factory_id: "store_input"}]] =
+               FakeController.calls(node, {Flezha, :start_operative})
+    end
+
+    test "requires an id and a factory", %{conn: conn, node: node} do
+      view = open_launcher(conn)
+
+      html = render_submit(view, "launcher_submit", %{"start" => start_form(%{"id" => ""})})
 
       assert html =~ ~s(data-testid="start-error")
       assert html =~ "ID and Factory ID are required."
@@ -381,11 +493,10 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       conn: conn,
       node: node
     } do
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      render_click(view, "open_start_modal", %{})
+      view = open_launcher(conn)
 
       html =
-        render_submit(view, "start_operative", %{
+        render_submit(view, "launcher_submit", %{
           "start" => start_form(%{"init_values" => "not json{{{"})
         })
 
@@ -394,10 +505,9 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     end
 
     test "passes valid init values through", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      render_click(view, "open_start_modal", %{})
+      view = open_launcher(conn)
 
-      render_submit(view, "start_operative", %{
+      render_submit(view, "launcher_submit", %{
         "start" => start_form(%{"init_values" => ~s({"seed":7})})
       })
 
@@ -405,16 +515,47 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
                FakeController.calls(node, {Flezha, :start_operative})
     end
 
+    test "carries a snapshot interval through as a start opt", %{conn: conn, node: node} do
+      view = open_launcher(conn)
+
+      render_submit(view, "launcher_submit", %{
+        "start" => start_form(%{"snapshot_interval" => "25"})
+      })
+
+      assert [["default", %{opts: [snapshot_interval: 25]}]] =
+               FakeController.calls(node, {Flezha, :start_operative})
+    end
+
     test "surfaces a refusal from the controller", %{conn: conn, node: node} do
       FakeController.set(node, {Flezha, :start_operative}, {:error, :already_running})
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      render_click(view, "open_start_modal", %{})
+      view = open_launcher(conn)
 
-      html = render_submit(view, "start_operative", %{"start" => start_form()})
+      html = render_submit(view, "launcher_submit", %{"start" => start_form()})
 
       assert html =~ ~s(data-testid="start-error")
       assert html =~ "already_running"
+    end
+
+    test "the screen holds still while the form is open", %{conn: conn, node: node} do
+      view = open_launcher(conn)
+
+      # A row appearing under an open form is exactly what pausing prevents.
+      FakeController.set(node, {HubManager, :operative_rows}, rows(["op_late"]))
+      send(view.pid, :refresh)
+      refute render(view) =~ ~s(data-testid="operative-row-op_late")
+
+      render_click(view, "launcher_close", %{})
+      send(view.pid, :refresh)
+      assert render(view) =~ ~s(data-testid="operative-row-op_late")
+    end
+
+    test "the listing tick reads no factories", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      send(view.pid, :refresh)
+      _rendered = render(view)
+
+      assert FakeController.calls(node, {Flezha, :list_factories}) == []
     end
   end
 

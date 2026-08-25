@@ -7,6 +7,8 @@ import {
   healthMatcher,
   choose,
   chosen,
+  startOperative,
+  stopOperative,
 } from './fixtures';
 
 /**
@@ -17,6 +19,13 @@ import {
  * `app_data` carries durable state from previous bench campaigns, so any
  * absolute count is somebody else's number.
  */
+/** Unique per test, so a leftover from a failed run cannot collide. */
+function uniqueOperativeId(prefix = 'pw_idx'): string {
+  const ts = Date.now().toString(36).slice(-4);
+  const rand = Math.random().toString(36).slice(2, 5);
+  return `${prefix}_${ts}_${rand}`;
+}
+
 test.describe('Operatives index', () => {
   test.beforeEach(async ({ live }) => {
     await live('/operatives');
@@ -80,5 +89,60 @@ test.describe('Operatives index', () => {
 
     await expect(chosen(page, 'filter-health')).toHaveValue('healthy');
     await expect(chosen(page, 'filter-namespace')).toHaveValue('default');
+  });
+
+  test('the kind filter offers the kinds the controller recognises', async ({ page }) => {
+    await page.getByTestId('filter-kind').click();
+
+    await expect(page.getByTestId('filter-kind-stream')).toBeVisible();
+    await expect(page.getByTestId('filter-kind-workflow')).toBeVisible();
+  });
+
+  test('starts an operative into a namespace chosen on this screen', async ({ live, page }) => {
+    const id = uniqueOperativeId();
+
+    try {
+      await startOperative(page, id, { namespace: 'default' });
+
+      await expect(page.getByTestId(`operative-index-row-${id}`)).toBeVisible();
+      await expect(page.locator('body')).toContainText(`Operative ${id} started in default`);
+    } finally {
+      // The index lists operatives; stopping one is the namespace screen's
+      // verb, so cleanup goes there.
+      await live('/namespaces/default');
+      await stopOperative(page, id);
+    }
+
+    await live('/operatives');
+    await expect(page.getByTestId(`operative-index-row-${id}`)).toHaveCount(0);
+  });
+
+  test('starts a workflow from here, and the listing reports its kind', async ({ live, page }) => {
+    const id = uniqueOperativeId('pw_idxwf');
+
+    try {
+      await startOperative(page, id, { namespace: 'default', kind: 'workflow' });
+
+      await expect(page.getByTestId(`operative-index-row-${id}`)).toContainText('workflow');
+    } finally {
+      await live('/namespaces/default');
+      await stopOperative(page, id);
+    }
+  });
+
+  test('the namespace field offers the namespaces the token can reach', async ({ page }) => {
+    await page.getByTestId('start-operative-btn').click();
+    await expect(page.getByTestId('start-modal')).toBeVisible();
+
+    const namespaces = await page
+      .getByTestId('input-namespace')
+      .locator('option')
+      .evaluateAll((opts) =>
+        opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== ''),
+      );
+
+    expect(namespaces).toContain('default');
+
+    await page.getByTestId('start-cancel-btn').click();
   });
 });

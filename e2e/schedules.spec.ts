@@ -23,10 +23,18 @@ async function openForm(page: Page) {
   await expect(page.getByTestId('schedule-form-modal')).toBeVisible();
 }
 
+/**
+ * Fills the form, choosing the factory rather than typing it.
+ *
+ * The target's namespace and factory are now offered from what the controller
+ * reports, so a spec that typed an id would be exercising a path only an
+ * unreachable controller reaches.
+ */
 async function fillForm(page: Page, name: string, cron: string, factory: string) {
   await page.getByTestId('schedule-input-name').fill(name);
   await page.getByTestId('schedule-input-cron').fill(cron);
-  await page.getByTestId('schedule-input-factory').fill(factory);
+  await page.getByTestId('schedule-input-namespace').selectOption('default');
+  await page.getByTestId('schedule-input-factory').selectOption(factory);
 }
 
 /**
@@ -42,6 +50,16 @@ async function removeSchedule(page: Page, name: string) {
   await page.getByTestId(`schedule-remove-${name}`).click();
   await page.getByTestId('schedule-remove-confirm').click();
   await expect(row).toHaveCount(0);
+}
+
+/** The values a select offers, without its placeholder option. */
+async function optionValues(page: Page, testid: string): Promise<string[]> {
+  return page
+    .getByTestId(testid)
+    .locator('option')
+    .evaluateAll((opts) =>
+      opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== ''),
+    );
 }
 
 test.describe('Schedules', () => {
@@ -108,6 +126,22 @@ test.describe('Schedules', () => {
     await page.getByTestId('schedule-form-submit').click();
 
     await expect(page.getByTestId('schedule-form-error')).toContainText('Required');
+    await page.getByTestId('schedule-form-cancel').click();
+  });
+
+  test('offers the namespaces and factories the controller reports', async ({ page }) => {
+    await openForm(page);
+
+    const namespaces = await optionValues(page, 'schedule-input-namespace');
+    expect(namespaces).toContain('default');
+
+    const factories = await optionValues(page, 'schedule-input-factory');
+    expect(factories, 'at least one factory should be offered').toContain('echo_workflow');
+
+    // Which runner serves the chosen factory, at the point of choosing it.
+    await page.getByTestId('schedule-input-factory').selectOption('echo_workflow');
+    await expect(page.getByTestId('schedule-form-modal')).toContainText('Served by');
+
     await page.getByTestId('schedule-form-cancel').click();
   });
 

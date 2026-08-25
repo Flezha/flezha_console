@@ -63,51 +63,37 @@
 
       <div class="p-5 space-y-4">
         <form phx-change="filter_change" class="grid grid-cols-4 gap-4">
-          <div>
-            <label class="flz-label mb-1">File</label>
-            <input
-              type="text"
-              name="filter[file]"
-              value={@filter["file"]}
-              placeholder="all files"
-              data-testid="audit-filter-file"
-              class="w-full"
-            />
-          </div>
-          <div>
-            <label class="flz-label mb-1">
-              Source
-            </label>
-            <input
-              type="text"
-              name="filter[source]"
-              value={@filter["source"]}
-              placeholder="all sources"
-              data-testid="audit-filter-source"
-              class="w-full"
-            />
-          </div>
-          <div>
-            <label class="flz-label mb-1">Name</label>
-            <input
-              type="text"
-              name="filter[name]"
-              value={@filter["name"]}
-              placeholder="all names"
-              data-testid="audit-filter-name"
-              class="w-full"
-            />
-          </div>
-          <div>
-            <label class="flz-label mb-1">Limit</label>
-            <input
-              type="number"
-              name="filter[limit]"
-              value={@filter["limit"]}
-              data-testid="audit-filter-limit"
-              class="w-full"
-            />
-          </div>
+          <.input
+            type="text"
+            name="filter[file]"
+            label="File"
+            value={@filter["file"]}
+            placeholder="all files"
+            data-testid="audit-filter-file"
+          />
+          <.input
+            type="text"
+            name="filter[source]"
+            label="Source"
+            value={@filter["source"]}
+            placeholder="all sources"
+            data-testid="audit-filter-source"
+          />
+          <.input
+            type="text"
+            name="filter[name]"
+            label="Name"
+            value={@filter["name"]}
+            placeholder="all names"
+            data-testid="audit-filter-name"
+          />
+          <.input
+            type="number"
+            name="filter[limit]"
+            label="Limit"
+            value={@filter["limit"]}
+            data-testid="audit-filter-limit"
+          />
         </form>
 
         <.runtime_error :if={@read_error} error={@read_error} action="this audit read" />

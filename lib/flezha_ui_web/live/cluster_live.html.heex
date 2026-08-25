@@ -172,12 +172,12 @@
           :for={factory <- ns.factories}
           phx-click="select_factory"
           phx-value-namespace={ns.name}
-          phx-value-factory={factory}
-          data-testid={"factory-#{factory}"}
-          aria-pressed={to_string(@selected_factory == {ns.name, factory})}
+          phx-value-factory={factory.id}
+          data-testid={"factory-#{factory.id}"}
+          aria-pressed={to_string(@selected_factory == {ns.name, factory.id})}
           class="flz-segmented-option flz-num"
         >
-          {factory}
+          {factory.id}
         </button>
       </div>
 

@@ -115,7 +115,7 @@
 <.dialog
   :if={@show_create}
   testid="create-namespace-modal"
-  size="max-w-md"
+  size="form"
   on_close="close_create"
 >
   <:title>Declare Namespace</:title>
@@ -125,62 +125,41 @@
   </.notice>
 
   <form phx-submit="create" phx-change="create_change" class="space-y-4">
-    <div>
-      <label class="flz-field-label mb-1">Name *</label>
-      <input
-        type="text"
-        name="create[name]"
-        data-testid="create-namespace-name"
-        value={@create_form["name"]}
-        placeholder="analytics"
-        class="w-full"
-      />
-    </div>
+    <.input
+      type="text"
+      name="create[name]"
+      label="Name *"
+      value={@create_form["name"]}
+      placeholder="analytics"
+      data-testid="create-namespace-name"
+    />
     <p class="flz-field-hint">
       Quota overrides are optional — a kind left blank keeps the controller's default.
     </p>
     <div class="grid grid-cols-2 gap-3">
-      <div>
-        <label class="flz-field-label mb-1">Max operatives</label>
-        <input
-          type="number"
-          name="create[max_operatives]"
-          data-testid="create-max-operatives"
-          value={@create_form["max_operatives"]}
-          class="w-full"
-        />
-      </div>
-      <div>
-        <label class="flz-field-label mb-1">Max runners</label>
-        <input
-          type="number"
-          name="create[max_runners]"
-          data-testid="create-max-runners"
-          value={@create_form["max_runners"]}
-          class="w-full"
-        />
-      </div>
+      <.input
+        type="number"
+        name="create[max_operatives]"
+        label="Max operatives"
+        value={@create_form["max_operatives"]}
+        data-testid="create-max-operatives"
+      />
+      <.input
+        type="number"
+        name="create[max_runners]"
+        label="Max runners"
+        value={@create_form["max_runners"]}
+        data-testid="create-max-runners"
+      />
     </div>
     <div class="flex justify-end gap-3 pt-2">
-      <button
-        type="button"
-        phx-click="close_create"
-        class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
-      >
-        Cancel
-      </button>
-      <button
-        type="submit"
-        data-testid="create-namespace-submit"
-        class="flz-button flz-button--md"
-      >
-        Declare
-      </button>
+      <.button variant="ghost" phx-click="close_create">Cancel</.button>
+      <.button type="submit" data-testid="create-namespace-submit">Declare</.button>
     </div>
   </form>
 </.dialog>
 
-<.dialog :if={@confirm_delete} testid="delete-namespace-modal" size="max-w-md">
+<.dialog :if={@confirm_delete} testid="delete-namespace-modal" size="confirm">
   <h3 class="flz-modal-title mb-3">Delete namespace</h3>
   <p class="text-sm text-th-secondary mb-4">
     Type
@@ -188,30 +167,26 @@
     to confirm. This removes the declaration and its quotas.
   </p>
   <form phx-change="delete_confirmation_change" class="mb-4">
-    <input
+    <.input
       type="text"
       name="confirm[name]"
-      data-testid="delete-namespace-confirmation"
       value={@delete_confirmation}
       autocomplete="off"
-      class="w-full"
+      mono
+      data-testid="delete-namespace-confirmation"
     />
   </form>
   <div class="flex justify-end gap-3">
-    <button
-      phx-click="cancel_delete"
-      data-testid="delete-namespace-cancel"
-      class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
-    >
+    <.button variant="ghost" phx-click="cancel_delete" data-testid="delete-namespace-cancel">
       Cancel
-    </button>
-    <button
+    </.button>
+    <.button
+      variant="danger"
       phx-click="delete"
       disabled={@delete_confirmation != @confirm_delete}
       data-testid="delete-namespace-confirm"
-      class="flz-button flz-button--md flz-button--danger"
     >
       Delete
-    </button>
+    </.button>
   </div>
 </.dialog>

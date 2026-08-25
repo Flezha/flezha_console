@@ -32,6 +32,7 @@ defmodule FlezhaUi.Service.NodeManagerTest do
       fn -> NodeManager.list_operatives("default") end,
       fn -> NodeManager.list_runners("default") end,
       fn -> NodeManager.list_factories("default") end,
+      fn -> NodeManager.factory_catalog("default") end,
       fn -> NodeManager.stop_operative("default", "op") end,
       fn -> NodeManager.entity_state("default", "op", %{}) end,
       fn -> NodeManager.get_overwatch_state("default", "op") end,
@@ -65,6 +66,35 @@ defmodule FlezhaUi.Service.NodeManagerTest do
   describe "providers/0" do
     test "answers an empty list rather than an error while disconnected" do
       assert [] = NodeManager.providers()
+    end
+  end
+
+  describe "factories_by_runner/1" do
+    test "inverts a catalog onto the runners serving each factory" do
+      catalog = [
+        %{id: "compare_filter", description: nil, runners: ["runner-a"], servable?: true},
+        %{id: "store_input", description: nil, runners: ["runner-b", "runner-a"], servable?: true}
+      ]
+
+      assert %{
+               "runner-a" => ["compare_filter", "store_input"],
+               "runner-b" => ["store_input"]
+             } = NodeManager.factories_by_runner(catalog)
+    end
+
+    test "a factory no runner serves contributes no entry" do
+      catalog = [%{id: "store_input", description: nil, runners: [], servable?: false}]
+
+      assert %{} == NodeManager.factories_by_runner(catalog)
+    end
+  end
+
+  describe "known_kinds/0" do
+    test "a controller that cannot answer still offers this UI's kinds" do
+      # Nothing is connected here, so every probe fails — the form has to stay
+      # usable, without claiming capabilities it could not read.
+      assert [%{kind: :stream, capabilities: []}, %{kind: :workflow, capabilities: []}] =
+               NodeManager.known_kinds()
     end
   end
 

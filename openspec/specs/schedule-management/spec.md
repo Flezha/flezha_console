@@ -24,13 +24,35 @@ The UI SHALL list persisted schedule entries with their name, cron expression, t
 
 ### Requirement: Schedule creation
 
-An operator SHALL be able to create a schedule by supplying a name, cron expression, timezone, and target. The entry SHALL be persisted and then asserted onto the schedule hub.
+An operator SHALL be able to create a schedule by supplying a name, cron expression, timezone, and target. The entry SHALL be persisted and then asserted onto the schedule hub. The target's namespace and factory SHALL be chosen from what the controller reports — the namespaces the bound token can reach, and the factories registered in the chosen namespace — rather than typed from memory, with free text kept only for the case where the controller cannot answer.
 
 #### Scenario: Creating a valid schedule
 
 - **WHEN** an operator submits a valid name, cron expression, timezone, and target
 - **THEN** the entry is persisted and asserted onto the hub
 - **AND** it appears in the list with an armed status
+
+#### Scenario: Choosing the target namespace
+
+- **WHEN** an operator opens the schedule form
+- **THEN** the namespace field offers the namespaces the bound token can reach
+
+#### Scenario: Choosing the target factory
+
+- **WHEN** an operator has chosen a namespace
+- **THEN** the factory field offers that namespace's registered factories
+- **AND** a factory no runner currently serves is marked as such
+
+#### Scenario: The chosen namespace changes
+
+- **WHEN** an operator changes the namespace after choosing a factory
+- **THEN** the factory field offers the new namespace's factories
+
+#### Scenario: The controller cannot report namespaces or factories
+
+- **WHEN** the controller is unreachable or refuses the listing
+- **THEN** the namespace and factory fields accept a typed value
+- **AND** the form can still be submitted
 
 #### Scenario: The cron expression is invalid
 

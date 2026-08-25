@@ -74,6 +74,31 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       assert html =~ "store_input"
     end
 
+    test "each runner is credited with the factories it serves", %{conn: conn, node: node} do
+      # The pairing now comes from the shared catalog rather than an inversion
+      # built here; what the fleet view reports must not have changed with it.
+      one_namespace(node,
+        factories: ["store_input", "compare_filter"],
+        runners: [%{id: "runner-a"}, %{id: "runner-b"}],
+        runners_for_factory:
+          {:per_arg, 1,
+           %{
+             "store_input" => {:ok, [%{id: "runner-a"}, %{id: "runner-b"}]},
+             "compare_filter" => {:ok, [%{id: "runner-b"}]}
+           }, {:ok, []}}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      [_before, fleet] = String.split(html, ~s(data-testid="runners-default"), parts: 2)
+      [fleet, _after] = String.split(fleet, "</ul>", parts: 2)
+      [_prefix, runner_a, runner_b] = String.split(fleet, ~s(data-testid="runner-))
+
+      assert runner_a =~ "store_input"
+      refute runner_a =~ "compare_filter"
+      assert runner_b =~ "compare_filter, store_input"
+    end
+
     test "renders the empty fleet rather than an empty panel", %{conn: conn, node: node} do
       one_namespace(node, factories: ["store_input"], runners: [])
 
@@ -139,6 +164,17 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       # The state the browser suite cannot reach: every factory it can offer
       # comes from a connected runner.
       assert html =~ ~s(data-testid="factory-runners-empty")
+    end
+
+    test "selecting a factory is a lookup, not another controller read", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, ~p"/cluster")
+      before = length(FakeController.calls(node, {FleetManager, :runners_for_factory}))
+
+      render_click(view, "select_factory", %{"namespace" => "default", "factory" => "store_input"})
+
+      # The catalog this screen already loaded says which runners serve each
+      # factory; asking again would be paying twice for the same answer.
+      assert length(FakeController.calls(node, {FleetManager, :runners_for_factory})) == before
     end
 
     test "clearing the selection removes the result", %{conn: conn} do

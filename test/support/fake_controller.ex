@@ -113,6 +113,7 @@ defmodule FakeController do
       Flezha.State.ProcInbox,
       Flezha.Operative.PartitionGroup,
       Flezha.Operative.Lifecycle,
+      Flezha.Operative.Kind,
       Flezha.Observability,
       Flezha.State.DurabilityTier,
       Flezha.Shutdown.Coordinator,
@@ -126,8 +127,18 @@ defmodule FakeController do
   @doc """
   Makes `{module, function}` answer `value` on `node`.
 
-  `value` may be a function of the stand-in's recorded arity, called with the
-  arguments the code under test passed — for answering differently per call.
+  For a controller that answers differently per call — a factory listing per
+  namespace, the runners serving each factory — `value` may be
+  `{:per_arg, index, by_arg, default}`: the answer looked up by the call's
+  `index`-th recorded argument.
+
+      FakeController.set(node, {FleetManager, :runners_for_factory},
+        {:per_arg, 1, %{"store_input" => {:ok, ["runner-a"]}}, {:ok, []}})
+
+  It may *not* be a closure written in a test module. The peer never loads that
+  module, so applying one there raises `:undef` — which the seam then reports
+  as a version-skewed controller, and the test passes or fails for the wrong
+  reason. A function is applied only when it comes from a module the peer has.
   """
   def set(node, key, value), do: :erpc.call(node, __MODULE__, :put, [key, value])
 
@@ -186,9 +197,17 @@ defmodule FakeController do
     :ets.insert(store(), {{:calls, key}, recorded(key) ++ [args]})
 
     case :ets.lookup(store(), key) do
-      [{^key, fun}] when is_function(fun) -> apply(fun, args)
-      [{^key, value}] -> value
-      [] -> default
+      [{^key, {:per_arg, index, by_arg, fallback}}] ->
+        Map.get(by_arg, Enum.at(args, index), fallback)
+
+      [{^key, fun}] when is_function(fun) ->
+        apply(fun, args)
+
+      [{^key, value}] ->
+        value
+
+      [] ->
+        default
     end
   end
 
@@ -600,6 +619,31 @@ defmodule Flezha.Operative.Lifecycle do
   use FakeController.Stub
 
   defstub rewind(overwatch_pid, to_iter), do: :ok
+end
+
+defmodule Flezha.Operative.Kind do
+  @moduledoc """
+  Stand-in for the controller's kind model. See `FakeController`.
+
+  Carries the real module's table rather than a flat answer: `known_kinds/0`
+  probes per candidate, so a stub answering the same thing for every kind could
+  not exercise the case this UI exists to handle — a candidate the controller
+  does not recognise.
+  """
+  use FakeController.Stub
+
+  @capabilities %{
+    stream: %{
+      persistent_state?: true,
+      time_travel?: true,
+      dynamic_entities?: true,
+      output_stall_watch?: true
+    },
+    workflow: %{}
+  }
+
+  defstub known?(kind), do: Map.has_key?(@capabilities, kind)
+  defstub capabilities(kind), do: Map.get(@capabilities, kind, %{})
 end
 
 defmodule Flezha.AuthZ.NamespaceStore do

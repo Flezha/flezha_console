@@ -2,13 +2,9 @@
   <.header back={~p"/namespaces"} mono>
     {@ns}
     <:actions>
-      <button
-        phx-click="open_start_modal"
-        data-testid="start-operative-btn"
-        class="flz-button flz-button--md"
-      >
-        <.icon name="hero-plus" class="w-4 h-4" /> Start Operative
-      </button>
+      <.button phx-click="launcher_open" data-testid="start-operative-btn" icon="hero-plus">
+        Start Operative
+      </.button>
     </:actions>
   </.header>
 
@@ -338,102 +334,7 @@
   </.panel>
 </div>
 
-<%!-- Start Operative Modal --%>
-<.dialog
-  :if={@show_start_modal}
-  testid="start-modal"
-  size="max-w-md"
-  on_close="close_start_modal"
->
-  <:title>Start Operative</:title>
-
-  <.notice :if={@start_error} kind={:error} testid="start-error" class="mb-4">
-    {@start_error}
-  </.notice>
-
-  <form phx-submit="start_operative" phx-change="start_form_change" class="space-y-4">
-    <div>
-      <label class="flz-field-label mb-1">Operative ID *</label>
-      <input
-        type="text"
-        name="start[id]"
-        data-testid="input-operative-id"
-        value={@start_form["id"]}
-        placeholder="my-operative"
-        maxlength="32"
-        class="w-full"
-      />
-    </div>
-    <div>
-      <label class="flz-field-label mb-1">Factory ID *</label>
-      <%= if @factories == [] do %>
-        <select
-          name="start[factory_id]"
-          data-testid="input-factory-id"
-          disabled
-          class="w-full"
-        >
-          <option value="">No factories available</option>
-        </select>
-      <% else %>
-        <select
-          name="start[factory_id]"
-          data-testid="input-factory-id"
-          class="w-full"
-        >
-          <option value="">Select a factory...</option>
-          <%= for factory <- @factories do %>
-            <option value={factory.id} selected={@start_form["factory_id"] == factory.id}>
-              {factory.id}{if factory.description, do: " — #{factory.description}"}
-            </option>
-          <% end %>
-        </select>
-      <% end %>
-    </div>
-    <div>
-      <label class="flz-field-label mb-1">
-        Init Values (JSON)
-      </label>
-      <textarea
-        name="start[init_values]"
-        data-testid="input-init-values"
-        rows="3"
-        placeholder="{}"
-        class="form-field--mono w-full"
-      ><%= @start_form["init_values"] %></textarea>
-    </div>
-    <div>
-      <label class="flz-field-label mb-1">
-        Snapshot Interval
-      </label>
-      <input
-        type="number"
-        name="start[snapshot_interval]"
-        data-testid="input-snapshot-interval"
-        value={@start_form["snapshot_interval"]}
-        placeholder="optional"
-        class="w-full"
-      />
-    </div>
-    <div class="flex justify-end gap-3 pt-2">
-      <button
-        type="button"
-        phx-click="close_start_modal"
-        data-testid="start-cancel-btn"
-        class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
-      >
-        Cancel
-      </button>
-      <button
-        type="submit"
-        data-testid="start-submit-btn"
-        class="flz-button flz-button--md"
-      >
-        Start
-      </button>
-    </div>
-  </form>
-</.dialog>
+<.launcher_dialog launcher={@launcher} />
 
 <.confirm_dialog
   :if={@confirm_stop}
@@ -449,42 +350,33 @@
   Are you sure you want to stop <.mono>{@confirm_stop}</.mono>?
 </.confirm_dialog>
 
-<.dialog :if={@rescale} testid="rescale-modal" size="max-w-md">
+<.dialog :if={@rescale} testid="rescale-modal" size="confirm">
   <h3 class="flz-modal-title mb-3">Rescale partition group</h3>
   <p class="text-sm text-th-secondary mb-4">
     Set the member count for <.mono>{@rescale.group}</.mono>. Key ranges are redistributed across
     the new member set, and the group re-renders on the next tick.
   </p>
   <form phx-change="select_rescale" class="mb-4">
-    <label class="flz-field-label mb-1">Target members</label>
-    <input
+    <.input
       type="number"
-      min="1"
       name="rescale[target]"
-      data-testid="rescale-target"
+      label="Target members"
       value={@rescale.target}
-      class="w-full"
+      min="1"
+      data-testid="rescale-target"
     />
   </form>
   <div class="flex justify-end gap-3">
-    <button
-      phx-click="cancel_rescale"
-      data-testid="rescale-cancel-btn"
-      class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
-    >
+    <.button variant="ghost" phx-click="cancel_rescale" data-testid="rescale-cancel-btn">
       Cancel
-    </button>
-    <button
-      phx-click="rescale"
-      data-testid="rescale-confirm-btn"
-      class="flz-button flz-button--md"
-    >
+    </.button>
+    <.button phx-click="rescale" data-testid="rescale-confirm-btn">
       Rescale to {@rescale.target}
-    </button>
+    </.button>
   </div>
 </.dialog>
 
-<.dialog :if={@quota_form} testid="quota-modal" size="max-w-md" on_close="close_quotas">
+<.dialog :if={@quota_form} testid="quota-modal" size="form" on_close="close_quotas">
   <:title>Edit quotas</:title>
 
   <.notice :if={@quota_error} kind={:error} testid="quota-error" class="mb-4">
@@ -492,30 +384,17 @@
   </.notice>
 
   <form phx-change="quota_change" class="space-y-3">
-    <div :for={row <- @quotas}>
-      <label class="flz-field-label mb-1">{row.limit_key}</label>
-      <input
-        type="number"
-        name={"quota[#{row.limit_key}]"}
-        data-testid={"quota-input-#{row.limit_key}"}
-        value={@quota_form[to_string(row.limit_key)]}
-        class="w-full"
-      />
-    </div>
+    <.input
+      :for={row <- @quotas}
+      type="number"
+      name={"quota[#{row.limit_key}]"}
+      label={to_string(row.limit_key)}
+      value={@quota_form[to_string(row.limit_key)]}
+      data-testid={"quota-input-#{row.limit_key}"}
+    />
   </form>
   <div class="flex justify-end gap-3 pt-4">
-    <button
-      phx-click="close_quotas"
-      class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
-    >
-      Cancel
-    </button>
-    <button
-      phx-click="save_quotas"
-      data-testid="quota-save"
-      class="flz-button flz-button--md"
-    >
-      Save
-    </button>
+    <.button variant="ghost" phx-click="close_quotas">Cancel</.button>
+    <.button phx-click="save_quotas" data-testid="quota-save">Save</.button>
   </div>
 </.dialog>

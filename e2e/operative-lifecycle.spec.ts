@@ -1,4 +1,12 @@
-import { test, expect, testIds, type Page } from './fixtures';
+import {
+  test,
+  expect,
+  testIds,
+  factoryOptions,
+  startOperative,
+  stopOperative,
+  type Page,
+} from './fixtures';
 
 /**
  * Starting and stopping operatives, from the namespace show page.
@@ -20,65 +28,6 @@ function uniqueOperativeId(prefix = 'pw_test'): string {
 
 /** The operative ids currently shown in the table. */
 const operativeIds = (page: Page) => testIds(page, 'operative-row-');
-
-/** The factory ids the start modal offers, without its placeholder option. */
-async function factoryOptions(page: Page): Promise<string[]> {
-  const select = page.getByTestId('input-factory-id');
-  await expect(select).toBeEnabled();
-
-  return select
-    .locator('option')
-    .evaluateAll((opts) =>
-      opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== ''),
-    );
-}
-
-/** Selects the first real factory option and returns its id. */
-/**
- * A factory that can actually be started as a `:stream` operative.
- *
- * The runner registers its whole catalogue, most of which are workflow
- * factories — and the first one alphabetically (`bench_chain_1`) is one of
- * them. Taking whichever sorts first asks the controller to run a workflow as
- * a stream, which it refuses. `store_input` is the stream factory the dev
- * stack documents and seeds against.
- */
-async function selectFirstFactory(page: Page): Promise<string> {
-  const options = await factoryOptions(page);
-
-  expect(options.length, 'at least one factory must be available').toBeGreaterThan(0);
-
-  const factoryId = options.includes('store_input') ? 'store_input' : options[0];
-  await page.getByTestId('input-factory-id').selectOption(factoryId);
-  return factoryId;
-}
-
-async function startOperative(page: Page, id: string) {
-  await page.getByTestId('start-operative-btn').click();
-  await expect(page.getByTestId('start-modal')).toBeVisible();
-  await page.getByTestId('input-operative-id').fill(id);
-  await selectFirstFactory(page);
-  await page.getByTestId('start-submit-btn').click();
-
-  await expect(page.getByTestId('start-modal')).toHaveCount(0);
-  await expect(page.getByTestId(`operative-row-${id}`)).toBeVisible();
-}
-
-/**
- * Cleanup, so a failure does not leak a running operative.
- *
- * Tolerating an already-stopped operative is what makes this safe to call from
- * `finally` after the test stopped it itself; it never skips an assertion.
- */
-async function stopOperative(page: Page, id: string) {
-  const row = page.getByTestId(`operative-row-${id}`);
-  if ((await row.count()) === 0) return;
-
-  await page.getByTestId(`stop-operative-${id}`).click();
-  await expect(page.getByTestId('stop-confirm-modal')).toBeVisible();
-  await page.getByTestId('stop-confirm-btn').click();
-  await expect(row).toHaveCount(0);
-}
 
 test.describe('Operative lifecycle', () => {
   test.beforeEach(async ({ live }) => {
@@ -115,7 +64,7 @@ test.describe('Operative lifecycle', () => {
     await expect(page.getByTestId('start-modal')).toBeVisible();
 
     await page.getByTestId('input-operative-id').fill(uniqueOperativeId());
-    await selectFirstFactory(page);
+    await page.getByTestId('input-factory-id').selectOption((await factoryOptions(page))[0]);
     await page.getByTestId('input-init-values').fill('not valid json{{{');
 
     await page.getByTestId('start-submit-btn').click();
@@ -210,6 +159,59 @@ test.describe('Operative lifecycle', () => {
     expect(await operativeIds(page)).toEqual(before);
   });
 
+  test('offers the kinds the controller recognises, with their capabilities', async ({
+    page,
+  }) => {
+    await page.getByTestId('start-operative-btn').click();
+    await expect(page.getByTestId('start-modal')).toBeVisible();
+
+    const kinds = await page
+      .getByTestId('input-kind')
+      .locator('option')
+      .evaluateAll((opts) => opts.map((o) => (o as HTMLOptionElement).value));
+
+    expect(kinds).toContain('stream');
+    expect(kinds).toContain('workflow');
+
+    // The capability the choice actually costs: a workflow keeps no entity
+    // state, and the form says so before the operator commits.
+    await expect(page.getByTestId('start-modal')).toContainText('persistent_state?');
+    await page.getByTestId('input-kind').selectOption('workflow');
+    await expect(page.getByTestId('start-modal')).toContainText('no persistent entity state');
+
+    await page.getByTestId('start-cancel-btn').click();
+  });
+
+  test('the factory selector names each factory and who serves it', async ({ page }) => {
+    await page.getByTestId('start-operative-btn').click();
+    await expect(page.getByTestId('start-modal')).toBeVisible();
+
+    await page.getByTestId('input-factory-id').selectOption('store_input');
+
+    // A connected runner serves the seeded factory, so the form says which.
+    await expect(page.getByTestId('start-modal')).toContainText('Served by');
+
+    await page.getByTestId('start-cancel-btn').click();
+  });
+
+  test('starts a workflow, which the form could not do before', async ({ live, page }) => {
+    const id = uniqueOperativeId('pw_wf');
+
+    try {
+      await startOperative(page, id, { kind: 'workflow' });
+
+      await expect(page.getByTestId(`operative-row-${id}`)).toBeVisible();
+
+      // The index is where kind is reported, and it must read back as a
+      // workflow rather than the `:stream` every start used to default to.
+      await live('/operatives');
+      await expect(page.getByTestId(`operative-index-row-${id}`)).toContainText('workflow');
+    } finally {
+      await live(NAMESPACE_URL);
+      await stopOperative(page, id);
+    }
+  });
+
   test('starts an operative with init values JSON', async ({ page }) => {
     const id = uniqueOperativeId('pw_json');
 
@@ -218,7 +220,7 @@ test.describe('Operative lifecycle', () => {
       await expect(page.getByTestId('start-modal')).toBeVisible();
 
       await page.getByTestId('input-operative-id').fill(id);
-      await selectFirstFactory(page);
+      await page.getByTestId('input-factory-id').selectOption('store_input');
       await page.getByTestId('input-init-values').fill('{}');
 
       await page.getByTestId('start-submit-btn').click();

@@ -9,6 +9,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     on_events: [:runner_connected, :runner_disconnected]
 
   use FlezhaUiWeb.Topology
+  use FlezhaUiWeb.Live.Launcher
 
   alias FlezhaUi.Service.NodeManager
   alias FlezhaUiWeb.Topology
@@ -19,17 +20,10 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       socket
       |> start_refresh()
       |> Topology.init()
+      |> launcher_init(ns)
       |> assign(
         ns: ns,
         page_title: ns,
-        show_start_modal: false,
-        start_form: %{
-          "id" => "",
-          "factory_id" => "",
-          "init_values" => "",
-          "snapshot_interval" => ""
-        },
-        start_error: nil,
         confirm_stop: nil,
         load_error: nil,
         finished: [],
@@ -44,51 +38,11 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     {:ok, socket}
   end
 
-  @impl true
-  def handle_event("open_start_modal", _params, socket) do
-    {:noreply, assign(socket, show_start_modal: true, start_error: nil)}
-  end
-
-  @impl true
-  def handle_event("close_start_modal", _params, socket) do
-    {:noreply, assign(socket, show_start_modal: false)}
-  end
-
-  @impl true
-  def handle_event("start_form_change", %{"start" => params}, socket) do
-    {:noreply, assign(socket, start_form: params)}
-  end
-
-  @impl true
-  def handle_event("start_operative", %{"start" => params}, socket) do
-    ns = socket.assigns.ns
-    id = String.trim(params["id"])
-    factory_id = String.trim(params["factory_id"])
-    init_values_raw = String.trim(params["init_values"])
-
-    with true <- id != "" and factory_id != "",
-         {:ok, init_values} <- parse_json_or_empty(init_values_raw),
-         opts <- build_opts(params) do
-      case NodeManager.start_operative(ns, id, factory_id, init_values, opts) do
-        {:ok, _result} ->
-          socket =
-            socket
-            |> assign(show_start_modal: false, start_error: nil)
-            |> refresh()
-            |> put_flash(:info, "Operative #{id} started.")
-
-          {:noreply, socket}
-
-        {:error, reason} ->
-          {:noreply, assign(socket, start_error: inspect(reason))}
-      end
-    else
-      false ->
-        {:noreply, assign(socket, start_error: "ID and Factory ID are required.")}
-
-      {:error, _} ->
-        {:noreply, assign(socket, start_error: "Init Values must be valid JSON.")}
-    end
+  # Four dialogs and the launcher, any of which a row could move underneath.
+  @impl FlezhaUiWeb.Live.Refresh
+  def refresh_paused?(socket) do
+    FlezhaUiWeb.Live.Launcher.open?(socket) or socket.assigns.confirm_stop != nil or
+      socket.assigns.rescale != nil or socket.assigns.quota_form != nil
   end
 
   @impl true
@@ -239,7 +193,6 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       plugin_counts: plugin_counts,
       groups: groups,
       runners: NodeManager.ok_or(NodeManager.list_runners(ns), []),
-      factories: NodeManager.ok_or(NodeManager.list_factories(ns), []),
       declared: declared,
       quotas: NodeManager.quota_usage(ns, declared && declared.quotas),
       role_bindings: NodeManager.ok_or(NodeManager.role_bindings(ns), []),
@@ -273,25 +226,6 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     case NodeManager.finished_instances(socket.assigns.ns, live) do
       {:ok, finished} -> assign(socket, finished: finished, finished_error: nil)
       {:error, reason} -> assign(socket, finished: [], finished_error: reason)
-    end
-  end
-
-  defp parse_json_or_empty(""), do: {:ok, %{}}
-  defp parse_json_or_empty(str), do: Jason.decode(str)
-
-  defp build_opts(params) do
-    case params["snapshot_interval"] do
-      "" ->
-        []
-
-      nil ->
-        []
-
-      val ->
-        case Integer.parse(val) do
-          {n, ""} -> [snapshot_interval: n]
-          _ -> []
-        end
     end
   end
 end

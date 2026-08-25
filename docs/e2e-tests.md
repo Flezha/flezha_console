@@ -42,7 +42,10 @@ assertion.
 ```
 e2e/
   global-setup.ts   logs in once, saves the session to e2e/.auth/user.json
-  fixtures.ts       `test` extended with `live()` — navigate + wait for the LiveView
+  fixtures.ts       `test` extended with `live()` — navigate + wait for the
+                    LiveView — plus `startOperative()`/`stopOperative()`, since
+                    one launcher serves two screens and driving it twice would
+                    stop catching the drift it exists to prevent
   login.spec.ts     the form itself, with no stored session
   dashboard.spec.ts namespaces.spec.ts stream.spec.ts
   audit.spec.ts cluster.spec.ts dlq.spec.ts schedules.spec.ts

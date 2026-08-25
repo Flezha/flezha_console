@@ -327,32 +327,22 @@
     </:actions>
     <div class="p-5 space-y-4">
       <form phx-change="selector_change" class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="flz-label mb-1">
-            Procedure
-          </label>
-          <input
-            type="text"
-            name="selector[procedure]"
-            value={@selector_form["procedure"]}
-            placeholder="all procedures"
-            data-testid="input-selector-procedure"
-            class="w-full"
-          />
-        </div>
-        <div>
-          <label class="flz-label mb-1">
-            Entity Key
-          </label>
-          <input
-            type="text"
-            name="selector[entity_key]"
-            value={@selector_form["entity_key"]}
-            placeholder="all entities"
-            data-testid="input-selector-entity-key"
-            class="w-full"
-          />
-        </div>
+        <.input
+          type="text"
+          name="selector[procedure]"
+          label="Procedure"
+          value={@selector_form["procedure"]}
+          placeholder="all procedures"
+          data-testid="input-selector-procedure"
+        />
+        <.input
+          type="text"
+          name="selector[entity_key]"
+          label="Entity Key"
+          value={@selector_form["entity_key"]}
+          placeholder="all entities"
+          data-testid="input-selector-entity-key"
+        />
       </form>
 
       <%= case @state_notice do %>
@@ -479,7 +469,7 @@
 <.dialog
   :if={@show_attach_modal}
   testid="attach-modal"
-  size="max-w-lg"
+  size="form"
   on_close="close_attach_modal"
   close_testid="attach-close-btn"
 >
@@ -515,45 +505,33 @@
 
     <form phx-submit="attach_plugin" phx-change="attach_form_change" class="space-y-4">
       <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="flz-field-label mb-1">Plugin ID</label>
-          <input
-            type="text"
-            name="plugin[plugin_id]"
-            value={@attach_form["plugin_id"]}
-            data-testid="input-plugin-id"
-            class="w-full"
-          />
-        </div>
-        <div>
-          <label class="flz-field-label mb-1">
-            Position <span class="text-th-muted font-normal">(ordered extensions only)</span>
-          </label>
-          <input
-            type="number"
-            name="plugin[sub_position]"
-            placeholder="unset"
-            value={@attach_form["sub_position"]}
-            data-testid="input-position"
-            class="w-full"
-          />
-        </div>
+        <.input
+          type="text"
+          name="plugin[plugin_id]"
+          label="Plugin ID"
+          value={@attach_form["plugin_id"]}
+          mono
+          data-testid="input-plugin-id"
+        />
+        <.input
+          type="number"
+          name="plugin[sub_position]"
+          label="Position"
+          hint="ordered extensions only"
+          value={@attach_form["sub_position"]}
+          placeholder="unset"
+          data-testid="input-position"
+        />
       </div>
 
-      <div>
-        <label class="flz-field-label mb-1">Trigger</label>
-        <select
-          name="plugin[trigger]"
-          data-testid="input-trigger"
-          class="w-full"
-        >
-          <%= for trigger <- trigger_options() do %>
-            <option value={trigger} selected={@attach_form["trigger"] == trigger}>
-              {trigger}
-            </option>
-          <% end %>
-        </select>
-      </div>
+      <.input
+        type="select"
+        name="plugin[trigger]"
+        label="Trigger"
+        value={@attach_form["trigger"]}
+        options={trigger_options()}
+        data-testid="input-trigger"
+      />
 
       <%!-- Provider-specific fields (dynamic) --%>
       <%= if provider do %>
@@ -571,96 +549,61 @@
               </summary>
               <pre class="flz-code mt-2 max-h-64">{@provider_help}</pre>
             </details>
-            <%= for field <- provider.required_fields do %>
-              <div class="mb-3">
-                <label class="flz-field-label mb-1">
-                  {Format.humanize(field)} *
-                </label>
-                <input
-                  type="text"
-                  name={"plugin[field_#{field}]"}
-                  value={Map.get(@attach_form, "field_#{field}", "")}
-                  data-testid={"input-field-#{field}"}
-                  data-required="true"
-                  class="w-full"
-                />
-              </div>
-            <% end %>
-            <%= for field <- provider.optional_fields do %>
-              <div class="mb-3">
-                <label class="flz-field-label mb-1">
-                  {Format.humanize(field)}
-                </label>
-                <input
-                  type="text"
-                  name={"plugin[field_#{field}]"}
-                  value={Map.get(@attach_form, "field_#{field}", "")}
-                  data-testid={"input-field-#{field}"}
-                  class="w-full"
-                />
-              </div>
-            <% end %>
+            <div class="space-y-3">
+              <.input
+                :for={field <- provider.required_fields}
+                type="text"
+                name={"plugin[field_#{field}]"}
+                label={"#{Format.humanize(field)} *"}
+                value={Map.get(@attach_form, "field_#{field}", "")}
+                data-required="true"
+                data-testid={"input-field-#{field}"}
+              />
+              <.input
+                :for={field <- provider.optional_fields}
+                type="text"
+                name={"plugin[field_#{field}]"}
+                label={Format.humanize(field)}
+                value={Map.get(@attach_form, "field_#{field}", "")}
+                data-testid={"input-field-#{field}"}
+              />
+            </div>
           </div>
         <% end %>
       <% end %>
 
       <div class="flex justify-between pt-2">
-        <button
-          type="button"
-          phx-click="close_attach_modal"
-          data-testid="attach-cancel-btn"
-          class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
-        >
+        <.button variant="ghost" phx-click="close_attach_modal" data-testid="attach-cancel-btn">
           Cancel
-        </button>
-        <button
-          type="submit"
-          data-testid="attach-submit-btn"
-          class="flz-button flz-button--md"
-        >
-          Attach
-        </button>
+        </.button>
+        <.button type="submit" data-testid="attach-submit-btn">Attach</.button>
       </div>
     </form>
   <% end %>
 </.dialog>
 
-<.dialog :if={@rewind_target} testid="rewind-modal" size="max-w-md">
+<.dialog :if={@rewind_target} testid="rewind-modal" size="confirm">
   <h3 class="flz-modal-title mb-3">Rewind instance</h3>
   <.notice kind={:error} class="mb-4">
     Rewinding discards every iteration after the one you choose. The instance resumes from that
     boundary and the work in between is unwound.
   </.notice>
   <form phx-change="select_rewind" class="mb-4">
-    <label class="flz-field-label mb-1">Committed iteration</label>
-    <select
+    <.input
+      type="select"
       name="rewind[iteration]"
+      label="Committed iteration"
+      value={@rewind_target}
+      options={@committed_iterations}
       data-testid="rewind-iteration"
-      class="w-full"
-    >
-      <option
-        :for={iteration <- @committed_iterations}
-        value={iteration}
-        selected={iteration == @rewind_target}
-      >
-        {iteration}
-      </option>
-    </select>
+    />
   </form>
   <div class="flex justify-end gap-3">
-    <button
-      phx-click="cancel_rewind"
-      data-testid="rewind-cancel-btn"
-      class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
-    >
+    <.button variant="ghost" phx-click="cancel_rewind" data-testid="rewind-cancel-btn">
       Cancel
-    </button>
-    <button
-      phx-click="rewind"
-      data-testid="rewind-confirm-btn"
-      class="flz-button flz-button--md flz-button--danger"
-    >
+    </.button>
+    <.button variant="danger" phx-click="rewind" data-testid="rewind-confirm-btn">
       Rewind to {@rewind_target}
-    </button>
+    </.button>
   </div>
 </.dialog>

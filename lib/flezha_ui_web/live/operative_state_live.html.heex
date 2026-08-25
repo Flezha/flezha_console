@@ -134,8 +134,8 @@
 
       <form phx-change="travel_change" class="flex items-end gap-3 mb-4">
         <div>
-          <label class="flz-label mb-1">Target</label>
           <.dropdown
+            label="Target"
             id="travel-kind"
             name="travel[kind]"
             value={@travel_form["kind"]}
@@ -147,13 +147,13 @@
           </.dropdown>
         </div>
         <div>
-          <label class="flz-label mb-1">Value</label>
-          <input
+          <.input
             type="text"
             name="travel[value]"
-            data-testid="travel-value"
+            label="Value"
             value={@travel_form["value"]}
-            class="form-field--compact"
+            compact
+            data-testid="travel-value"
           />
         </div>
       </form>

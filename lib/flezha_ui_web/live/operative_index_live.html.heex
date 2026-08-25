@@ -5,6 +5,9 @@
       <span class="text-sm text-th-tertiary font-mono" data-testid="operatives-count">
         {length(@rows)} across {length(@namespaces)} namespaces
       </span>
+      <.button phx-click="launcher_open" data-testid="start-operative-btn" icon="hero-plus">
+        Start Operative
+      </.button>
     </:actions>
   </.header>
 
@@ -12,8 +15,8 @@
 
   <form phx-change="filter" class="flex flex-wrap items-end gap-3">
     <div>
-      <label class="flz-label mb-1">Namespace</label>
       <.dropdown
+        label="Namespace"
         id="filter-namespace"
         name="filters[namespace]"
         value={@filters["namespace"]}
@@ -26,8 +29,8 @@
       </.dropdown>
     </div>
     <div>
-      <label class="flz-label mb-1">Health</label>
       <.dropdown
+        label="Health"
         id="filter-health"
         name="filters[health]"
         value={@filters["health"]}
@@ -40,8 +43,8 @@
       </.dropdown>
     </div>
     <div>
-      <label class="flz-label mb-1">Kind</label>
       <.dropdown
+        label="Kind"
         id="filter-kind"
         name="filters[kind]"
         value={@filters["kind"]}
@@ -50,7 +53,9 @@
         class="w-32"
       >
         <:option value="">all</:option>
-        <:option :for={kind <- ~w(stream workflow)} value={kind}>{kind}</:option>
+        <%!-- The kinds the controller recognises, which is the same list the
+              start form offers — a hardcoded pair here would drift from it. --%>
+        <:option :for={kind <- @launcher.kinds} value={to_string(kind.kind)}>{kind.kind}</:option>
       </.dropdown>
     </div>
   </form>
@@ -105,3 +110,5 @@
     <% end %>
   </div>
 </div>
+
+<.launcher_dialog launcher={@launcher} />

@@ -37,13 +37,17 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   ## Examples
 
-      <.dialog :if={@open} testid="start-modal" size="max-w-md" on_close="close_start">
+      <.dialog :if={@open} testid="start-modal" size="form" on_close="close_start">
         <:title>Start an operative</:title>
         ...
       </.dialog>
   """
   attr :testid, :string, default: nil
-  attr :size, :string, default: "max-w-sm", doc: "max-width class for the panel"
+
+  attr :size, :string,
+    default: "confirm",
+    values: ~w(confirm form wide),
+    doc: "what the dialog is for; the width follows from it"
 
   attr :on_close, :string,
     default: nil,
@@ -57,7 +61,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   def dialog(assigns) do
     ~H"""
     <div class="flz-modal">
-      <div data-testid={@testid} class={["flz-modal-surface animate-scale-in", @size]}>
+      <div data-testid={@testid} class={["flz-modal-surface animate-scale-in", width(@size)]}>
         <div :if={@title != []} class="flz-modal-head">
           <h3 class="flz-modal-title">{render_slot(@title)}</h3>
           <button
@@ -76,6 +80,14 @@ defmodule FlezhaUiWeb.CoreComponents do
     </div>
     """
   end
+
+  # Widths, once. A form dialog is wider than a confirmation because it has
+  # fields to read; an inspection panel is wider still because it carries a
+  # payload. Callers name the role so this stays one decision rather than one
+  # per modal.
+  defp width("confirm"), do: "max-w-md"
+  defp width("form"), do: "max-w-xl"
+  defp width("wide"), do: "max-w-3xl"
 
   @doc """
   A dialog asking the operator to confirm an action before it happens.
@@ -111,7 +123,7 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   def confirm_dialog(assigns) do
     ~H"""
-    <.dialog testid={@testid} size="max-w-md">
+    <.dialog testid={@testid} size="confirm">
       <:title>{@title}</:title>
       <p>{render_slot(@inner_block)}</p>
       <:actions>
@@ -720,6 +732,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   """
   attr :id, :string, required: true
   attr :name, :string, required: true
+  attr :label, :string, default: nil
   attr :value, :any, default: nil
   attr :prompt, :string, default: nil, doc: "shown when the value matches no option"
   attr :testid, :string, default: nil
@@ -739,45 +752,53 @@ defmodule FlezhaUiWeb.CoreComponents do
       |> assign(:chosen, Enum.find(assigns.option, &(&1.value == value)))
 
     ~H"""
-    <div id={@id} phx-hook="FlzDropdown" data-flz-dropdown class={["relative", @class]}>
-      <input type="hidden" id={"#{@id}-value"} name={@name} value={@value} />
-      <button
-        type="button"
-        class="flz-dropdown-trigger form-field--compact w-full"
-        data-testid={@testid}
-        disabled={@disabled}
-      >
-        <span class="flex-1 truncate text-left">
-          {(@chosen && render_slot(@chosen)) || @prompt}
-        </span>
-        <.icon name="hero-chevron-down-micro" class="shrink-0" />
-      </button>
-      <div class="flz-dropdown mt-1 min-w-full" role="menu" hidden>
+    <div class="flz-field">
+      <.label :if={@label}>{@label}</.label>
+      <div id={@id} phx-hook="FlzDropdown" data-flz-dropdown class={["relative", @class]}>
+        <input type="hidden" id={"#{@id}-value"} name={@name} value={@value} />
         <button
-          :for={option <- @option}
           type="button"
-          role="menuitemradio"
-          aria-checked={to_string(option.value == @value)}
-          data-testid={@testid && "#{@testid}-#{option.value}"}
-          phx-click={
-            JS.set_attribute({"value", option.value}, to: "##{@id}-value")
-            |> JS.dispatch("change", to: "##{@id}-value", bubbles: true)
-          }
-          class="flz-dropdown-option"
+          class="flz-dropdown-trigger form-field--compact w-full"
+          data-testid={@testid}
+          disabled={@disabled}
         >
-          {render_slot(option)}
+          <span class="flex-1 truncate text-left">
+            {(@chosen && render_slot(@chosen)) || @prompt}
+          </span>
+          <.icon name="hero-chevron-down-micro" class="shrink-0" />
         </button>
+        <div class="flz-dropdown mt-1 min-w-full" role="menu" hidden>
+          <button
+            :for={option <- @option}
+            type="button"
+            role="menuitemradio"
+            aria-checked={to_string(option.value == @value)}
+            data-testid={@testid && "#{@testid}-#{option.value}"}
+            phx-click={
+              JS.set_attribute({"value", option.value}, to: "##{@id}-value")
+              |> JS.dispatch("change", to: "##{@id}-value", bubbles: true)
+            }
+            class="flz-dropdown-option"
+          >
+            {render_slot(option)}
+          </button>
+        </div>
       </div>
     </div>
     """
   end
 
   @doc """
-  Renders an input with label and error messages.
+  The one labelled form control on these screens: label, control, hint, errors.
 
-  A `Phoenix.HTML.FormField` may be passed as argument,
-  which is used to retrieve the input name, id, and values.
-  Otherwise all attributes may be passed explicitly.
+  Every form field goes through here, so the control's styling — its size, its
+  focus ring, its border — is one decision rather than one per template. A
+  template that hand-writes a label and an `<input>` beside it is a bug.
+
+  A `Phoenix.HTML.FormField` may be passed as argument, which is used to
+  retrieve the input name, id, and values. Otherwise all attributes may be
+  passed explicitly, which is what the operator screens do: their forms are
+  plain maps against the controller, not changesets.
 
   ## Types
 
@@ -793,10 +814,22 @@ defmodule FlezhaUiWeb.CoreComponents do
   for more information. Unsupported types, such as hidden and radio,
   are best written directly in your templates.
 
+  `data-testid` rides the global attributes through to the control itself, so a
+  browser test addresses the input rather than the wrapper.
+
   ## Examples
 
       <.input field={@form[:email]} type="email" />
       <.input name="my-input" errors={["oh no!"]} />
+      <.input
+        type="textarea"
+        name="start[init_values]"
+        label="Init values"
+        hint="JSON, optional"
+        mono
+        value={@form["init_values"]}
+        data-testid="input-init-values"
+      />
   """
   attr :id, :any, default: nil
   attr :name, :any
@@ -812,6 +845,17 @@ defmodule FlezhaUiWeb.CoreComponents do
     doc: "a form field struct retrieved from the form, for example: @form[:email]"
 
   attr :errors, :list, default: []
+
+  attr :hint, :string,
+    default: nil,
+    doc: "a constraint or an optional meaning, rendered with the field rather than beside it"
+
+  attr :mono, :boolean, default: false, doc: "true for a field holding an identifier or JSON"
+
+  attr :compact, :boolean,
+    default: false,
+    doc: "true for a toolbar filter, which sits tighter than a field in a form"
+
   attr :checked, :boolean, doc: "the checked flag for checkbox inputs"
   attr :prompt, :string, default: nil, doc: "the prompt for select inputs"
   attr :options, :list, doc: "the options to pass to Phoenix.HTML.Form.options_for_select/2"
@@ -860,11 +904,11 @@ defmodule FlezhaUiWeb.CoreComponents do
   def input(%{type: "select"} = assigns) do
     ~H"""
     <div class="flz-field">
-      <.label for={@id}>{@label}</.label>
+      <.label :if={@label} for={@id}>{@label}</.label>
       <select
         id={@id}
         name={@name}
-        class="block w-full"
+        class={["block w-full", @mono && "form-field--mono", @compact && "form-field--compact"]}
         aria-invalid={@errors != [] && "true"}
         multiple={@multiple}
         {@rest}
@@ -872,6 +916,7 @@ defmodule FlezhaUiWeb.CoreComponents do
         <option :if={@prompt} value="">{@prompt}</option>
         {Phoenix.HTML.Form.options_for_select(@options, @value)}
       </select>
+      <p :if={@hint} class="flz-field-hint">{@hint}</p>
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
     """
@@ -880,14 +925,17 @@ defmodule FlezhaUiWeb.CoreComponents do
   def input(%{type: "textarea"} = assigns) do
     ~H"""
     <div class="flz-field">
-      <.label for={@id}>{@label}</.label>
+      <.label :if={@label} for={@id}>{@label}</.label>
+      <%!-- Tall enough to read a small JSON object whole: an editor that
+            scrolls at three lines is why init values were guessed at. --%>
       <textarea
         id={@id}
         name={@name}
-        class="block w-full min-h-[6rem]"
+        class={["block w-full min-h-[8rem]", @mono && "form-field--mono"]}
         aria-invalid={@errors != [] && "true"}
         {@rest}
       >{Phoenix.HTML.Form.normalize_value("textarea", @value)}</textarea>
+      <p :if={@hint} class="flz-field-hint">{@hint}</p>
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
     """
@@ -897,16 +945,17 @@ defmodule FlezhaUiWeb.CoreComponents do
   def input(assigns) do
     ~H"""
     <div class="flz-field">
-      <.label for={@id}>{@label}</.label>
+      <.label :if={@label} for={@id}>{@label}</.label>
       <input
         type={@type}
         name={@name}
         id={@id}
         value={Phoenix.HTML.Form.normalize_value(@type, @value)}
-        class="block w-full"
+        class={["block w-full", @mono && "form-field--mono", @compact && "form-field--compact"]}
         aria-invalid={@errors != [] && "true"}
         {@rest}
       />
+      <p :if={@hint} class="flz-field-hint">{@hint}</p>
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
     """
@@ -937,6 +986,74 @@ defmodule FlezhaUiWeb.CoreComponents do
       <.icon name="hero-exclamation-circle-mini" class="h-4 w-4 flex-none" />
       {render_slot(@inner_block)}
     </p>
+    """
+  end
+
+  @doc """
+  A field whose values the controller enumerates: offered as a selection, and
+  typed only when the controller could not answer.
+
+  Three states, because a picker over a set the operator cannot see is worse
+  than a text box: the set is known and offered, the set is known to be empty
+  and says so with the control disabled, or the listing was refused and the
+  field accepts a typed value with the refusal stated. Callers supply the
+  wording for the empty case, since "no factories are registered here" and "no
+  namespaces are reachable" are different facts.
+
+  ## Examples
+
+      <.enumerated_field
+        name="binding[role]"
+        label="Role"
+        value={@form["role"]}
+        options={Enum.map(@roles, &{&1, &1})}
+        prompt="Select a role..."
+        empty="The controller declares no roles"
+        error={@roles_error}
+        testid="input-role"
+      />
+  """
+  attr :name, :string, required: true
+  attr :label, :string, default: nil
+  attr :value, :any, default: nil
+  attr :options, :list, default: [], doc: "`{label, value}` pairs the controller reported"
+  attr :prompt, :string, default: nil, doc: "shown above a non-empty set"
+  attr :empty, :string, required: true, doc: "what to say when the reported set is empty"
+  attr :error, :any, default: nil, doc: "the refusal, when the listing could not be read"
+  attr :hint, :string, default: nil
+  attr :mono, :boolean, default: false
+  attr :placeholder, :string, default: nil, doc: "for the typed fallback"
+  attr :testid, :string, required: true
+
+  def enumerated_field(%{error: nil} = assigns) do
+    ~H"""
+    <.input
+      type="select"
+      name={@name}
+      label={@label}
+      value={@value}
+      prompt={(@options == [] && @empty) || @prompt}
+      options={@options}
+      hint={@hint}
+      mono={@mono}
+      disabled={@options == []}
+      data-testid={@testid}
+    />
+    """
+  end
+
+  def enumerated_field(assigns) do
+    ~H"""
+    <.input
+      type="text"
+      name={@name}
+      label={@label}
+      value={@value}
+      placeholder={@placeholder}
+      hint={"The choices could not be read (#{inspect(@error)}) — type a value instead."}
+      mono={@mono}
+      data-testid={@testid}
+    />
     """
   end
 

@@ -91,7 +91,7 @@
 </div>
 
 <%!-- Create --%>
-<.dialog :if={@show_form} testid="schedule-form-modal" size="max-w-md" on_close="close_form">
+<.dialog :if={@show_form} testid="schedule-form-modal" size="form" on_close="close_form">
   <:title>New Schedule</:title>
 
   <.notice :if={@form_error} kind={:error} testid="schedule-form-error" class="mb-4">
@@ -99,95 +99,63 @@
   </.notice>
 
   <form phx-submit="create" phx-change="form_change" class="space-y-4">
-    <div>
-      <label class="flz-field-label mb-1">
-        Name
-        <%!-- The controller composes `<name>@<slot-iso>` as the operative id,
-                and that must fit its 32-byte limit — so the name gets 11. --%>
-        <span class="text-th-muted font-normal">(max 11 characters)</span>
-      </label>
-      <input
-        type="text"
-        name="schedule[name]"
-        value={@form["name"]}
-        maxlength="11"
-        data-testid="schedule-input-name"
-        class="w-full"
-      />
-    </div>
-    <div>
-      <label class="flz-field-label mb-1">Cron expression</label>
-      <input
-        type="text"
-        name="schedule[cron]"
-        value={@form["cron"]}
-        placeholder="*/5 * * * *"
-        data-testid="schedule-input-cron"
-        class="form-field--mono w-full"
-      />
-    </div>
-    <div>
-      <label class="flz-field-label mb-1">Timezone</label>
-      <input
-        type="text"
-        name="schedule[timezone]"
-        value={@form["timezone"]}
-        data-testid="schedule-input-timezone"
-        class="w-full"
-      />
-    </div>
+    <%!-- The controller composes `<name>@<slot-iso>` as the operative id, and
+          that must fit its 32-byte limit — so the name gets 11. --%>
+    <.input
+      type="text"
+      name="schedule[name]"
+      label="Name"
+      value={@form["name"]}
+      maxlength="11"
+      hint="max 11 characters"
+      data-testid="schedule-input-name"
+    />
+    <.input
+      type="text"
+      name="schedule[cron]"
+      label="Cron expression"
+      value={@form["cron"]}
+      placeholder="*/5 * * * *"
+      mono
+      data-testid="schedule-input-cron"
+    />
+    <.input
+      type="text"
+      name="schedule[timezone]"
+      label="Timezone"
+      value={@form["timezone"]}
+      data-testid="schedule-input-timezone"
+    />
     <div class="grid grid-cols-2 gap-4">
-      <div>
-        <label class="flz-field-label mb-1">Namespace</label>
-        <input
-          type="text"
-          name="schedule[namespace]"
-          value={@form["namespace"]}
-          data-testid="schedule-input-namespace"
-          class="form-field--mono w-full"
-        />
-      </div>
-      <div>
-        <label class="flz-field-label mb-1">Factory ID</label>
-        <input
-          type="text"
-          name="schedule[factory_id]"
-          value={@form["factory_id"]}
-          data-testid="schedule-input-factory"
-          class="form-field--mono w-full"
-        />
-      </div>
-    </div>
-    <div>
-      <label class="flz-field-label mb-1">
-        Init Values <span class="text-th-muted font-normal">(JSON, optional)</span>
-      </label>
-      <input
-        type="text"
-        name="schedule[init_values]"
-        value={@form["init_values"]}
-        placeholder="{}"
-        data-testid="schedule-input-init-values"
-        class="form-field--mono w-full"
+      <Target.namespace_field
+        target={@target}
+        name="schedule[namespace]"
+        value={@form["namespace"]}
+        testid="schedule-input-namespace"
+      />
+      <Target.factory_field
+        target={@target}
+        name="schedule[factory_id]"
+        value={@form["factory_id"]}
+        testid="schedule-input-factory"
       />
     </div>
+    <.input
+      type="textarea"
+      name="schedule[init_values]"
+      label="Init Values"
+      hint="JSON, optional"
+      value={@form["init_values"]}
+      placeholder="{}"
+      mono
+      data-testid="schedule-input-init-values"
+    />
 
     <div class="flex justify-between pt-2">
-      <button
-        type="button"
-        phx-click="close_form"
-        data-testid="schedule-form-cancel"
-        class="px-4 py-2 text-sm text-th-secondary hover:text-th-primary transition-colors"
-      >
+      <.button variant="ghost" phx-click="close_form" data-testid="schedule-form-cancel">
         Cancel
-      </button>
-      <button
-        type="submit"
-        data-testid="schedule-form-submit"
-        class="flz-button flz-button--md"
-      >
-        Create
-      </button>
+      </.button>
+      <.button type="submit" data-testid="schedule-form-submit">Create</.button>
     </div>
   </form>
 </.dialog>

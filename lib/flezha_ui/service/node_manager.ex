@@ -599,6 +599,42 @@ defmodule FlezhaUi.Service.NodeManager do
   @doc "The health values an operative row can carry, healthiest first."
   def health_kinds, do: @health_kinds
 
+  # The operative kinds this UI knows how to offer. Kept here, beside
+  # `@health_kinds`, for the same reason: a screen that hardcoded its own copy
+  # would drift from the one the start form starts operatives with.
+  @kind_candidates [:stream, :workflow]
+
+  @doc """
+  The kinds the controller recognises, as `[%{kind:, capabilities: [atom]}]`.
+
+  A candidate the controller does not know is dropped, so this UI cannot offer
+  a kind whose start would be refused. A controller that cannot answer at all
+  yields every candidate with no capabilities — the form is still usable, it
+  just cannot say what choosing a kind costs.
+
+  `Flezha.Operative.Kind.capabilities/1` answers a sparse map of the flags a
+  kind declares true; a sorted list of those flags is what a form renders.
+  """
+  def known_kinds do
+    Enum.flat_map(@kind_candidates, fn kind ->
+      case erpc_call(Flezha.Operative.Kind, :known?, [kind]) do
+        true -> [%{kind: kind, capabilities: kind_capabilities(kind)}]
+        false -> []
+        _unanswerable -> [%{kind: kind, capabilities: []}]
+      end
+    end)
+  end
+
+  defp kind_capabilities(kind) do
+    case erpc_call(Flezha.Operative.Kind, :capabilities, [kind]) do
+      %{} = declared ->
+        declared |> Enum.filter(&elem(&1, 1)) |> Enum.map(&elem(&1, 0)) |> Enum.sort()
+
+      _unanswerable ->
+        []
+    end
+  end
+
   @doc """
   A row's health, reading an absent or `nil` value as `:unknown`.
 
@@ -640,6 +676,21 @@ defmodule FlezhaUi.Service.NodeManager do
     Map.new(pairs, fn {id, plugins} -> {to_string(id), length(List.wrap(plugins))} end)
   end
 
+  @doc """
+  A catalog inverted to `%{runner_id => [factory_id]}`, each list sorted.
+
+  The cluster screen reads a fleet the other way round — "what does this runner
+  serve" — from the same catalog every factory picker is built from, so the two
+  cannot disagree about which runner serves what.
+  """
+  def factories_by_runner(catalog) when is_list(catalog) do
+    catalog
+    |> Enum.reduce(%{}, fn %{id: factory, runners: runners}, acc ->
+      Enum.reduce(runners, acc, &Map.update(&2, &1, [factory], fn known -> [factory | known] end))
+    end)
+    |> Map.new(fn {runner, factories} -> {runner, Enum.sort(factories)} end)
+  end
+
   def list_runners(namespace) do
     list_call(Flezha, :list_runners, [namespace])
   end
@@ -647,6 +698,50 @@ defmodule FlezhaUi.Service.NodeManager do
   def list_factories(namespace) do
     list_call(Flezha, :list_factories, [namespace])
   end
+
+  @doc """
+  A namespace's registered factories with the runners serving each, as
+  `[%{id:, description:, runners: [runner_id], servable?: boolean}]` sorted by
+  id.
+
+  Every screen that names a factory reads it from here: the picker needs to
+  mark a factory no runner serves, and the cluster screen needs the same pairing
+  the other way round. Costs the listing plus one lookup per factory — the price
+  the fleet view already paid, now paid once for every caller.
+
+  Read when a form that needs it opens, never on a refresh tick: a listing that
+  re-read it per namespace per tick would turn a flat screen into a call storm
+  for a form that is usually closed. A runner that disconnects while the form is
+  open therefore leaves `servable?` stale — the controller's refusal is still
+  the authority, so that costs a failed attempt, not a wrong outcome.
+  """
+  def factory_catalog(namespace) do
+    with {:ok, factories} <- list_factories(namespace) do
+      {:ok, factories |> Enum.map(&factory_entry(namespace, &1)) |> Enum.sort_by(& &1.id)}
+    end
+  end
+
+  defp factory_entry(namespace, factory) do
+    id = identifier_id(factory)
+
+    runners =
+      namespace
+      |> runners_for_factory(id)
+      |> ok_or([])
+      |> Enum.map(&identifier_id/1)
+      |> Enum.sort()
+
+    %{
+      id: id,
+      description: factory_description(factory),
+      runners: runners,
+      servable?: runners != []
+    }
+  end
+
+  defp factory_description(%{description: description}), do: description
+  defp factory_description(%{"description" => description}), do: description
+  defp factory_description(_factory), do: nil
 
   @doc """
   Starts an operative. The spec is a plain atom-keyed map: the controller
@@ -663,6 +758,26 @@ defmodule FlezhaUi.Service.NodeManager do
     }
 
     erpc_call(Flezha, :start_operative, [namespace, operative])
+  end
+
+  @doc """
+  A form's typed init values as the spec map the controller takes, or the
+  message to put on the form.
+
+  Blank means no init values rather than invalid ones — every form offering
+  them treats an untouched field as `%{}`. Both forms that carry init values,
+  the operative launcher and the schedule form, decode them here so a document
+  one accepts is not one the other refuses.
+  """
+  def parse_init_values(raw) do
+    case String.trim(raw || "") do
+      "" ->
+        {:ok, %{}}
+
+      json ->
+        with {:error, _reason} <- Jason.decode(json),
+             do: {:error, "Init Values must be valid JSON."}
+    end
   end
 
   def stop_operative(namespace, operative_id) do

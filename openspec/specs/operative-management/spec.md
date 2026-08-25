@@ -49,12 +49,12 @@ The namespace detail screen SHALL list the namespace's operatives, its available
 
 ### Requirement: Operative lifecycle
 
-An operator SHALL be able to start an operative by supplying a namespace, id, factory id, kind, and init values, and SHALL be able to stop a running operative. Stopping SHALL require an explicit confirmation step.
+An operator SHALL be able to start an operative by supplying a namespace, id, factory id, kind, and init values, and SHALL be able to stop a running operative. Stopping SHALL require an explicit confirmation step. The start form SHALL be reachable from both a namespace's detail screen and the cross-namespace operatives index, and SHALL be one implementation rendered by both. The kind SHALL be chosen from the kinds the controller recognises, and the chosen kind SHALL be carried into the start call rather than defaulted.
 
 #### Scenario: Starting an operative succeeds
 
-- **WHEN** an operator submits a valid id, factory id, and init values
-- **THEN** the operative is started via `Flezha.start_operative/2`
+- **WHEN** an operator submits a valid id, factory id, kind, and init values
+- **THEN** the operative is started via `Flezha.start_operative/2` with the chosen kind
 - **AND** it appears in the namespace's operative list
 
 #### Scenario: Starting an operative is rejected by the controller
@@ -62,6 +62,40 @@ An operator SHALL be able to start an operative by supplying a namespace, id, fa
 - **WHEN** the controller rejects the start, for example a duplicate id or unknown factory
 - **THEN** the controller's reason is displayed on the form
 - **AND** no operative is created
+
+#### Scenario: Starting from the operatives index
+
+- **WHEN** an operator opens the start form from the operatives index
+- **THEN** the form offers a namespace to start into, chosen from the namespaces the bound token can reach
+- **AND** a successful start adds the operative to the index
+
+#### Scenario: Starting from a namespace screen
+
+- **WHEN** an operator opens the start form from a namespace's detail screen
+- **THEN** the namespace is that screen's namespace and is not asked for again
+
+#### Scenario: Choosing a kind
+
+- **WHEN** an operator opens the start form
+- **THEN** every kind the controller recognises is offered, with the capabilities that kind declares
+- **AND** a kind the controller does not recognise is not offered
+
+#### Scenario: The controller cannot answer which kinds it recognises
+
+- **WHEN** the controller is unreachable or does not expose its kind model
+- **THEN** the form still offers the kinds this UI knows, without capabilities
+
+#### Scenario: A workflow is started
+
+- **WHEN** an operator submits the start form with the `workflow` kind
+- **THEN** the operative is started as a workflow
+- **AND** the operatives index reports its kind as `workflow`
+
+#### Scenario: The form is incomplete
+
+- **WHEN** an operator submits with an empty id, an empty factory, or init values that are not valid JSON
+- **THEN** the form says which field is wrong
+- **AND** no start call is made
 
 #### Scenario: Stopping an operative
 
@@ -147,7 +181,7 @@ An operator SHALL be able to stream a running operative's input or output. The U
 
 ### Requirement: A cross-namespace operatives index
 
-The UI SHALL provide an operatives screen at `/operatives` listing every operative across every namespace the bound token can reach, showing operative id, namespace, factory, health, kind, node, runner, and plugin count, with the id linking to the operative's detail screen. The listing SHALL cost one `operative_rows/1` and one `operative_plugins/1` call per namespace, not one call per operative.
+The UI SHALL provide an operatives screen at `/operatives` listing every operative across every namespace the bound token can reach, showing operative id, namespace, factory, health, kind, node, runner, and plugin count, with the id linking to the operative's detail screen. The listing SHALL cost one `operative_rows/1` and one `operative_plugins/1` call per namespace, not one call per operative. The screen SHALL carry the control that starts an operative, and reading the listing SHALL cost no factory read — the factories are read only when the start form is opened.
 
 #### Scenario: Operatives exist across namespaces
 
@@ -159,10 +193,25 @@ The UI SHALL provide an operatives screen at `/operatives` listing every operati
 - **WHEN** an operator filters by namespace, health, or kind
 - **THEN** only matching operatives are listed
 
+#### Scenario: The kind filter offers the controller's kinds
+
+- **WHEN** an operator opens the kind filter
+- **THEN** its options are the kinds the controller recognises, the same list the start form offers
+
 #### Scenario: The index is reachable from the navigation
 
 - **WHEN** an operator looks at the sidebar
 - **THEN** an Operatives entry sits between Namespaces and Plugins
+
+#### Scenario: Starting is reachable from the index
+
+- **WHEN** an operator looks at the operatives screen
+- **THEN** a control to start an operative is present
+
+#### Scenario: The index does not read factories on its refresh tick
+
+- **WHEN** the operatives screen refreshes with the start form closed
+- **THEN** no factory listing call is made for any namespace
 
 #### Scenario: No operatives are running
 
@@ -197,4 +246,36 @@ A namespace holding partition group members SHALL present them as one group row 
 
 - **WHEN** an operator expands a group row
 - **THEN** each member is listed with its partition index, key-group range, runner, and health
+
+### Requirement: The registered factory catalog
+
+The UI SHALL read a namespace's registered factories together with the runners serving each, through one `FlezhaUi.Service.NodeManager` function used by every screen that names a factory. A factory SHALL be presented with its description and with whether any runner currently serves it. The catalog SHALL be read when a form that needs it is opened and when its namespace changes, and SHALL NOT be read on a screen's refresh tick.
+
+#### Scenario: Factories are registered and served
+
+- **WHEN** an operator opens a form offering factories in a namespace whose runners have registered them
+- **THEN** each factory id is offered with its description
+- **AND** the runners serving it are reported
+
+#### Scenario: A registered factory has no runner
+
+- **WHEN** a factory is registered in the namespace but no runner currently serves it
+- **THEN** it is offered and marked as served by no runner
+
+#### Scenario: The namespace has no factories
+
+- **WHEN** no runner has registered a factory in the namespace
+- **THEN** the factory selector says so rather than offering an empty list
+- **AND** the form cannot be submitted
+
+#### Scenario: The catalog cannot be read
+
+- **WHEN** the controller refuses or cannot answer the factory listing
+- **THEN** the form reports that factories could not be read
+- **AND** the operator may still type a factory id
+
+#### Scenario: One read serves every screen
+
+- **WHEN** the cluster screen, the namespace screen, and the schedule form each need a namespace's factories
+- **THEN** all three obtain them from the same `NodeManager` function
 
