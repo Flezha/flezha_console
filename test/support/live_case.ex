@@ -31,6 +31,7 @@ defmodule FlezhaUiWeb.LiveCase do
       use FlezhaUiWeb.ConnCase, async: false
 
       import Phoenix.LiveViewTest
+      import FlezhaUiWeb.LiveCase, only: [open_section: 2]
 
       alias FlezhaUi.PeerNode
       alias FlezhaUi.Service.NodeManager
@@ -50,5 +51,15 @@ defmodule FlezhaUiWeb.LiveCase do
         %{conn: log_in_user(conn, user), user: user}
       end
     end
+  end
+
+  @doc """
+  Unfolds one of a long screen's sections and answers the screen with it open.
+
+  The lower panels of the operative and namespace screens start folded, so a
+  test that reads one says so first — the same click an operator makes.
+  """
+  def open_section(view, key) do
+    Phoenix.LiveViewTest.render_click(view, "section_toggle", %{"key" => key})
   end
 end

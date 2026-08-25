@@ -1,4 +1,14 @@
 defmodule FlezhaUiWeb.PluginLive do
+  @moduledoc """
+  The plugins enabled across the controller, and what each is bound to.
+
+  The same screen serves one namespace at `/namespaces/:ns/plugins`. The
+  controller exposes no namespaced plugin call — `get_plugins/0` answers the
+  lot — so the scope is a filter over the namespace each enabled plugin already
+  carries, applied here. The screen says so, because a filtered count read as a
+  controller-side guarantee would be read wrong.
+  """
+
   use FlezhaUiWeb, :live_view
 
   use FlezhaUiWeb.Live.Refresh, every: 5_000
@@ -10,20 +20,33 @@ defmodule FlezhaUiWeb.PluginLive do
     {:ok,
      socket
      |> start_refresh()
-     |> assign(confirm_disable: nil, page_title: "Plugins")
-     |> refresh()}
+     |> assign(confirm_disable: nil, page_title: "Plugins")}
+  end
+
+  @impl true
+  def handle_params(_params, _uri, socket) do
+    title = Layouts.scoped_title("Plugins", socket.assigns.scoped_namespace)
+
+    {:noreply, socket |> assign(page_title: title) |> refresh()}
   end
 
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
     {catalog, catalog_error} = NodeManager.ok_or_error(NodeManager.installed_plugins(), [])
 
-    assign(socket,
-      plugins: load_plugins(),
+    socket
+    |> assign(
       available_providers: NodeManager.providers(),
       catalog: catalog,
       catalog_error: catalog_error
     )
+    |> assign_plugins()
+  end
+
+  defp assign_plugins(socket) do
+    plugins = NodeManager.in_namespace(load_plugins(), socket.assigns.scoped_namespace)
+
+    assign(socket, plugins: plugins)
   end
 
   @impl true
@@ -42,7 +65,8 @@ defmodule FlezhaUiWeb.PluginLive do
       {:ok, _} ->
         socket =
           socket
-          |> assign(confirm_disable: nil, plugins: load_plugins())
+          |> assign(confirm_disable: nil)
+          |> assign_plugins()
           |> put_flash(:info, "Plugin #{plugin_id} disabled.")
 
         {:noreply, socket}

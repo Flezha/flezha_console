@@ -170,6 +170,22 @@ defmodule FakeController do
     )
   end
 
+  @doc """
+  Answers the three calls every operative listing makes: which namespaces the
+  token reaches, each namespace's registry rows, and its plugin pairs.
+
+  Written once for the same reason `operative_row/1` is: the Fleet screen, a
+  namespace's own listing and the command palette all read the same three, and
+  a fixture per test module drifts one module at a time.
+  """
+  def set_fleet(node, opts) do
+    rows = Keyword.get(opts, :rows, %{})
+
+    set(node, {Flezha, :list_namespaces}, {:ok, Keyword.get(opts, :namespaces, Map.keys(rows))})
+    set(node, {Flezha.Service.HubManager, :operative_rows}, {:per_arg, 0, rows, []})
+    set(node, {Flezha.Service.HubManager, :operative_plugins}, Keyword.get(opts, :plugins, []))
+  end
+
   # ---- Run on the peer ----
 
   @doc false

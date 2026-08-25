@@ -203,6 +203,47 @@ export function chosen(page: Page, testid: string) {
 }
 
 /**
+ * Puts one of a long screen's sections into the state a spec needs, and waits
+ * for its body to follow.
+ *
+ * Idempotent, so a spec says what it needs on screen without having to know
+ * how it got there — a section a breached quota forced open is left alone.
+ */
+async function foldSection(page: Page, key: string, open: boolean): Promise<void> {
+  const toggle = page.getByTestId(`section-toggle-${key}`);
+  await expect(toggle).toBeVisible();
+
+  if ((await toggle.getAttribute('aria-expanded')) !== String(open)) {
+    await toggle.click();
+  }
+
+  const body = page.getByTestId(`section-body-${key}`);
+  await (open ? expect(body).toBeVisible() : expect(body).toHaveCount(0));
+}
+
+/** Unfolds a section, for a spec reading what is inside it. */
+export const openSection = (page: Page, key: string) => foldSection(page, key, true);
+
+/** Folds a section shut, for a spec asserting the choice is remembered. */
+export const closeSection = (page: Page, key: string) => foldSection(page, key, false);
+
+/**
+ * Flips the theme through the account menu, where the toggle now lives.
+ *
+ * The menu closes on the click, so the page is left as the spec found it.
+ */
+export async function toggleTheme(page: Page): Promise<void> {
+  await page.getByTestId('account-menu').click();
+  await page.locator('[data-flz-theme-toggle]').click();
+}
+
+/** Opens the command palette with the shortcut it is bound to. */
+export async function openPalette(page: Page): Promise<void> {
+  await page.keyboard.press('Control+k');
+  await expect(page.getByTestId('command-palette')).toBeVisible();
+}
+
+/**
  * `test` with a `live` helper bound to the page, so a spec reads
  * `await live('/audit')` instead of repeating the connect wait everywhere.
  */

@@ -1,4 +1,4 @@
-import { test, expect, testIds, type Page } from './fixtures';
+import { test, expect, openSection, testIds, type Page } from './fixtures';
 
 /**
  * Attaching and detaching every plugin provider the controller offers.
@@ -179,8 +179,10 @@ async function detach(page: Page, pluginId: string) {
 }
 
 test.describe('Plugin attachment', () => {
-  test.beforeEach(async ({ live }) => {
+  test.beforeEach(async ({ page, live }) => {
     await live(OPERATIVE_URL);
+    // The bindings table is one of the operative screen's folded sections.
+    await openSection(page, 'plugins');
   });
 
   test('discovers the providers the controller offers', async ({ page }) => {

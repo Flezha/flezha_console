@@ -1,8 +1,5 @@
 <div class="flex flex-col h-full space-y-4">
-  <.header
-    back={~p"/namespaces/#{@ns}/operatives/#{@operative_id}"}
-    class="flex-shrink-0"
-  >
+  <.header class="flex-shrink-0">
     Stream: <span class="font-mono text-base">{@operative_id}</span>
     <:actions>
       <%!-- IO type tabs --%>
@@ -26,6 +23,8 @@
       </div>
     </:actions>
   </.header>
+
+  <.operative_tabs ns={@ns} operative_id={@operative_id} current={:stream} />
 
   <%!-- Controls bar --%>
   <div class="flex items-center gap-3 flex-shrink-0">

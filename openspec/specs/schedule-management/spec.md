@@ -5,12 +5,32 @@ TBD - created by archiving change resync-with-flezha-runtime. Update Purpose aft
 ## Requirements
 ### Requirement: Schedule listing with live status
 
-The UI SHALL list persisted schedule entries with their name, cron expression, timezone, and target, joined with each entry's live job status from the schedule hub.
+The UI SHALL list persisted schedule entries with their name, cron expression, timezone, and target, joined with each entry's live job status from the schedule hub. The same LiveView SHALL additionally serve a namespace-scoped listing at `/namespaces/:ns/schedules`, filtering on the namespace each entry already carries. Because the controller exposes no namespaced schedule call, the scoped screen SHALL state that its scope is a view filter over the full listing rather than a controller-side scope.
 
 #### Scenario: Schedules exist
 
 - **WHEN** an operator opens the schedules screen
 - **THEN** each entry is listed with its cron expression, timezone, target, and current job status
+
+#### Scenario: A namespace's own schedules
+
+- **WHEN** an operator opens `/namespaces/:ns/schedules`
+- **THEN** only entries targeting that namespace are listed
+
+#### Scenario: The scope is honestly labelled
+
+- **WHEN** the scoped schedules screen is rendered
+- **THEN** it states that the namespace is applied as a view filter over the controller's full schedule listing
+
+#### Scenario: One LiveView serves both routes
+
+- **WHEN** the codebase is inspected
+- **THEN** `/schedules` and `/namespaces/:ns/schedules` are served by the same LiveView module
+
+#### Scenario: Creating a schedule under a namespace scope
+
+- **WHEN** an operator creates a schedule from a namespace-scoped screen
+- **THEN** the creation form's namespace defaults to the scoped namespace
 
 #### Scenario: An entry has no live job
 

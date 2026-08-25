@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, toggleTheme } from './fixtures';
 
 /**
  * The shared Flezha theme contract: `data-theme` on `<html>`, storage key
@@ -42,7 +42,7 @@ test.describe('Theme contract', () => {
     await page.evaluate(() => localStorage.setItem('flezha-theme', 'dark'));
     await live('/');
 
-    await page.locator('[data-flz-theme-toggle]').click();
+    await toggleTheme(page);
 
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     await expect
@@ -62,7 +62,7 @@ test.describe('Theme contract', () => {
     const sidebarDark = await bg('.flz-sidebar');
     const canvasDark = await bg('.flz-canvas');
 
-    await page.locator('[data-flz-theme-toggle]').click();
+    await toggleTheme(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 
     expect(await bg('.flz-sidebar'), 'chrome is theme-invariant').toBe(sidebarDark);
@@ -71,7 +71,7 @@ test.describe('Theme contract', () => {
 
   test('the choice survives live navigation and the toggle still works', async ({ page, live }) => {
     await live('/');
-    await page.locator('[data-flz-theme-toggle]').click();
+    await toggleTheme(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 
     await page.locator('.flz-sidebar-link[href="/namespaces"]').click();
@@ -84,7 +84,7 @@ test.describe('Theme contract', () => {
       'page',
     );
 
-    await page.locator('[data-flz-theme-toggle]').click();
+    await toggleTheme(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   });
 

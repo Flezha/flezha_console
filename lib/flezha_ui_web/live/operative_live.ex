@@ -10,6 +10,12 @@ defmodule FlezhaUiWeb.OperativeLive do
 
   use FlezhaUiWeb.Topology
 
+  # The graph and the operative's own facts are what the screen is for; the
+  # journal, the inbox, the SDK state and the bindings are what an operator
+  # goes looking for, so they start folded away.
+  use FlezhaUiWeb.Live.Sections,
+    open: %{"journal" => false, "inbox" => false, "sdk-state" => false, "plugins" => false}
+
   alias FlezhaUi.Service.NodeManager
   alias FlezhaUi.Service.StreamBridge
   alias FlezhaUiWeb.Topology
@@ -20,6 +26,7 @@ defmodule FlezhaUiWeb.OperativeLive do
       socket
       |> start_refresh()
       |> Topology.init()
+      |> sections_init()
       |> assign(
         ns: ns,
         operative_id: id,

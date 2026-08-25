@@ -116,7 +116,9 @@ defmodule FlezhaUiWeb.WorkflowLiveTest do
          ]}
       )
 
-      {:ok, _view, html} = live(conn, @url)
+      {:ok, view, _html} = live(conn, @url)
+
+      html = open_section(view, "journal")
 
       assert html =~ ~s(data-testid="journal-panel")
       assert html =~ ~s(data-testid="journal-entry-2")
@@ -134,7 +136,9 @@ defmodule FlezhaUiWeb.WorkflowLiveTest do
          [%{seq: 9, type: :parked, iter: 4, proc_idx: 0, payload: %{wake_deadline_ms: 4242}}]}
       )
 
-      {:ok, _view, html} = live(conn, @url)
+      {:ok, view, _html} = live(conn, @url)
+
+      html = open_section(view, "journal")
 
       assert html =~ ~s(data-testid="journal-parked-9")
       assert html =~ "4242"
@@ -146,7 +150,9 @@ defmodule FlezhaUiWeb.WorkflowLiveTest do
       FakeController.set(node, {ProcInbox, :last_offset}, 6)
       FakeController.set(node, {ProcJournal, :consumed_offset}, 4)
 
-      {:ok, _view, html} = live(conn, @url)
+      {:ok, view, _html} = live(conn, @url)
+
+      html = open_section(view, "inbox")
 
       assert html =~ ~s(data-testid="inbox-panel")
       assert html =~ ~s(data-testid="inbox-undelivered")
@@ -193,7 +199,9 @@ defmodule FlezhaUiWeb.WorkflowLiveTest do
            }}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "finished-instances")
 
       assert html =~ ~s(data-testid="finished-instances")
       assert html =~ ~s(data-testid="finished-row-op_done")
@@ -213,7 +221,9 @@ defmodule FlezhaUiWeb.WorkflowLiveTest do
            }}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "finished-instances")
 
       refute html =~ ~s(data-testid="finished-row-op_old")
       assert html =~ "No workflow instance has finished"

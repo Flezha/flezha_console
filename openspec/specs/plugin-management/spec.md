@@ -40,17 +40,37 @@ The UI SHALL populate the provider selector from the controller at runtime using
 
 ### Requirement: Plugin listing
 
-The UI SHALL list enabled plugins from `Flezha.Service.PluginManager.get_plugins/0`, showing each plugin's id, provider, namespace, operative, and subscribed extensions.
+The UI SHALL list enabled plugins from `Flezha.Service.PluginManager.get_plugins/0`, showing each plugin's id, provider, namespace, operative, and subscribed extensions. The same LiveView SHALL additionally serve a namespace-scoped listing at `/namespaces/:ns/plugins`, filtering on the namespace each enabled plugin already carries. Because the controller exposes no namespaced plugin call, the scoped screen SHALL state that its scope is a view filter over the full listing rather than a controller-side scope.
 
 #### Scenario: Plugins are enabled
 
 - **WHEN** an operator opens the plugins screen
 - **THEN** each enabled plugin is listed with its provider and subscribed extensions
 
+#### Scenario: A namespace's own plugins
+
+- **WHEN** an operator opens `/namespaces/:ns/plugins`
+- **THEN** only plugins bound to an operative in that namespace are listed
+
+#### Scenario: The scope is honestly labelled
+
+- **WHEN** the scoped plugins screen is rendered
+- **THEN** it states that the namespace is applied as a view filter over the controller's full plugin listing
+
+#### Scenario: One LiveView serves both routes
+
+- **WHEN** the codebase is inspected
+- **THEN** `/plugins` and `/namespaces/:ns/plugins` are served by the same LiveView module
+
 #### Scenario: A plugin is not bound to an operative
 
 - **WHEN** a listed plugin has no `operative_id`
 - **THEN** the operative column shows an explicit placeholder rather than an empty cell
+
+#### Scenario: An unbound plugin under a namespace scope
+
+- **WHEN** a plugin carries no namespace and a namespace scope is applied
+- **THEN** it is excluded from the scoped listing rather than shown under an arbitrary namespace
 
 ### Requirement: Plugin disabling has one path
 

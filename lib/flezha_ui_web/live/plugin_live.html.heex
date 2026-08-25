@@ -1,5 +1,17 @@
 <div class="space-y-6">
-  <.header>Plugins</.header>
+  <.header>
+    Plugins
+    <:subtitle :if={@scoped_namespace}>
+      Bound to an operative in <span class="flz-num">{@scoped_namespace}</span>.
+    </:subtitle>
+  </.header>
+
+  <.scope_notice
+    :if={@scoped_namespace}
+    scope={@scoped_namespace}
+    listing="plugin"
+    testid="plugin-scope-notice"
+  />
 
   <%!-- Available Providers Grid --%>
   <%= if @available_providers == [] do %>
@@ -75,8 +87,11 @@
   <h2 class="flz-modal-title pt-2">Active Plugins</h2>
 
   <%= if @plugins == [] do %>
-    <.empty_state icon="hero-puzzle-piece" boxed={true}>
-      No active plugins found.
+    <.empty_state icon="hero-puzzle-piece" boxed={true} testid="plugins-empty">
+      <span :if={@scoped_namespace}>
+        No active plugin is bound to an operative in {@scoped_namespace}.
+      </span>
+      <span :if={!@scoped_namespace}>No active plugins found.</span>
     </.empty_state>
   <% else %>
     <div class="flz-panel overflow-hidden">

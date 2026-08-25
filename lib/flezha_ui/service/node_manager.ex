@@ -660,6 +660,19 @@ defmodule FlezhaUi.Service.NodeManager do
     known ++ Enum.sort(Map.drop(counted, @health_kinds))
   end
 
+  @doc """
+  `rows` narrowed to one namespace, or left whole when there is no scope.
+
+  For the listings the controller answers globally — plugins, schedules —
+  whose rows each carry the namespace the call does not take. A row carrying
+  none is bound to nothing a scope can claim, so a scope excludes it rather
+  than filing it under an arbitrary namespace.
+  """
+  def in_namespace(rows, nil) when is_list(rows), do: rows
+
+  def in_namespace(rows, namespace) when is_list(rows),
+    do: Enum.filter(rows, &(to_string(&1.namespace) == namespace))
+
   @doc "The rows with no live node — placed nowhere, so serving nothing."
   def unplaced_rows(rows) when is_list(rows), do: Enum.filter(rows, &is_nil(&1[:node]))
 

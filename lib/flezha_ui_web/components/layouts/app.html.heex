@@ -5,20 +5,13 @@ authz =
     FlezhaUi.Accounts.Scope.flezha_token(assigns[:current_scope])
   )
 
-current_path = assigns[:current_path] || (assigns[:conn] && assigns[:conn].request_path) || "/"
+# The settings screens are plain controller pages sharing this shell, and a
+# LiveComponent cannot be mounted into one.
+live? = is_nil(assigns[:conn])
 
-nav = [
-  {~p"/", "hero-squares-2x2", "Dashboard"},
-  {~p"/namespaces", "hero-rectangle-stack", "Namespaces"},
-  {~p"/operatives", "hero-cpu-chip", "Operatives"},
-  {~p"/plugins", "hero-puzzle-piece", "Plugins"},
-  {~p"/cluster", "hero-server-stack", "Cluster"},
-  {~p"/observability", "hero-signal", "Observability"},
-  {~p"/controller", "hero-server", "Controller"},
-  {~p"/schedules", "hero-clock", "Schedules"},
-  {~p"/dlq", "hero-inbox-stack", "Dead-letter"},
-  {~p"/audit", "hero-document-text", "Audit log"}
-] %>
+current_path = assigns[:current_path] || (assigns[:conn] && assigns[:conn].request_path) || "/"
+scope = assigns[:scoped_namespace]
+namespaces = assigns[:shell_namespaces] || [] %>
 <div class="flz-app">
   <aside class="flz-sidebar">
     <.link navigate={~p"/"} class="flz-sidebar-brand">
@@ -26,14 +19,29 @@ nav = [
     </.link>
 
     <nav class="flz-sidebar-nav">
-      <.link
-        :for={{path, icon, label} <- nav}
-        navigate={path}
-        aria-current={nav_current?(current_path, path) && "page"}
-        class="flz-sidebar-link"
-      >
-        <.icon name={icon} class="w-4 h-4 shrink-0" />{label}
-      </.link>
+      <%= for section <- nav_sections(scope) do %>
+        <p
+          class="flz-sidebar-section"
+          data-current={
+            Enum.any?(section.entries, &nav_current?(current_path, &1.path)) && "true"
+          }
+        >
+          {section.heading}<span :if={section.scope} class="flz-num">{section.scope}</span>
+        </p>
+
+        <p :if={section.entries == []} class="flz-sidebar-hint" data-testid="no-namespace-scoped">
+          No namespace in scope. <.link navigate={~p"/namespaces"} class="underline">Pick one</.link>.
+        </p>
+
+        <.link
+          :for={entry <- section.entries}
+          navigate={entry.path}
+          aria-current={nav_current?(current_path, entry.path) && "page"}
+          class="flz-sidebar-link"
+        >
+          <.icon name={entry.icon} class="w-4 h-4 shrink-0" />{entry.label}
+        </.link>
+      <% end %>
     </nav>
 
     <div class="flz-sidebar-foot">
@@ -55,30 +63,74 @@ nav = [
         <span :if={!node} class="flz-topbar-muted flex items-center gap-1.5">
           <.status_dot connected?={false} /> Not connected
         </span>
+
+        <%!-- One meaning in both places: show me this namespace. --%>
+        <.menu :if={live?} id="namespace-picker" testid="namespace-picker" label="Namespace scope">
+          <:trigger>
+            <.icon name="hero-rectangle-stack" class="w-4 h-4" />
+            <span class="flz-num">{scope || "no namespace"}</span>
+          </:trigger>
+          <p :if={namespaces == []} class="flz-menu-item">
+            No namespace is reachable.
+          </p>
+          <.link
+            :for={name <- namespaces}
+            navigate={scope_target(current_path, name)}
+            aria-current={name == scope && "true"}
+            data-testid={"namespace-picker-#{name}"}
+            class="flz-menu-item flz-num"
+          >
+            {name}
+          </.link>
+        </.menu>
       </div>
-      <div class="flex items-center gap-4">
+
+      <div class="flex items-center gap-3">
+        <.liveness
+          :if={assigns[:refresh_interval]}
+          interval={@refresh_interval}
+          at={assigns[:refresh_at]}
+          paused={assigns[:refresh_paused] || false}
+        />
         <.authz_identity status={authz} />
-        <span class="flz-topbar-muted">
-          {assigns[:current_scope] && assigns[:current_scope].user &&
-            assigns[:current_scope].user.email}
-        </span>
-        <.link navigate={~p"/users/settings"}>Settings</.link>
-        <.link href={~p"/users/log-out"} method="delete">Log out</.link>
-        <button
-          type="button"
-          data-flz-theme-toggle
-          class="flz-chrome-icon-btn"
-          title="Toggle light/dark mode"
-          aria-label="Toggle light/dark mode"
-        >
-          <%!-- Sun in dark mode (switch to light), moon in light mode. --%>
-          <.icon name="hero-sun" class="w-4 h-4 show-in-dark" />
-          <.icon name="hero-moon" class="w-4 h-4 show-in-light" />
-        </button>
+
+        <.menu id="account-menu" testid="account-menu" label="Account">
+          <:trigger>
+            <.icon name="hero-user-circle" class="w-5 h-5" />
+          </:trigger>
+          <p class="flz-menu-item" data-testid="account-identity">
+            {assigns[:current_scope] && assigns[:current_scope].user &&
+              assigns[:current_scope].user.email}
+          </p>
+          <hr class="flz-menu-sep" />
+          <.link navigate={~p"/users/settings"} class="flz-menu-item">
+            <.icon name="hero-cog-6-tooth" class="w-4 h-4" /> Settings
+          </.link>
+          <button
+            type="button"
+            data-flz-theme-toggle
+            class="flz-menu-item"
+            title="Toggle light/dark mode"
+          >
+            <%!-- Sun in dark mode (switch to light), moon in light mode. --%>
+            <.icon name="hero-sun" class="w-4 h-4 show-in-dark" />
+            <.icon name="hero-moon" class="w-4 h-4 show-in-light" /> Toggle theme
+          </button>
+          <hr class="flz-menu-sep" />
+          <.link
+            href={~p"/users/log-out"}
+            method="delete"
+            class="flz-menu-item"
+            data-testid="log-out"
+          >
+            <.icon name="hero-arrow-right-start-on-rectangle" class="w-4 h-4" /> Log out
+          </.link>
+        </.menu>
       </div>
     </header>
 
     <main class="flz-canvas">
+      <.breadcrumb trail={assigns[:breadcrumbs] || []} />
       <.flash_group flash={@flash} />
       <.authz_banner status={authz} />
       <%= if assigns[:inner_block] do %>
@@ -89,3 +141,11 @@ nav = [
     </main>
   </div>
 </div>
+
+<.live_component
+  :if={live?}
+  module={FlezhaUiWeb.CommandPalette}
+  id={FlezhaUiWeb.CommandPalette.id()}
+  namespaces={namespaces}
+  scope={scope}
+/>

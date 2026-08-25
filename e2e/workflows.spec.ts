@@ -1,4 +1,4 @@
-import { test, expect, choose } from './fixtures';
+import { test, expect, choose, openSection } from './fixtures';
 
 /**
  * The workflow profile, journal and inbox, against the seeded instances.
@@ -33,6 +33,7 @@ test.describe('Workflow instances', () => {
     live,
   }) => {
     await live('/namespaces/default/operatives/testnet_chat');
+    await openSection(page, 'journal');
 
     await expect(page.getByTestId('journal-panel')).toBeVisible();
     await expect(page.getByTestId('journal-panel')).toContainText('committed iterations');
@@ -44,6 +45,7 @@ test.describe('Workflow instances', () => {
 
   test('the inbox reports its depth and offsets', async ({ page, live }) => {
     await live('/namespaces/default/operatives/testnet_chat');
+    await openSection(page, 'inbox');
 
     await expect(page.getByTestId('inbox-panel')).toBeVisible();
     await expect(page.getByTestId('inbox-undelivered')).toHaveText(/^\s*\d+\s*$/);
@@ -63,6 +65,7 @@ test.describe('Workflow instances', () => {
     live,
   }) => {
     await live('/namespaces/default');
+    await openSection(page, 'finished-instances');
 
     const finished = page.getByTestId('finished-instances');
     await expect(finished).toBeVisible();

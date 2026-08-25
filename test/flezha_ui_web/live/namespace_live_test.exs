@@ -256,7 +256,9 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "a complete group shows its member count and is not faulted", %{conn: conn, node: node} do
       with_group(node)
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "partition-groups")
 
       assert html =~ ~s(data-testid="partition-groups")
       assert html =~ ~s(data-testid="partition-group-orders")
@@ -268,7 +270,9 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "the group reports its sickest member's health", %{conn: conn, node: node} do
       with_group(node)
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "partition-groups")
 
       # The controller rolls this up; the screen renders what it answered.
       assert html =~ ~s(data-health="degraded")
@@ -280,7 +284,9 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     } do
       with_group(node)
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "partition-groups")
 
       assert html =~ "p0"
       assert html =~ "p1"
@@ -298,7 +304,9 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
         {:error, %{gaps: [{128, 255}], overlaps: []}}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "partition-groups")
 
       assert html =~ ~s(data-testid="group-faulted-orders")
       assert html =~ ~s(data-testid="group-coverage-orders")
@@ -315,7 +323,9 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
         {:error, %{gaps: [], overlaps: [{7, ["orders_p0", "orders_p1"]}]}}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "partition-groups")
 
       assert html =~ ~s(data-testid="group-faulted-orders")
       assert html =~ "claimed by orders_p0, orders_p1"
@@ -333,7 +343,9 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
         {:error, {:api_missing, Flezha.Partition, :coverage, 1}}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "partition-groups")
 
       assert html =~ "coverage unavailable"
       refute html =~ ~s(data-testid="group-faulted-orders")

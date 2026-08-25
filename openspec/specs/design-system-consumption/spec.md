@@ -91,15 +91,23 @@ AA floor in either theme.
 
 A component that another Flezha surface could reasonably reuse SHALL be added to
 `flezha-stylebook`'s component recipes, not to `flezha_ui`'s local stylesheet —
-application shell, sidebar, topbar, panel, table, stat tile, badge, modal, toast,
-code block, empty state. Component recipes SHALL be built from tokens that already
-exist wherever the existing palette can carry them.
+application shell, sidebar, sidebar section heading, topbar, breadcrumb trail,
+tab strip, collapsible section, command palette, menu, panel, table, stat tile,
+badge, modal, toast, code block, empty state. Component recipes SHALL be built
+from tokens that already exist wherever the existing palette can carry them.
 
 #### Scenario: The console needs an application shell
 
 - **WHEN** the sidebar-and-topbar shell and the data-dense recipes are written
 - **THEN** they live in `flezha-stylebook/css/components.css`, are documented in
   its README, and `flezha_ui` merely applies the classes
+
+#### Scenario: The console needs navigation recipes
+
+- **WHEN** the breadcrumb trail, sidebar section heading, tab strip, collapsible
+  section, command palette, and menu are written
+- **THEN** they live in `flezha-stylebook/css/components.css`, appear in its
+  README app-layer table, and `flezha_ui` merely applies the classes
 
 #### Scenario: A new recipe is added upstream
 

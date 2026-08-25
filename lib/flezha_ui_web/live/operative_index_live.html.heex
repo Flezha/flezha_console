@@ -1,9 +1,15 @@
 <div class="space-y-6">
   <.header>
-    Operatives
+    {screen_name(@scoped_namespace)}
+    <:subtitle :if={@scoped_namespace}>
+      Every operative in <span class="flz-num">{@scoped_namespace}</span>.
+    </:subtitle>
     <:actions>
       <span class="text-sm text-th-tertiary font-mono" data-testid="operatives-count">
-        {length(@rows)} across {length(@namespaces)} namespaces
+        <span :if={@scoped_namespace}>{length(@rows)} in {@scoped_namespace}</span>
+        <span :if={!@scoped_namespace}>
+          {length(@rows)} across {length(@namespaces)} namespaces
+        </span>
       </span>
       <.button phx-click="launcher_open" data-testid="start-operative-btn" icon="hero-plus">
         Start Operative
@@ -14,7 +20,15 @@
   <.runtime_error error={@load_error} action="the operative listing" />
 
   <form phx-change="filter" class="flex flex-wrap items-end gap-3">
-    <div>
+    <%!-- Scoped by the route, the namespace is the screen rather than one of
+          its controls, so it is stated rather than offered. --%>
+    <div :if={@scoped_namespace} class="flz-field">
+      <span class="flz-field-label">Namespace</span>
+      <p data-testid="fixed-namespace" class="flz-num text-sm text-th-primary py-2">
+        {@scoped_namespace}
+      </p>
+    </div>
+    <div :if={!@scoped_namespace}>
       <.dropdown
         label="Namespace"
         id="filter-namespace"
@@ -63,7 +77,10 @@
   <div class="flz-panel overflow-hidden">
     <%= if @rows == [] do %>
       <.empty_state icon="hero-cpu-chip" testid="operatives-empty">
-        No operatives are running in any reachable namespace.
+        <span :if={@scoped_namespace}>No operatives are running in {@scoped_namespace}.</span>
+        <span :if={!@scoped_namespace}>
+          No operatives are running in any reachable namespace.
+        </span>
       </.empty_state>
     <% else %>
       <table data-testid="operatives-index-table" class="flz-table">

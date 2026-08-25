@@ -30,7 +30,7 @@ The namespace listing SHALL union the declared namespaces from `Flezha.AuthZ.Nam
 
 ### Requirement: Quotas are shown against their live counters
 
-For each namespace the UI SHALL show every quota kind `Flezha.AuthZ.QuotaCounters.kinds/0` reports, pairing the effective limit from `Flezha.AuthZ.Quotas` with the current counter value, and SHALL make the headroom readable at a glance.
+For each namespace the UI SHALL show every quota kind `Flezha.AuthZ.QuotaCounters.kinds/0` reports, pairing the effective limit from `Flezha.AuthZ.Quotas` with the current counter value, and SHALL make the headroom readable at a glance. The namespace screen SHALL render quotas as a section that collapses. A namespace holding a breached quota SHALL open that section on a first visit regardless of the screen's declared defaults, so a breach is never hidden behind a click.
 
 #### Scenario: A namespace with quotas set
 
@@ -48,6 +48,11 @@ For each namespace the UI SHALL show every quota kind `Flezha.AuthZ.QuotaCounter
 - **WHEN** a counter has reached its limit
 - **THEN** the row is marked as breached
 - **AND** the breach is visible from the namespace listing without opening the namespace
+
+#### Scenario: A breach outranks the collapse default
+
+- **WHEN** an operator opens a namespace whose quota is breached
+- **THEN** the quota section is open without the operator expanding it
 
 ### Requirement: Namespace creation, deletion, and quota edits
 
@@ -83,12 +88,17 @@ An operator SHALL be able to create a namespace with quota overrides, change an 
 
 ### Requirement: Role bindings for a namespace are visible
 
-The namespace screen SHALL list the principals bound to the namespace, from `Flezha.AuthZ.RoleStore.list_for_namespace/1`, with each principal's role. The UI SHALL NOT bind or unbind roles.
+The namespace screen SHALL list the principals bound to the namespace, from `Flezha.AuthZ.RoleStore.list_for_namespace/1`, with each principal's role. The UI SHALL NOT bind or unbind roles. Role bindings SHALL be rendered as a section that collapses, whose header states how many principals are bound so the count is readable while the section is shut.
 
 #### Scenario: A namespace has bound principals
 
 - **WHEN** an operator opens a namespace with role bindings
 - **THEN** each bound principal and its role is listed
+
+#### Scenario: The count is readable while collapsed
+
+- **WHEN** the role bindings section is collapsed
+- **THEN** its header still states how many principals are bound
 
 #### Scenario: A namespace has no bound principals
 

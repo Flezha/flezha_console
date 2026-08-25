@@ -25,14 +25,45 @@ defmodule FlezhaUiWeb.Live.Refresh do
   `start_refresh/1`. It may also override `refresh_paused?/1` to skip a tick —
   screens with an open modal do, so a row cannot move under the operator
   between reading it and confirming.
+
+  Arming also states the screen's liveness: `:refresh_interval`, `:refresh_at`
+  and `:refresh_paused` are what the shell renders `liveness/1` from, so a
+  screen says it refreshes by refreshing rather than by remembering to say so.
   """
 
   @callback refresh(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   @callback refresh_paused?(Phoenix.LiveView.Socket.t()) :: boolean()
 
   @doc false
+  # The operator's pause is read here rather than in the default
+  # `refresh_paused?/1`, so a screen that overrides that callback to hold still
+  # for its own modal cannot drop the operator's pause by forgetting to call
+  # back into it.
   def tick(module, socket) do
-    if module.refresh_paused?(socket), do: socket, else: module.refresh(socket)
+    if socket.assigns[:refresh_paused] or module.refresh_paused?(socket) do
+      socket
+    else
+      socket |> module.refresh() |> mark_refreshed()
+    end
+  end
+
+  @doc false
+  def mark_refreshed(socket) do
+    Phoenix.Component.assign(socket, :refresh_at, DateTime.utc_now())
+  end
+
+  @doc """
+  Holds the screen still, or picks it back up.
+
+  Resuming refreshes at once rather than leaving the operator on stale rows
+  until the next tick. The timer itself is never cancelled — it reschedules
+  unconditionally — so nothing has to re-arm it.
+  """
+  def toggle_pause(socket, module) do
+    paused = not (socket.assigns[:refresh_paused] || false)
+    socket = Phoenix.Component.assign(socket, :refresh_paused, paused)
+
+    if paused, do: socket, else: tick(module, socket)
   end
 
   @doc """
@@ -57,6 +88,10 @@ defmodule FlezhaUiWeb.Live.Refresh do
         quote do
           def handle_info({:flezha_event, event, _data}, socket)
               when event in @refresh_events do
+            # The palette's operative index goes stale on exactly these events,
+            # and this is the only place the console hears them.
+            socket = FlezhaUiWeb.CommandPalette.invalidate(socket)
+
             {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket)}
           end
         end
@@ -77,7 +112,16 @@ defmodule FlezhaUiWeb.Live.Refresh do
       Does nothing on the dead render: there is no process there to deliver to.
       """
       def start_refresh(socket) do
-        socket = FlezhaUiWeb.Live.Refresh.assign_token(socket)
+        socket =
+          socket
+          |> FlezhaUiWeb.Live.Refresh.assign_token()
+          |> Phoenix.Component.assign(
+            refresh_interval: @refresh_interval,
+            refresh_paused: false
+          )
+          # Arming is immediately followed by the screen's own first load, so
+          # this is when what is on screen was read.
+          |> FlezhaUiWeb.Live.Refresh.mark_refreshed()
 
         if Phoenix.LiveView.connected?(socket) do
           if @refresh_events != [] do
@@ -99,6 +143,11 @@ defmodule FlezhaUiWeb.Live.Refresh do
       end
 
       unquote(relayed)
+
+      @impl Phoenix.LiveView
+      def handle_event("refresh_toggle", _params, socket) do
+        {:noreply, FlezhaUiWeb.Live.Refresh.toggle_pause(socket, __MODULE__)}
+      end
 
       @impl FlezhaUiWeb.Live.Refresh
       def refresh_paused?(_socket), do: false

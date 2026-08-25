@@ -11,6 +11,18 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   use FlezhaUiWeb.Topology
   use FlezhaUiWeb.Live.Launcher
 
+  # The namespace's own operatives are what the screen is for; everything that
+  # administers the namespace is folded away until asked for. A breached quota
+  # overrides that — see the `forced` section in the template.
+  use FlezhaUiWeb.Live.Sections,
+    open: %{
+      "quotas" => false,
+      "role-bindings" => false,
+      "partition-groups" => false,
+      "finished-instances" => false,
+      "runners" => false
+    }
+
   alias FlezhaUi.Service.NodeManager
   alias FlezhaUiWeb.Topology
 
@@ -21,6 +33,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       |> start_refresh()
       |> Topology.init()
       |> launcher_init(ns)
+      |> sections_init()
       |> assign(
         ns: ns,
         page_title: ns,
@@ -186,6 +199,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     groups = NodeManager.partition_groups(decorated)
 
     declared = NodeManager.ok_or(NodeManager.declared_namespace(ns), nil)
+    quotas = NodeManager.quota_usage(ns, declared && declared.quotas)
 
     socket
     |> assign(
@@ -194,7 +208,10 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       groups: groups,
       runners: NodeManager.ok_or(NodeManager.list_runners(ns), []),
       declared: declared,
-      quotas: NodeManager.quota_usage(ns, declared && declared.quotas),
+      quotas: quotas,
+      # A breach is never hidden behind a click, so it outranks the screen's
+      # own collapse default and whatever the viewer last chose.
+      quota_breached: Enum.any?(quotas, & &1.breached?),
       role_bindings: NodeManager.ok_or(NodeManager.role_bindings(ns), []),
       load_error: load_error
     )

@@ -1,5 +1,5 @@
 <div class="space-y-6">
-  <.header back={~p"/namespaces/#{@ns}"} mono>
+  <.header mono>
     {@operative_id}
     <:actions>
       <button
@@ -10,6 +10,8 @@
       </button>
     </:actions>
   </.header>
+
+  <.operative_tabs ns={@ns} operative_id={@operative_id} current={:detail} />
 
   <.runtime_error error={@load_error} />
 
@@ -175,64 +177,62 @@
   </div>
 
   <%!-- Completion record: a finished instance is not in the registry at all --%>
-  <div
-    :if={@completion}
-    data-testid="completion-record"
-    class="flz-panel p-5 space-y-2"
-  >
-    <div class="flex items-center gap-2">
-      <.icon name="hero-flag" class="w-4 h-4 text-th-tertiary" />
-      <h2 class="flz-panel-title">
-        Finished instance
-      </h2>
+  <.panel :if={@completion} testid="completion-record" icon="hero-flag">
+    <:title>Finished instance</:title>
+    <div class="flz-panel-body space-y-2">
+      <dl class="grid grid-cols-3 gap-4 text-sm">
+        <.stat label="Status">{@completion[:status] || "—"}</.stat>
+        <.stat label="Finished at">{Format.token_expiry(@completion[:finished_at])}</.stat>
+        <.stat
+          :if={@completion[:error] not in [nil, ""]}
+          label="Error"
+          tone="text-danger-text font-mono"
+        >
+          {@completion[:error]}
+        </.stat>
+      </dl>
+      <p class="text-xs text-th-muted">
+        This instance has completed and is retained only until its window expires. Actions that
+        need a live operative are not offered.
+      </p>
     </div>
-    <dl class="grid grid-cols-3 gap-4 text-sm">
-      <.stat label="Status">{@completion[:status] || "—"}</.stat>
-      <.stat label="Finished at">{Format.token_expiry(@completion[:finished_at])}</.stat>
-      <.stat
-        :if={@completion[:error] not in [nil, ""]}
-        label="Error"
-        tone="text-danger-text font-mono"
-      >
-        {@completion[:error]}
-      </.stat>
-    </dl>
-    <p class="text-xs text-th-muted">
-      This instance has completed and is retained only until its window expires. Actions that need
-      a live operative are not offered.
-    </p>
-  </div>
+  </.panel>
 
   <%!-- Workflow profile --%>
-  <div
+  <.panel
     :if={@kind == :workflow}
-    data-testid="workflow-panel"
-    class="flz-panel p-5"
+    testid="workflow-panel"
+    icon="hero-arrow-path-rounded-square"
   >
-    <div class="flex items-center gap-2 mb-4">
-      <.icon name="hero-arrow-path-rounded-square" class="w-4 h-4 text-th-tertiary" />
-      <h2 class="flz-panel-title">Workflow</h2>
+    <:title>Workflow</:title>
+    <div class="flz-panel-body">
+      <dl class="grid grid-cols-3 gap-4 text-sm">
+        <.stat label="Durable" testid="workflow-durable">
+          {if @durable_workflow, do: "yes", else: "no"}
+        </.stat>
+        <.stat label="Effectively once">{if @effectively_once, do: "yes", else: "no"}</.stat>
+        <.stat label="Correction window" testid="workflow-correction-window">
+          {Format.duration(@correction_window_ms)}
+        </.stat>
+        <.stat label="Arrived via hotswap">
+          {if @arrived_via_hotswap?, do: "yes", else: "no"}
+        </.stat>
+        <.stat label="Suspended">{if @suspended, do: "yes", else: "no"}</.stat>
+      </dl>
+      <.notice :if={@init_error} kind={:error} testid="workflow-init-error" class="mt-4">
+        This instance failed to initialise: {inspect(@init_error)}
+      </.notice>
     </div>
-    <dl class="grid grid-cols-3 gap-4 text-sm">
-      <.stat label="Durable" testid="workflow-durable">
-        {if @durable_workflow, do: "yes", else: "no"}
-      </.stat>
-      <.stat label="Effectively once">{if @effectively_once, do: "yes", else: "no"}</.stat>
-      <.stat label="Correction window" testid="workflow-correction-window">
-        {Format.duration(@correction_window_ms)}
-      </.stat>
-      <.stat label="Arrived via hotswap">
-        {if @arrived_via_hotswap?, do: "yes", else: "no"}
-      </.stat>
-      <.stat label="Suspended">{if @suspended, do: "yes", else: "no"}</.stat>
-    </dl>
-    <.notice :if={@init_error} kind={:error} testid="workflow-init-error" class="mt-4">
-      This instance failed to initialise: {inspect(@init_error)}
-    </.notice>
-  </div>
+  </.panel>
 
   <%!-- Proc journal, durable workflows only --%>
-  <.panel :if={@journal} testid="journal-panel" icon="hero-book-open">
+  <.panel
+    :if={@journal}
+    fold="journal"
+    open={@sections["journal"]}
+    testid="journal-panel"
+    icon="hero-book-open"
+  >
     <:title>Proc journal</:title>
     <:actions>
       <button
@@ -281,34 +281,23 @@
   </.panel>
 
   <%!-- Proc inbox --%>
-  <div
+  <.panel
     :if={@inbox}
-    data-testid="inbox-panel"
-    class="flz-panel p-5"
+    fold="inbox"
+    open={@sections["inbox"]}
+    testid="inbox-panel"
+    icon="hero-inbox"
   >
-    <div class="flex items-center gap-2 mb-4">
-      <.icon name="hero-inbox" class="w-4 h-4 text-th-tertiary" />
-      <h2 class="flz-panel-title">Proc inbox</h2>
-    </div>
-    <dl class="grid grid-cols-3 gap-4 text-sm">
+    <:title>Proc inbox</:title>
+    <dl class="flz-panel-body grid grid-cols-3 gap-4 text-sm">
       <.stat label="Undelivered" testid="inbox-undelivered">{@inbox.undelivered}</.stat>
       <.stat label="Last offset" testid="inbox-last-offset">{@inbox.last_offset || "—"}</.stat>
       <.stat label="Consumed offset">{@inbox.consumed_offset || "—"}</.stat>
     </dl>
-  </div>
-
-  <div class="flex justify-end">
-    <.link
-      navigate={~p"/namespaces/#{@ns}/operatives/#{@operative_id}/state"}
-      data-testid="operative-state-link"
-      class="text-sm text-accent-text hover:text-accent transition-colors"
-    >
-      Durable state &rarr;
-    </.link>
-  </div>
+  </.panel>
 
   <%!-- SDK State Panel --%>
-  <.panel icon="hero-code-bracket">
+  <.panel fold="sdk-state" open={@sections["sdk-state"]} icon="hero-code-bracket">
     <:title>SDK State</:title>
     <:actions>
       <button
@@ -371,7 +360,7 @@
   </.panel>
 
   <%!-- Bindings / Plugins Panel --%>
-  <.panel icon="hero-puzzle-piece">
+  <.panel fold="plugins" open={@sections["plugins"]} icon="hero-puzzle-piece">
     <:title>Plugins / Bindings</:title>
     <:actions>
       <button
@@ -421,24 +410,6 @@
       </table>
     <% end %>
   </.panel>
-
-  <%!-- Stream links --%>
-  <div class="flz-panel p-5">
-    <div class="flex items-center gap-2 mb-3">
-      <.icon name="hero-signal" class="w-4 h-4 text-th-tertiary" />
-      <h2 class="flz-panel-title">
-        Stream Viewer
-      </h2>
-    </div>
-    <div class="flex gap-3">
-      <.link
-        navigate={~p"/namespaces/#{@ns}/operatives/#{@operative_id}/stream"}
-        class="flz-button flz-button--md"
-      >
-        <.icon name="hero-signal" class="w-4 h-4" /> Watch Stream
-      </.link>
-    </div>
-  </div>
 </div>
 
 <.confirm_dialog

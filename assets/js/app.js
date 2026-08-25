@@ -22,6 +22,61 @@ Hooks.FlzDropdown = {
   updated() { initDropdowns(this.el) }
 }
 
+// A section's fold state is a viewer preference, not application state, so it
+// lives in this browser. The server still owns what is rendered — the hook
+// reads the stored choice on mount and asks for it; any storage failure leaves
+// the screen's declared default standing.
+Hooks.FlzSection = {
+  mounted() {
+    if (this.el.dataset.sectionForced === "true") { return }
+    const stored = this.stored()
+    if (stored !== null && stored !== this.isOpen()) {
+      this.pushEvent("section_toggle", {key: this.el.dataset.sectionKey})
+    }
+  },
+  // A section the screen forced open — a breached quota — is not the viewer's
+  // choice, so it is neither restored from storage nor written back to it.
+  updated() { if (this.el.dataset.sectionForced !== "true") { this.remember() } },
+  isOpen() { return this.el.dataset.open === "true" },
+  storageKey() { return `flz-section:${this.el.dataset.sectionKey}` },
+  stored() {
+    try {
+      const raw = window.localStorage.getItem(this.storageKey())
+      return raw === null ? null : raw === "true"
+    } catch (_error) { return null }
+  },
+  remember() {
+    try { window.localStorage.setItem(this.storageKey(), String(this.isOpen())) } catch (_error) {}
+  }
+}
+
+// The palette's keyboard. Bound on the window so it reaches the operator
+// wherever they are, and stood down while they are typing into something —
+// Ctrl+K belongs to the field that has focus.
+Hooks.FlzPalette = {
+  mounted() {
+    this.onKeydown = event => {
+      if (event.key === "Escape" && this.el.dataset.open === "true") {
+        this.pushEventTo(this.el, "close", {})
+        return
+      }
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") { return }
+      if (this.typing(event.target)) { return }
+      event.preventDefault()
+      this.pushEventTo(this.el, "open", {})
+    }
+    window.addEventListener("keydown", this.onKeydown)
+  },
+  updated() {
+    const input = this.el.querySelector(".flz-palette-input")
+    if (input && document.activeElement !== input) { input.focus() }
+  },
+  destroyed() { window.removeEventListener("keydown", this.onKeydown) },
+  typing(el) {
+    return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)
+  }
+}
+
 Hooks.ScrollBottom = {
   mounted() {
     this.scrollToBottom()
@@ -65,8 +120,15 @@ window.liveSocket = liveSocket
 
 initTabs()
 bindThemeToggles()
+// The account menu also hangs in the shell of the plain controller pages, which
+// have no LiveView to run the FlzDropdown hook for them.
+initDropdowns()
 
 // Re-binding is idempotent: the DOM ignores a listener already registered with
-// the same function reference, and toggleTheme is module-level. The sidebar's
-// current destination is marked server-side, so nothing else to re-run here.
-window.addEventListener("phx:page-loading-stop", () => bindThemeToggles())
+// the same function reference, toggleTheme is module-level, and initDropdowns
+// skips a container it has already wired. The sidebar's current destination is
+// marked server-side, so nothing else to re-run here.
+window.addEventListener("phx:page-loading-stop", () => {
+  bindThemeToggles()
+  initDropdowns()
+})

@@ -26,10 +26,15 @@ defmodule FlezhaUiWeb.OperativeIndexLiveTest do
   end
 
   defp with_fleet(node, opts) do
-    FakeController.set(node, {Flezha, :list_namespaces}, {:ok, opts[:namespaces] || ["default"]})
-    FakeController.set(node, {HubManager, :operative_rows}, opts[:rows] || [])
+    namespaces = opts[:namespaces] || ["default"]
+
+    FakeController.set_fleet(node,
+      namespaces: namespaces,
+      rows: Map.new(namespaces, &{&1, opts[:rows] || []}),
+      plugins: opts[:plugins] || []
+    )
+
     FakeController.set(node, {HubManager, :get_registry}, {:ok, registry(opts[:kinds] || [])})
-    FakeController.set(node, {HubManager, :operative_plugins}, opts[:plugins] || [])
   end
 
   defp start_form(overrides) do

@@ -1,5 +1,5 @@
 <div class="space-y-6">
-  <.header back={~p"/namespaces"} mono>
+  <.header mono>
     {@ns}
     <:actions>
       <.button phx-click="launcher_open" data-testid="start-operative-btn" icon="hero-plus">
@@ -13,8 +13,17 @@
   <.fleet_summary topology={@topology} />
 
   <%!-- Quotas --%>
-  <.panel testid="quota-panel" icon="hero-chart-bar" class="overflow-hidden">
-    <:title>Quotas</:title>
+  <.panel
+    fold="quotas"
+    open={@sections["quotas"] or @quota_breached}
+    forced={@quota_breached}
+    testid="quota-panel"
+    icon="hero-chart-bar"
+    class="overflow-hidden"
+  >
+    <:title>
+      Quotas <span :if={@quota_breached} class="flz-badge flz-badge--negative">breached</span>
+    </:title>
     <:actions>
       <button
         :if={@declared}
@@ -76,7 +85,13 @@
   </.panel>
 
   <%!-- Role bindings, read-only --%>
-  <.panel testid="role-bindings" icon="hero-key" class="overflow-hidden">
+  <.panel
+    fold="role-bindings"
+    open={@sections["role-bindings"]}
+    testid="role-bindings"
+    icon="hero-key"
+    class="overflow-hidden"
+  >
     <:title>Role bindings ({length(@role_bindings)})</:title>
     <%= if @role_bindings == [] do %>
       <.empty_state icon="hero-key" testid="role-bindings-empty">
@@ -172,6 +187,8 @@
   <%!-- Partition groups panel --%>
   <.panel
     :if={@groups != []}
+    fold="partition-groups"
+    open={@sections["partition-groups"]}
     testid="partition-groups"
     icon="hero-squares-plus"
     class="overflow-hidden"
@@ -266,7 +283,13 @@
   </.panel>
 
   <%!-- Finished instances: retained completions, not live operatives --%>
-  <.panel testid="finished-instances" icon="hero-flag" class="overflow-hidden">
+  <.panel
+    fold="finished-instances"
+    open={@sections["finished-instances"]}
+    testid="finished-instances"
+    icon="hero-flag"
+    class="overflow-hidden"
+  >
     <:title>Finished instances ({length(@finished)})</:title>
     <:actions>
       <button
@@ -320,7 +343,13 @@
   </.panel>
 
   <%!-- Runners panel --%>
-  <.panel icon="hero-server-stack" class="overflow-hidden">
+  <.panel
+    fold="runners"
+    open={@sections["runners"]}
+    testid="runners-panel"
+    icon="hero-server-stack"
+    class="overflow-hidden"
+  >
     <:title>Runners ({length(@runners)})</:title>
     <%= if @runners == [] do %>
       <.empty_state icon="hero-server-stack">No runners connected.</.empty_state>

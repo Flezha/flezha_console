@@ -1,6 +1,9 @@
 <div class="space-y-6">
   <.header>
     Schedules
+    <:subtitle :if={@scoped_namespace}>
+      Targeting <span class="flz-num">{@scoped_namespace}</span>.
+    </:subtitle>
     <:actions>
       <button
         phx-click="open_form"
@@ -14,12 +17,20 @@
 
   <.runtime_error error={@load_error} />
 
+  <.scope_notice
+    :if={@scoped_namespace}
+    scope={@scoped_namespace}
+    listing="schedule"
+    testid="schedule-scope-notice"
+  />
+
   <.panel icon="hero-clock" class="overflow-hidden">
     <:title>Entries ({length(@schedules)})</:title>
 
     <%= if @schedules == [] do %>
       <.empty_state icon="hero-clock" testid="schedule-empty">
-        No schedule has been created.
+        <span :if={@scoped_namespace}>No schedule targets {@scoped_namespace}.</span>
+        <span :if={!@scoped_namespace}>No schedule has been created.</span>
       </.empty_state>
     <% else %>
       <div class="overflow-x-auto">

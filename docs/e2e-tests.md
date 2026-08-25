@@ -24,7 +24,9 @@ in milliseconds.
 
 Put it in **Playwright** when only a real browser can observe it: a `phx-click`
 actually binding, a modal being visible and clickable, a JS hook running,
-navigation between screens, a provider form the controller really accepts.
+navigation between screens, a provider form the controller really accepts, a
+keyboard shortcut reaching the page, a preference surviving a reload, or a
+browser refusing to store one.
 
 **A browser spec never branches on discovered state.** If an assertion needs an
 `if (present)` guard, that is the signal it belongs in ExUnit. The suite this
@@ -45,7 +47,10 @@ e2e/
   fixtures.ts       `test` extended with `live()` — navigate + wait for the
                     LiveView — plus `startOperative()`/`stopOperative()`, since
                     one launcher serves two screens and driving it twice would
-                    stop catching the drift it exists to prevent
+                    stop catching the drift it exists to prevent; and the shell
+                    helpers `openSection()`/`closeSection()` (a screen's folded
+                    panels), `toggleTheme()` (the toggle lives in the account
+                    menu) and `openPalette()`
   login.spec.ts     the form itself, with no stored session
   dashboard.spec.ts namespaces.spec.ts stream.spec.ts
   audit.spec.ts cluster.spec.ts dlq.spec.ts schedules.spec.ts
@@ -58,6 +63,9 @@ e2e/
   controller-health.spec.ts  durability posture, shutdown, boot, memory
   observability.spec.ts      sources, sinks, toggles, the live tail
   operative-state.spec.ts    durable entities and point-in-time reads
+  console-navigation.spec.ts the shell: the two-section rail, the scope in the
+                             route, breadcrumbs, an operative's tabs, the
+                             palette's keyboard, a fold surviving a reload
 playwright.config.ts
 ```
 

@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, openSection } from './fixtures';
 
 /**
  * Namespaces as declared objects: quota meters against live counters, and the
@@ -11,6 +11,7 @@ import { test, expect } from './fixtures';
 test.describe('Namespace administration', () => {
   test('quota meters render against the controller’s live counters', async ({ page, live }) => {
     await live('/namespaces/default');
+    await openSection(page, 'quotas');
 
     await expect(page.getByTestId('quota-panel')).toBeVisible();
     // Declared, so limits apply and the "no declaration" state is absent.
@@ -26,6 +27,7 @@ test.describe('Namespace administration', () => {
 
   test('role bindings are listed read-only, naming flz for the write', async ({ page, live }) => {
     await live('/namespaces/default');
+    await openSection(page, 'role-bindings');
 
     await expect(page.getByTestId('role-bindings')).toBeVisible();
 
@@ -60,6 +62,7 @@ test.describe('Namespace administration', () => {
 
     // The quota override reached the controller.
     await live(`/namespaces/${name}`);
+    await openSection(page, 'quotas');
     await expect(page.getByTestId('quota-operatives')).toContainText('of 7');
 
     await live('/namespaces');

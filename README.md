@@ -29,13 +29,20 @@ The UI uses the controller's terms exactly. If a name here disagrees with
 
 ## Screens
 
+A route carrying a namespace is scoped to it; the rest are platform-global.
+The three scoped listings are the *same* LiveViews as their platform twins,
+reading the namespace from the path instead of from a filter control.
+
 | Route | Shows |
 | --- | --- |
 | `/` | Connected controller, counts with a health breakdown, runners, namespace links |
 | `/namespaces` | Declared and running namespaces, their counts, and quota breaches |
-| `/namespaces/:ns` | Operatives with health, partition groups and coverage, quotas, role bindings, finished instances |
-| `/operatives` | Every operative across every reachable namespace, filterable by namespace, health and kind; starts one into any of them |
-| `/namespaces/:ns/operatives/:id` | Kind, runner, factory, uptime, health, node, workflow profile, journal, inbox, entity state, plugins |
+| `/namespaces/:ns` | Operatives with health; quotas, role bindings, partition groups, finished instances and runners as sections that fold |
+| `/namespaces/:ns/operatives` | That namespace's operatives, its scope fixed rather than filterable |
+| `/namespaces/:ns/plugins` | Plugins bound to an operative in that namespace |
+| `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
+| `/operatives` | **Fleet** — every operative across every reachable namespace, filterable by namespace, health and kind; starts one into any of them |
+| `/namespaces/:ns/operatives/:id` | Kind, runner, factory, uptime, health, node, workflow profile; journal, inbox, entity state and plugins as sections that fold |
 | `/namespaces/:ns/operatives/:id/state` | Durable entities with their WAL/snapshot sequences and durability lag; point-in-time reads |
 | `/namespaces/:ns/operatives/:id/stream` | Live input/output stream |
 | `/plugins` | Enabled plugins, and the catalog installed on the controller |
@@ -45,6 +52,47 @@ The UI uses the controller's terms exactly. If a name here disagrees with
 | `/schedules` | Cron schedules with live job status and next fire |
 | `/dlq` | Parked dead-letter entries grouped by procedure; inspect, replay, drop |
 | `/audit` | Audit file catalog, filtered reads, live tail |
+
+## Getting around
+
+The shell models the domain it controls: some concerns are scoped to a
+namespace and some are not, and it says which is which.
+
+- **The rail is two labelled sections.** `NAMESPACE` holds Overview,
+  Operatives, Plugins and Schedules; `PLATFORM` holds Dashboard, Fleet,
+  Namespaces, Cluster, Controller, Observability, Dead-letter and Audit. A
+  screen is in the first only when the controller call behind it takes a
+  namespace, or the rows it returns each carry one — which is why Dead-letter
+  (keyed by operative class) and Observability (namespace-less) stay in the
+  second. With nothing in scope the first section says so instead of offering
+  destinations it has no scope to point at.
+- **Scope lives in the URL, never in the session.** `FlezhaUiWeb.Layouts`
+  reads it back out of the path on every navigation, so the rail, the picker
+  and the screen cannot disagree, and a pasted link opens the scope it names.
+- **The namespace picker means one thing in both places**: show me this
+  namespace. From a scoped screen it re-navigates to the same screen kind under
+  the new scope; from a platform screen, to that namespace's overview.
+- **Breadcrumbs are derived from the route, once**, in the same `on_mount` hook
+  that marks the current destination — not assembled per screen. There is no
+  back arrow.
+- **An operative's Detail, Stream and State are a tab strip on the object**,
+  and each stays its own route: Stream holds a live subscription, State does
+  point-in-time reads, Detail polls overwatch. They are three processes with
+  three lifecycles, and collapsing them would leave a stream attached while the
+  operator reads something else.
+- **`⌘K` / `Ctrl+K` opens a command palette** that reaches an operative by id, a
+  namespace by name, or any screen by name. Its screen index is the rail's own
+  list, so it can offer nothing the rail does not. The operative index is read
+  on first open — never on mount — and dropped again on the same lifecycle
+  events the screens refresh on.
+- **A long screen opens on what it is for** and folds the rest away. Which
+  sections start open is the screen's own declaration; the viewer's last choice
+  is restored over it from `localStorage`, and a browser that refuses to store
+  anything leaves the declared defaults standing. A breached quota outranks
+  both and opens its section regardless.
+- **Every screen that refreshes says so** — its interval, when it last did, and
+  a control to hold it still. Pausing is the operator's; a screen that already
+  suspends its tick for an open modal still does, independently.
 
 ## Dev setup
 
@@ -179,8 +227,8 @@ Flezha group's design system. This repository defines **no colours of its own**
   key `flezha-theme`, dark by default, no `prefers-color-scheme` fallback. The
   stylebook's `theme-hydrate.js` is inlined in `<head>` at compile time, so the
   attribute is set before the first paint and there is no flash of the wrong
-  theme. The topbar control is `<button data-flz-theme-toggle>`, bound by the
-  stylebook's own `bindThemeToggles()`.
+  theme. The control is `<button data-flz-theme-toggle>` inside the account
+  menu, bound by the stylebook's own `bindThemeToggles()`.
 - **Chrome is theme-invariant.** The sidebar and topbar stay deep plum in both
   themes with gold marking hover and the current destination; only the content
   canvas flips.
@@ -191,9 +239,11 @@ Flezha group's design system. This repository defines **no colours of its own**
 - **Controls come from one vocabulary.** Text inputs, selects, textareas,
   checkboxes and the dropdown trigger are all skinned by the stylebook's
   `base.css`, so they are the same box; labels, hints and errors are
-  `.flz-field-*`. A picker whose menu needs styling — a filter, the namespace
-  switch — is a `<.dropdown>` (a menu button, since the OS draws a `select`'s
-  menu and it cannot be themed); a `select` stays the control inside a dialog.
+  `.flz-field-*`. A picker whose menu needs styling — a filter — is a
+  `<.dropdown>` (a menu button, since the OS draws a `select`'s menu and it
+  cannot be themed); a `select` stays the control inside a dialog. A panel of
+  *actions* rather than values — the account controls, the namespace to scope
+  to — is a `<.menu>`, which shares the same panel and the same open/close hook.
   An exclusive pair or triple is `.flz-segmented`.
 - **Every labelled control is `<.input>`**, the one field component in
   `FlezhaUiWeb.CoreComponents`. It renders the label, the control, the hint and
@@ -230,13 +280,15 @@ own expiry — and a refused call evicts the entry, so a revoked token stops
 working within one call rather than one cache lifetime.
 
 Behaviour shared across screens is a `use`-able module rather than a copied
-block: `FlezhaUiWeb.Live.Refresh` (the tick and the relayed events),
-`FlezhaUiWeb.Live.Tail` (a controller-resident tail), `FlezhaUiWeb.Topology`
-(the pipeline graph and fleet summary), `FlezhaUiWeb.Live.Launcher` (starting an
-operative, rendered by both `/namespaces/:ns` and `/operatives`) and
-`FlezhaUiWeb.Live.Target` (the namespace and factory a write is aimed at, shared
-by the launcher and the schedule form). A write path implemented twice drifts,
-and the half that drifts is the one nobody is looking at.
+block: `FlezhaUiWeb.Live.Refresh` (the tick, the relayed events, and what a
+screen says about its own currency), `FlezhaUiWeb.Live.Tail` (a
+controller-resident tail), `FlezhaUiWeb.Topology` (the pipeline graph and fleet
+summary), `FlezhaUiWeb.Live.Launcher` (starting an operative, rendered by both
+`/namespaces/:ns` and `/operatives`), `FlezhaUiWeb.Live.Target` (the namespace
+and factory a write is aimed at, shared by the launcher and the schedule form)
+and `FlezhaUiWeb.Live.Sections` (which of a long screen's panels are open). A
+write path implemented twice drifts, and the half that drifts is the one nobody
+is looking at.
 
 Subscriptions are different. The controller's event bus, audit tail and
 observability tail all register the *calling* process, and an `:erpc` call runs

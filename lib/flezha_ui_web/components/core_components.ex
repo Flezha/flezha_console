@@ -23,6 +23,7 @@ defmodule FlezhaUiWeb.CoreComponents do
     router: FlezhaUiWeb.Router,
     statics: FlezhaUiWeb.static_paths()
 
+  alias FlezhaUi.Format
   alias Phoenix.LiveView.JS
 
   @doc """
@@ -366,29 +367,91 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   Every panel on every screen is drawn here, so the chrome is one decision
   rather than one per section.
+
+  Naming a `fold` turns the title into the control that folds the panel shut —
+  what the lower reaches of a long screen open on. The open state is the
+  screen's own assign (`FlezhaUiWeb.Live.Sections`) so the server renders the
+  truth on first paint; the `FlzSection` hook restores the viewer's own last
+  choice over it. Whatever the head carries beside the title stays its own
+  control, outside the fold button.
+
+      <.panel fold="journal" open={@sections["journal"]} icon="hero-book-open">
+        <:title>Proc journal</:title>
+        <table>...</table>
+      </.panel>
   """
   attr :testid, :string, default: nil
   attr :icon, :string, default: nil, doc: "a heroicon name, or nil for a panel with no icon"
   attr :class, :string, default: nil
+
+  attr :fold, :string,
+    default: nil,
+    doc: "the key this panel folds and is stored under; without it there is no fold"
+
+  attr :id, :string, default: nil, doc: "defaults to the fold key, which is unique per screen"
+  attr :open, :boolean, default: true, doc: "meaningful only with a fold"
+
+  attr :forced, :boolean,
+    default: false,
+    doc: "true when the screen opened this itself, over both the default and the stored choice"
 
   slot :title, required: true
   slot :actions, doc: "controls rendered at the right of the header"
   slot :inner_block, required: true
 
   def panel(assigns) do
+    # Not `assign_new/3`: the attribute is always present, defaulted to nil.
+    assigns = assign(assigns, :id, assigns.id || assigns.fold)
+
     ~H"""
-    <div data-testid={@testid} class={["flz-panel", @class]}>
+    <div
+      id={@id}
+      phx-hook={@fold && "FlzSection"}
+      data-testid={@testid}
+      data-open={@fold && to_string(@open)}
+      data-section-key={@fold}
+      data-section-forced={@fold && to_string(@forced)}
+      class={["flz-panel", @class]}
+    >
       <div class="flz-panel-head">
-        <h2 class="flz-panel-title">
-          <.icon :if={@icon} name={@icon} class="w-4 h-4" />
-          {render_slot(@title)}
-        </h2>
+        <button
+          :if={@fold}
+          type="button"
+          class="flz-panel-fold"
+          aria-expanded={to_string(@open)}
+          aria-controls={"#{@id}-body"}
+          phx-click="section_toggle"
+          phx-value-key={@fold}
+          data-testid={"section-toggle-#{@fold}"}
+        >
+          <.icon name="hero-chevron-right-micro" class="flz-fold-mark" />
+          <.panel_title icon={@icon}>{render_slot(@title)}</.panel_title>
+        </button>
+        <.panel_title :if={!@fold} icon={@icon}>{render_slot(@title)}</.panel_title>
         <div :if={@actions != []} class="flex items-center gap-3">
           {render_slot(@actions)}
         </div>
       </div>
-      {render_slot(@inner_block)}
+      <%= if @fold do %>
+        <div :if={@open} id={"#{@id}-body"} data-testid={"section-body-#{@fold}"}>
+          {render_slot(@inner_block)}
+        </div>
+      <% else %>
+        {render_slot(@inner_block)}
+      <% end %>
     </div>
+    """
+  end
+
+  attr :icon, :string, default: nil
+  slot :inner_block, required: true
+
+  defp panel_title(assigns) do
+    ~H"""
+    <h2 class="flz-panel-title">
+      <.icon :if={@icon} name={@icon} class="w-4 h-4" />
+      {render_slot(@inner_block)}
+    </h2>
     """
   end
 
@@ -1058,23 +1121,20 @@ defmodule FlezhaUiWeb.CoreComponents do
   end
 
   @doc """
-  A screen's heading, with an optional return path and controls beside it.
+  A screen's heading, with controls beside it.
 
-  Every screen opens with one, so the title's type, the way back and the
-  action row are one decision rather than one per screen.
+  Every screen opens with one, so the title's type and the action row are one
+  decision rather than one per screen. Where the screen sits is the shell's
+  business — the crumb trail says it, in words, above this.
 
   ## Examples
 
-      <.header back={~p"/namespaces"} mono>
+      <.header mono>
         {@ns}
         <:actions><.button icon="hero-plus">Start Operative</.button></:actions>
       </.header>
   """
   attr :class, :string, default: nil
-
-  attr :back, :string,
-    default: nil,
-    doc: "where the leading arrow returns to; without it there is no arrow"
 
   attr :mono, :boolean, default: false, doc: "true when the title is an identifier"
 
@@ -1085,25 +1145,184 @@ defmodule FlezhaUiWeb.CoreComponents do
   def header(assigns) do
     ~H"""
     <header class={["flex items-center justify-between gap-6", @class]}>
-      <div class="flex items-center gap-3">
-        <.link
-          :if={@back}
-          navigate={@back}
-          class="text-th-tertiary hover:text-th-primary transition-colors"
-        >
-          <.icon name="hero-arrow-left" class="w-4 h-4" />
-        </.link>
-        <div>
-          <h1 class={["flz-title-lg text-th-primary", @mono && "flz-num"]}>
-            {render_slot(@inner_block)}
-          </h1>
-          <p :if={@subtitle != []} class="mt-2 text-sm text-th-secondary">
-            {render_slot(@subtitle)}
-          </p>
-        </div>
+      <div>
+        <h1 class={["flz-title-lg text-th-primary", @mono && "flz-num"]}>
+          {render_slot(@inner_block)}
+        </h1>
+        <p :if={@subtitle != []} class="mt-2 text-sm text-th-secondary">
+          {render_slot(@subtitle)}
+        </p>
       </div>
       <div :if={@actions != []} class="flex-none">{render_slot(@actions)}</div>
     </header>
+    """
+  end
+
+  @doc """
+  Where the current screen sits, as a trail of its ancestors.
+
+  Derived by the shell from the route (`FlezhaUiWeb.Layouts.breadcrumbs/1`), so
+  it is one derivation rather than one per screen. The last crumb is the page
+  being read: plain text, marked current, and not a link to itself.
+  """
+  attr :trail, :list, required: true
+
+  def breadcrumb(assigns) do
+    ~H"""
+    <nav
+      :if={@trail != []}
+      aria-label="Breadcrumb"
+      data-testid="breadcrumb"
+      class="flz-breadcrumb mb-5"
+    >
+      <%= for {crumb, index} <- Enum.with_index(@trail) do %>
+        <span :if={index > 0} class="flz-breadcrumb-sep" aria-hidden="true">/</span>
+        <.link :if={crumb.path} navigate={crumb.path} class="flz-breadcrumb-item">
+          {crumb.label}
+        </.link>
+        <span :if={!crumb.path} class="flz-breadcrumb-item" aria-current="page">
+          {crumb.label}
+        </span>
+      <% end %>
+    </nav>
+    """
+  end
+
+  @doc """
+  The views of one object, as a strip of tabs on it.
+
+  Each tab is its own route, and selecting one navigates: an operative's Detail
+  polls overwatch, its Stream holds a live listener and its State does
+  point-in-time reads, so collapsing them into one screen would leave a stream
+  attached while the operator reads something else. The strip makes them read
+  as one object without making them one process.
+
+      <.operative_tabs ns={@ns} operative_id={@operative_id} current={:stream} />
+  """
+  attr :ns, :string, required: true
+  attr :operative_id, :string, required: true
+  attr :current, :atom, required: true, values: [:detail, :stream, :state]
+
+  def operative_tabs(assigns) do
+    ~H"""
+    <nav class="flz-tabstrip" data-testid="operative-tabs" aria-label="Operative views">
+      <.link
+        :for={{view, label, path} <- operative_views(@ns, @operative_id)}
+        navigate={path}
+        aria-current={view == @current && "page"}
+        data-testid={"operative-tab-#{view}"}
+        class="flz-tabstrip-link"
+      >
+        {label}
+      </.link>
+    </nav>
+    """
+  end
+
+  defp operative_views(ns, id) do
+    [
+      {:detail, "Detail", ~p"/namespaces/#{ns}/operatives/#{id}"},
+      {:stream, "Stream", ~p"/namespaces/#{ns}/operatives/#{id}/stream"},
+      {:state, "State", ~p"/namespaces/#{ns}/operatives/#{id}/state"}
+    ]
+  end
+
+  @doc """
+  A trigger and a panel of things to do, on the stylebook's menu recipe.
+
+  For a set of actions rather than a set of values — the account controls, the
+  namespace to scope to. `dropdown/1` is the one to reach for when the panel
+  picks a value for a form; this one holds whatever rows the caller writes,
+  which is what lets an identity line, a separator and a sign-out sit together.
+
+  Opening, closing and the keyboard come from the same `FlzDropdown` hook.
+
+      <.menu id="account-menu" testid="account-menu">
+        <:trigger>you@example.com</:trigger>
+        <.link navigate={~p"/users/settings"} class="flz-menu-item">Settings</.link>
+      </.menu>
+  """
+  attr :id, :string, required: true
+  attr :testid, :string, default: nil
+  attr :label, :string, default: nil, doc: "what the trigger is called, for a screen reader"
+
+  slot :trigger, required: true
+  slot :inner_block, required: true
+
+  def menu(assigns) do
+    ~H"""
+    <div id={@id} phx-hook="FlzDropdown" data-flz-dropdown class="relative">
+      <button
+        type="button"
+        class="flz-dropdown-trigger flz-chrome-icon-btn"
+        data-testid={@testid}
+        aria-label={@label}
+      >
+        {render_slot(@trigger)}
+        <.icon name="hero-chevron-down-micro" class="shrink-0" />
+      </button>
+      <div class="flz-dropdown flz-menu mt-1" role="menu" hidden>
+        {render_slot(@inner_block)}
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
+  Why a scoped listing's count is not a controller-side guarantee.
+
+  The controller has no namespaced call for either of these listings, so the
+  screen fetches all of them and narrows the rows here. Said once, so the two
+  screens cannot come to describe the same scope differently.
+  """
+  attr :scope, :string, required: true
+  attr :listing, :string, required: true, doc: "the noun the controller answers globally"
+  attr :testid, :string, default: nil
+
+  def scope_notice(assigns) do
+    ~H"""
+    <.notice testid={@testid}>
+      The controller has no namespaced {@listing} listing, so <span class="flz-num">{@scope}</span>
+      is applied here as a view filter over its full listing rather than as a
+      controller-side scope.
+    </.notice>
+    """
+  end
+
+  @doc """
+  What a screen says about its own currency: that it refreshes, when it last
+  did, and the control to hold it still.
+
+  Rendered by the shell for any screen that `use`s `FlezhaUiWeb.Live.Refresh`,
+  which is what puts the assigns here — so a screen states its liveness by
+  refreshing at all, rather than by remembering to say so.
+  """
+  attr :interval, :integer, required: true
+  attr :at, :any, default: nil, doc: "when the last refresh landed, or nil before the first"
+  attr :paused, :boolean, required: true
+
+  def liveness(assigns) do
+    ~H"""
+    <div data-testid="liveness" class="flex items-center gap-2">
+      <span class="flz-topbar-muted" data-testid="liveness-state">
+        <span :if={@paused}>Paused</span>
+        <span :if={!@paused}>
+          Every {Format.duration(@interval)} · {Format.time_of_day(@at)}
+        </span>
+      </span>
+      <button
+        type="button"
+        phx-click="refresh_toggle"
+        aria-pressed={to_string(@paused)}
+        data-testid="liveness-toggle"
+        class="flz-chrome-icon-btn"
+        title={if @paused, do: "Resume refreshing", else: "Pause refreshing"}
+        aria-label={if @paused, do: "Resume refreshing", else: "Pause refreshing"}
+      >
+        <.icon :if={@paused} name="hero-play" class="w-4 h-4" />
+        <.icon :if={!@paused} name="hero-pause" class="w-4 h-4" />
+      </button>
+    </div>
     """
   end
 

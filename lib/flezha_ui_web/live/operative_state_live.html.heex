@@ -1,8 +1,10 @@
 <div class="space-y-6">
-  <.header back={~p"/namespaces/#{@ns}/operatives/#{@operative_id}"}>
+  <.header>
     <span class="flz-num">{@operative_id}</span>
     <span class="ml-2 text-sm font-normal text-th-tertiary">durable state</span>
   </.header>
+
+  <.operative_tabs ns={@ns} operative_id={@operative_id} current={:state} />
 
   <.runtime_error error={@load_error} action="the state listing" />
 

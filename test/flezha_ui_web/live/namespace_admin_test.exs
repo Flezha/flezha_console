@@ -94,7 +94,9 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       with_store(node, running: ["default"], get: {:ok, entry("default")})
       FakeController.set(node, {QuotaCounters, :get}, 7)
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "quotas")
 
       assert html =~ ~s(data-testid="quota-panel")
       assert html =~ ~s(data-testid="quota-operatives")
@@ -109,7 +111,9 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         get: {:ok, %{entry("default") | quotas: %{max_operatives: 100}}}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "quotas")
 
       assert html =~ ~s(data-testid="quota-unset-disk_bytes")
       assert html =~ "no limit applies"
@@ -131,7 +135,9 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
     test "an undeclared namespace states that no limits apply", %{conn: conn, node: node} do
       with_store(node, running: ["default"], get: :error)
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "quotas")
 
       assert html =~ ~s(data-testid="namespace-undeclared")
     end
@@ -234,7 +240,9 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         %{principal: "alice", namespace: "default", role: :operator}
       ])
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "role-bindings")
 
       assert html =~ ~s(data-testid="role-binding-alice")
       assert html =~ "operator"
@@ -243,7 +251,9 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
     test "an empty binding list names the command that adds one", %{conn: conn, node: node} do
       with_store(node, running: ["default"], get: {:ok, entry("default")})
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      html = open_section(view, "role-bindings")
 
       assert html =~ ~s(data-testid="role-bindings-empty")
       assert html =~ "flz role bind"

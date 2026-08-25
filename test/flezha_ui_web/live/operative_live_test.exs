@@ -168,7 +168,9 @@ defmodule FlezhaUiWeb.OperativeLiveTest do
         }
       })
 
-      {:ok, _view, html} = live(conn, @url)
+      {:ok, view, _html} = live(conn, @url)
+
+      html = open_section(view, "plugins")
 
       assert html =~ ~s(data-testid="bindings-table")
       assert html =~ ~s(data-testid="binding-row-plug_1")
@@ -179,7 +181,9 @@ defmodule FlezhaUiWeb.OperativeLiveTest do
     test "explains an operative with no plugins", %{conn: conn, node: node} do
       overwatch(node, %{factory_id: "store_input"})
 
-      {:ok, _view, html} = live(conn, @url)
+      {:ok, view, _html} = live(conn, @url)
+
+      html = open_section(view, "plugins")
 
       assert html =~ ~s(data-testid="no-plugins-msg")
     end
@@ -285,6 +289,7 @@ defmodule FlezhaUiWeb.OperativeLiveTest do
       )
 
       {:ok, view, _html} = live(conn, @url)
+      open_section(view, "sdk-state")
       html = render_click(view, "fetch_state", %{})
 
       assert html =~ ~s(data-testid="state-json")
@@ -308,6 +313,7 @@ defmodule FlezhaUiWeb.OperativeLiveTest do
       FakeController.set(node, {OperativeManager, :get_entity_state}, {:error, :not_found})
 
       {:ok, view, _html} = live(conn, @url)
+      open_section(view, "sdk-state")
 
       assert render_click(view, "fetch_state", %{}) =~ ~s(data-testid="state-notice")
     end

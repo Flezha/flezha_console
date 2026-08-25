@@ -5,6 +5,11 @@ defmodule FlezhaUiWeb.ScheduleLive do
   An entry can exist in the store without being armed on the hub — after a hub
   restart, say — so the two are shown together rather than the store alone
   implying the job is running.
+
+  The same screen serves one namespace at `/namespaces/:ns/schedules`. The
+  controller exposes no namespaced schedule call, so the scope is a filter over
+  the namespace each entry already carries; the screen says so, and the
+  creation form opens aimed at that namespace.
   """
 
   use FlezhaUiWeb, :live_view
@@ -22,14 +27,22 @@ defmodule FlezhaUiWeb.ScheduleLive do
       |> assign(
         page_title: "Schedules",
         show_form: false,
-        form: empty_form(),
+        form: empty_form(nil),
         form_error: nil,
         confirm_remove: nil,
-        target: Target.new()
+        target: Target.new(),
+        schedules: [],
+        load_error: nil
       )
-      |> refresh()
 
     {:ok, socket}
+  end
+
+  @impl true
+  def handle_params(_params, _uri, socket) do
+    title = Layouts.scoped_title("Schedules", socket.assigns.scoped_namespace)
+
+    {:noreply, socket |> assign(page_title: title) |> refresh()}
   end
 
   # Holding still while a modal is open keeps a row from moving underneath the
@@ -43,7 +56,7 @@ defmodule FlezhaUiWeb.ScheduleLive do
   # is almost always closed.
   @impl true
   def handle_event("open_form", _params, socket) do
-    form = empty_form()
+    form = empty_form(socket.assigns.scoped_namespace)
     target = Target.load_namespaces(Target.new(), socket.assigns.flezha_token)
     namespace = Target.namespace(target, form["namespace"])
 
@@ -134,7 +147,10 @@ defmodule FlezhaUiWeb.ScheduleLive do
         statuses = status_index(NodeManager.schedule_statuses())
 
         assign(socket,
-          schedules: Enum.map(entries, &decorate(&1, statuses)),
+          schedules:
+            entries
+            |> Enum.map(&decorate(&1, statuses))
+            |> NodeManager.in_namespace(socket.assigns.scoped_namespace),
           load_error: nil
         )
 
@@ -194,12 +210,12 @@ defmodule FlezhaUiWeb.ScheduleLive do
     assign(socket, target: target, form: form)
   end
 
-  defp empty_form do
+  defp empty_form(scope) do
     %{
       "name" => "",
       "cron" => "",
       "timezone" => "Etc/UTC",
-      "namespace" => "default",
+      "namespace" => scope || "default",
       "factory_id" => "",
       "init_values" => ""
     }

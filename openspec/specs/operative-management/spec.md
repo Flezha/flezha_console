@@ -110,7 +110,7 @@ An operator SHALL be able to start an operative by supplying a namespace, id, fa
 
 ### Requirement: Operative introspection
 
-The operative detail screen SHALL display, from the overwatch state, the operative's factory id, bound runner id, kind, uptime, suspended flag, effectively-once tier, and its subscribed plugins. It SHALL additionally display the health and node the namespace's rows report for it, and — for a workflow — the workflow panel defined by the `workflow-operations` capability.
+The operative detail screen SHALL display, from the overwatch state, the operative's factory id, bound runner id, kind, uptime, suspended flag, effectively-once tier, and its subscribed plugins. It SHALL additionally display the health and node the namespace's rows report for it, and — for a workflow — the workflow panel defined by the `workflow-operations` capability. The screen SHALL present its Detail, Stream, and State routes as a tab strip on the operative, and SHALL render its journal, inbox, SDK state, and plugin panels as sections that collapse.
 
 #### Scenario: Operative is running and bound
 
@@ -127,6 +127,18 @@ The operative detail screen SHALL display, from the overwatch state, the operati
 - **WHEN** the operative carries a partition identity
 - **THEN** its partition index, key-group range, and its group are shown
 - **AND** the group links to the namespace's group row
+
+#### Scenario: The three views are tabs
+
+- **WHEN** an operator opens an operative
+- **THEN** Detail, Stream, and State are presented as tabs on that operative
+- **AND** reaching Stream or State no longer requires finding a link inside a panel
+
+#### Scenario: The lower panels start collapsed
+
+- **WHEN** an operator opens an operative for the first time
+- **THEN** the pipeline graph and the operative's facts are visible without scrolling
+- **AND** the journal, inbox, SDK state, and plugin sections are collapsed
 
 #### Scenario: Operative is not found
 
@@ -181,11 +193,11 @@ An operator SHALL be able to stream a running operative's input or output. The U
 
 ### Requirement: A cross-namespace operatives index
 
-The UI SHALL provide an operatives screen at `/operatives` listing every operative across every namespace the bound token can reach, showing operative id, namespace, factory, health, kind, node, runner, and plugin count, with the id linking to the operative's detail screen. The listing SHALL cost one `operative_rows/1` and one `operative_plugins/1` call per namespace, not one call per operative. The screen SHALL carry the control that starts an operative, and reading the listing SHALL cost no factory read — the factories are read only when the start form is opened.
+The UI SHALL provide a **Fleet** screen at `/operatives` listing every operative across every namespace the bound token can reach, showing operative id, namespace, factory, health, kind, node, runner, and plugin count, with the id linking to the operative's detail screen. The listing SHALL cost one `operative_rows/1` and one `operative_plugins/1` call per namespace, not one call per operative. The same LiveView SHALL additionally serve a namespace-scoped listing at `/namespaces/:ns/operatives`, taking its namespace from the path rather than from the filter form. The screen's filters SHALL be written back to the query string, so a filtered view can be bookmarked, shared, and reversed with the browser's back button.
 
 #### Scenario: Operatives exist across namespaces
 
-- **WHEN** an operator opens the operatives screen
+- **WHEN** an operator opens the Fleet screen
 - **THEN** every operative in every reachable namespace is listed with its namespace and health
 
 #### Scenario: Filtering the index
@@ -193,25 +205,32 @@ The UI SHALL provide an operatives screen at `/operatives` listing every operati
 - **WHEN** an operator filters by namespace, health, or kind
 - **THEN** only matching operatives are listed
 
-#### Scenario: The kind filter offers the controller's kinds
+#### Scenario: A filtered view is a shareable URL
 
-- **WHEN** an operator opens the kind filter
-- **THEN** its options are the kinds the controller recognises, the same list the start form offers
+- **WHEN** an operator filters the Fleet screen by health
+- **THEN** the query string carries that filter
+- **AND** reloading the page reproduces the same filtered listing
+
+#### Scenario: Backing out of a filter
+
+- **WHEN** an operator applies a filter and presses the browser's back button
+- **THEN** the previous filter state is restored
 
 #### Scenario: The index is reachable from the navigation
 
 - **WHEN** an operator looks at the sidebar
-- **THEN** an Operatives entry sits between Namespaces and Plugins
+- **THEN** a Fleet entry sits in the `PLATFORM` section
 
-#### Scenario: Starting is reachable from the index
+#### Scenario: A namespace's own operatives
 
-- **WHEN** an operator looks at the operatives screen
-- **THEN** a control to start an operative is present
+- **WHEN** an operator opens `/namespaces/:ns/operatives`
+- **THEN** only that namespace's operatives are listed
+- **AND** the namespace is presented as the screen's scope rather than as a clearable filter
 
-#### Scenario: The index does not read factories on its refresh tick
+#### Scenario: One LiveView serves both routes
 
-- **WHEN** the operatives screen refreshes with the start form closed
-- **THEN** no factory listing call is made for any namespace
+- **WHEN** the codebase is inspected
+- **THEN** `/operatives` and `/namespaces/:ns/operatives` are served by the same LiveView module
 
 #### Scenario: No operatives are running
 
