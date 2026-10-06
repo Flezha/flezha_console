@@ -31,18 +31,18 @@
           name="ns"
           value={@namespace}
           testid="topology-namespace"
-          disabled={match?({:namespace, _}, @stats.token_scope)}
+          disabled={@stats.scoped_to != nil}
           class="w-44"
         >
           <:option :for={ns <- Enum.sort(@stats.namespaces)} value={ns}>{ns}</:option>
         </.dropdown>
       </form>
       <span
-        :if={match?({:namespace, _}, @stats.token_scope)}
+        :if={@stats.scoped_to}
         data-testid="topology-namespace-scope"
         class="text-[11px] text-th-muted"
       >
-        scoped to {elem(@stats.token_scope, 1)} by your flezha token
+        scoped to {@stats.scoped_to} by your flezha token
       </span>
     </:controls>
   </.fleet_summary>
@@ -67,18 +67,18 @@
           name="hero-cpu-chip"
           class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
         />
-        <p class="text-sm text-th-tertiary">Operatives</p>
+        <p class="text-sm text-th-tertiary">Relays</p>
       </div>
-      <p data-testid="stat-operatives" class="text-3xl font-bold text-th-primary mt-1 font-mono">
-        {@stats.operative_count}
+      <p data-testid="stat-relays" class="text-3xl font-bold text-th-primary mt-1 font-mono">
+        {@stats.relay_count}
       </p>
       <div
-        :if={@stats.operative_health != []}
-        data-testid="stat-operative-health"
+        :if={@stats.relay_health != []}
+        data-testid="stat-relay-health"
         class="flex flex-wrap gap-1.5 mt-2"
       >
         <.health_badge
-          :for={{health, count} <- @stats.operative_health}
+          :for={{health, count} <- @stats.relay_health}
           health={health}
           count={count}
         />

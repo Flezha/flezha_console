@@ -20,41 +20,28 @@ All calls from the UI into the flezha controller SHALL pass through `FlezhaUi.Se
 
 ### Requirement: Controller vocabulary matches flezha
 
-`NodeManager` SHALL expose the current flezha API under its current names: `list_namespaces/0`, `list_operatives/1`, `list_runners/1`, `list_factories/1`, `start_operative/5`, `stop_operative/2`, `entity_state/2`, `entity_state/3`, and `get_overwatch_state/2`.
+`NodeManager` SHALL expose the controller's reads and actions under core's current vocabulary, each function named after the published function it calls: among them `list_namespaces`, `list_relays`, `relay_list` (`Relay.list/2`), `runners`, `factories`, `start_relay`, `stop_relay`, `cell_state`, and `overwatch_state`. No `NodeManager` function SHALL keep a name core has retired.
 
-#### Scenario: Listing operatives in a namespace
+#### Scenario: Listing relays in a namespace
 
-- **WHEN** `NodeManager.list_operatives/1` is called with a namespace
-- **THEN** it invokes `Flezha.list_operatives/1` on the connected node
-- **AND** returns the operative id list
+- **WHEN** `NodeManager.list_relays` is called with a namespace
+- **THEN** it calls `Flezha.Service.Relay.list_relays/2` on the connected node with the caller context last
+- **AND** answers the relay id list
 
 #### Scenario: Listing runners in a namespace
 
-- **WHEN** `NodeManager.list_runners/1` is called with a namespace
-- **THEN** it invokes `Flezha.list_runners/1` on the connected node
+- **WHEN** `NodeManager.runners` is called with a namespace
+- **THEN** it calls `Flezha.Service.Fleet.runners/2` on the connected node
+- **AND** the answer covers every runner serving the namespace anywhere in the cluster, not only those on the node the UI reached
 
-#### Scenario: Removed names are absent
+#### Scenario: Function names follow the published surface
 
-- **WHEN** the codebase is searched for `list_processors`, `list_compute_engines`, `start_processor`, `stop_processor`, or `processor_state`
-- **THEN** no occurrence exists in `lib/`, `test/`, or `e2e/`
-
-### Requirement: Operative start builds a valid operative spec
-
-`NodeManager.start_operative/5` SHALL construct a spec carrying `id`, `factory_id`, `kind`, `init_values`, and `opts` and pass it to `Flezha.start_operative/2`, defaulting `kind` to `:stream` when the caller does not supply one.
-
-#### Scenario: Starting an operative with defaults
-
-- **WHEN** a caller supplies only namespace, id, and factory id
-- **THEN** the spec sent to the controller carries `kind: :stream`, `init_values: %{}`, and `opts: []`
-
-#### Scenario: Starting an operative with an explicit kind
-
-- **WHEN** a caller supplies `kind: :workflow`
-- **THEN** the spec sent to the controller carries `kind: :workflow`
+- **WHEN** the public functions of `NodeManager` are listed
+- **THEN** every one that reaches the controller uses the relay, tasklet, and cell vocabulary of the published function it calls
 
 ### Requirement: Errors are normalized into a closed set
 
-`NodeManager` SHALL classify every remote-call failure into exactly one of `{:error, :node_not_connected}`, `{:error, {:api_missing, module, function, arity}}`, `{:error, :timeout}`, `{:error, {:forbidden, reason}}`, or `{:error, {:remote_error, term}}`. Raw `:erpc` exits and `:badrpc` tuples SHALL NOT escape `NodeManager`.
+`NodeManager` SHALL classify every transport failure into exactly one of `{:error, :node_not_connected}`, `{:error, {:api_missing, module, function, arity}}`, `{:error, :timeout}`, or `{:error, {:remote_error, term}}`. A refusal or failure the controller answers SHALL arrive as `{:error, error}`, where `error` is the controller's `%Flezha.Error{}` carrying `code`, `class`, `message`, `details`, and `hint`, and SHALL be returned unchanged. The UI SHALL read that error by its fields, without needing core's modules loaded on its own node. Raw `:erpc` exits and `:badrpc` tuples SHALL NOT escape `NodeManager`.
 
 #### Scenario: No controller node is connected
 
@@ -75,13 +62,20 @@ All calls from the UI into the flezha controller SHALL pass through `FlezhaUi.Se
 
 #### Scenario: The controller refuses the call
 
-- **WHEN** a remote call returns `{:error, {:forbidden, reason}}` because authorization refused it or no principal is bound
-- **THEN** `NodeManager` returns `{:error, {:forbidden, reason}}` as its own shape rather than folding it into `{:remote_error, term}`
+- **WHEN** authorization refuses a call, or no principal is bound
+- **THEN** `NodeManager` returns `{:error, error}` where `error.class` is `:denied` and `error.code` names the refusal, such as `authz.role_insufficient` or `authz.principal_not_bound`
+- **AND** the refusal is not folded into `{:remote_error, term}`
 
-#### Scenario: The controller returns a domain error
+#### Scenario: The controller answers a domain failure
 
-- **WHEN** the remote function itself returns `{:error, reason}`
-- **THEN** `NodeManager` returns that `{:error, reason}` unchanged rather than wrapping it as a transport failure
+- **WHEN** a published function answers `{:error, error}` for a reason of its own, such as `relay.not_found`
+- **THEN** `NodeManager` returns that `{:error, error}` unchanged rather than wrapping it as a transport failure
+
+#### Scenario: A refusal is shown to the operator
+
+- **WHEN** a screen renders a controller error
+- **THEN** it shows the error's `message`
+- **AND** it decides how to present the error from its `class` and `code`, never by matching message text
 
 ### Requirement: Version skew is visible to the operator
 
@@ -101,63 +95,69 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 
 ### Requirement: Data-plane liveness snapshot
 
-`NodeManager` SHALL expose `liveness_snapshot/0`, calling `Flezha.Transport.LivenessCounters.snapshot_all/0` on the controller and answering the controller's own map of `channels` and `operatives` counter lists, with transport failures normalized into the seam's closed error set.
+`NodeManager` SHALL expose `liveness_snapshot`, calling `Flezha.Service.Controller.liveness_counters/1` with the caller context and answering the controller's own map of `channels` and `relays` counter lists, with transport failures normalized into the seam's closed error set.
 
 #### Scenario: Snapshot succeeds
 
-- **WHEN** the controller exports the liveness counters module
-- **THEN** `liveness_snapshot/0` answers the map of per-channel and per-operative counter snapshots as the controller produced it
+- **WHEN** the controller answers the liveness counters
+- **THEN** `liveness_snapshot` answers the map of per-channel and per-relay counter snapshots as the controller produced it, each relay snapshot keyed by `relay_id`
 
-#### Scenario: Controller predates liveness counters
+#### Scenario: Controller predates the published counters read
 
-- **WHEN** the connected controller does not export `Flezha.Transport.LivenessCounters.snapshot_all/0`
-- **THEN** `liveness_snapshot/0` answers `{:error, {:api_missing, module, function, arity}}` and the divergence is logged, per the seam's version-skew requirement
+- **WHEN** the connected controller does not export `Flezha.Service.Controller.liveness_counters/1`
+- **THEN** `liveness_snapshot` answers `{:error, {:api_missing, module, function, arity}}` and the divergence is logged, per the seam's version-skew requirement
 
 ### Requirement: Observability ring-buffer query
 
-`NodeManager` SHALL expose `observability_query/1`, taking the query params map and calling `Flezha.Service.Observability.query/2` on the controller with the seam's caller context. The remote's own `{:error, reason}` answers — including the observability subsystem being disabled — SHALL pass through untouched, distinguishable from normalized transport failures.
+`NodeManager` SHALL expose `observability_query`, taking the query params map and calling `Flezha.Service.Observability.query/2` on the controller with the seam's caller context. The controller's own error answers — including the observability subsystem being disabled — SHALL pass through untouched, distinguishable from normalized transport failures.
 
 #### Scenario: Query succeeds
 
 - **WHEN** the observability subsystem is enabled and signals exist for the requested source
-- **THEN** `observability_query/1` answers `{:ok, signals}` as the controller produced them
+- **THEN** `observability_query` answers `{:ok, signals}` as the controller produced them
 
 #### Scenario: Observability is disabled
 
 - **WHEN** the controller's observability subsystem is disabled
-- **THEN** `observability_query/1` answers the controller's own error reason untouched, and callers can render the affected region as absent rather than failed
+- **THEN** `observability_query` answers the controller's error with code `observability.disabled`, and callers can render the affected region as absent rather than failed
 
 ### Requirement: Controller clock reference
 
-`NodeManager` SHALL expose `controller_monotonic_us/0`, answering the connected controller's monotonic time in microseconds. Observability signals are stamped with the controller's monotonic clock, which shares no epoch with this node's, so a caller judging a signal's age SHALL measure it against this reading rather than a local clock.
+`NodeManager` SHALL expose `controller_monotonic_us`, answering the connected controller's monotonic time in microseconds, read through the published consumer API like every other controller read. Observability signals are stamped with the controller's monotonic clock, which shares no epoch with this node's, so a caller judging a signal's age SHALL measure it against this reading rather than a local clock.
 
 #### Scenario: Ageing a signal
 
 - **WHEN** a caller holds a signal stamped with the controller's monotonic time
-- **THEN** `controller_monotonic_us/0` answers a reading on that same clock, from which the signal's age follows
+- **THEN** `controller_monotonic_us` answers a reading on that same clock, from which the signal's age follows
+
+#### Scenario: The clock is read through a published function
+
+- **WHEN** the call `controller_monotonic_us` makes is inspected
+- **THEN** it names a published `Flezha.Service.*` function and passes the caller context last
 
 ### Requirement: Overwatch state decoding
 
-`NodeManager` SHALL expose `overwatch_facts/2`, answering the facts screens read out of an operative's overwatch state — factory, runner binding, kind, suspension, effectively-once, default input type, start time, uptime, dead-letter class, and the extension-table entries — with each field's decoding rule applied once. `overwatch_facts/0` SHALL answer the same shape with nothing in it, for a screen whose read failed.
+`NodeManager` SHALL expose `overwatch_facts`, answering the facts screens read out of a relay's overwatch state — factory, runner binding, run, suspension, effectively-once, default input type, start time, uptime, relay class, and the hook-table entries — with each field's decoding rule applied once. The read SHALL go through `Flezha.Service.Relay.overwatch_state/3`. `overwatch_facts/0` SHALL answer the same shape with nothing in it, for a screen whose read failed.
 
-#### Scenario: Kind falls back to the builder
+#### Scenario: The run is read from the builder
 
-- **WHEN** an overwatch state carries no `kind` but its builder does
-- **THEN** `overwatch_facts/2` answers the builder's kind
+- **WHEN** an overwatch state's builder carries `run: :steps`
+- **THEN** `overwatch_facts` answers the run `steps`
+- **AND** a builder carrying `run: :flow`, or no run, answers `flow`
 
-#### Scenario: Dead-letter class defaults to the id
+#### Scenario: Relay class defaults to the id
 
-- **WHEN** an overwatch state's builder declares no `operative_class` option
-- **THEN** the answered dead-letter class is the operative's own id, matching the controller's own rule
+- **WHEN** an overwatch state's builder declares no `relay_class` option
+- **THEN** the answered relay class is the relay's own id, matching the controller's own rule
 
 #### Scenario: The read fails
 
 - **WHEN** the controller cannot answer the overwatch state
-- **THEN** `overwatch_facts/2` answers the seam's normalized error, and a caller can fall back to `overwatch_facts/0` rather than special-casing every field
+- **THEN** `overwatch_facts` answers the seam's normalized error, and a caller can fall back to `overwatch_facts/0` rather than special-casing every field
 
 ### Requirement: Registered-name identifiers
 
-`identifier_id/1` SHALL answer the id out of a controller identifier whatever shape it arrives in, including the `:via` tuple an entity registered through the controller's process registry is named by.
+`identifier_id/1` SHALL answer the id out of a controller identifier whatever shape it arrives in, including the `:via` tuple a process registered through the controller's process registry is named by.
 
 #### Scenario: A channel names itself through the registry
 
@@ -166,7 +166,7 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 
 ### Requirement: The caller context carries a bound principal
 
-`NodeManager.caller_context/1` SHALL build the context the way `Flezha.Service.CliManager` builds its own: `source: :ui` plus the `principal`, `namespace`, and `role` returned by `Flezha.AuthZ.TokenStore.verify/1`. Exactly one helper SHALL construct it, and every call into an authorized controller service SHALL use it.
+`NodeManager.caller_context/1` SHALL build the context the way `Flezha.Service.CallerContext.from_token/2` builds it on the controller: `source: :ui` plus the `principal`, `namespace`, and `role` returned by `Flezha.AuthZ.TokenStore.verify/1`, and nothing else. Exactly one helper SHALL construct it, and every call into a published controller function SHALL pass it as the last argument.
 
 #### Scenario: A verified token binds the context
 
@@ -177,6 +177,7 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 
 - **WHEN** no token verifies
 - **THEN** the caller context carries `source: :ui` and no principal
+- **AND** a call made with it is answered by the controller's own refusal rather than refused by the UI
 
 #### Scenario: One construction site
 
@@ -185,36 +186,67 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 
 ### Requirement: Namespace-flat listing reads
 
-`NodeManager` SHALL expose the controller's bulk reads — `Flezha.Service.HubManager.operative_rows/1` and `operative_plugins/1` — so a listing costs one call per namespace regardless of how many operatives it holds. `Flezha.Service.CliManager.group_partition_rows/1` SHALL be used to collapse partition members into group rows rather than the UI deriving groups itself.
+`NodeManager` SHALL expose the controller's bulk reads so a listing costs a fixed number of calls per namespace regardless of how many relays it holds: `Flezha.Service.Relay.list/2` for the rows, with partition members already collapsed into one row per group by the controller's rule, `Flezha.Service.Relay.relay_plugins/2` for the plugin bindings, and `Flezha.Service.Relay.registry/2` for each relay's run. A group's key-group coverage SHALL come from `Flezha.Service.Relay.partition_groups/2`. The UI SHALL NOT derive group rows, group health, or coverage itself.
 
-#### Scenario: Listing a namespace's operatives
+#### Scenario: Listing a namespace's relays
 
-- **WHEN** a screen lists a namespace's operatives
-- **THEN** one `operative_rows/1` call answers every row's id, health, runner, factory, partition, and node
+- **WHEN** a screen lists a namespace's relays
+- **THEN** one `Service.Relay.list/2` call answers every row's id, health, runner, factory, partition width, and node
 
 #### Scenario: Listing plugin counts
 
-- **WHEN** a screen shows a plugin count per operative
-- **THEN** one `operative_plugins/1` call answers the whole namespace
+- **WHEN** a screen shows a plugin count per relay
+- **THEN** one `Service.Relay.relay_plugins/2` call answers the whole namespace
+
+#### Scenario: Reading each relay's run
+
+- **WHEN** a screen shows whether each relay runs as flow or steps
+- **THEN** one `Service.Relay.registry/2` call answers it for the whole namespace, read from each relay's builder
+- **AND** registry entries that are not relays, such as enabled plugins, are skipped rather than failing the read
 
 #### Scenario: Partition groups are collapsed by the controller's rule
 
 - **WHEN** a namespace holds partition group members
-- **THEN** `group_partition_rows/1` produces the group rows
-- **AND** the UI contains no second implementation of group rollup
+- **THEN** the group rows, and each group's health as its sickest member's, come from `Service.Relay.list/2`
+- **AND** the UI contains no second implementation of group rollup or health ranking
 
 #### Scenario: Call count does not grow with fleet size
 
-- **WHEN** a namespace's operative count changes
+- **WHEN** a namespace's relay count changes
 - **THEN** the number of controller calls a listing tick makes does not change
 
-### Requirement: Overwatch decoding covers the workflow fields
+### Requirement: A relay start carries no run
 
-`NodeManager.overwatch_facts/2` SHALL additionally decode `durable_workflow`, `correction_window_ms`, `arrived_via_hotswap?`, and `init_error` from the overwatch state, alongside the fields it already decodes, so every screen reading operative facts receives them from one decoder.
+`NodeManager.start_relay` SHALL call `Flezha.Service.Relay.start/3` with the named fields core reads — `factory_id`, an optional `id`, `init_values`, `opts`, and, when given, `plugins` and `partitions` — and SHALL NOT send a run or any other field the start does not read. How a relay runs is the factory's, announced by its runners. The answer `{:ok, %{id: id, outcome: outcome}}` SHALL be returned to the caller unchanged, so a screen can name the id the relay runs under and say whether this call started it.
 
-#### Scenario: A durable workflow instance
+#### Scenario: Starting a relay with defaults
 
-- **WHEN** the overwatch state reports `durable_workflow: true`
+- **WHEN** a caller supplies only a namespace and a factory id
+- **THEN** the fields sent to the controller are the factory id, `init_values: %{}`, and `opts: []`
+- **AND** no id is sent, so the controller generates one
+
+#### Scenario: Starting a relay under a chosen id
+
+- **WHEN** a caller supplies an id
+- **THEN** that id is sent with the other fields
+
+#### Scenario: The answer names the started relay
+
+- **WHEN** the controller answers `{:ok, %{id: id, outcome: :started}}`
+- **THEN** `start_relay` answers the same, and the caller can name `id` without knowing whether it chose it
+
+#### Scenario: No run is sent
+
+- **WHEN** any start is made
+- **THEN** the fields sent carry no run and no other field saying how the relay runs
+
+### Requirement: Overwatch decoding covers the steps fields
+
+`NodeManager.overwatch_facts` SHALL additionally decode `durable_steps`, `correction_window_ms`, `arrived_via_hotswap?`, and `init_error` from the overwatch state, alongside the fields it already decodes, so every screen reading relay facts receives them from one decoder.
+
+#### Scenario: A durable steps relay
+
+- **WHEN** the overwatch state reports `durable_steps: true`
 - **THEN** the decoded facts carry it
 
 #### Scenario: A field the controller does not carry
@@ -225,5 +257,25 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 #### Scenario: One decoder
 
 - **WHEN** the codebase is searched for overwatch field extraction
-- **THEN** only `overwatch_facts/2` reads overwatch fields
+- **THEN** only `overwatch_facts` reads overwatch fields
+
+### Requirement: Only the published consumer API is called
+
+Every remote call `NodeManager` makes SHALL name a function on core's published consumer surface — a `Flezha.Service.*` function listed in core's `docs/api/consumers/published.txt`, called with the caller context as its last argument — or one of the two context-free calls, `Flezha.AuthZ.TokenStore.verify/1` and `Flezha.AuthZ.enforcement_posture/0`. No top-level `Flezha` function, internal manager, store, configuration read, or non-Flezha module SHALL be called on the controller.
+
+#### Scenario: Every call site is published
+
+- **WHEN** core's consumer-surface script records the console's call sites
+- **THEN** every recorded call resolves to a published function or one of the two context-free calls
+
+#### Scenario: A call takes the caller context last
+
+- **WHEN** `NodeManager` calls a published `Flezha.Service.*` function
+- **THEN** the last argument is the context `caller_context/1` built
+
+#### Scenario: Context-free calls stay context-free
+
+- **WHEN** `NodeManager` verifies a token or reads the enforcement posture
+- **THEN** it calls `TokenStore.verify/1` or `AuthZ.enforcement_posture/0` with no caller context
+- **AND** no other call is made without one
 

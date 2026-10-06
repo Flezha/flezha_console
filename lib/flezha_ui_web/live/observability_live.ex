@@ -2,9 +2,9 @@ defmodule FlezhaUiWeb.ObservabilityLive do
   @moduledoc """
   What the controller is emitting, where it goes, and a live view of it.
 
-  The tail rides `FlezhaUi.Service.EventRelay` — the same controller-resident
-  relay the runtime events use — because `Observability.tail/2` subscribes the
-  *calling* process, and an `:erpc` call's process does not outlive the call.
+  The tail rides `FlezhaUi.Service.EventFeed`, the same feed the runtime events
+  use: `Observability.tail/2` forwards each signal to the feed's pid, narrowed
+  by the controller to what the bound token may see.
   """
 
   use FlezhaUiWeb, :live_view
@@ -31,10 +31,13 @@ defmodule FlezhaUiWeb.ObservabilityLive do
      |> refresh()}
   end
 
-  @doc "The signal a relayed observability message carries."
+  @doc """
+  A forwarded signal, as a plain map. The controller sends its
+  `%Flezha.Observability.Signal{}` struct, which this node has no module for
+  and which `Access` cannot read.
+  """
   @impl FlezhaUiWeb.Live.Tail
-  def unwrap_tail({:flezha_signal, signal}), do: signal
-  def unwrap_tail(signal), do: signal
+  def unwrap_tail(signal) when is_map(signal), do: Map.delete(signal, :__struct__)
 
   @impl true
   def handle_event("toggle_source", %{"source" => name}, socket) do
@@ -51,11 +54,10 @@ defmodule FlezhaUiWeb.ObservabilityLive do
         {:noreply, socket}
 
       source ->
-        subscription =
-          {:observability_tail, source[:name],
-           NodeManager.caller_context(socket.assigns.flezha_token)}
+        token = socket.assigns.flezha_token
+        open = &NodeManager.observability_tail(source[:name], token, &1)
 
-        {:noreply, start_tail(socket, subscription, source[:name])}
+        {:noreply, start_tail(socket, open, source[:name])}
     end
   end
 
@@ -80,13 +82,18 @@ defmodule FlezhaUiWeb.ObservabilityLive do
           disabled?: false
         )
 
-      {:error, :observability_disabled} ->
-        assign(socket, sources: [], sinks: [], load_error: nil, disabled?: true)
-
       {:error, reason} ->
-        assign(socket, sources: [], sinks: [], load_error: reason, disabled?: false)
+        if NodeManager.error(reason).code == "observability.disabled",
+          do: assign(socket, sources: [], sinks: [], load_error: nil, disabled?: true),
+          else: assign(socket, sources: [], sinks: [], load_error: reason, disabled?: false)
     end
   end
+
+  @doc "Whether a tail was refused because the controller's pubsub sink is off."
+  def pubsub_disabled?(nil), do: false
+
+  def pubsub_disabled?(error),
+    do: NodeManager.error(error).code == "observability.pubsub_disabled"
 
   # The listing's own entry, found by the name a form sent. The source atom is
   # then the one the controller named — a form value is never converted.

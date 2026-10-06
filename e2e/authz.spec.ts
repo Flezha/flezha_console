@@ -97,21 +97,19 @@ test.describe('The flezha token in settings', () => {
     await page.locator('#flezha_token_token').fill(BAD_TOKEN);
     await page.locator('#update_flezha_token button').click();
 
-    // The controller's own verdict on the token, not a guess.
-    await expect(page.getByTestId('flezha-token-binding')).toContainText('malformed');
+    // The controller's own verdict on the token, with its code.
+    await expect(page.getByTestId('flezha-token-binding')).toContainText('authz.token_malformed');
 
     const banner = page.getByTestId('authz-unbound');
     await expect(banner).toBeVisible();
     await expect(banner).toContainText('will be refused');
 
-    // A refused observability query is stated rather than rendering as a graph
-    // with nothing wrong with it.
+    // The controller narrows every listing to the caller, so with no identity
+    // the dashboard states the refusal and where to fix it, rather than
+    // rendering as an empty controller.
     await live('/');
-    const refused = page.getByTestId('topology-stall-refused');
-    await expect(refused).toBeVisible();
-    await expect(refused).toContainText('no flezha principal');
-
-    // And the rest of the summary still renders.
-    await expect(page.getByTestId('summary-operatives')).toBeVisible();
+    const refused = page.getByTestId('runtime-error');
+    await expect(refused).toContainText('authz.principal_not_bound');
+    await expect(refused.getByRole('link', { name: /settings/ })).toBeVisible();
   });
 });

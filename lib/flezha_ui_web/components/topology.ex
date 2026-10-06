@@ -1,17 +1,17 @@
 defmodule FlezhaUiWeb.Topology do
   @moduledoc """
-  The data plane, seen two ways: one operative's pipeline, and a namespace's
+  The data plane, seen two ways: one relay's pipeline, and a namespace's
   health at a glance.
 
-  flezha has no user-declared operative→operative wiring — a builder names a
-  factory, not upstream peers — so the graph worth drawing is *one operative's
+  flezha has no user-declared relay→relay wiring — a builder names a
+  factory, not upstream peers — so the graph worth drawing is *one relay's
   own path*: transport ingest → its `on_input` plugins in position order → the
-  operative core → its `on_output` plugins → the bound runner's stream channel
+  relay core → its `on_output` plugins → the bound runner's stream channel
   → output, with failures parking into the dead-letter queue. Structure comes
-  from the controller's own extension table, so the picture shows what is
+  from the controller's own hook table, so the picture shows what is
   actually attached, in the order it runs.
 
-  A namespace gets a summary rather than a canvas of every operative: flezha
+  A namespace gets a summary rather than a canvas of every relay: flezha
   runs thousands, and the summary costs the same five controller calls whatever
   that number is.
 
@@ -29,7 +29,7 @@ defmodule FlezhaUiWeb.Topology do
 
   Rates are `Δcount / Δt` between this UI's own ticks, not controller-side
   timing, and only on the three edges the controller actually counts. The
-  controller keeps no per-extension counter, so the chain between plugins
+  controller keeps no per-hook counter, so the chain between plugins
   carries no figure — a tap is how you measure a point the counters miss.
   """
 
@@ -48,14 +48,14 @@ defmodule FlezhaUiWeb.Topology do
 
   @history_limit 60
   @stall_window_us 60_000_000
-  @stall_query %{source: :flezha_data_plane, limit: 20}
+  @stall_query %{source: :flezha_health, limit: 20}
 
-  # The extension points that sit on the record path, and where.
+  # The hooks that sit on the record path, and where.
   @inbound [:on_input]
   @outbound [:on_output]
 
   # Named exactly, not by prefix: a host owns `graph_*` events of its own — the
-  # operative page's payload tap is one — and a prefix match would swallow them
+  # relay page's payload tap is one — and a prefix match would swallow them
   # before the host's own clauses were reached.
   @events ~w(graph_select graph_dismiss)
 
@@ -93,20 +93,20 @@ defmodule FlezhaUiWeb.Topology do
   end
 
   @doc """
-  Reloads one operative's pipeline.
+  Reloads one relay's pipeline.
 
   Reads the overwatch facts the host already assigned, so a tick costs one
   liveness snapshot and the reads that are namespace-wide anyway — never a
-  second overwatch call for the operative the host just fetched.
+  second overwatch call for the relay the host just fetched.
   """
   def load_pipeline(socket) do
-    %{ns: namespace, operative_id: operative_id, overwatch: facts} = socket.assigns
+    %{ns: namespace, relay_id: relay_id, overwatch: facts} = socket.assigns
     state = socket.assigns.topology_state
     token = socket.assigns[:flezha_token]
 
     if NodeManager.connected_node() do
-      {snapshot, skew} = snapshot()
-      {rates, state} = advance(state, snapshot, [operative_id])
+      {snapshot, skew} = snapshot(token)
+      {rates, state} = advance(state, snapshot, [relay_id])
       {verdicts, stall_notice} = stall(token)
 
       assign_topology(
@@ -114,12 +114,12 @@ defmodule FlezhaUiWeb.Topology do
         state,
         pipeline(%{
           namespace: namespace,
-          operative_id: operative_id,
+          relay_id: relay_id,
           facts: facts,
           snapshot: snapshot,
-          rate: Map.get(rates, operative_id),
-          history: state.history |> Map.get(operative_id, []) |> Enum.reverse(),
-          parked: parked_for(facts),
+          rate: Map.get(rates, relay_id),
+          history: state.history |> Map.get(relay_id, []) |> Enum.reverse(),
+          parked: parked_for(facts, token),
           verdicts: verdicts,
           stall_notice: stall_notice,
           skew: skew,
@@ -134,10 +134,10 @@ defmodule FlezhaUiWeb.Topology do
   @doc """
   Reloads a namespace's fleet summary.
 
-  Deliberately issues no per-operative call: the liveness snapshot already
-  carries every operative's counters, so the cost is flat in the size of the
-  fleet. `prefetched_rows` lets a host that has already read
-  `operative_rows/1` this tick avoid a second identical read.
+  Deliberately issues no per-relay call: the liveness snapshot already
+  carries every relay's counters, so the cost is flat in the size of the
+  fleet. `prefetched` lets a host that has already read `relay_rows/2` and
+  the partition groups this tick avoid a second identical read.
   """
   def load_summary(socket, namespace, prefetched \\ nil) do
     state = socket.assigns.topology_state
@@ -151,7 +151,7 @@ defmodule FlezhaUiWeb.Topology do
         assign_topology(socket, state, summary_view(%{state: :empty, namespace: nil}))
 
       true ->
-        {snapshot, skew} = snapshot()
+        {snapshot, skew} = snapshot(token)
 
         # Health comes from the same registry dump the listings read, so the
         # summary can break its counts down rather than reporting liveness
@@ -159,8 +159,11 @@ defmodule FlezhaUiWeb.Topology do
         # A host that already read the namespace's rows and groups hands them
         # over rather than paying for the same registry dump — and the same
         # per-group coverage check — twice on one tick.
-        rows = (prefetched && prefetched.rows) || NodeManager.namespace_rows(namespace)
-        groups = (prefetched && prefetched.groups) || NodeManager.partition_groups(rows)
+        rows =
+          (prefetched && prefetched.rows) ||
+            namespace |> NodeManager.relay_rows(token) |> NodeManager.ok_or([])
+
+        groups = (prefetched && prefetched.groups) || NodeManager.partition_groups(rows, token)
 
         ids = Enum.map(rows, &to_string(&1.id))
         {rates, state} = advance(state, snapshot, ids)
@@ -172,12 +175,12 @@ defmodule FlezhaUiWeb.Topology do
           summary(%{
             namespace: namespace,
             rows: rows,
-            operative_ids: ids,
+            relay_ids: ids,
             faulted_groups: NodeManager.faulted_group_ids(groups),
-            runners: runner_ids(namespace),
+            runners: runner_ids(namespace, token),
             snapshot: snapshot,
             rates: rates,
-            dlq: NodeManager.ok_or(NodeManager.dlq_stats(), []),
+            dlq: NodeManager.ok_or(NodeManager.dlq_stats(token), []),
             verdicts: verdicts,
             stall_notice: stall_notice,
             skew: skew
@@ -245,25 +248,26 @@ defmodule FlezhaUiWeb.Topology do
   # counters: the graph still draws structure, so it is carried through as a
   # notice rather than swallowed. Any other failure simply leaves no rates —
   # the host's own error banner already says the controller is unhappy.
-  defp snapshot do
-    case NodeManager.liveness_snapshot() do
-      %{} = snapshot -> {snapshot, nil}
+  defp snapshot(token) do
+    case NodeManager.liveness_snapshot(token) do
+      {:ok, %{} = snapshot} -> {snapshot, nil}
       {:error, {:api_missing, _module, _function, _arity} = reason} -> {nil, reason}
       _other -> {nil, nil}
     end
   end
 
-  defp runner_ids(namespace) do
+  defp runner_ids(namespace, token) do
     namespace
-    |> NodeManager.active_runners()
+    |> NodeManager.runners(token)
     |> NodeManager.ok_or([])
     |> Enum.map(&NodeManager.identifier_id/1)
   end
 
-  defp parked_for(facts) do
-    NodeManager.dlq_stats()
+  defp parked_for(facts, token) do
+    token
+    |> NodeManager.dlq_stats()
     |> NodeManager.ok_or([])
-    |> Enum.filter(&(to_string(Map.get(&1, :operative_class)) == facts.operative_class))
+    |> Enum.filter(&(to_string(Map.get(&1, :relay_class)) == facts.relay_class))
     |> Enum.reduce(0, &(&2 + Map.get(&1, :entries, 0)))
   end
 
@@ -280,16 +284,23 @@ defmodule FlezhaUiWeb.Topology do
   """
   def stall(token) do
     case NodeManager.observability_query(@stall_query, token) do
-      {:ok, signals} when is_list(signals) -> {recent(signals), nil}
-      {:error, {:forbidden, reason}} -> {[], {:refused, reason}}
-      {:error, :observability_disabled} -> {[], :disabled}
+      {:ok, signals} when is_list(signals) -> {recent(signals, token), nil}
+      {:error, reason} -> {[], stall_notice(reason)}
       _other -> {[], nil}
     end
   end
 
-  defp recent(signals) do
+  defp stall_notice(reason) do
+    case NodeManager.error(reason) do
+      %{class: :denied} -> {:refused, reason}
+      %{code: "observability.disabled"} -> :disabled
+      _other -> nil
+    end
+  end
+
+  defp recent(signals, token) do
     with [_ | _] = stalls <- Enum.filter(signals, &(Map.get(&1, :name) == :stall_localized)),
-         now when is_integer(now) <- NodeManager.controller_monotonic_us() do
+         now when is_integer(now) <- NodeManager.controller_monotonic_us(token) do
       stalls
       |> Enum.filter(fn signal -> now - signal_ts(signal) < @stall_window_us end)
       |> Enum.sort_by(&signal_ts/1, :desc)
@@ -304,22 +315,23 @@ defmodule FlezhaUiWeb.Topology do
   defp verdict(signal) do
     metadata = Map.get(signal, :metadata) || %{}
 
-    %{layer: Map.get(metadata, :layer), entity: verdict_entity(metadata)}
+    %{layer: Map.get(metadata, :layer), subject: verdict_subject(metadata)}
   end
 
-  # The classifier names whichever entity its verdict is about; the deepest
-  # identifier present wins, and a driver-level verdict names no node.
-  defp verdict_entity(%{operative_id: id}) when not is_nil(id), do: to_string(id)
-  defp verdict_entity(%{runner_id: id}) when not is_nil(id), do: to_string(id)
-  defp verdict_entity(%{channel: name}) when not is_nil(name), do: to_string(name)
-  defp verdict_entity(_metadata), do: nil
+  # The classifier names whichever relay, runner or channel its verdict is
+  # about; the deepest identifier present wins, and a driver-level verdict
+  # names no node.
+  defp verdict_subject(%{relay_id: id}) when not is_nil(id), do: to_string(id)
+  defp verdict_subject(%{runner_id: id}) when not is_nil(id), do: to_string(id)
+  defp verdict_subject(%{channel: name}) when not is_nil(name), do: to_string(name)
+  defp verdict_subject(_metadata), do: nil
 
   # ---- Pipeline view model ----
 
   @doc """
-  One operative's pipeline, as nodes and edges.
+  One relay's pipeline, as nodes and edges.
 
-  Pure: the overwatch facts (including the extension table), the liveness
+  Pure: the overwatch facts (including the hook table), the liveness
   snapshot, the computed rate and its history, the parked count, and any recent
   stall verdicts all arrive in `input`.
   """
@@ -333,7 +345,7 @@ defmodule FlezhaUiWeb.Topology do
         Enum.map(inbound, &stage_node/1) ++
         [core_node(input, facts)] ++
         Enum.map(outbound, &stage_node/1) ++
-        [channel_node(input, facts, channel), sink_node()]
+        [channel_node(input, facts, channel), output_node()]
 
     nodes = position(chain)
     core = Enum.find(nodes, &(&1.kind == :core))
@@ -344,7 +356,7 @@ defmodule FlezhaUiWeb.Topology do
       kind: :pipeline,
       state: :ok,
       namespace: input.namespace,
-      operative_id: input.operative_id,
+      relay_id: input.relay_id,
       nodes: all,
       edges: chain_edges(nodes, input) ++ branch_edges(core, branches),
       width: @pad + @node_w + @branch_gap + @branch_w + @pad,
@@ -357,7 +369,7 @@ defmodule FlezhaUiWeb.Topology do
     }
   end
 
-  # `on_input` runs before the operative sees a record and `on_output` after it
+  # `on_input` runs before the relay sees a record and `on_output` after it
   # forwards one; everything else fires off the record path, so it hangs off the
   # core rather than pretending to be a step.
   defp stages(bindings) do
@@ -367,17 +379,17 @@ defmodule FlezhaUiWeb.Topology do
      Enum.reject(sorted, &(on?(&1, @inbound) or on?(&1, @outbound)))}
   end
 
-  defp on?(entry, extensions), do: entry.extension in Enum.map(extensions, &Atom.to_string/1)
+  defp on?(entry, hooks), do: entry.hook in Enum.map(hooks, &Atom.to_string/1)
 
   defp stage_node(entry) do
     %{
       id: "plugin-#{entry.plugin_id}",
       kind: :plugin,
       label: entry.plugin_id,
-      sub: "#{entry.extension}#{position_suffix(entry.position)} · #{entry.provider}",
+      sub: "#{entry.hook}#{position_suffix(entry.position)} · #{entry.provider}",
       selectable?: true,
       plugin_id: entry.plugin_id,
-      extension: entry.extension,
+      hook: entry.hook,
       provider: entry.provider,
       position: entry.position
     }
@@ -388,17 +400,17 @@ defmodule FlezhaUiWeb.Topology do
 
   defp core_node(input, facts) do
     %{
-      id: input.operative_id,
+      id: input.relay_id,
       kind: :core,
-      label: input.operative_id,
+      label: input.relay_id,
       sub: to_string(facts.factory_id || "—"),
       selectable?: true,
       state: (facts.suspended && :suspended) || :running,
       facts: facts,
-      counters: operative_counters(input.snapshot, input.operative_id),
+      counters: relay_counters(input.snapshot, input.relay_id),
       rate: input.rate,
       history: input.history,
-      href: ~p"/namespaces/#{input.namespace}/operatives/#{input.operative_id}/stream"
+      href: ~p"/namespaces/#{input.namespace}/relays/#{input.relay_id}/listen"
     }
   end
 
@@ -419,7 +431,7 @@ defmodule FlezhaUiWeb.Topology do
   defp channel_state(nil), do: :unbound
   defp channel_state(_runner_id), do: :bound
 
-  defp sink_node, do: %{id: "output", kind: :sink, label: "Output", sub: "runner stream"}
+  defp output_node, do: %{id: "output", kind: :output, label: "Output", sub: "runner stream"}
 
   # Every chain node is one row down from the last.
   defp position(chain) do
@@ -432,7 +444,7 @@ defmodule FlezhaUiWeb.Topology do
     end)
   end
 
-  # The dead-letter branch and the off-path extensions live in their own column
+  # The dead-letter branch and the off-path hooks live in their own column
   # beside the core, so neither pretends to be a step on the record path.
   defp branch_nodes(input, satellites, core) do
     dlq =
@@ -461,7 +473,7 @@ defmodule FlezhaUiWeb.Topology do
     end)
   end
 
-  # Rates land only where the controller counts: into the operative, out of it,
+  # Rates land only where the controller counts: into the relay, out of it,
   # and out of the channel. Between plugins there is no counter, so no figure.
   defp chain_edges(nodes, input) do
     nodes
@@ -513,7 +525,7 @@ defmodule FlezhaUiWeb.Topology do
   size of the fleet.
   """
   def summary(input) do
-    live = MapSet.new(input.operative_ids)
+    live = MapSet.new(input.relay_ids)
     channels = channels_by_runner(input.snapshot)
 
     busiest =
@@ -524,7 +536,7 @@ defmodule FlezhaUiWeb.Topology do
           id: id,
           in: rate.in,
           out: rate.out,
-          href: ~p"/namespaces/#{input.namespace}/operatives/#{id}"
+          href: ~p"/namespaces/#{input.namespace}/relays/#{id}"
         }
       end)
       |> Enum.sort_by(&(-(&1.in + &1.out)))
@@ -533,7 +545,7 @@ defmodule FlezhaUiWeb.Topology do
     rows = Map.get(input, :rows, [])
     faulted = Map.get(input, :faulted_groups, [])
 
-    # Surfaced whatever their throughput: an operative that is unhealthy,
+    # Surfaced whatever their throughput: a relay that is unhealthy,
     # unplaced, or owning a broken key range is exactly the one whose counters
     # have stopped moving, so a ranking by throughput would bury it.
     attention =
@@ -548,21 +560,21 @@ defmodule FlezhaUiWeb.Topology do
           health: NodeManager.row_health(row),
           unplaced?: is_nil(row[:node]),
           faulted_group: row[:partition] && row.partition.group in faulted && row.partition.group,
-          href: ~p"/namespaces/#{input.namespace}/operatives/#{row.id}"
+          href: ~p"/namespaces/#{input.namespace}/relays/#{row.id}"
         }
       end)
       |> Enum.sort_by(& &1.id)
 
     summary_view(%{
-      state: ((input.operative_ids == [] and input.runners == []) && :empty) || :ok,
+      state: ((input.relay_ids == [] and input.runners == []) && :empty) || :ok,
       namespace: input.namespace,
-      operative_count: length(input.operative_ids),
+      relay_count: length(input.relay_ids),
       health:
         Enum.map(NodeManager.health_counts(rows), fn {health, count} ->
           %{
             health: health,
             count: count,
-            href: ~p"/operatives?#{[namespace: input.namespace, health: health]}"
+            href: ~p"/relays?#{[namespace: input.namespace, health: health]}"
           }
         end),
       attention: attention,
@@ -585,7 +597,7 @@ defmodule FlezhaUiWeb.Topology do
         kind: :summary,
         state: :ok,
         namespace: nil,
-        operative_count: 0,
+        relay_count: 0,
         runner_count: 0,
         backpressured: [],
         parked: 0,
@@ -603,23 +615,23 @@ defmodule FlezhaUiWeb.Topology do
   # ---- Shared arithmetic ----
 
   @doc """
-  Per-operative in/out message rates from two snapshots and the milliseconds
+  Per-relay in/out message rates from two snapshots and the milliseconds
   between them.
 
-  Answers `%{operative_id => %{in: rate, out: rate}}`, and nothing at all
+  Answers `%{relay_id => %{in: rate, out: rate}}`, and nothing at all
   without a baseline — a first tick has no elapsed time to divide by. A
   negative delta means the controller restarted and its counters reset; that
   clamps to zero for the one tick rather than rendering a nonsense figure.
   """
   def rates(snapshot, previous, elapsed_ms)
       when is_map(snapshot) and is_map(previous) and elapsed_ms > 0 do
-    before = index_operatives(previous)
+    before = index_relays(previous)
     seconds = elapsed_ms / 1_000
 
     snapshot
-    |> Map.get(:operatives, [])
+    |> Map.get(:relays, [])
     |> Enum.reduce(%{}, fn entry, acc ->
-      id = NodeManager.identifier_id(Map.get(entry, :operative_id))
+      id = NodeManager.identifier_id(Map.get(entry, :relay_id))
 
       case Map.fetch(before, id) do
         {:ok, base} ->
@@ -643,7 +655,7 @@ defmodule FlezhaUiWeb.Topology do
   end
 
   @doc """
-  Appends this tick's rates to each operative's history, newest first.
+  Appends this tick's rates to each relay's history, newest first.
 
   Capped at #{@history_limit} samples: the sparkline is a session-local view of
   the recent past, not a metrics store.
@@ -664,16 +676,16 @@ defmodule FlezhaUiWeb.Topology do
   def speed_bucket(rate) when rate < 100, do: :medium
   def speed_bucket(_rate), do: :fast
 
-  defp index_operatives(snapshot) do
+  defp index_relays(snapshot) do
     snapshot
-    |> Map.get(:operatives, [])
-    |> Map.new(&{NodeManager.identifier_id(Map.get(&1, :operative_id)), &1})
+    |> Map.get(:relays, [])
+    |> Map.new(&{NodeManager.identifier_id(Map.get(&1, :relay_id)), &1})
   end
 
-  defp operative_counters(nil, _operative_id), do: nil
+  defp relay_counters(nil, _relay_id), do: nil
 
-  defp operative_counters(snapshot, operative_id) do
-    Map.get(index_operatives(snapshot), operative_id)
+  defp relay_counters(snapshot, relay_id) do
+    Map.get(index_relays(snapshot), relay_id)
   end
 
   defp channel_for(nil, _runner_id), do: nil
@@ -705,7 +717,7 @@ defmodule FlezhaUiWeb.Topology do
   # ---- Pipeline rendering ----
 
   @doc """
-  One operative's pipeline: the chain, its banners, the legend, and the detail
+  One relay's pipeline: the chain, its banners, the legend, and the detail
   panel for the selected node.
 
   The `:tap` slot is where the host puts its payload tap, beside the chain.
@@ -739,7 +751,7 @@ defmodule FlezhaUiWeb.Topology do
             height={@topology.height}
             class="max-w-full h-auto mx-auto"
             role="img"
-            aria-label={"Pipeline of #{@topology.operative_id}"}
+            aria-label={"Pipeline of #{@topology.relay_id}"}
           >
             <g><.edge :for={edge <- @topology.edges} edge={edge} /></g>
             <g>
@@ -844,7 +856,7 @@ defmodule FlezhaUiWeb.Topology do
   end
 
   # Only the edges the controller counts carry a figure. An idle edge still
-  # states its zero, but quietly: one busy operative should not read as a
+  # states its zero, but quietly: one busy relay should not read as a
   # column of identical numbers.
   defp edge_label(%{kind: :flow, rate: rate}) when is_number(rate),
     do: %{name: "topo-rate", text: "#{rate}/s", muted?: rate == 0}
@@ -974,7 +986,7 @@ defmodule FlezhaUiWeb.Topology do
     """
   end
 
-  defp detail_link_label(:core), do: "Open live stream"
+  defp detail_link_label(:core), do: "Listen"
   defp detail_link_label(:channel), do: "Open cluster"
   defp detail_link_label(_kind), do: "Open"
 
@@ -985,7 +997,7 @@ defmodule FlezhaUiWeb.Topology do
     <dl class="space-y-1 text-xs">
       <.fact label="Factory">{@node.facts.factory_id || "—"}</.fact>
       <.fact label="Runner">{@node.facts.runner_id || "—"}</.fact>
-      <.fact label="Kind">{@node.facts.kind || "—"}</.fact>
+      <.fact label="Run">{@node.facts.run || "—"}</.fact>
       <.fact label="Uptime">{Format.duration(@node.facts.uptime_ms)}</.fact>
       <.fact label="State">{@node.state}</.fact>
       <.fact label="In">{rate_text(@node.rate, :in)}</.fact>
@@ -1043,7 +1055,7 @@ defmodule FlezhaUiWeb.Topology do
     <dl class="space-y-1 text-xs">
       <.fact label="Plugin">{@node.plugin_id}</.fact>
       <.fact label="Provider">{@node.provider}</.fact>
-      <.fact label="Extension">{@node.extension}</.fact>
+      <.fact label="Hook">{@node.hook}</.fact>
       <.fact label="Position">{@node.position || "—"}</.fact>
     </dl>
     """
@@ -1131,8 +1143,8 @@ defmodule FlezhaUiWeb.Topology do
 
       <div :if={@topology.state == :ok} class="space-y-4">
         <dl class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <.stat boxed testid="summary-operatives" label="Operatives">
-            {@topology.operative_count}
+          <.stat boxed testid="summary-relays" label="Relays">
+            {@topology.relay_count}
           </.stat>
           <.stat boxed testid="summary-runners" label="Runners">{@topology.runner_count}</.stat>
           <.stat
@@ -1188,7 +1200,7 @@ defmodule FlezhaUiWeb.Topology do
         </div>
 
         <div>
-          <h3 class="flz-label mb-2">Busiest operatives</h3>
+          <h3 class="flz-label mb-2">Busiest relays</h3>
           <p
             :if={@topology.busiest == []}
             data-testid="summary-busiest-empty"
@@ -1204,7 +1216,7 @@ defmodule FlezhaUiWeb.Topology do
             <li :for={row <- @topology.busiest} class="py-2 flex items-center gap-3 text-xs">
               <.link
                 navigate={row.href}
-                data-testid={"summary-operative-#{row.id}"}
+                data-testid={"summary-relay-#{row.id}"}
                 class="font-mono text-accent-text hover:text-accent transition-colors truncate"
               >
                 {row.id}
@@ -1235,9 +1247,9 @@ defmodule FlezhaUiWeb.Topology do
     <.notice :if={@topology.stall} kind={:error} testid="topology-stall">
       Data-plane stall localized at
       <.mono>{Format.humanize(@topology.stall.layer)}</.mono>
-      <span :if={@topology.stall.entity}>
+      <span :if={@topology.stall.subject}>
         on
-        <.mono>{@topology.stall.entity}</.mono>
+        <.mono>{@topology.stall.subject}</.mono>
       </span>
     </.notice>
 
@@ -1248,7 +1260,7 @@ defmodule FlezhaUiWeb.Topology do
       kind={:error}
       testid="topology-stall-refused"
     >
-      Stall detection is unavailable: {forbidden_reason(elem(Map.get(@topology, :stall_notice), 1))}
+      Stall detection is unavailable: {error_message(elem(Map.get(@topology, :stall_notice), 1))}
     </.notice>
 
     <.notice

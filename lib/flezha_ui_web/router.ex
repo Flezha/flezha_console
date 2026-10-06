@@ -63,17 +63,17 @@ defmodule FlezhaUiWeb.Router do
       ] do
       live "/", DashboardLive
       live "/namespaces", NamespaceLive.Index
-      live "/operatives", OperativeIndexLive
+      live "/relays", RelayIndexLive
       live "/namespaces/:ns", NamespaceLive.Show
       # The same three screens as the platform routes below, scoped by the
       # path rather than by a filter control — same LiveView, so the filter
       # each of them already applies is the one doing the scoping.
-      live "/namespaces/:ns/operatives", OperativeIndexLive
+      live "/namespaces/:ns/relays", RelayIndexLive
       live "/namespaces/:ns/plugins", PluginLive
       live "/namespaces/:ns/schedules", ScheduleLive
-      live "/namespaces/:ns/operatives/:id", OperativeLive
-      live "/namespaces/:ns/operatives/:id/stream", StreamLive
-      live "/namespaces/:ns/operatives/:id/state", OperativeStateLive
+      live "/namespaces/:ns/relays/:id", RelayLive
+      live "/namespaces/:ns/relays/:id/listen", ListenLive
+      live "/namespaces/:ns/relays/:id/state", RelayStateLive
       live "/observability", ObservabilityLive
       live "/controller", ControllerLive
       live "/plugins", PluginLive

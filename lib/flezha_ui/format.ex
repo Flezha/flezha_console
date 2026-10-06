@@ -29,6 +29,25 @@ defmodule FlezhaUi.Format do
   def printable(value, _opts), do: inspect(value)
 
   @doc """
+  A payload a relay emitted or ingested, as a listen screen shows it: printable
+  text, its size, its metadata and when it arrived here.
+
+  Sized before it is rendered printable: a non-UTF-8 payload becomes hex, which
+  would report double what actually crossed the wire.
+  """
+  def frame(payload, metadata) do
+    %{
+      message: printable(payload),
+      bytes: payload_bytes(payload),
+      metadata: metadata || %{},
+      timestamp: DateTime.utc_now()
+    }
+  end
+
+  defp payload_bytes(payload) when is_binary(payload), do: byte_size(payload)
+  defp payload_bytes(payload), do: payload |> :erlang.term_to_binary() |> byte_size()
+
+  @doc """
   A duration in milliseconds, to the two largest units that apply.
 
   For a figure the operator reads on its own — an uptime — where "3d 4h" says

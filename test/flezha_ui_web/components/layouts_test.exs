@@ -15,7 +15,7 @@ defmodule FlezhaUiWeb.LayoutsTest do
     test "a top-level screen carries no trail" do
       assert Layouts.breadcrumbs("/") == []
       assert Layouts.breadcrumbs("/namespaces") == []
-      assert Layouts.breadcrumbs("/operatives") == []
+      assert Layouts.breadcrumbs("/relays") == []
     end
 
     test "a namespace names the collection above it" do
@@ -25,14 +25,14 @@ defmodule FlezhaUiWeb.LayoutsTest do
              ]
     end
 
-    test "an operative's state names the namespace, the operative and the view" do
-      trail = Layouts.breadcrumbs("/namespaces/default/operatives/op_a/state")
+    test "a relay's state names the namespace, the relay and the view" do
+      trail = Layouts.breadcrumbs("/namespaces/default/relays/relay_a/state")
 
       assert Enum.map(trail, & &1.label) == [
                "Namespaces",
                "default",
-               "Operatives",
-               "op_a",
+               "Relays",
+               "relay_a",
                "State"
              ]
 
@@ -40,16 +40,22 @@ defmodule FlezhaUiWeb.LayoutsTest do
       assert Enum.map(trail, & &1.path) == [
                "/namespaces",
                "/namespaces/default",
-               "/namespaces/default/operatives",
-               "/namespaces/default/operatives/op_a",
+               "/namespaces/default/relays",
+               "/namespaces/default/relays/relay_a",
                nil
              ]
     end
 
-    test "a namespace spelled like a screen keeps its own name" do
-      trail = Layouts.breadcrumbs("/namespaces/operatives/plugins")
+    test "the listen view's last crumb reads Listen" do
+      trail = Layouts.breadcrumbs("/namespaces/default/relays/relay_a/listen")
 
-      assert Enum.map(trail, & &1.label) == ["Namespaces", "operatives", "Plugins"]
+      assert %{label: "Listen", path: nil} = List.last(trail)
+    end
+
+    test "a namespace spelled like a screen keeps its own name" do
+      trail = Layouts.breadcrumbs("/namespaces/relays/plugins")
+
+      assert Enum.map(trail, & &1.label) == ["Namespaces", "relays", "Plugins"]
     end
   end
 
@@ -64,22 +70,22 @@ defmodule FlezhaUiWeb.LayoutsTest do
     end
 
     test "a subtree is measured in segments, not in characters" do
-      refute Layouts.nav_current?("/operatives-elsewhere", "/operatives")
+      refute Layouts.nav_current?("/relays-elsewhere", "/relays")
     end
 
     test "a scoped route marks its own entry, not the platform twin" do
-      current = "/namespaces/default/operatives"
+      current = "/namespaces/default/relays"
 
-      assert Layouts.nav_current?(current, "/namespaces/default/operatives")
-      refute Layouts.nav_current?(current, "/operatives")
+      assert Layouts.nav_current?(current, "/namespaces/default/relays")
+      refute Layouts.nav_current?(current, "/relays")
       refute Layouts.nav_current?(current, "/namespaces")
       refute Layouts.nav_current?(current, "/namespaces/default")
     end
 
-    test "an operative below a collection marks the collection" do
-      current = "/namespaces/default/operatives/op_a/stream"
+    test "a relay below a collection marks the collection" do
+      current = "/namespaces/default/relays/relay_a/listen"
 
-      assert Layouts.nav_current?(current, "/namespaces/default/operatives")
+      assert Layouts.nav_current?(current, "/namespaces/default/relays")
       refute Layouts.nav_current?(current, "/namespaces/default")
     end
 
@@ -90,7 +96,7 @@ defmodule FlezhaUiWeb.LayoutsTest do
     test "exactly one rail entry is current on every route" do
       paths = [
         "/",
-        "/operatives",
+        "/relays",
         "/namespaces",
         "/cluster",
         "/controller",
@@ -98,12 +104,12 @@ defmodule FlezhaUiWeb.LayoutsTest do
         "/dlq",
         "/audit",
         "/namespaces/default",
-        "/namespaces/default/operatives",
+        "/namespaces/default/relays",
         "/namespaces/default/plugins",
         "/namespaces/default/schedules",
-        "/namespaces/default/operatives/op_a",
-        "/namespaces/default/operatives/op_a/stream",
-        "/namespaces/default/operatives/op_a/state"
+        "/namespaces/default/relays/relay_a",
+        "/namespaces/default/relays/relay_a/listen",
+        "/namespaces/default/relays/relay_a/state"
       ]
 
       for path <- paths do
@@ -133,7 +139,7 @@ defmodule FlezhaUiWeb.LayoutsTest do
       [scoped, _platform] = Layouts.nav_sections("default")
 
       assert scoped.scope == "default"
-      assert Enum.map(scoped.entries, & &1.label) == ~w(Overview Operatives Plugins Schedules)
+      assert Enum.map(scoped.entries, & &1.label) == ~w(Overview Relays Plugins Schedules)
     end
 
     test "dead-letter and observability stay platform-global" do
@@ -148,7 +154,7 @@ defmodule FlezhaUiWeb.LayoutsTest do
 
   describe "scope_target/2" do
     test "a scoped collection keeps its screen kind under the new namespace" do
-      assert Layouts.scope_target("/namespaces/a/operatives", "b") == "/namespaces/b/operatives"
+      assert Layouts.scope_target("/namespaces/a/relays", "b") == "/namespaces/b/relays"
       assert Layouts.scope_target("/namespaces/a/plugins", "b") == "/namespaces/b/plugins"
       assert Layouts.scope_target("/namespaces/a/schedules", "b") == "/namespaces/b/schedules"
     end
@@ -158,9 +164,9 @@ defmodule FlezhaUiWeb.LayoutsTest do
       assert Layouts.scope_target("/", "b") == "/namespaces/b"
     end
 
-    test "one namespace's operative means nothing under another, so the collection it is" do
-      assert Layouts.scope_target("/namespaces/a/operatives/op_a/stream", "b") ==
-               "/namespaces/b/operatives"
+    test "one namespace's relay means nothing under another, so the collection it is" do
+      assert Layouts.scope_target("/namespaces/a/relays/relay_a/listen", "b") ==
+               "/namespaces/b/relays"
     end
   end
 end

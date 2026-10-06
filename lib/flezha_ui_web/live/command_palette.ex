@@ -4,10 +4,10 @@ defmodule FlezhaUiWeb.CommandPalette do
 
   Mounted once by the shell, so every screen has it and no screen implements
   it. Its destinations are the ones the sidebar already offers plus the
-  namespaces and operatives the bound token can reach — nothing the palette
-  can reach is unreachable by clicking.
+  namespaces and relays the bound token can reach — nothing the palette can
+  reach is unreachable by clicking.
 
-  The operative index is the expensive part, so it is read on the first open
+  The relay index is the expensive part, so it is read on the first open
   rather than on mount: a screen the operator never opens the palette on pays
   nothing for it. Once read it is held on the component and dropped again by
   `invalidate/1`, which `FlezhaUiWeb.Live.Refresh` calls on the same lifecycle
@@ -22,14 +22,14 @@ defmodule FlezhaUiWeb.CommandPalette do
   @limit 20
 
   @doc """
-  Drops the cached operative index, so the next open reads it again.
+  Drops the cached relay index, so the next open reads it again.
 
   A no-op before the socket is connected: there is no component to update on a
   dead render, and nothing has been cached there to go stale.
   """
   def invalidate(socket) do
     if Phoenix.LiveView.connected?(socket) do
-      Phoenix.LiveView.send_update(__MODULE__, id: @id, operatives: nil)
+      Phoenix.LiveView.send_update(__MODULE__, id: @id, relays: nil)
     end
 
     socket
@@ -45,12 +45,12 @@ defmodule FlezhaUiWeb.CommandPalette do
      |> assign(assigns)
      |> assign_new(:open, fn -> false end)
      |> assign_new(:query, fn -> "" end)
-     |> assign_new(:operatives, fn -> nil end)}
+     |> assign_new(:relays, fn -> nil end)}
   end
 
   @impl true
   def handle_event("open", _params, socket) do
-    {:noreply, socket |> load_operatives() |> assign(open: true, query: "")}
+    {:noreply, socket |> load_relays() |> assign(open: true, query: "")}
   end
 
   @impl true
@@ -63,21 +63,22 @@ defmodule FlezhaUiWeb.CommandPalette do
     {:noreply, assign(socket, query: query)}
   end
 
-  # One registry dump per reachable namespace, the same read the Fleet screen
-  # makes — never one call per operative.
-  defp load_operatives(%{assigns: %{operatives: rows}} = socket) when is_list(rows), do: socket
+  # One listing read per reachable namespace, the same read the Fleet screen
+  # makes — never one call per relay.
+  defp load_relays(%{assigns: %{relays: rows}} = socket) when is_list(rows), do: socket
 
-  defp load_operatives(socket) do
+  defp load_relays(socket) do
     rows =
       Enum.flat_map(socket.assigns.namespaces, fn namespace ->
         namespace
-        |> NodeManager.namespace_rows()
+        |> NodeManager.relay_list(socket.assigns.token)
+        |> NodeManager.ok_or([])
         |> Enum.map(fn row ->
           %{id: to_string(row.id), namespace: namespace, health: row.health}
         end)
       end)
 
-    assign(socket, operatives: rows)
+    assign(socket, relays: rows)
   end
 
   # The destinations a typed string names. Screens come from the same list the
@@ -86,7 +87,7 @@ defmodule FlezhaUiWeb.CommandPalette do
   defp matches(assigns) do
     needle = assigns.query |> to_string() |> String.trim() |> String.downcase()
 
-    (screens(assigns.scope) ++ namespaces(assigns.namespaces) ++ operatives(assigns.operatives))
+    (screens(assigns.scope) ++ namespaces(assigns.namespaces) ++ relays(assigns.relays))
     |> Enum.filter(&String.contains?(String.downcase(&1.label), needle))
   end
 
@@ -100,17 +101,17 @@ defmodule FlezhaUiWeb.CommandPalette do
     for name <- names || [], do: entry("namespace", name, ~p"/namespaces/#{name}")
   end
 
-  defp operatives(nil), do: []
+  defp relays(nil), do: []
 
-  defp operatives(rows) do
+  defp relays(rows) do
     for row <- rows do
-      entry("operative", row.id, ~p"/namespaces/#{row.namespace}/operatives/#{row.id}",
+      entry("relay", row.id, ~p"/namespaces/#{row.namespace}/relays/#{row.id}",
         detail: "#{row.namespace} · #{row.health}"
       )
     end
   end
 
-  # An operative is the one destination whose name is not enough on its own —
+  # A relay is the one destination whose name is not enough on its own —
   # an id says nothing about where it runs or how it is faring.
   defp entry(kind, label, path, opts \\ []) do
     %{kind: kind, label: label, path: path, detail: opts[:detail]}
@@ -138,7 +139,7 @@ defmodule FlezhaUiWeb.CommandPalette do
               name="q"
               value={@query}
               class="flz-palette-input"
-              placeholder="Operative id, namespace, or screen"
+              placeholder="Relay id, namespace, or screen"
               data-testid="command-palette-input"
               phx-debounce="80"
             />

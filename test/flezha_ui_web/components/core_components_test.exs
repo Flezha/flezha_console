@@ -1,9 +1,10 @@
 defmodule FlezhaUiWeb.CoreComponentsTest do
   @moduledoc """
-  The two components every operator form is built out of.
+  The components every operator form is built out of, and the banner every
+  controller error is shown in.
 
-  Both exist to make a decision once: what a control looks like, and how wide a
-  dialog is. A regression here is one a screen test would not catch — the form
+  Each exists to make a decision once: what a control looks like, how wide a
+  dialog is, and how an error reads. A regression here is one a screen test would not catch — the form
   still works, it is just the wrong size or missing the hint that told the
   operator what the field means — so it is asserted at the component.
   """
@@ -23,20 +24,20 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
         <.input
           type="text"
           name="start[id]"
-          label="Operative ID"
-          value="op_1"
+          label="Relay ID"
+          value="relay_1"
           maxlength="32"
-          placeholder="my-operative"
-          data-testid="input-operative-id"
+          placeholder="my-relay"
+          data-testid="input-relay-id"
         />
         """)
 
-      assert html =~ "Operative ID"
+      assert html =~ "Relay ID"
       assert html =~ ~s(name="start[id]")
-      assert html =~ ~s(value="op_1")
+      assert html =~ ~s(value="relay_1")
       assert html =~ ~s(maxlength="32")
-      assert html =~ ~s(placeholder="my-operative")
-      assert html =~ ~s(data-testid="input-operative-id")
+      assert html =~ ~s(placeholder="my-relay")
+      assert html =~ ~s(data-testid="input-relay-id")
     end
 
     test "a number field renders as one" do
@@ -148,6 +149,29 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
     end
   end
 
+  describe "button/1" do
+    test "a button with its own click handler does not submit its form" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <form><.button phx-click="close">Cancel</.button></form>
+        """)
+
+      assert html =~ ~s(type="button")
+    end
+
+    test "an explicit type is kept, and a plain button is left to its form" do
+      assigns = %{}
+
+      submit = rendered_to_string(~H|<.button type="submit" phx-click="go">Go</.button>|)
+      plain = rendered_to_string(~H|<.button>Go</.button>|)
+
+      assert submit =~ ~s(type="submit")
+      refute plain =~ "type="
+    end
+  end
+
   describe "dialog/1" do
     test "a confirmation is the narrowest" do
       assigns = %{}
@@ -204,6 +228,89 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
       # `.flz-modal-body` is what carries `overflow-y: auto` under a surface
       # capped at the viewport; content rendered outside it would be cut off.
       assert html =~ ~s(<div class="flz-modal-body">fields</div>)
+    end
+  end
+
+  describe "runtime_error/1" do
+    test "a refusal names the action, the controller's message and the code" do
+      assigns = %{
+        error: Flezha.Error.new("authz.role_insufficient", "your role does not allow this")
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <.runtime_error error={@error} action="the stop" />
+        """)
+
+      assert html =~ "The controller refused the stop"
+      assert html =~ "your role does not allow this"
+      assert html =~ "authz.role_insufficient"
+      refute html =~ "Store a flezha token"
+    end
+
+    test "a refusal for want of an identity links to settings" do
+      for code <- ~w(authz.principal_not_bound authz.no_role_binding) do
+        assigns = %{error: {:error, Flezha.Error.new(code)}}
+
+        html =
+          rendered_to_string(~H"""
+          <.runtime_error error={@error} />
+          """)
+
+        assert html =~ "Store a flezha token in settings"
+      end
+    end
+
+    test "another failure shows the controller's message and its hint" do
+      assigns = %{
+        error:
+          Flezha.Error.new("relay.not_running", "relay 'r1' is not running", "start it first")
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <.runtime_error error={@error} />
+        """)
+
+      assert html =~ "relay &#39;r1&#39; is not running"
+      assert html =~ ~s(data-testid="runtime-error-hint")
+      assert html =~ "start it first"
+      refute html =~ "refused"
+    end
+
+    test "a transport condition reads in the same banner" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.runtime_error error={:node_not_connected} />
+        """)
+
+      assert html =~ "Not connected to a flezha controller"
+    end
+
+    test "nothing renders without an error" do
+      assigns = %{}
+
+      assert rendered_to_string(~H"""
+             <.runtime_error error={nil} />
+             """) =~ ~r/^\s*$/
+    end
+  end
+
+  describe "error_message/2" do
+    test "decides by class and code, never by the message text" do
+      denied = Flezha.Error.new("authz.namespace_mismatch", "elsewhere")
+      missing = Flezha.Error.new("plugin.not_found", "refused by nobody")
+
+      assert error_message(denied, "the read") ==
+               "The controller refused the read: elsewhere (authz.namespace_mismatch)"
+
+      assert error_message(missing) == "refused by nobody (plugin.not_found)"
+    end
+
+    test "a condition only this node sees is stated in words alone" do
+      assert error_message(:timeout) == "The flezha controller did not answer in time."
     end
   end
 end

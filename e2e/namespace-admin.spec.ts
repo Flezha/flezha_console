@@ -17,12 +17,12 @@ test.describe('Namespace administration', () => {
     // Declared, so limits apply and the "no declaration" state is absent.
     await expect(page.getByTestId('namespace-undeclared')).toHaveCount(0);
 
-    for (const kind of ['operatives', 'runners', 'entities', 'mailbox_bytes', 'disk_bytes']) {
+    for (const kind of ['relays', 'runners', 'cells', 'mailbox_bytes', 'disk_bytes']) {
       await expect(page.getByTestId(`quota-${kind}`)).toBeVisible();
     }
 
     // A meter is drawn against a real limit, not a placeholder.
-    await expect(page.getByTestId('quota-operatives')).toContainText(/of \d+/);
+    await expect(page.getByTestId('quota-relays')).toContainText(/of \d+/);
   });
 
   test('role bindings are listed read-only, naming flz for the write', async ({ page, live }) => {
@@ -51,19 +51,19 @@ test.describe('Namespace administration', () => {
     await live('/namespaces');
     await page.getByTestId('create-namespace-btn').click();
     await page.getByTestId('create-namespace-name').fill(name);
-    await page.getByTestId('create-max-operatives').fill('7');
+    await page.getByTestId('create-max-relays').fill('7');
     await page.getByTestId('create-namespace-submit').click();
 
     const row = page.getByTestId(`namespace-row-${name}`);
     await expect(row).toBeVisible();
     // Declared, with no hub running for it.
     await expect(page.getByTestId(`namespace-state-${name}`)).toContainText('no hub');
-    await expect(page.getByTestId(`namespace-operatives-${name}`)).toHaveText(/^\s*0\s*$/);
+    await expect(page.getByTestId(`namespace-relays-${name}`)).toHaveText(/^\s*0\s*$/);
 
     // The quota override reached the controller.
     await live(`/namespaces/${name}`);
     await openSection(page, 'quotas');
-    await expect(page.getByTestId('quota-operatives')).toContainText('of 7');
+    await expect(page.getByTestId('quota-relays')).toContainText('of 7');
 
     await live('/namespaces');
     await page.getByTestId(`namespace-delete-${name}`).click();

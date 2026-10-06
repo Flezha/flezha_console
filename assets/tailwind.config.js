@@ -13,7 +13,7 @@ module.exports = {
   ],
   theme: {
     extend: {
-      // Every alias resolves to a flezha-stylebook token, so the utility
+      // Every alias resolves to a flezha_stylebook token, so the utility
       // classes already spread across these templates inherit the brand
       // palette without being rewritten one by one. The stylebook's three ink
       // levels carry the four this UI names: `tertiary` folds into secondary.

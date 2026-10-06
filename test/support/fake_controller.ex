@@ -4,7 +4,7 @@ defmodule FakeController.Stub do
 
       use FakeController.Stub
 
-      defstub list_operatives(ns), do: {:ok, []}
+      defstub list_relays(ns, %{source: :ui} = ctx), do: {:ok, []}
 
   Generates the function *and* the key `FakeController` files it under, so the
   two cannot drift. Written by hand they can: a key naming the wrong function
@@ -13,10 +13,10 @@ defmodule FakeController.Stub do
   would make that assertion pass for the wrong reason.
 
   Only plain variables are recorded. An underscore-prefixed one is an argument
-  the real API takes but the UI never varies — the store handed to every
-  `Flezha.Dlq.Store` function — and a literal pattern such as `%{source: :ui}`
-  is a constraint on the caller rather than a value worth asserting on. Both
-  would be noise in what a test reads back from `FakeController.calls/2`.
+  the real API takes but no test asserts on, and a literal pattern such as
+  `%{source: :ui}` is a constraint on the caller rather than a value worth
+  asserting on. Both would be noise in what a test reads back from
+  `FakeController.calls/2`.
 
   A pattern bound to a name — `%{source: :ui} = ctx` — is both: the pattern
   constrains the caller and the bound value is recorded. That is how a caller
@@ -51,20 +51,25 @@ end
 
 defmodule FakeController do
   @moduledoc """
-  Canned answers for the controller modules `NodeManager` names.
+  Canned answers for the published consumer API `NodeManager` calls.
 
-  Every stand-in carries a *real* controller module's name on purpose,
-  following `Flezha.Service.AuditLog` and `Flezha.Service.EventManager`: a
-  stand-in only stands in if the code under test reaches it by the name it
-  already uses. Shipped onto a peer node, they let a LiveView be driven through
-  the real `:erpc` transport against states a live controller cannot be asked
-  to produce — an empty controller, a populated dead-letter queue, a refusal, a
-  version-skewed API.
+  Every stand-in carries the name of a module on core's published surface —
+  `Flezha.Service.*`, plus the two context-free reads in `Flezha.AuthZ` and
+  `Flezha.AuthZ.TokenStore` — and every stub takes the caller context last and
+  answers in the shape the core function answers. A stand-in only stands in if
+  the code under test reaches it by the name it already uses. Shipped onto a
+  peer node, they let a LiveView be driven through the real `:erpc` transport
+  against states a live controller cannot be asked to produce — an empty
+  controller, a populated dead-letter queue, a refusal, a version-skewed API.
 
   Shipped to a peer and configured from the test:
 
       {peer, node} = PeerNode.start_controller!()
-      FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["default"]})
+      FakeController.set(node, {Flezha.Service.Relay, :list_namespaces}, {:ok, []})
+
+  A stream operation registers the context's `:emit` pid and holds the call
+  open until that pid exits, as core does; `emit/3` hands it an event and
+  `end_stream/3` makes the operation answer.
 
   Compiled only under `MIX_ENV=test`, via `elixirc_paths`.
   """
@@ -75,52 +80,26 @@ defmodule FakeController do
   @doc """
   Every stand-in module, in the order a peer must load them.
 
-  `FakeController` comes first because the rest call it. The audit and event
-  stand-ins live in their own files but are part of the same roster — a peer
-  missing one answers `:undef` for that whole subsystem.
+  `FakeController` comes first because the rest call it. The audit stand-in
+  lives in its own file but is part of the same roster — a peer missing one
+  answers `:undef` for that whole subsystem.
   """
   def modules do
     [
       __MODULE__,
-      Flezha,
-      Flezha.Service.OperativeManager,
+      Flezha.Error,
+      Flezha.Service.Relay,
+      Flezha.Service.Steps,
+      Flezha.Service.Fleet,
+      Flezha.Service.Namespace,
+      Flezha.Service.Dlq,
+      Flezha.Service.Schedule,
+      Flezha.Service.Controller,
       Flezha.Service.PluginManager,
-      Flezha.Service.PluginHelper,
-      Flezha.Service.ConfigManager,
       Flezha.Service.AuditLog,
-      Flezha.Service.EventManager,
-      Flezha.Plugin,
-      Flezha.Dlq.Store,
-      Flezha.Schedule.Store,
-      Flezha.Schedule.Hub,
-      Flezha.Schedule.Cron,
-      Flezha.Cluster.Directory,
-      Flezha.Runner.FleetManager,
-      Flezha.Transport.LivenessCounters,
       Flezha.Service.Observability,
       Flezha.AuthZ,
-      Flezha.AuthZ.TokenStore,
-      Flezha.Service.HubManager,
-      Flezha.Service.CliManager,
-      Flezha.Partition,
-      Flezha.AuthZ.NamespaceStore,
-      Flezha.AuthZ.QuotaCounters,
-      Flezha.AuthZ.RoleStore,
-      Flezha.State.Registry,
-      Flezha.State.Completion,
-      Flezha.State.PersistenceResolver,
-      Flezha.State.ProcJournal,
-      Flezha.State.ProcInbox,
-      Flezha.Operative.PartitionGroup,
-      Flezha.Operative.Lifecycle,
-      Flezha.Operative.Kind,
-      Flezha.Observability,
-      Flezha.State.DurabilityTier,
-      Flezha.Shutdown.Coordinator,
-      Flezha.State.Metrics,
-      Flezha.State.TimeTravel,
-      Flezha.Service.Identificator,
-      Flezha.Plugin.Installer
+      Flezha.AuthZ.TokenStore
     ]
   end
 
@@ -149,14 +128,20 @@ defmodule FakeController do
   def calls(node, key), do: :erpc.call(node, __MODULE__, :recorded, [key])
 
   @doc """
-  A registry row shaped as `Flezha.Service.HubManager.operative_rows/1` answers
-  one, with `overrides` applied.
+  An error as the controller answers it, `{:error, %Flezha.Error{}}`, for
+  `code` with the class core's catalogue gives it.
+  """
+  def error(code, message \\ nil), do: {:error, Flezha.Error.new(code, message)}
+
+  @doc """
+  A relay row shaped as `Flezha.Service.Relay.relay_rows/2` answers one, with
+  `overrides` applied.
 
   Every listing, the fleet summary and the cluster rollup read these rows, so
   the shape is written once: when the controller changes it, one fixture is
   wrong rather than six.
   """
-  def operative_row(id, overrides \\ %{}) do
+  def relay_row(id, overrides \\ %{}) do
     Map.merge(
       %{
         id: to_string(id),
@@ -171,20 +156,61 @@ defmodule FakeController do
   end
 
   @doc """
-  Answers the three calls every operative listing makes: which namespaces the
-  token reaches, each namespace's registry rows, and its plugin pairs.
+  A registry entry for a relay whose builder carries `run`, as
+  `Flezha.Service.Relay.registry/2` answers one under the relay's id.
+  """
+  def registry_entry(run, opts \\ []) do
+    builder = %{id: nil, factory_id: "store_input", run: run, init_values: %{}, opts: opts}
+    {%{start: {Flezha.Relay, :start_link, [{"default", builder}]}}, [], %{}}
+  end
 
-  Written once for the same reason `operative_row/1` is: the Fleet screen, a
-  namespace's own listing and the command palette all read the same three, and
-  a fixture per test module drifts one module at a time.
+  @doc """
+  Answers the calls every relay listing makes: which namespaces the token
+  reaches, each namespace's rows (as both `list/2` and `relay_rows/2`), its
+  plugin pairs and its registry.
+
+  `:rows` maps a namespace to its rows, `:plugins` is the `relay_plugins/2`
+  answer, and `:runs` maps a relay id to its run — every row defaults to
+  `:flow`. The registry also carries a `{:plugin, name}` entry, as a real one
+  does, so the decoder that skips it is exercised by every listing test.
   """
   def set_fleet(node, opts) do
     rows = Keyword.get(opts, :rows, %{})
+    runs = Keyword.get(opts, :runs, %{})
+    namespaces = Keyword.get(opts, :namespaces, Map.keys(rows))
+    catalog = Enum.map(namespaces, &%{namespace: &1, running: true})
 
-    set(node, {Flezha, :list_namespaces}, {:ok, Keyword.get(opts, :namespaces, Map.keys(rows))})
-    set(node, {Flezha.Service.HubManager, :operative_rows}, {:per_arg, 0, rows, []})
-    set(node, {Flezha.Service.HubManager, :operative_plugins}, Keyword.get(opts, :plugins, []))
+    registry =
+      Map.new(rows, fn {namespace, ns_rows} ->
+        entries =
+          Map.new(ns_rows, fn row ->
+            {to_string(row.id), registry_entry(Map.get(runs, to_string(row.id), :flow))}
+          end)
+
+        {namespace, {:ok, Map.put(entries, {:plugin, "fixture-plugin"}, {%{}, [], %{}})}}
+      end)
+
+    by_namespace = Map.new(rows, fn {namespace, ns_rows} -> {namespace, {:ok, ns_rows}} end)
+
+    set(node, {Flezha.Service.Relay, :list_namespaces}, {:ok, catalog})
+    set(node, {Flezha.Service.Relay, :list}, {:per_arg, 0, by_namespace, {:ok, []}})
+    set(node, {Flezha.Service.Relay, :relay_rows}, {:per_arg, 0, by_namespace, {:ok, []}})
+    set(node, {Flezha.Service.Relay, :relay_plugins}, {:ok, Keyword.get(opts, :plugins, [])})
+    set(node, {Flezha.Service.Relay, :registry}, {:per_arg, 0, registry, {:ok, %{}}})
   end
+
+  @doc """
+  Hands `event` to every open stream of `{module, function}` on `node`, as
+  `{:flezha_emit, event}` to the `:emit` pid its caller context named.
+  """
+  def emit(node, key, event), do: :erpc.call(node, __MODULE__, :emit_here, [key, event])
+
+  @doc "Makes every open stream of `{module, function}` on `node` answer `answer`."
+  def end_stream(node, key, answer),
+    do: :erpc.call(node, __MODULE__, :end_here, [key, answer])
+
+  @doc "The emit pids holding an open stream of `{module, function}` on `node`."
+  def streams(node, key), do: :erpc.call(node, __MODULE__, :open_streams, [key])
 
   # ---- Run on the peer ----
 
@@ -225,6 +251,55 @@ defmodule FakeController do
       [] ->
         default
     end
+  end
+
+  @doc """
+  A stream operation, as core runs one: the call is held open in the `:erpc`
+  worker, the context's `:emit` pid is handed each event, and the call answers
+  once that pid exits, or with what `end_stream/3` gives it. An answer set with
+  `set/3` — a refusal — is answered at once instead.
+  """
+  def stream(key, args, %{emit: emit}, attached \\ []) when is_pid(emit) do
+    :ets.insert(store(), {{:calls, key}, recorded(key) ++ [args]})
+
+    case :ets.lookup(store(), key) do
+      [{^key, answer}] ->
+        answer
+
+      [] ->
+        :ets.insert(store(), {{:open_stream, key, self()}, emit})
+        Enum.each(attached, &send(emit, {:flezha_emit, &1}))
+        ref = Process.monitor(emit)
+
+        receive do
+          {:DOWN, ^ref, :process, ^emit, _reason} -> {:ok, :caller_down}
+          {:end_stream, answer} -> answer
+        after
+          60_000 -> {:ok, :window_closed}
+        end
+        |> tap(fn _ -> :ets.delete(store(), {:open_stream, key, self()}) end)
+    end
+  end
+
+  @doc false
+  def emit_here(key, event) do
+    for {_holder, emit} <- holders(key), do: send(emit, {:flezha_emit, event})
+    :ok
+  end
+
+  @doc false
+  def end_here(key, answer) do
+    for {holder, _emit} <- holders(key), do: send(holder, {:end_stream, answer})
+    :ok
+  end
+
+  @doc false
+  def open_streams(key), do: Enum.map(holders(key), &elem(&1, 1))
+
+  defp holders(key) do
+    for [holder, emit] <- :ets.match(store(), {{:open_stream, key, :"$1"}, :"$2"}),
+        Process.alive?(holder),
+        do: {holder, emit}
   end
 
   @doc """
@@ -296,424 +371,193 @@ defmodule FakeController do
   end
 end
 
-defmodule Flezha do
-  @moduledoc "Stand-in for the controller's top-level API. See `FakeController`."
+defmodule Flezha.Service.Relay do
+  @moduledoc "Stand-in for the published relay surface. See `FakeController`."
   use FakeController.Stub
 
-  defstub list_namespaces(), do: {:ok, []}
-  defstub list_operatives(ns), do: {:ok, []}
-  defstub list_runners(ns), do: {:ok, []}
-  defstub list_factories(ns), do: {:ok, []}
-  defstub start_operative(ns, operative), do: {:ok, :started}
-  defstub stop_operative(ns, id), do: :ok
-  defstub disable_plugin(plugin_id), do: {:ok, "disabled"}
+  defstub list_namespaces(%{source: :ui} = ctx), do: {:ok, []}
+  defstub list_relays(ns, %{source: :ui} = ctx), do: {:ok, []}
+  defstub list(ns, %{source: :ui} = ctx), do: {:ok, []}
+  defstub relay_rows(ns, %{source: :ui} = ctx), do: {:ok, []}
+  defstub relay_plugins(ns, %{source: :ui} = ctx), do: {:ok, []}
+  defstub registry(ns, %{source: :ui} = ctx), do: {:ok, %{}}
+  defstub partition_groups(rows, %{source: :ui} = ctx), do: {:ok, []}
+  defstub info(ns, %{source: :ui} = ctx), do: {:ok, %{namespace: ns, groups: [], relays: []}}
+  defstub cell_state(ns, id, cell, %{source: :ui} = ctx), do: {:ok, "{}", 0}
+  defstub overwatch_state(ns, id, %{source: :ui} = ctx), do: {:ok, %{}}
+
+  # The id the relay runs under: the one asked for, or one the controller draws.
+  defstub start(ns, relay, %{source: :ui} = ctx),
+    do: {:ok, %{id: Keyword.get(relay, :id, "relay-generated"), outcome: :started}}
+
+  defstub stop(ns, id, %{source: :ui} = ctx), do: {:ok, %{id: id, stopped: :stopped}}
+
+  def listen(ns, id, direction, opts, %{source: :ui} = ctx),
+    do:
+      FakeController.stream({__MODULE__, :listen}, [ns, id, direction, opts, ctx], ctx, [
+        :attached
+      ])
 end
 
-defmodule Flezha.Service.OperativeManager do
-  @moduledoc "Stand-in for the controller's operative manager. See `FakeController`."
+defmodule Flezha.Service.Steps do
+  @moduledoc "Stand-in for the published steps surface. See `FakeController`."
   use FakeController.Stub
 
-  defstub get_entity_state(ns, id, selector), do: {:ok, "{}", 0}
-  defstub get_overwatch_state(ns, id), do: {:ok, %{}}
-  # The real one answers a bare pid; a rewind is a call on that process.
-  defstub get_operative_pid(ns, id), do: {:error, :not_found}
+  defstub cells(relay_class, %{source: :ui} = ctx),
+    do: {:ok, %{relay_class: relay_class, cells: []}}
+
+  defstub time_travel(cell, target, %{source: :ui} = ctx),
+    do:
+      {:ok, %{cell: cell, target: target, terminal_seq: 0, snapshot_size: 0, change_log_size: 0}}
+
+  defstub completed_retention_hours(relay_class, metadata, %{source: :ui} = ctx), do: {:ok, 24}
+  # The real one answers a bare `:error` when there is no record.
+  defstub completion(id, %{source: :ui} = ctx), do: :error
+
+  defstub journal(id, %{source: :ui} = ctx),
+    do: {:ok, %{instance: id, entries: [], leaf_tasks: [], complete: true}}
+
+  defstub committed_iterations(id, %{source: :ui} = ctx), do: {:ok, []}
+  defstub consumed_offset(id, %{source: :ui} = ctx), do: {:ok, nil}
+  defstub undelivered(id, %{source: :ui} = ctx), do: {:ok, []}
+  defstub last_offset(id, %{source: :ui} = ctx), do: {:ok, -1}
+  defstub rescale(ns, group, target, opts, %{source: :ui} = ctx), do: {:ok, %{group: group}}
+  defstub rewind(ns, relay_class, to_iter, %{source: :ui} = ctx), do: :ok
+end
+
+defmodule Flezha.Service.Fleet do
+  @moduledoc "Stand-in for the published fleet surface. See `FakeController`."
+  use FakeController.Stub
+
+  defstub runners(ns, %{source: :ui} = ctx), do: {:ok, []}
+  defstub factories(ns, %{source: :ui} = ctx), do: {:ok, []}
+  defstub runners_for_factory(ns, factory_id, %{source: :ui} = ctx), do: {:ok, []}
+
+  defstub runner_caller_context(ns, %{source: :ui} = ctx),
+    do: {:ok, %{source: :sdk, principal: "runner@#{ns}", namespace: ns, roles: [:runner]}}
+
+  defstub installed_plugins(%{source: :ui} = ctx), do: {:ok, []}
+  defstub providers(%{source: :ui} = ctx), do: {:ok, %{providers: [], refused: 0}}
+
+  defstub provider(provider_id, %{source: :ui} = ctx),
+    do: {:ok, %{provider: provider_id, help: nil, type: :relay, hooks: []}}
+end
+
+defmodule Flezha.Service.Namespace do
+  @moduledoc "Stand-in for the published namespace surface. See `FakeController`."
+  use FakeController.Stub
+
+  defstub list(%{source: :ui} = ctx), do: {:ok, []}
+  defstub get(name, %{source: :ui} = ctx), do: FakeController.error("namespace.not_found")
+
+  defstub create(name, opts, %{source: :ui} = ctx),
+    do: {:ok, %{name: name, quotas: Keyword.get(opts, :quotas, %{})}}
+
+  defstub delete(name, %{source: :ui} = ctx), do: :ok
+  defstub set_quotas(name, quotas, %{source: :ui} = ctx), do: {:ok, %{name: name, quotas: quotas}}
+
+  defstub quota_kinds(%{source: :ui} = ctx),
+    do: {:ok, [:relays, :cells, :mailbox_bytes, :runners, :disk_bytes]}
+
+  defstub quota(name, kind, %{source: :ui} = ctx), do: {:ok, 0}
+  defstub roles(name, %{source: :ui} = ctx), do: {:ok, []}
+end
+
+defmodule Flezha.Service.Dlq do
+  @moduledoc "Stand-in for the published dead-letter surface. See `FakeController`."
+  use FakeController.Stub
+
+  defstub list(relay_class, %{source: :ui} = ctx), do: {:ok, []}
+  defstub get(entry_ref, %{source: :ui} = ctx), do: FakeController.error("dlq.not_found")
+  defstub drop(entry_ref, %{source: :ui} = ctx), do: :ok
+
+  defstub replay(entry_ref, %{source: :ui} = ctx),
+    do: {:ok, %{outcome: :removed, generation: nil}}
+
+  defstub tasklets(relay_class, %{source: :ui} = ctx), do: {:ok, []}
+  defstub stats(%{source: :ui} = ctx), do: {:ok, []}
+end
+
+defmodule Flezha.Service.Schedule do
+  @moduledoc "Stand-in for the published schedule surface. See `FakeController`."
+  use FakeController.Stub
+
+  defstub list(%{source: :ui} = ctx), do: {:ok, []}
+
+  defstub add(fields, %{source: :ui} = ctx),
+    do: {:ok, %{entry: Map.new(fields), next_fire: nil, runner_missing: false}}
+
+  defstub remove(name, %{source: :ui} = ctx), do: :ok
+end
+
+defmodule Flezha.Service.Controller do
+  @moduledoc "Stand-in for the published controller surface. See `FakeController`."
+  use FakeController.Stub
+
+  defstub status(%{source: :ui} = ctx),
+    do:
+      {:ok,
+       %{
+         shutdown_in_progress: false,
+         shutdown_phase: nil,
+         signal_handler_status: :installed,
+         graceful_shutdown_enabled: true,
+         graceful_shutdown_timeout_ms: 60_000,
+         durability_backend: :none,
+         durability_posture: :local_only,
+         durability_rpo_breaches: 0,
+         durability_levels: %{},
+         durability_superseded: 0,
+         node: :"flezha@node-a",
+         monotonic_us: System.monotonic_time(:microsecond)
+       }}
+
+  defstub boot_status(%{source: :ui} = ctx),
+    do: {:ok, %{readiness: :ready, preconditions: [], namespaces: []}}
+
+  defstub cluster_status(ns, %{source: :ui} = ctx),
+    do: {:ok, %{namespace: ns, nodes: [], unplaced_relays: 0, relay_health: %{}}}
+
+  defstub durability_breaches(%{source: :ui} = ctx), do: {:ok, []}
+  defstub mem_top(%{source: :ui} = ctx), do: {:ok, %{}}
+  defstub liveness_counters(%{source: :ui} = ctx), do: {:ok, %{channels: [], relays: []}}
 end
 
 defmodule Flezha.Service.PluginManager do
-  @moduledoc "Stand-in for the controller's plugin manager. See `FakeController`."
+  @moduledoc "Stand-in for the published plugin surface. See `FakeController`."
   use FakeController.Stub
 
-  defstub enable_plugin(plugin_id, plugin), do: :ok
-  # The real manager answers a bare map of `plugin_id => {namespace, operative}`.
-  defstub get_plugins(), do: %{}
-end
+  defstub enable(name, fields, %{source: :ui} = ctx),
+    do: {:ok, %{name: name, outcome: :enabled, bound: fields[:relay_id], lacking: []}}
 
-defmodule Flezha.Service.PluginHelper do
-  @moduledoc "Stand-in for the controller's plugin helper. See `FakeController`."
-  use FakeController.Stub
-
-  defstub enable_io_listener(ns, id, io_type, recv_pid), do: {:ok, "listener"}
-end
-
-defmodule Flezha.Service.ConfigManager do
-  @moduledoc "Stand-in for the controller's config manager. See `FakeController`."
-  use FakeController.Stub
-
-  defstub get_provider_info(), do: {:ok, []}
-end
-
-defmodule Flezha.Plugin do
-  @moduledoc "Stand-in for the controller's plugin builder. See `FakeController`."
-  use FakeController.Stub
-
-  defstub new(fields), do: fields
-end
-
-defmodule Flezha.Dlq.Store do
-  @moduledoc "Stand-in for the controller's dead-letter store. See `FakeController`."
-  use FakeController.Stub
-
-  defstub list(_store, operative_class), do: {:ok, []}
-  defstub get(_store, ref), do: {:error, :not_found}
-  defstub drop(_store, ref), do: :ok
-  defstub mark_replaying(_store, ref), do: :ok
-  defstub stats(_store), do: {:ok, []}
-  # Unlike its siblings this one takes no store argument — it reads the queue's
-  # directory layout, which is how the tier groups what it ships.
-  defstub procedures(operative_class), do: []
-end
-
-defmodule Flezha.Schedule.Store do
-  @moduledoc "Stand-in for the controller's schedule store. See `FakeController`."
-  use FakeController.Stub
-
-  # The real store answers a bare list, sorted by name.
-  defstub list(), do: []
-  defstub add(fields), do: {:ok, fields}
-  defstub remove(name), do: :ok
-end
-
-defmodule Flezha.Schedule.Hub do
-  @moduledoc "Stand-in for the controller's schedule hub. See `FakeController`."
-  use FakeController.Stub
-
-  # The real hub answers a bare map of `name => %{node:, last_fire:}`.
-  defstub statuses(), do: %{}
-  defstub assert(entry), do: :ok
-  defstub retract(name), do: :ok
-end
-
-defmodule Flezha.Schedule.Cron do
-  @moduledoc "Stand-in for the controller's cron parser. See `FakeController`."
-  use FakeController.Stub
-
-  defstub parse(cron), do: {:ok, cron}
-  defstub next_fire(parsed, timezone, now), do: {:ok, ~U[2030-01-01 00:00:00Z]}
-end
-
-defmodule Flezha.Cluster.Directory do
-  @moduledoc "Stand-in for the controller's cluster directory. See `FakeController`."
-  use FakeController.Stub
-
-  defstub hub_nodes(ns), do: {:ok, []}
-end
-
-defmodule Flezha.Runner.FleetManager do
-  @moduledoc "Stand-in for the controller's fleet manager. See `FakeController`."
-  use FakeController.Stub
-
-  defstub active_runners(ns), do: {:ok, []}
-  defstub runners_for_factory(ns, factory_id), do: {:ok, []}
-
-  defstub runner_caller_context(ns),
-    do: %{source: :sdk, principal: "runner@" <> ns, role: :runner}
-end
-
-defmodule Flezha.Transport.LivenessCounters do
-  @moduledoc "Stand-in for the controller's data-plane counters. See `FakeController`."
-  use FakeController.Stub
-
-  # The real snapshot answers a bare map of two counter lists.
-  defstub snapshot_all(), do: %{channels: [], operatives: []}
+  defstub disable(name, fields, %{source: :ui} = ctx), do: {:ok, "plugin disabled"}
+  defstub enabled(ns, %{source: :ui} = ctx), do: {:ok, []}
 end
 
 defmodule Flezha.Service.Observability do
-  @moduledoc """
-  Stand-in for the controller's observability service. See `FakeController`.
-
-  Answers plain maps rather than `Flezha.Observability.Signal` structs: that
-  module is not loadable on this node, and a struct arriving from the
-  controller is read here as the map it is on the wire.
-  """
+  @moduledoc "Stand-in for the published observability surface. See `FakeController`."
   use FakeController.Stub
 
-  # The context pattern is kept strict: the UI identifies itself on every read.
-  # The pattern constrains the caller; the binding lets a test assert which
-  # principal the call named.
-  #
-  # Sources and sinks answer the controller's real entry shapes: a source
-  # carries `status: :active | :disabled` (there is no `:enabled` boolean), and
-  # a sink carries a `:pid` and no status at all.
-  defstub query(params, %{source: :ui}), do: {:ok, []}
+  defstub query(params, %{source: :ui} = ctx), do: {:ok, []}
   defstub list_sources(%{source: :ui} = ctx), do: {:ok, []}
   defstub list_sinks(%{source: :ui} = ctx), do: {:ok, []}
-  defstub enable_source(source, %{source: :ui} = ctx), do: :ok
-  defstub disable_source(source, %{source: :ui} = ctx), do: :ok
-  defstub tail(source, %{source: :ui} = ctx), do: :ok
-end
+  defstub enable_source(name, %{source: :ui} = ctx), do: :ok
+  defstub disable_source(name, %{source: :ui} = ctx), do: :ok
 
-defmodule Flezha.Service.HubManager do
-  @moduledoc """
-  Stand-in for the controller's hub manager. See `FakeController`.
-
-  The bulk reads every listing is built on. Both answer bare lists, as the real
-  ones do — a namespace with no live hub answers `[]` rather than an error.
-  """
-  use FakeController.Stub
-
-  defstub get_running_namespaces(), do: []
-  defstub operative_rows(ns), do: []
-  defstub operative_plugins(ns), do: []
-  # The raw registry dump, which carries each entry's cspec — the durable
-  # record of the kind an operative was started with.
-  defstub get_registry(ns), do: {:ok, []}
-  defstub recovery_state(hub_id), do: {:ok, :normal}
-end
-
-defmodule Flezha.Service.CliManager do
-  @moduledoc """
-  Stand-in for the controller's CLI manager. See `FakeController`.
-
-  Only its non-printing functions are stood in for: the rest write to stdout
-  and exit on failure, so the UI does not call them.
-
-  `group_partition_rows/1` defaults to the identity, which is what the real one
-  does for rows carrying no partition identity.
-  """
-  use FakeController.Stub
-
-  defstub group_partition_rows(rows), do: rows
-
-  # `@doc false` on the real one, but a plain function: the memory screen calls
-  # it directly because the `mem-top` verb prints.
-  defstub cluster_status_recovery(namespace, nodes), do: %{}
-
-  defstub build_mem_top_snapshot(),
-    do: %{
-      captured_at: "2026-01-01T00:00:00Z",
-      node: "flezha@controller",
-      erlang_memory: %{total: 1024},
-      top_processes: [],
-      ets_tables: [],
-      dets_files: [],
-      recon_alloc_allocated_types: []
-    }
-end
-
-defmodule Flezha.Partition do
-  @moduledoc """
-  Stand-in for the controller's partition arithmetic. See `FakeController`.
-
-  Coverage defaults to complete: a test asserting a fault says so explicitly,
-  rather than every namespace looking broken by default.
-  """
-  use FakeController.Stub
-
-  defstub coverage(labelled_ranges), do: :ok
-end
-
-defmodule Flezha.Plugin.Installer do
-  @moduledoc """
-  Stand-in for the controller's plugin installer. See `FakeController`.
-
-  Read-only from this UI: installing moves files on the controller host, which
-  is a deploy action rather than a control-panel one.
-  """
-  use FakeController.Stub
-
-  defstub list(), do: []
-end
-
-defmodule Flezha.Observability do
-  @moduledoc """
-  Stand-in for the controller's observability pubsub. See `FakeController`.
-
-  Named by `FlezhaUi.Service.EventRelay`, which runs on the controller — so it
-  has to exist wherever the relay is compiled.
-  """
-  use FakeController.Stub
-
-  defstub subscribe(source), do: :ok
-  defstub unsubscribe(source), do: :ok
-end
-
-defmodule Flezha.State.DurabilityTier do
-  @moduledoc "Stand-in for the controller's remote durability tier. See `FakeController`."
-  use FakeController.Stub
-
-  defstub configured_backend(), do: :unset
-  defstub posture(), do: :local_only
-  defstub breaches(), do: []
-  defstub status(), do: []
-end
-
-defmodule Flezha.Shutdown.Coordinator do
-  @moduledoc "Stand-in for the controller's shutdown coordinator. See `FakeController`."
-  use FakeController.Stub
-
-  defstub status(),
-    do: %{
-      shutdown_in_progress: false,
-      shutdown_phase: :running,
-      signal_handler_status: :installed,
-      graceful_shutdown_enabled: true,
-      graceful_shutdown_timeout_ms: 60_000
-    }
-end
-
-defmodule Flezha.State.Metrics do
-  @moduledoc """
-  Stand-in for the controller's per-entity durability counters. See
-  `FakeController`.
-
-  Answers `[{entity_id, counters}]` where `entity_id` is the
-  `{operative_class, procedure_id, entity_key}` triple, as the real one does.
-  """
-  use FakeController.Stub
-
-  defstub snapshot_all(), do: []
-end
-
-defmodule Flezha.State.TimeTravel do
-  @moduledoc "Stand-in for the controller's point-in-time reads. See `FakeController`."
-  use FakeController.Stub
-
-  defstub query(entity_id, target), do: {:error, %{kind: :no_data, message: "no persisted state"}}
-end
-
-defmodule Flezha.Service.Identificator do
-  @moduledoc "Stand-in for the controller's id conventions. See `FakeController`."
-  use FakeController.Stub
-
-  defstub hub(namespace), do: :default_hub
-end
-
-defmodule Flezha.State.Registry do
-  @moduledoc "Stand-in for the controller's durable state registry. See `FakeController`."
-  use FakeController.Stub
-
-  # Every operative class that has ever persisted, across namespaces.
-  defstub operative_classes(), do: []
-end
-
-defmodule Flezha.State.Completion do
-  @moduledoc """
-  Stand-in for the controller's completion records. See `FakeController`.
-
-  `read/1` answers a bare `:error` for a class with no record, exactly as the
-  real one does — the seam is what has to cope with that.
-  """
-  use FakeController.Stub
-
-  defstub read(operative_class), do: :error
-end
-
-defmodule Flezha.State.PersistenceResolver do
-  @moduledoc "Stand-in for the controller's retention policy. See `FakeController`."
-  use FakeController.Stub
-
-  defstub workflow_completed_retention_hours(operative_class), do: 24
-end
-
-defmodule Flezha.State.ProcJournal do
-  @moduledoc "Stand-in for a durable instance's journal. See `FakeController`."
-  use FakeController.Stub
-
-  defstub read(instance_id), do: {:ok, []}
-  defstub committed_iterations(instance_id), do: []
-  defstub consumed_offset(instance_id), do: 0
-end
-
-defmodule Flezha.State.ProcInbox do
-  @moduledoc "Stand-in for a durable instance's inbox. See `FakeController`."
-  use FakeController.Stub
-
-  defstub undelivered(instance_id), do: []
-  defstub read(instance_id), do: []
-  defstub last_offset(instance_id), do: 0
-end
-
-defmodule Flezha.Operative.PartitionGroup do
-  @moduledoc "Stand-in for the controller's partition-group operations. See `FakeController`."
-  use FakeController.Stub
-
-  defstub rescale(namespace, group_id, target, opts), do: :ok
-end
-
-defmodule Flezha.Operative.Lifecycle do
-  @moduledoc "Stand-in for the controller's operative lifecycle calls. See `FakeController`."
-  use FakeController.Stub
-
-  defstub rewind(overwatch_pid, to_iter), do: :ok
-end
-
-defmodule Flezha.Operative.Kind do
-  @moduledoc """
-  Stand-in for the controller's kind model. See `FakeController`.
-
-  Carries the real module's table rather than a flat answer: `known_kinds/0`
-  probes per candidate, so a stub answering the same thing for every kind could
-  not exercise the case this UI exists to handle — a candidate the controller
-  does not recognise.
-  """
-  use FakeController.Stub
-
-  @capabilities %{
-    stream: %{
-      persistent_state?: true,
-      time_travel?: true,
-      dynamic_entities?: true,
-      output_stall_watch?: true
-    },
-    workflow: %{}
-  }
-
-  defstub known?(kind), do: Map.has_key?(@capabilities, kind)
-  defstub capabilities(kind), do: Map.get(@capabilities, kind, %{})
-end
-
-defmodule Flezha.AuthZ.NamespaceStore do
-  @moduledoc """
-  Stand-in for the controller's declared-namespace store. See `FakeController`.
-
-  `get/1` answers a bare `:error` for an unknown name, as the real one does —
-  the seam is what turns that into `{:error, :not_found}`.
-  """
-  use FakeController.Stub
-
-  defstub list(), do: []
-  defstub get(name), do: :error
-  defstub create(name, opts), do: {:ok, %{name: name, quotas: %{}}}
-  defstub delete(name), do: :ok
-  defstub set_quotas(name, quotas), do: {:ok, %{name: name, quotas: quotas}}
-end
-
-defmodule Flezha.AuthZ.QuotaCounters do
-  @moduledoc "Stand-in for the controller's namespace counters. See `FakeController`."
-  use FakeController.Stub
-
-  defstub kinds(), do: [:operatives, :entities, :mailbox_bytes, :runners, :disk_bytes]
-  # The real store answers a plain integer, and `0` for a counter never set.
-  defstub get(namespace, kind), do: 0
-end
-
-defmodule Flezha.AuthZ.RoleStore do
-  @moduledoc "Stand-in for the controller's role bindings. See `FakeController`."
-  use FakeController.Stub
-
-  defstub list_for_namespace(namespace), do: []
+  def tail(source, %{source: :ui} = ctx),
+    do: FakeController.stream({__MODULE__, :tail}, [source, ctx], ctx)
 end
 
 defmodule Flezha.AuthZ do
-  @moduledoc """
-  Stand-in for the controller's policy point. See `FakeController`.
-
-  Only the posture is read by the UI: authorization itself is enforced inside
-  the controller's service functions, which is where a refusal is produced.
-  """
+  @moduledoc "Stand-in for the context-free enforcement posture read. See `FakeController`."
   use FakeController.Stub
 
   defstub enforcement_posture(), do: :open
 end
 
 defmodule Flezha.AuthZ.TokenStore do
-  @moduledoc """
-  Stand-in for the controller's token store. See `FakeController`.
-
-  The default answer is `:unknown`, so a test that has not issued a token gets
-  the unbound path rather than an accidental identity.
-  """
+  @moduledoc "Stand-in for the context-free token verification. See `FakeController`."
   use FakeController.Stub
 
-  defstub verify(token), do: {:error, :unknown}
+  defstub verify(token), do: FakeController.error("authz.token_unknown")
 end

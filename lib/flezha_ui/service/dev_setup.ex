@@ -1,11 +1,13 @@
 defmodule FlezhaUi.Service.DevSetup do
   @moduledoc """
-  Dev-only GenServer that auto-creates testnet operatives and plugins
-  when the controller node becomes available. Retries every 5s for up to 5
-  minutes. Resets and re-attempts on nodedown.
+  Dev-only GenServer that seeds testnet relays and plugins through the
+  published API, with the service token, when the controller node becomes
+  available. Retries every 5s for up to 5 minutes. Resets and re-attempts on
+  nodedown.
 
-  Idempotent: an operative or plugin that already exists is left alone, so a
-  UI restart against a seeded controller is a no-op.
+  Idempotent: a relay already running is left alone, and a plugin already
+  enabled answers `already_enabled`, so a UI restart against a seeded
+  controller changes nothing.
   """
 
   use GenServer
@@ -54,22 +56,21 @@ defmodule FlezhaUi.Service.DevSetup do
 
   defp attempt_setup(%{config: config, retries: retries} = state) do
     ns = config[:namespace]
-    operatives = config[:operatives] || []
+    relays = config[:relays] || []
     plugins = config[:plugins] || []
+    token = FlezhaUi.Accounts.service_flezha_token()
 
     try do
       with {:node, node} when node != nil <- {:node, NodeManager.connected_node()},
-           :ok <- ensure_namespace(ns, config[:quotas] || %{}),
-           :ok <- ensure_operatives(ns, operatives),
-           :ok <- ensure_plugins(ns, plugins) do
+           :ok <- ensure_namespace(ns, config[:quotas] || %{}, token),
+           :ok <- ensure_relays(ns, relays, token),
+           :ok <- ensure_plugins(ns, plugins, token) do
         Node.monitor(node, true)
 
-        operative_ids = Enum.map_join(operatives, ", ", & &1.id)
-        plugin_ids = Enum.map_join(plugins, ", ", & &1.plugin_id)
+        relay_ids = Enum.map_join(relays, ", ", & &1.id)
+        plugin_names = Enum.map_join(plugins, ", ", & &1.name)
 
-        Logger.info(
-          "[DevSetup] Testnet ready: operatives=[#{operative_ids}], plugins=[#{plugin_ids}]"
-        )
+        Logger.info("[DevSetup] Testnet ready: relays=[#{relay_ids}], plugins=[#{plugin_names}]")
 
         %{state | ready: true}
       else
@@ -90,116 +91,79 @@ defmodule FlezhaUi.Service.DevSetup do
   end
 
   # Two separate facts: the namespace is *declared* (an object with quotas and
-  # role bindings) and a hub is *running* for it. Seeding needs the hub;
-  # declaring it is what gives the namespace screens real quota data.
-  defp ensure_namespace(ns, quotas) do
-    with :ok <- declare_namespace(ns, quotas),
-         {:ok, list} <- NodeManager.list_namespaces() do
-      if Enum.any?(list, fn n -> to_string(n) == ns end) do
-        :ok
-      else
-        {:error, {:namespace_not_found, ns}}
-      end
+  # role bindings) and a hub is *running* for it. Seeding needs the hub, which
+  # comes up when its runner connects; declaring it is what gives the
+  # namespace screens real quota data.
+  defp ensure_namespace(ns, quotas, token) do
+    with :ok <- declare_namespace(ns, quotas, token),
+         {:ok, catalog} <- NodeManager.list_namespaces(token) do
+      if Enum.any?(catalog, &(to_string(&1.namespace) == ns and &1.running)),
+        do: :ok,
+        else: {:error, {:namespace_not_running, ns}}
     end
   end
 
-  defp declare_namespace(ns, quotas) do
-    case NodeManager.create_namespace(ns, quotas, FlezhaUi.Accounts.service_flezha_token()) do
+  defp declare_namespace(ns, quotas, token) do
+    case NodeManager.create_namespace(ns, quotas, token) do
       {:ok, _entry} ->
         :ok
 
-      # Already declared on a previous boot — the declaration is left alone.
-      {:error, :already_exists} ->
-        :ok
-
-      # A controller predating declared namespaces still runs hubs, and the
-      # operatives are the part of seeding that matters.
-      {:error, {:api_missing, _module, _function, _arity}} ->
-        :ok
-
-      {:error, {:forbidden, reason}} ->
-        Logger.warning(
-          "[DevSetup] Controller refused to declare #{ns}: #{inspect(reason)}. " <>
-            "Namespace quotas will read as undeclared."
-        )
-
-        :ok
-
       {:error, reason} ->
-        {:error, {:declare_namespace, ns, reason}}
+        case NodeManager.error(reason) do
+          # Declared on a previous boot — the declaration is left alone.
+          %{code: "namespace.already_exists"} ->
+            :ok
+
+          %{class: :denied, message: message} ->
+            Logger.warning(
+              "[DevSetup] Controller refused to declare #{ns}: #{message}. " <>
+                "Namespace quotas will read as undeclared."
+            )
+
+            :ok
+
+          _failure ->
+            {:error, {:declare_namespace, ns, reason}}
+        end
     end
   end
 
-  defp ensure_operatives(ns, operatives) do
-    existing =
-      ns |> NodeManager.list_operatives() |> NodeManager.ok_or([]) |> MapSet.new(&to_string/1)
+  # A relay already running answers `outcome: :already_running`, so a start
+  # per seed is idempotent; the listing only saves the calls.
+  defp ensure_relays(ns, relays, token) do
+    running = ns |> NodeManager.list_relays(token) |> NodeManager.ok_or([]) |> MapSet.new()
 
-    Enum.reduce_while(operatives, :ok, fn operative, :ok ->
-      if MapSet.member?(existing, operative.id) do
+    Enum.reduce_while(relays, :ok, fn relay, :ok ->
+      if MapSet.member?(running, relay.id) do
         {:cont, :ok}
       else
-        case NodeManager.start_operative(
-               ns,
-               operative.id,
-               operative.factory_id,
-               operative.init_values,
-               Map.get(operative, :opts, []),
-               Map.get(operative, :kind, :stream)
-             ) do
-          {:ok, _} -> {:cont, :ok}
-          :ok -> {:cont, :ok}
-          error -> {:halt, {:error, {:start_operative, operative.id, error}}}
+        case NodeManager.start_relay(ns, relay, token) do
+          {:ok, _started} -> {:cont, :ok}
+          error -> {:halt, {:error, {:start_relay, relay.id, error}}}
         end
       end
     end)
   end
 
-  defp ensure_plugins(ns, plugins) do
-    existing =
-      case NodeManager.get_plugins() do
-        map when is_map(map) -> MapSet.new(Map.keys(map), &to_string/1)
-        _ -> MapSet.new()
-      end
-
-    providers = NodeManager.providers()
-
+  # Enabled through the same call the relay screen's attach form makes, every
+  # boot: a plugin already enabled answers `outcome: :already_enabled` and is
+  # bound to its relay all the same, so a seed whose binding was lost is
+  # repaired rather than skipped.
+  defp ensure_plugins(ns, plugins, token) do
     Enum.reduce_while(plugins, :ok, fn plugin, :ok ->
-      if MapSet.member?(existing, plugin.plugin_id) do
-        {:cont, :ok}
-      else
-        case enable_plugin(ns, plugin, providers) do
-          {:ok, _} ->
-            {:cont, :ok}
+      fields = %{
+        provider: plugin.provider,
+        opts: plugin.opts,
+        namespace: ns,
+        relay_id: plugin.relay_id,
+        hooks: plugin.hooks
+      }
 
-          :ok ->
-            {:cont, :ok}
-
-          # The desired state already holds. A plugin can be live on the
-          # operative while absent from the plugin registry — the operative's
-          # subscriptions are restored from its persisted spec, the registry is
-          # not — so this is the seeder's goal met, not a failure.
-          {:error, {:plugin_already_subscribed, _id}} ->
-            {:cont, :ok}
-
-          error ->
-            {:halt, {:error, {:enable_plugin, plugin.plugin_id, error}}}
-        end
+      case NodeManager.enable_plugin(plugin.name, fields, token) do
+        {:ok, _answer} -> {:cont, :ok}
+        error -> {:halt, {:error, {:enable_plugin, plugin.name, error}}}
       end
     end)
-  end
-
-  # Goes through the same NodeManager path the UI's attach form uses, so the
-  # seeded plugins exercise the code an operator drives.
-  defp enable_plugin(ns, plugin, providers) do
-    case Enum.find(providers, &(&1.id == plugin.provider_id)) do
-      nil ->
-        {:error, {:provider_not_enabled, plugin.provider_id}}
-
-      provider ->
-        form = NodeManager.provider_form(plugin.provider_settings, plugin.extensions)
-
-        NodeManager.enable_plugin(plugin.plugin_id, provider, form, ns, plugin.operative_id)
-    end
   end
 
   defp schedule_retry(retries, reason) do

@@ -83,6 +83,10 @@ services:
     depends_on:
       controller:
         condition: service_started
+      # A controller enforcing authorization refuses a runner that cannot
+      # prove its namespace; the bootstrap writes the credential it presents.
+      bootstrap:
+        condition: service_completed_successfully
     environment:
       FLEZHA_SOCKET_FILES_PATH: /flezha/app_data/sockets/
       FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
@@ -96,8 +100,13 @@ services:
           echo "[runner] waiting for controller control socket..."
           sleep 1
         done
-        exec cargo run --quiet --manifest-path=/flezha/test/apps/rust_runner/Cargo.toml -- "$$FLEZHA_DEMO_NAMESPACE"
+        # `test/apps/rust_runner` links to the crate's real path, and cargo
+        # resolves a workspace member only by that one.
+        FLEZHA_NAMESPACE_SECRET="$$(cat /auth/runner.token)"
+        export FLEZHA_NAMESPACE_SECRET
+        exec cargo run --quiet --manifest-path=/flezha/sdk/rust/test_app/Cargo.toml -- "$$FLEZHA_DEMO_NAMESPACE"
     volumes:
+      - fui_auth_data:/auth:ro
       - fui_socket_data:/socket_data
       - ../flezha:/flezha
       - fui_flezha_cargo_target:/flezha/target
@@ -126,6 +135,8 @@ services:
       FLEZHA_NODE: flezha@flezha_controller
       FLEZHA_TOKEN_FILE: /auth/ui.token
       FLEZHA_UI_PRINCIPAL: flezha-ui
+      FLEZHA_RUNNER_TOKEN_FILE: /auth/runner.token
+      FLEZHA_RUNNER_NAMESPACE: ${FLEZHA_DEMO_NAMESPACE:-default}
     volumes:
       - .:/flezha_ui
       - fui_auth_data:/auth
@@ -188,7 +199,7 @@ services:
       # the symlink resolves to and cannot be chosen freely. A dangling
       # symlink fails silently: @import resolves to nothing and the console
       # renders unstyled.
-      - ../flezha-stylebook:/flezha-stylebook:ro
+      - ../flezha_stylebook:/flezha_stylebook:ro
     networks:
       - fui_network
     restart: unless-stopped

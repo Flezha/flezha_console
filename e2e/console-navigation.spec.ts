@@ -1,8 +1,15 @@
-import { test, expect, closeSection, openPalette, openSection } from './fixtures';
+import {
+  test,
+  expect,
+  closeSection,
+  openPalette,
+  openSection,
+  withStepsRelay,
+} from './fixtures';
 
 /**
  * The shell, in a browser: the two-section rail, the scope in the route, the
- * crumb trail, the tabs on an operative, the palette's keyboard, and a section
+ * crumb trail, the tabs on a relay, the palette's keyboard, and a section
  * remembering it was folded.
  *
  * The LiveView suite proves the server renders these. What only a browser can
@@ -11,7 +18,7 @@ import { test, expect, closeSection, openPalette, openSection } from './fixtures
  * client.
  */
 
-const OPERATIVE = '/namespaces/default/operatives/testnet_store_1';
+const RELAY = '/namespaces/default/relays/testnet_store_1';
 
 test.describe('The console shell', () => {
   test('the rail separates namespace-scoped screens from platform ones', async ({ page, live }) => {
@@ -23,22 +30,22 @@ test.describe('The console shell', () => {
     // Nothing is scoped from the dashboard, so the rail says so instead of
     // offering four destinations with no namespace to point at.
     await expect(page.getByTestId('no-namespace-scoped')).toBeVisible();
-    await expect(rail.locator('a[href="/operatives"]')).toContainText('Fleet');
+    await expect(rail.locator('a[href="/relays"]')).toContainText('Fleet');
 
     await live('/namespaces/default');
 
     await expect(page.getByTestId('no-namespace-scoped')).toHaveCount(0);
-    await expect(rail.locator('a[href="/namespaces/default/operatives"]')).toBeVisible();
+    await expect(rail.locator('a[href="/namespaces/default/relays"]')).toBeVisible();
     await expect(rail.locator('a[href="/namespaces/default/plugins"]')).toBeVisible();
     await expect(rail.locator('a[href="/namespaces/default/schedules"]')).toBeVisible();
   });
 
   test('a scoped route marks its own entry and not the platform twin', async ({ page, live }) => {
-    await live('/namespaces/default/operatives');
+    await live('/namespaces/default/relays');
 
     const rail = page.locator('.flz-sidebar-nav');
     await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
-    await expect(rail.locator('a[href="/namespaces/default/operatives"]')).toHaveAttribute(
+    await expect(rail.locator('a[href="/namespaces/default/relays"]')).toHaveAttribute(
       'aria-current',
       'page',
     );
@@ -57,7 +64,7 @@ test.describe('The console shell', () => {
   });
 
   test('a deep screen names its ancestors and they navigate', async ({ page, live }) => {
-    await live(`${OPERATIVE}/state`);
+    await live(`${RELAY}/state`);
 
     const trail = page.getByTestId('breadcrumb');
     await expect(trail).toBeVisible();
@@ -89,30 +96,33 @@ test.describe('The console shell', () => {
   });
 });
 
-test.describe("An operative's views", () => {
+test.describe("A relay's views", () => {
   test('are a tab strip that navigates between three routes', async ({ page, live }) => {
-    await live(OPERATIVE);
+    await live(RELAY);
 
-    const tabs = page.getByTestId('operative-tabs');
+    const tabs = page.getByTestId('relay-tabs');
     await expect(tabs).toBeVisible();
-    await expect(page.getByTestId('operative-tab-detail')).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByTestId('relay-tab-detail')).toHaveAttribute('aria-current', 'page');
 
-    await page.getByTestId('operative-tab-stream').click();
-    await expect(page).toHaveURL(new RegExp(`${OPERATIVE}/stream$`));
-    await expect(page.getByTestId('operative-tab-stream')).toHaveAttribute('aria-current', 'page');
+    await page.getByTestId('relay-tab-listen').click();
+    await expect(page).toHaveURL(new RegExp(`${RELAY}/listen$`));
+    await expect(page.getByTestId('relay-tab-listen')).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByTestId('breadcrumb').locator('[aria-current="page"]')).toHaveText(
+      'Listen',
+    );
 
-    await page.getByTestId('operative-tab-state').click();
-    await expect(page).toHaveURL(new RegExp(`${OPERATIVE}/state$`));
-    await expect(page.getByTestId('operative-tab-state')).toHaveAttribute('aria-current', 'page');
+    await page.getByTestId('relay-tab-state').click();
+    await expect(page).toHaveURL(new RegExp(`${RELAY}/state$`));
+    await expect(page.getByTestId('relay-tab-state')).toHaveAttribute('aria-current', 'page');
 
-    await page.getByTestId('operative-tab-detail').click();
-    await expect(page).toHaveURL(new RegExp(`${OPERATIVE}$`));
+    await page.getByTestId('relay-tab-detail').click();
+    await expect(page).toHaveURL(new RegExp(`${RELAY}$`));
   });
 });
 
 test.describe('Folded sections', () => {
   test('open on a click and stay folded across a reload', async ({ page, live }) => {
-    await live(OPERATIVE);
+    await live(RELAY);
 
     // Declared closed, so the screen opens on the graph and the facts.
     await expect(page.getByTestId('section-body-plugins')).toHaveCount(0);
@@ -123,12 +133,12 @@ test.describe('Folded sections', () => {
 
     await openSection(page, 'plugins');
 
-    await live(OPERATIVE);
+    await live(RELAY);
     await expect(page.getByTestId('section-body-plugins')).toBeVisible();
 
     await closeSection(page, 'plugins');
 
-    await live(OPERATIVE);
+    await live(RELAY);
     await expect(page.getByTestId('section-body-plugins')).toHaveCount(0);
   });
 });
@@ -156,30 +166,30 @@ test.describe('A browser that refuses to store the preference', () => {
       });
     });
 
-    await live(OPERATIVE);
+    await live(RELAY);
 
     // Declared closed, and openable — not failed, and not stuck shut.
     await expect(page.getByTestId('section-body-plugins')).toHaveCount(0);
     await openSection(page, 'plugins');
 
-    await live(OPERATIVE);
+    await live(RELAY);
     await expect(page.getByTestId('section-body-plugins')).toHaveCount(0);
   });
 });
 
 test.describe('The command palette', () => {
-  test('opens on the shortcut and reaches an operative by id', async ({ page, live }) => {
+  test('opens on the shortcut and reaches a relay by id', async ({ page, live }) => {
     await live('/audit');
 
     await openPalette(page);
     await page.getByTestId('command-palette-input').fill('testnet_store_1');
 
-    const match = page.getByTestId('command-palette-operative-testnet_store_1');
+    const match = page.getByTestId('command-palette-relay-testnet_store_1');
     await expect(match).toBeVisible();
     await expect(match).toContainText('default');
 
     await match.click();
-    await expect(page).toHaveURL(new RegExp(`${OPERATIVE}$`));
+    await expect(page).toHaveURL(new RegExp(`${RELAY}$`));
   });
 
   test('reaches a screen by name, and says when nothing matches', async ({ page, live }) => {
@@ -207,7 +217,7 @@ test.describe('The command palette', () => {
 
 test.describe('A screen that refreshes', () => {
   test('states its liveness and can be held still', async ({ page, live }) => {
-    await live('/operatives');
+    await live('/relays');
 
     const state = page.getByTestId('liveness-state');
     await expect(state).toContainText('Every 5s');
@@ -225,23 +235,25 @@ test.describe('Fleet filters', () => {
     page,
     live,
   }) => {
-    await live('/operatives');
+    await withStepsRelay(page, async (id) => {
+      await live('/relays');
 
-    await page.getByTestId('filter-health').click();
-    await page.getByTestId('filter-health-suspended').click();
+      await page.getByTestId('filter-run').click();
+      await page.getByTestId('filter-run-steps').click();
 
-    await expect(page).toHaveURL(/\?.*health=suspended/);
-    await expect(page.getByTestId('operative-index-row-testnet_chat')).toBeVisible();
-    await expect(page.getByTestId('operative-index-row-testnet_store_1')).toHaveCount(0);
+      await expect(page).toHaveURL(/\?.*run=steps/);
+      await expect(page.getByTestId(`relay-index-row-${id}`)).toBeVisible();
+      await expect(page.getByTestId('relay-index-row-testnet_store_1')).toHaveCount(0);
 
-    await page.goBack();
+      await page.goBack();
 
-    await expect(page).not.toHaveURL(/health=suspended/);
-    await expect(page.getByTestId('operative-index-row-testnet_store_1')).toBeVisible();
+      await expect(page).not.toHaveURL(/run=steps/);
+      await expect(page.getByTestId('relay-index-row-testnet_store_1')).toBeVisible();
+    });
   });
 
   test('a scoped listing keeps its namespace out of the query string', async ({ page, live }) => {
-    await live('/namespaces/default/operatives');
+    await live('/namespaces/default/relays');
 
     await expect(page.getByTestId('fixed-namespace')).toContainText('default');
     await expect(page.getByTestId('filter-namespace')).toHaveCount(0);
@@ -249,6 +261,6 @@ test.describe('Fleet filters', () => {
     await page.getByTestId('filter-health').click();
     await page.getByTestId('filter-health-healthy').click();
 
-    await expect(page).toHaveURL(/\/namespaces\/default\/operatives\?health=healthy$/);
+    await expect(page).toHaveURL(/\/namespaces\/default\/relays\?health=healthy$/);
   });
 });

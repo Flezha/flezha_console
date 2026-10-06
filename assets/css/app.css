@@ -1,7 +1,7 @@
 /*
  * flezha_ui stylesheet.
  *
- * Colour, type and component skins all come from flezha-stylebook; nothing
+ * Colour, type and component skins all come from flezha_stylebook; nothing
  * here declares a colour literal.
  *
  * Order is load-bearing. Tailwind preflight lands first — every `border`
@@ -49,7 +49,7 @@
                      transition: stroke 0.15s ease, fill 0.15s ease; }
 .topo-node:hover        { stroke: var(--brand-solid); }
 .topo-node-ingest,
-.topo-node-sink         { fill: var(--surface-raised); }
+.topo-node-output       { fill: var(--surface-raised); }
 .topo-node-core         { fill: color-mix(in srgb, var(--brand-solid) 15%, transparent);
                           stroke: var(--brand-solid); }
 .topo-node.is-selected  { stroke: var(--brand-solid); stroke-width: 2; }

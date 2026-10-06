@@ -33,6 +33,21 @@ defmodule FlezhaUi.FormatTest do
     end
   end
 
+  describe "frame/2" do
+    test "sizes the payload before rendering it printable" do
+      frame = Format.frame(<<255, 0, 254>>, %{"flz.seq" => 1})
+
+      assert frame.message == "ff00fe"
+      assert frame.bytes == 3
+      assert frame.metadata == %{"flz.seq" => 1}
+      assert %DateTime{} = frame.timestamp
+    end
+
+    test "a missing metadata map is an empty one" do
+      assert %{message: "hi", bytes: 2, metadata: %{}} = Format.frame("hi", nil)
+    end
+  end
+
   describe "duration/1" do
     test "sub-second is reported in milliseconds" do
       assert "250ms" = Format.duration(250)
@@ -73,7 +88,7 @@ defmodule FlezhaUi.FormatTest do
 
   describe "humanize/1" do
     test "renders a controller id as a label" do
-      assert "Operative Websocket" = Format.humanize("operative_websocket")
+      assert "Relay Websocket" = Format.humanize("relay_websocket")
       assert "Store Input" = Format.humanize("store_input")
     end
 
@@ -88,7 +103,7 @@ defmodule FlezhaUi.FormatTest do
       assert Format.timestamp(dt) =~ "2026-08-14 17:40:00"
     end
 
-    test "a stream time carries only the time of day" do
+    test "a live feed's time carries only the time of day" do
       {:ok, dt, _} = DateTime.from_iso8601("2026-08-14T17:40:00.123456Z")
       assert Format.time_of_day(dt) =~ "17:40:00."
     end

@@ -3,9 +3,9 @@ defmodule FlezhaUiWeb.DlqLive do
   Dead-letter queue: the payloads that failed and were parked.
 
   Replay and drop are the only destructive verbs this screen has. Both are
-  confirm-gated, and replay reports whether the payload was accepted or parked
-  again — a replay that immediately re-parks looks identical to a successful
-  one unless the outcome is waited for.
+  confirm-gated. A replay re-sends the payload as a new input and the
+  controller waits out its own grace period before answering whether the entry
+  left the queue or parked again, so the screen reports that answer as it is.
   """
 
   use FlezhaUiWeb, :live_view
@@ -38,38 +38,18 @@ defmodule FlezhaUiWeb.DlqLive do
   def refresh_paused?(socket), do: socket.assigns.confirm != nil or socket.assigns.selected != nil
 
   @impl true
-  def handle_info({:replay_outcome, ref}, socket) do
-    outcome =
-      case NodeManager.dlq_get(ref) do
-        {:error, :not_found} ->
-          {:replayed, ref}
-
-        {:ok, entry, _payload} ->
-          {:reparked, ref, Map.get(entry, "error")}
-
-        {:error, reason} ->
-          {:unknown, ref, reason}
-      end
-
-    {:noreply, socket |> assign(replay_outcome: outcome) |> refresh()}
-  end
-
-  @impl true
-  def handle_event("filter", %{"filter" => %{"operative_class" => value}}, socket) do
+  def handle_event("filter", %{"filter" => %{"relay_class" => value}}, socket) do
     {:noreply, socket |> assign(filter: value) |> refresh()}
   end
 
   @impl true
   def handle_event("inspect", %{"ref" => ref}, socket) do
-    case NodeManager.dlq_get(ref) do
+    case NodeManager.dlq_get(ref, socket.assigns.flezha_token) do
       {:ok, entry, payload} ->
         {:noreply, assign(socket, selected: %{ref: ref, entry: entry, payload: payload})}
 
       {:error, reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, dlq_error(reason))
-         |> refresh()}
+        {:noreply, socket |> put_flash(:error, error_message(reason)) |> refresh()}
     end
   end
 
@@ -91,7 +71,7 @@ defmodule FlezhaUiWeb.DlqLive do
 
   @impl true
   def handle_event("drop", %{"ref" => ref}, socket) do
-    case NodeManager.dlq_drop(ref) do
+    case NodeManager.dlq_drop(ref, socket.assigns.flezha_token) do
       :ok ->
         {:noreply,
          socket
@@ -100,45 +80,51 @@ defmodule FlezhaUiWeb.DlqLive do
          |> refresh()}
 
       {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(confirm: nil)
-         |> put_flash(:error, dlq_error(reason))}
+        {:noreply, socket |> assign(confirm: nil) |> put_flash(:error, error_message(reason))}
     end
   end
 
+  # The controller answers only after its grace period, so the call runs off
+  # the screen's process and the screen says it is waiting.
   @impl true
   def handle_event("replay", %{"ref" => ref}, socket) do
-    case NodeManager.dlq_mark_replaying(ref) do
-      :ok ->
-        # The outcome is only knowable after the controller's grace period:
-        # until then, a re-park and a success look the same.
-        Process.send_after(self(), {:replay_outcome, ref}, NodeManager.dlq_replay_grace_ms())
+    token = socket.assigns.flezha_token
 
-        {:noreply,
-         socket
-         |> assign(confirm: nil, replay_outcome: {:pending, ref})
-         |> refresh()}
+    {:noreply,
+     socket
+     |> assign(confirm: nil, replay_outcome: {:pending, ref})
+     |> start_async(:replay, fn -> {ref, NodeManager.dlq_replay(ref, token)} end)}
+  end
 
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(confirm: nil)
-         |> put_flash(:error, dlq_error(reason))}
-    end
+  @impl true
+  def handle_async(:replay, {:ok, {ref, answer}}, socket) do
+    outcome =
+      case answer do
+        {:ok, %{outcome: :removed}} -> {:replayed, ref}
+        {:ok, %{outcome: :re_parked, generation: generation}} -> {:reparked, ref, generation}
+        {:error, reason} -> {:refused, ref, reason}
+      end
+
+    {:noreply, socket |> assign(replay_outcome: outcome) |> refresh()}
+  end
+
+  def handle_async(:replay, {:exit, reason}, socket) do
+    {:noreply, assign(socket, replay_outcome: {:refused, nil, {:remote_error, reason}})}
   end
 
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
-    case NodeManager.dlq_list(socket.assigns.filter) do
+    token = socket.assigns.flezha_token
+
+    case NodeManager.dlq_list(socket.assigns.filter, token) do
       {:ok, entries} ->
         decorated = Enum.map(entries, &decorate/1)
 
         assign(socket,
           entries: decorated,
-          groups: group_by_procedure(decorated, socket.assigns.filter),
+          groups: group_by_tasklet(decorated, socket.assigns.filter, token),
           load_error: nil,
-          stats: NodeManager.ok_or(NodeManager.dlq_stats(), [])
+          stats: NodeManager.ok_or(NodeManager.dlq_stats(token), [])
         )
 
       {:error, reason} ->
@@ -146,27 +132,28 @@ defmodule FlezhaUiWeb.DlqLive do
     end
   end
 
-  # Grouped the way the tier stores and ships them: one directory per
-  # `{operative_class, procedure_id}` pair. The store is asked which pairs
-  # exist so a procedure whose entries are filtered out still shows as a group
-  # with a count, rather than vanishing.
-  defp group_by_procedure(entries, filter) do
-    parked = Enum.group_by(entries, &{&1.operative_class, &1.procedure_id})
+  # Grouped the way the controller stores and ships them: one directory per
+  # `{relay_class, tasklet_id}` pair. The controller is asked which pairs exist
+  # so a tasklet whose entries are filtered out still shows as a group with a
+  # count, rather than vanishing.
+  defp group_by_tasklet(entries, filter, token) do
+    parked = Enum.group_by(entries, &{&1.relay_class, &1.tasklet_id})
 
     known =
-      NodeManager.dlq_procedures(filter)
+      filter
+      |> NodeManager.dlq_tasklets(token)
       |> NodeManager.ok_or([])
-      |> Enum.map(fn {class, procedure} -> {to_string(class), to_string(procedure)} end)
+      |> Enum.map(fn {class, tasklet} -> {to_string(class), to_string(tasklet)} end)
 
     (known ++ Map.keys(parked))
     |> Enum.uniq()
     |> Enum.sort()
-    |> Enum.map(fn {class, procedure} = key ->
+    |> Enum.map(fn {class, tasklet} = key ->
       group_entries = Map.get(parked, key, [])
 
       %{
-        operative_class: class,
-        procedure_id: procedure,
+        relay_class: class,
+        tasklet_id: tasklet,
         # Oldest first within a group, as the flat listing was.
         entries: Enum.sort_by(group_entries, &(&1.age_s || 0), :desc),
         parked: length(group_entries)
@@ -175,14 +162,14 @@ defmodule FlezhaUiWeb.DlqLive do
     |> Enum.reject(&(&1.parked == 0 and &1.entries == []))
   end
 
-  # `entry_ref` is the `class/procedure/id` triple the controller's own verbs
+  # `entry_ref` is the `class/tasklet/id` triple the controller's own verbs
   # take, so the UI addresses entries exactly as the CLI does.
   defp decorate(entry) do
     %{
-      ref: "#{entry["operative_class"]}/#{entry["procedure_id"]}/#{entry["id"]}",
-      operative_class: entry["operative_class"],
-      procedure_id: entry["procedure_id"],
-      entity_key: entry["entity_key"],
+      ref: "#{entry["relay_class"]}/#{entry["tasklet_id"]}/#{entry["id"]}",
+      relay_class: entry["relay_class"],
+      tasklet_id: entry["tasklet_id"],
+      cell_key: entry["cell_key"],
       channel: entry["channel"],
       generation: entry["generation"] || 1,
       age_s: age_seconds(entry["ts_ms"]),
@@ -192,15 +179,4 @@ defmodule FlezhaUiWeb.DlqLive do
 
   defp age_seconds(nil), do: nil
   defp age_seconds(ts_ms), do: div(System.system_time(:millisecond) - ts_ms, 1000)
-
-  defp dlq_error(:not_found), do: "That entry is no longer in the queue."
-  defp dlq_error(:bad_entry_ref), do: "Malformed entry reference."
-
-  defp dlq_error(:payload_not_replayable),
-    do: "This entry's payload cannot be replayed."
-
-  defp dlq_error(:operative_not_running),
-    do: "The operative that owns this entry is not running."
-
-  defp dlq_error(reason), do: "Dead-letter queue error: #{inspect(reason)}"
 end

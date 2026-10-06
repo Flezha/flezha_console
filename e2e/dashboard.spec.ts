@@ -25,7 +25,7 @@ test.describe('Dashboard', () => {
 
   test('the stat tiles carry concrete counts', async ({ page }) => {
     await expect(page.getByTestId('stat-namespaces')).toHaveText(/^\s*\d+\s*$/);
-    await expect(page.getByTestId('stat-operatives')).toHaveText(/^\s*\d+\s*$/);
+    await expect(page.getByTestId('stat-relays')).toHaveText(/^\s*\d+\s*$/);
     await expect(page.getByTestId('stat-plugins')).toHaveText(/^\s*\d+\s*$/);
     await expect(page.getByTestId('stat-providers')).toContainText(/\d+ providers available/);
   });
@@ -41,7 +41,7 @@ test.describe('Dashboard', () => {
 
   test('its counts agree with the namespace screen', async ({ page, live }) => {
     const namespaceCount = Number(await page.getByTestId('stat-namespaces').innerText());
-    const operativeCount = Number(await page.getByTestId('stat-operatives').innerText());
+    const relayCount = Number(await page.getByTestId('stat-relays').innerText());
 
     await live('/namespaces');
 
@@ -49,15 +49,15 @@ test.describe('Dashboard', () => {
     await expect(rows).toHaveCount(namespaceCount);
 
     const perNamespace = await page
-      .locator('[data-testid^="namespace-operatives-"]')
+      .locator('[data-testid^="namespace-relays-"]')
       .evaluateAll((cells) => cells.map((c) => Number(c.textContent!.trim())));
 
-    expect(perNamespace.reduce((a, b) => a + b, 0)).toBe(operativeCount);
+    expect(perNamespace.reduce((a, b) => a + b, 0)).toBe(relayCount);
   });
 
   test('links through to a namespace', async ({ page }) => {
     await page.getByTestId('dashboard-namespace-default').click();
     await expect(page).toHaveURL(/\/namespaces\/default$/);
-    await expect(page.getByTestId('operatives-table')).toBeVisible();
+    await expect(page.getByTestId('relays-table')).toBeVisible();
   });
 });

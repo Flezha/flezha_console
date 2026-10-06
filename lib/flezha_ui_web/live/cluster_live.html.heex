@@ -55,29 +55,34 @@
       </div>
       <div class="flex items-center gap-2 text-xs text-th-tertiary">
         <span>Hub:</span>
-        <%= if ns.hub_nodes == [] do %>
-          <span data-testid={"hub-nodes-#{ns.name}"} class="text-th-muted">no hub running</span>
-        <% else %>
-          <span data-testid={"hub-nodes-#{ns.name}"} class="font-mono text-th-secondary">
-            {Enum.join(ns.hub_nodes, ", ")}
-          </span>
+        <%= cond do %>
+          <% ns.hub_error -> %>
+            <span data-testid={"hub-nodes-#{ns.name}"} class="text-warning">
+              {FlezhaUiWeb.CoreComponents.error_message(ns.hub_error, "the hub read")}
+            </span>
+          <% ns.hub_nodes == [] -> %>
+            <span data-testid={"hub-nodes-#{ns.name}"} class="text-th-muted">no hub running</span>
+          <% true -> %>
+            <span data-testid={"hub-nodes-#{ns.name}"} class="font-mono text-th-secondary">
+              {Enum.join(ns.hub_nodes, ", ")}
+            </span>
         <% end %>
       </div>
     </div>
 
-    <%!-- Per-node operative rollup --%>
+    <%!-- Per-node relay rollup --%>
     <div data-testid={"node-rollup-#{ns.name}"} class="px-5 py-4 border-b border-brd-subtle">
       <p class="text-xs text-th-muted uppercase tracking-wider mb-3">
-        Operatives per node
+        Relays per node
       </p>
       <p :if={ns.per_node == []} class="text-sm text-th-muted">
-        No operative is placed in this namespace.
+        No relay is placed in this namespace.
       </p>
       <table :if={ns.per_node != []} class="flz-table">
         <thead>
           <tr>
             <th>Node</th>
-            <th>Operatives</th>
+            <th>Relays</th>
             <th>Health</th>
             <th>Hub recovery</th>
           </tr>
@@ -122,7 +127,7 @@
 
       <div :if={ns.unplaced != []} data-testid={"unplaced-#{ns.name}"} class="mt-3">
         <p class="text-xs text-warning mb-1">
-          {length(ns.unplaced)} operative(s) have no live node:
+          {length(ns.unplaced)} relay(s) have no live node:
         </p>
         <p class="text-xs font-mono text-th-tertiary">
           {Enum.map_join(ns.unplaced, ", ", &to_string(&1.id))}
@@ -177,7 +182,7 @@
           aria-pressed={to_string(@selected_factory == {ns.name, factory.id})}
           class="flz-segmented-option flz-num"
         >
-          {factory.id}
+          {factory.id} <span class="text-th-tertiary">· {factory.run || "—"}</span>
         </button>
       </div>
 

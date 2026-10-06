@@ -110,7 +110,7 @@
   </.notice>
 
   <form phx-submit="create" phx-change="form_change" class="space-y-4">
-    <%!-- The controller composes `<name>@<slot-iso>` as the operative id, and
+    <%!-- The controller composes `<name>@<slot-iso>` as the relay id, and
           that must fit its 32-byte limit — so the name gets 11. --%>
     <.input
       type="text"
@@ -147,10 +147,15 @@
       <Target.factory_field
         target={@target}
         name="schedule[factory_id]"
+        label="Steps factory"
         value={@form["factory_id"]}
         testid="schedule-input-factory"
       />
     </div>
+    <p class="text-xs text-th-muted">
+      Only a factory whose run is <span class="font-mono">steps</span>
+      can be scheduled, so only those are offered.
+    </p>
     <.input
       type="textarea"
       name="schedule[init_values]"

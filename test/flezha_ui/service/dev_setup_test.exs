@@ -4,13 +4,15 @@ defmodule FlezhaUi.Service.DevSetupTest do
 
   Driven against a peer standing in for the controller rather than the live
   dev stack, because the states worth asserting — a namespace already declared,
-  a controller that refuses the declaration, one that does not have a namespace
-  store at all — are exactly the ones a working dev stack will not produce.
+  a controller that refuses the declaration, a relay already running — are
+  exactly the ones a working dev stack will not produce on demand.
   """
 
   use ExUnit.Case, async: false
 
-  alias Flezha.AuthZ.NamespaceStore
+  alias Flezha.Service.Namespace
+  alias Flezha.Service.PluginManager
+  alias Flezha.Service.Relay
   alias FlezhaUi.PeerNode
   alias FlezhaUi.Service.DevSetup
 
@@ -21,7 +23,11 @@ defmodule FlezhaUi.Service.DevSetupTest do
   setup do
     %{node: node} = context = PeerNode.setup_controller("dev_setup_peer")
 
-    FakeController.set(node, {Flezha, :list_namespaces}, {:ok, [@namespace]})
+    FakeController.set(
+      node,
+      {Relay, :list_namespaces},
+      {:ok, [%{namespace: @namespace, running: true}]}
+    )
 
     previous = Application.get_env(:flezha_ui, :dev_setup)
     on_exit(fn -> Application.put_env(:flezha_ui, :dev_setup, previous) end)
@@ -35,8 +41,8 @@ defmodule FlezhaUi.Service.DevSetupTest do
         [
           enabled: true,
           namespace: @namespace,
-          quotas: %{max_operatives: 50},
-          operatives: [],
+          quotas: %{max_relays: 50},
+          relays: [],
           plugins: []
         ],
         overrides
@@ -44,6 +50,9 @@ defmodule FlezhaUi.Service.DevSetupTest do
 
     Application.put_env(:flezha_ui, :dev_setup, config)
   end
+
+  defp relay(id, factory_id \\ "store_input"),
+    do: %{id: id, factory_id: factory_id, init_values: %{}}
 
   # The seeder retries on failure, so a run is driven to its first outcome and
   # then stopped rather than left ticking into the next test.
@@ -60,90 +69,144 @@ defmodule FlezhaUi.Service.DevSetupTest do
 
       assert state.ready
 
-      assert [[@namespace, opts]] = FakeController.calls(node, {NamespaceStore, :create})
-      assert Keyword.get(opts, :quotas) == %{max_operatives: 50}
+      assert [[@namespace, opts, %{source: :ui}]] =
+               FakeController.calls(node, {Namespace, :create})
+
+      assert Keyword.get(opts, :quotas) == %{max_relays: 50}
     end
 
     test "a re-run against a declared namespace is not an error", %{node: node} do
-      FakeController.set(node, {NamespaceStore, :create}, {:error, :already_exists})
+      FakeController.set(
+        node,
+        {Namespace, :create},
+        FakeController.error("namespace.already_exists")
+      )
+
       configure([])
 
       assert seed!().ready
-      assert length(FakeController.calls(node, {NamespaceStore, :create})) == 1
-    end
-
-    test "a controller with no namespace store still gets its operatives", %{node: node} do
-      FakeController.set(
-        node,
-        {NamespaceStore, :create},
-        {:error, {:api_missing, NamespaceStore, :create, 2}}
-      )
-
-      configure(operatives: [%{id: "op_a", factory_id: "store_input", init_values: %{}}])
-
-      assert seed!().ready
-      assert [["seeded", %{id: "op_a"}]] = FakeController.calls(node, {Flezha, :start_operative})
+      assert length(FakeController.calls(node, {Namespace, :create})) == 1
     end
 
     test "a refused declaration does not stop the rest of the seeding", %{node: node} do
       FakeController.set(
         node,
-        {NamespaceStore, :create},
-        {:error, {:forbidden, :role_insufficient}}
+        {Namespace, :create},
+        FakeController.error("authz.role_insufficient")
       )
 
-      configure(operatives: [%{id: "op_a", factory_id: "store_input", init_values: %{}}])
+      configure(relays: [relay("relay_a")])
 
       assert seed!().ready
-      assert [["seeded", %{id: "op_a"}]] = FakeController.calls(node, {Flezha, :start_operative})
+      assert [["seeded", fields, _ctx]] = FakeController.calls(node, {Relay, :start})
+      assert fields[:id] == "relay_a"
     end
 
     test "a declaration that fails for another reason is retried, not ignored", %{node: node} do
-      FakeController.set(node, {NamespaceStore, :create}, {:error, :disk_full})
+      FakeController.set(node, {Namespace, :create}, FakeController.error("controller.timeout"))
       configure([])
 
       refute seed!().ready
     end
   end
 
-  describe "seeding operatives" do
-    test "starts both kinds, each with the kind it was configured with", %{node: node} do
-      configure(
-        operatives: [
-          %{id: "op_stream", factory_id: "store_input", init_values: %{}},
-          %{
-            id: "op_workflow",
-            factory_id: "chat_loop_workflow",
-            init_values: %{},
-            kind: :workflow
-          }
-        ]
-      )
+  describe "seeding relays" do
+    test "starts each relay with its factory and no run", %{node: node} do
+      configure(relays: [relay("relay_flow"), relay("relay_steps", "chat_loop_steps")])
 
       assert seed!().ready
 
-      kinds =
+      started =
         node
-        |> FakeController.calls({Flezha, :start_operative})
-        |> Map.new(fn [_ns, operative] -> {operative.id, operative.kind} end)
+        |> FakeController.calls({Relay, :start})
+        |> Map.new(fn [_ns, fields, _ctx] -> {fields[:id], fields} end)
 
-      assert kinds == %{"op_stream" => :stream, "op_workflow" => :workflow}
+      assert started["relay_flow"][:factory_id] == "store_input"
+      assert started["relay_steps"][:factory_id] == "chat_loop_steps"
+      refute Enum.any?(started, fn {_id, fields} -> Keyword.has_key?(fields, :run) end)
     end
 
-    test "an operative that is already running is left alone", %{node: node} do
-      FakeController.set(node, {Flezha, :list_operatives}, {:ok, ["op_a"]})
-      configure(operatives: [%{id: "op_a", factory_id: "store_input", init_values: %{}}])
+    test "a relay that is already running is left alone", %{node: node} do
+      FakeController.set(node, {Relay, :list_relays}, {:ok, ["relay_a"]})
+      configure(relays: [relay("relay_a")])
 
       assert seed!().ready
-      assert FakeController.calls(node, {Flezha, :start_operative}) == []
+      assert FakeController.calls(node, {Relay, :start}) == []
+    end
+
+    test "an already-running answer counts as seeded", %{node: node} do
+      FakeController.set(
+        node,
+        {Relay, :start},
+        {:ok, %{id: "relay_a", outcome: :already_running}}
+      )
+
+      configure(relays: [relay("relay_a")])
+
+      assert seed!().ready
     end
 
     test "waits rather than seeding into a namespace with no running hub", %{node: node} do
-      FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["other"]})
-      configure(operatives: [%{id: "op_a", factory_id: "store_input", init_values: %{}}])
+      FakeController.set(
+        node,
+        {Relay, :list_namespaces},
+        {:ok, [%{namespace: @namespace, running: false}]}
+      )
+
+      configure(relays: [relay("relay_a")])
 
       refute seed!().ready
-      assert FakeController.calls(node, {Flezha, :start_operative}) == []
+      assert FakeController.calls(node, {Relay, :start}) == []
+    end
+  end
+
+  describe "seeding plugins" do
+    @plugin %{
+      name: "ws_a",
+      relay_id: "relay_a",
+      provider: "relay_websocket",
+      hooks: ["on_terminate"],
+      opts: %{"uri" => "ws://example:4500"}
+    }
+
+    test "enables each plugin by name, bound to its relay on its seeded hooks", %{node: node} do
+      configure(plugins: [@plugin])
+
+      assert seed!().ready
+
+      assert [["ws_a", fields, %{source: :ui}]] =
+               FakeController.calls(node, {PluginManager, :enable})
+
+      assert fields[:provider] == "relay_websocket"
+      assert fields[:relay_id] == "relay_a"
+      assert fields[:namespace] == @namespace
+      assert fields[:hooks] == ["on_terminate"]
+      assert fields[:opts] == %{"uri" => "ws://example:4500"}
+    end
+
+    test "a plugin already enabled counts as seeded", %{node: node} do
+      FakeController.set(
+        node,
+        {PluginManager, :enable},
+        {:ok, %{name: "ws_a", outcome: :already_enabled, bound: "relay_a", lacking: []}}
+      )
+
+      configure(plugins: [@plugin])
+
+      assert seed!().ready
+      assert [["ws_a", _fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
+    end
+
+    test "a refused enable is retried, not ignored", %{node: node} do
+      FakeController.set(
+        node,
+        {PluginManager, :enable},
+        FakeController.error("plugin.unknown_options")
+      )
+
+      configure(plugins: [@plugin])
+
+      refute seed!().ready
     end
   end
 end

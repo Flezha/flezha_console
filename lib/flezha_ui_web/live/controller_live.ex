@@ -22,40 +22,33 @@ defmodule FlezhaUiWeb.ControllerLive do
      |> refresh()}
   end
 
-  # Deliberately not on the tick: a process scan plus `:recon_alloc` is far too
-  # expensive to run every few seconds for a screen nobody may be reading.
+  # Deliberately not on the tick: a process scan is far too expensive to run
+  # every few seconds for a screen nobody may be reading.
   @impl true
   def handle_event("memory_snapshot", _params, socket) do
-    case NodeManager.memory_snapshot() do
-      %{} = snapshot -> {:noreply, assign(socket, memory: snapshot, memory_error: nil)}
-      {:error, reason} -> {:noreply, assign(socket, memory_error: reason)}
-      other -> {:noreply, assign(socket, memory_error: {:remote_error, other})}
+    case NodeManager.mem_top(socket.assigns.flezha_token) do
+      {:ok, snapshot} -> {:noreply, assign(socket, memory: snapshot, memory_error: nil)}
+      {:error, reason} -> {:noreply, assign(socket, memory: nil, memory_error: reason)}
     end
   end
 
+  # One status read answers the durability posture and the shutdown state; a
+  # refused or unavailable read is stated on its panel and the rest renders.
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
+    token = socket.assigns.flezha_token
+    {status, status_error} = NodeManager.ok_or_error(NodeManager.controller_status(token), nil)
+    {boot, boot_error} = NodeManager.ok_or_error(NodeManager.boot_status(token), nil)
+
     assign(socket,
-      backend: NodeManager.durability_backend(),
-      posture: NodeManager.durability_posture(),
-      breaches: NodeManager.ok_or(NodeManager.durability_breaches(), []),
-      shipments: NodeManager.ok_or(NodeManager.durability_status(), []),
-      shutdown: shutdown(),
-      boot: NodeManager.ok_or(NodeManager.boot_status(), []),
-      authz: NodeManager.authz_status(socket.assigns.flezha_token)
+      status: status,
+      status_error: status_error,
+      breaches: token |> NodeManager.durability_breaches() |> NodeManager.ok_or([]),
+      boot: boot,
+      boot_error: boot_error,
+      authz: NodeManager.authz_status(token)
     )
   end
-
-  # One unavailable panel must not take the screen down with it.
-  defp shutdown do
-    case NodeManager.shutdown_status() do
-      %{} = status -> status
-      _unavailable -> nil
-    end
-  end
-
-  @doc "Shipments another writer has taken over — a fact, not necessarily a fault."
-  def superseded(shipments), do: Enum.count(shipments, &Map.get(&1, :superseded_by))
 
   @doc "A backend name as text, whether it is an atom or a `{module, opts}` pair."
   def backend_label({module, _opts}), do: inspect(module)

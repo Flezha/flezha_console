@@ -5,7 +5,7 @@ TBD - created by archiving change resync-with-flezha-platform. Update Purpose af
 ## Requirements
 ### Requirement: Durability posture is visible
 
-The controller screen SHALL show the configured backend from `Flezha.State.DurabilityTier.configured_backend/0`, the posture from `posture/0`, the count of RPO breaches from `breaches/0`, and the count of superseded shipments from `status/0`.
+The controller screen SHALL show the configured backend, the posture, the count of RPO breaches and the count of superseded shipments from one read of `Flezha.Service.Controller.status/1`, and the breached references from `durability_breaches/1`, each called with the UI's caller context.
 
 #### Scenario: The remote tier is enabled
 
@@ -20,12 +20,18 @@ The controller screen SHALL show the configured backend from `Flezha.State.Durab
 
 #### Scenario: References are past their RPO target
 
-- **WHEN** `breaches/0` answers a non-empty list
+- **WHEN** `durability_breaches/1` answers a non-empty list
 - **THEN** the breached references are listed with how far past target they are
+
+#### Scenario: A durability read is refused
+
+- **WHEN** the status read answers `{:error, %Flezha.Error{class: :denied}}`
+- **THEN** the durability panel states the refusal with its code and message
+- **AND** the rest of the screen still renders
 
 ### Requirement: Shutdown and boot status
 
-The controller screen SHALL show `Flezha.Shutdown.Coordinator.status/0` — whether a shutdown is in progress, its phase, the signal handler status, and the graceful-shutdown setting and timeout — and the controller's boot status.
+The controller screen SHALL show the shutdown state `Flezha.Service.Controller.status/1` carries — whether a shutdown is in progress, its phase, the signal handler status, and the graceful-shutdown setting and timeout — and the controller's boot status from `Flezha.Service.Controller.boot_status/1`: the readiness verdict and each running namespace's hub recovery state.
 
 #### Scenario: The controller is running normally
 
@@ -37,9 +43,19 @@ The controller screen SHALL show `Flezha.Shutdown.Coordinator.status/0` — whet
 - **WHEN** a shutdown is under way
 - **THEN** the current phase is shown and refreshes on the tick
 
+#### Scenario: Boot status is shown per namespace
+
+- **WHEN** `boot_status/1` answers a readiness verdict and a list of namespaces
+- **THEN** the screen shows the verdict and, for each namespace, its recovery state
+
+#### Scenario: A namespace's recovery state is unknown
+
+- **WHEN** a namespace row in `boot_status/1` carries the recovery state `:unknown`
+- **THEN** that namespace is shown as unknown rather than as serving
+
 #### Scenario: The coordinator cannot be reached
 
-- **WHEN** the status call fails
+- **WHEN** the shutdown status call fails or is refused
 - **THEN** the panel states that shutdown status is unavailable and the rest of the screen still renders
 
 ### Requirement: Authorization configuration is auditable from the UI
@@ -58,7 +74,7 @@ The controller screen SHALL state the authorization posture, and when the postur
 
 ### Requirement: Memory hot spots are operator-triggered
 
-The controller screen SHALL offer a memory snapshot — top processes, ETS tables, DETS files, and the allocator breakdown — and SHALL take it only when an operator asks for it, never on the refresh tick.
+The controller screen SHALL offer a memory snapshot — top processes, ETS tables, DETS files, and the allocator breakdown — read from `Flezha.Service.Controller.mem_top/1`, and SHALL take it only when an operator asks for it, never on the refresh tick.
 
 #### Scenario: An operator requests a snapshot
 
@@ -68,10 +84,15 @@ The controller screen SHALL offer a memory snapshot — top processes, ETS table
 #### Scenario: The screen ticks without a request
 
 - **WHEN** the refresh timer fires and no snapshot was requested
-- **THEN** no memory snapshot call is made
+- **THEN** no `mem_top/1` call is made
 
 #### Scenario: A stale snapshot is labelled
 
 - **WHEN** a previously taken snapshot is still on screen after subsequent ticks
 - **THEN** its capture time is shown so it is not mistaken for live data
+
+#### Scenario: The snapshot is refused
+
+- **WHEN** `mem_top/1` answers `{:error, %Flezha.Error{class: :denied}}`
+- **THEN** the panel states the refusal and no snapshot is rendered
 

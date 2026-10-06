@@ -86,36 +86,31 @@ config :phoenix_live_view,
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
 
-# Auto-start testnet operatives and plugins in dev mode.
+# Auto-start testnet relays and plugins in dev mode.
 #
 # Factory ids come from the runner at `flezha/test/apps/rust_runner`; provider
-# ids from `flezha/config/config.exs` `:enabled_plugins`.
-#
-# The websocket provider opens its connection when the plugin is enabled and
-# subscribes only to `on_terminate` for teardown — it is a source, not a
-# transform, so it takes no position.
+# ids from the controller's `Fleet.providers/1`. Each plugin is enabled by name
+# and bound to its relay in one call. The websocket provider is a source: it
+# feeds the relay on its own and binds `on_terminate` only to tear down.
 config :flezha_ui, :dev_setup,
   enabled: true,
   namespace: "default",
   # Overrides only: the controller merges these over its own defaults, so a
-  # kind left out here keeps whatever the controller ships.
-  quotas: %{max_operatives: 50, max_runners: 8},
-  operatives: [
+  # quota left out here keeps whatever the controller ships.
+  quotas: %{max_relays: 50, max_runners: 8},
+  # Factories the runner at flezha's test/apps/rust_runner announces. How each
+  # runs is its factory's, so no seed says.
+  relays: [
     %{id: "testnet_store_1", factory_id: "store_input", init_values: %{}},
     %{id: "testnet_store_2", factory_id: "store_input", init_values: %{}},
     %{id: "testnet_store_3", factory_id: "store_input", init_values: %{}},
     %{id: "testnet_filter", factory_id: "compare_filter", init_values: %{}},
     %{id: "testnet_noop", factory_id: "do_nothing", init_values: %{}},
-    # A long-lived durable workflow instance, so the workflow, journal and
-    # inbox panels have something to show, and a run-once one that completes
-    # so the finished-instance listing is not empty either.
-    %{
-      id: "testnet_chat",
-      factory_id: "chat_loop_workflow",
-      init_values: %{},
-      kind: :workflow
-    },
-    %{id: "testnet_echo", factory_id: "echo_workflow", init_values: %{}, kind: :workflow}
+    # A long-lived durable steps relay, so the steps, task journal and input
+    # log panels have something to show, and a run-once one that completes so
+    # the finished-relay listing is not empty either.
+    %{id: "testnet_chat", factory_id: "chat_loop_steps", init_values: %{}},
+    %{id: "testnet_echo", factory_id: "echo_steps", init_values: %{}}
   ],
   plugins:
     Enum.map(
@@ -126,13 +121,13 @@ config :flezha_ui, :dev_setup,
         {"ws_filter", "testnet_filter", "filter ping"},
         {"ws_noop", "testnet_noop", "noop ping"}
       ],
-      fn {plugin_id, operative_id, message} ->
+      fn {name, relay_id, message} ->
         %{
-          plugin_id: plugin_id,
-          operative_id: operative_id,
-          provider_id: "operative_websocket",
-          extensions: ["on_terminate"],
-          provider_settings: %{
+          name: name,
+          relay_id: relay_id,
+          provider: "relay_websocket",
+          hooks: ["on_terminate"],
+          opts: %{
             "uri" => "ws://flezha_controller:4500",
             "post_connect" => %{
               "payload" => %{

@@ -7,9 +7,11 @@ defmodule FlezhaUiWeb.ScheduleLive do
   implying the job is running.
 
   The same screen serves one namespace at `/namespaces/:ns/schedules`. The
-  controller exposes no namespaced schedule call, so the scope is a filter over
-  the namespace each entry already carries; the screen says so, and the
-  creation form opens aimed at that namespace.
+  controller keeps one schedule registry for the cluster and answers it whole,
+  so the scope is a filter over the namespace each entry already carries; the
+  screen says so, and the creation form opens aimed at that namespace.
+
+  Only a steps factory can be scheduled, so the form offers only those.
   """
 
   use FlezhaUiWeb, :live_view
@@ -30,7 +32,7 @@ defmodule FlezhaUiWeb.ScheduleLive do
         form: empty_form(nil),
         form_error: nil,
         confirm_remove: nil,
-        target: Target.new(),
+        target: Target.new(nil),
         schedules: [],
         load_error: nil
       )
@@ -57,7 +59,7 @@ defmodule FlezhaUiWeb.ScheduleLive do
   @impl true
   def handle_event("open_form", _params, socket) do
     form = empty_form(socket.assigns.scoped_namespace)
-    target = Target.load_namespaces(Target.new(), socket.assigns.flezha_token)
+    target = Target.load_namespaces(Target.new(socket.assigns.flezha_token, run: :steps))
     namespace = Target.namespace(target, form["namespace"])
 
     socket =
@@ -93,11 +95,7 @@ defmodule FlezhaUiWeb.ScheduleLive do
 
     with :ok <- require_fields(form),
          {:ok, fields} <- entry_fields(form),
-         {:ok, entry} <- NodeManager.schedule_add(fields) do
-      # Persist first, then arm: an entry the hub refuses is still recoverable
-      # from the store, whereas an armed job with nothing persisted is not.
-      _ = NodeManager.schedule_assert(entry)
-
+         {:ok, _added} <- NodeManager.schedule_add(fields, socket.assigns.flezha_token) do
       {:noreply,
        socket
        |> assign(show_form: false, form_error: nil)
@@ -120,11 +118,7 @@ defmodule FlezhaUiWeb.ScheduleLive do
 
   @impl true
   def handle_event("remove", %{"name" => name}, socket) do
-    # Retract before deleting: a job left armed against a deleted entry would
-    # keep firing with nothing describing it.
-    _ = NodeManager.schedule_retract(name)
-
-    case NodeManager.schedule_remove(name) do
+    case NodeManager.schedule_remove(name, socket.assigns.flezha_token) do
       :ok ->
         {:noreply,
          socket
@@ -142,14 +136,12 @@ defmodule FlezhaUiWeb.ScheduleLive do
 
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
-    case NodeManager.schedule_list() do
+    case NodeManager.schedule_list(socket.assigns.flezha_token) do
       {:ok, entries} ->
-        statuses = status_index(NodeManager.schedule_statuses())
-
         assign(socket,
           schedules:
             entries
-            |> Enum.map(&decorate(&1, statuses))
+            |> Enum.map(&decorate/1)
             |> NodeManager.in_namespace(socket.assigns.scoped_namespace),
           load_error: nil
         )
@@ -159,50 +151,28 @@ defmodule FlezhaUiWeb.ScheduleLive do
     end
   end
 
-  defp status_index(statuses) when is_list(statuses) do
-    Map.new(statuses, fn status ->
-      {to_string(status[:name] || status["name"]), status}
-    end)
-  end
-
-  defp status_index(statuses) when is_map(statuses) do
-    Map.new(statuses, fn {name, status} -> {to_string(name), status} end)
-  end
-
-  defp status_index(_), do: %{}
-
-  defp decorate(entry, statuses) do
-    name = to_string(Map.get(entry, :name) || Map.get(entry, "name"))
-    cron = Map.get(entry, :cron) || Map.get(entry, "cron")
-    timezone = Map.get(entry, :timezone) || Map.get(entry, "timezone")
-    status = Map.get(statuses, name)
-
+  # The controller joins each stored entry with what the schedule hub holds
+  # for it. A stored entry no node fires is not armed; saying so is more useful
+  # than a blank cell that reads as "unknown".
+  defp decorate(entry) do
     %{
-      name: name,
-      cron: cron,
-      timezone: timezone,
-      # A schedule spawns an operative from a factory, so its target is the
-      # namespace and factory it will spawn into.
-      namespace: Map.get(entry, :namespace) || Map.get(entry, "namespace") || "—",
-      factory_id: Map.get(entry, :factory_id) || Map.get(entry, "factory_id") || "—",
-      # A persisted entry with no hub status is not armed; saying so is more
-      # useful than a blank cell that reads as "unknown".
-      armed: status != nil,
-      node: status && Map.get(status, :node),
-      last_fire: status && Map.get(status, :last_fire),
-      next_fire: next_fire(cron, timezone)
+      name: to_string(entry.name),
+      cron: entry.cron,
+      timezone: entry.timezone,
+      # A schedule starts a relay from a factory, so its target is the
+      # namespace and factory it will start into.
+      namespace: Map.get(entry, :namespace) || "—",
+      factory_id: Map.get(entry, :factory_id) || "—",
+      armed: Map.get(entry, :node) != nil,
+      node: Map.get(entry, :node),
+      last_fire: Map.get(entry, :last_fire),
+      next_fire: next_fire(Map.get(entry, :next_fire))
     }
   end
 
-  defp next_fire(cron, timezone) when is_binary(cron) and is_binary(timezone) do
-    case NodeManager.schedule_next_fire(cron, timezone) do
-      %DateTime{} = dt -> dt
-      {:ok, %DateTime{} = dt} -> dt
-      _ -> nil
-    end
-  end
-
-  defp next_fire(_cron, _timezone), do: nil
+  defp next_fire(%DateTime{} = dt), do: dt
+  defp next_fire({:ok, %DateTime{} = dt}), do: dt
+  defp next_fire(_none), do: nil
 
   defp aim(socket, namespace) do
     {target, form} = Target.aim(socket.assigns.target, namespace, socket.assigns.form)
@@ -255,13 +225,9 @@ defmodule FlezhaUiWeb.ScheduleLive do
     "Required: #{labels}."
   end
 
-  defp schedule_error({:invalid_cron, detail}), do: "Invalid cron expression: #{detail}"
-  defp schedule_error({:invalid_timezone, tz}), do: "Unknown timezone: #{tz}"
-  defp schedule_error({:invalid_name, detail}), do: "Invalid name: #{detail}"
-  defp schedule_error({:invalid_factory, detail}), do: "Invalid factory: #{detail}"
-  defp schedule_error({:invalid_init_values, detail}), do: "Invalid init values: #{detail}"
-  defp schedule_error(:already_exists), do: "A schedule with that name already exists."
   # `NodeManager.parse_init_values/1` already answers what to put on the form.
   defp schedule_error(message) when is_binary(message), do: message
-  defp schedule_error(reason), do: "Schedule error: #{inspect(reason)}"
+
+  defp schedule_error(reason),
+    do: FlezhaUiWeb.CoreComponents.error_message(reason, "the schedule")
 end

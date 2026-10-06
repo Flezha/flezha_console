@@ -18,7 +18,7 @@ async function visitLive(page: Page, path: string): Promise<void> {
 /**
  * The ids behind every `data-testid` starting with `prefix`.
  *
- * The screens name their rows `operative-row-<id>`, `binding-row-<id>`,
+ * The screens name their rows `relay-row-<id>`, `binding-row-<id>`,
  * `provider-btn-<id>`, so this is how a spec reads back what a table currently
  * holds — and how the count assertions that catch leaked state are built.
  */
@@ -32,19 +32,21 @@ export async function testIds(page: Page, prefix: string): Promise<string[]> {
 }
 
 /**
- * Every health the Convergence Loop can report, in the order
- * `NodeManager.health_kinds/0` lists them.
+ * Every health verdict the controller can report, in the order
+ * `NodeManager.health_verdicts/0` lists them — core's own rank order.
  *
  * Written once so a health added on the controller side fails in one place
  * rather than silently passing a stale regex in two specs.
  */
-export const HEALTH_KINDS = [
+export const HEALTH_VERDICTS = [
   'healthy',
+  'unknown',
   'suspended',
   'degraded',
+  'recovering',
   'unbound',
   'failed',
-  'unknown',
+  'parked',
 ] as const;
 
 /**
@@ -55,7 +57,7 @@ export const HEALTH_KINDS = [
  * matcher like `/\w+/` that a typo would satisfy.
  */
 export function healthMatcher(expected?: string): string | RegExp {
-  return expected ?? new RegExp(`^(${HEALTH_KINDS.join('|')})$`);
+  return expected ?? new RegExp(`^(${HEALTH_VERDICTS.join('|')})$`);
 }
 
 /** One row's health badge, for an assertion about that row alone. */
@@ -103,40 +105,45 @@ export async function factoryOptions(page: Page): Promise<string[]> {
 }
 
 /**
- * The factory the dev stack documents for each kind.
+ * The factory the dev stack documents for each run.
  *
- * The runner registers its whole catalogue, most of which are workflow
- * factories — and the first one alphabetically (`bench_chain_1`) is one of
- * them. Taking whichever sorts first asks the controller to run a workflow as
- * a stream, which it refuses.
+ * The runner registers its whole catalogue, most of which are steps factories
+ * — and the first one alphabetically is one of them. Taking whichever sorts
+ * first would start a steps relay where a spec expects a flow one.
  *
- * The workflow factory is the long-lived one: `echo_workflow` runs once and
- * completes, so an instance started from it is already in the finished listing
- * by the time a spec looks for its row.
+ * The steps factory is the long-lived one: `echo_steps` runs once and
+ * completes, so a relay started from it is already in the finished listing by
+ * the time a spec looks for its row.
  */
-const SEEDED_FACTORY: Record<string, string> = {
-  stream: 'store_input',
-  workflow: 'chat_loop_workflow',
-};
+export const SEEDED_FACTORY = {
+  flow: 'store_input',
+  steps: 'chat_loop_steps',
+} as const;
+
+export type Run = keyof typeof SEEDED_FACTORY;
 
 /**
- * Starts an operative through the launcher, from whichever screen is open.
+ * Starts a relay through the launcher, from whichever screen is open.
  *
  * One helper because there is one form: the namespace screen pins its
- * namespace and the operatives index asks for one, and a spec that drove them
+ * namespace and the relays index asks for one, and a spec that drove them
  * separately would stop catching the drift the shared launcher exists to
- * prevent.
+ * prevent. How the relay runs is its factory's, so `run` only picks the
+ * seeded factory of that run; the form asks for no run.
+ *
+ * The form answers with the id the relay runs under and a link to it, and
+ * stays open until it is dismissed; this reads that answer and closes it.
  *
  * Returns the factory it chose, so a caller can assert on it.
  */
-export async function startOperative(
+export async function startRelay(
   page: Page,
   id: string,
-  opts: { namespace?: string; kind?: string; factory?: string } = {},
+  opts: { namespace?: string; run?: Run; factory?: string } = {},
 ): Promise<string> {
-  const kind = opts.kind ?? 'stream';
+  const run = opts.run ?? 'flow';
 
-  await page.getByTestId('start-operative-btn').click();
+  await page.getByTestId('start-relay-btn').click();
   await expect(page.getByTestId('start-modal')).toBeVisible();
 
   // Before the factory: changing the namespace re-reads its catalog, which
@@ -145,41 +152,45 @@ export async function startOperative(
     await page.getByTestId('input-namespace').selectOption(opts.namespace);
   }
 
-  await page.getByTestId('input-operative-id').fill(id);
-  await page.getByTestId('input-kind').selectOption(kind);
-
-  const factory = opts.factory ?? (await preferredFactory(page, kind));
+  const factory = opts.factory ?? (await preferredFactory(page, run));
   await page.getByTestId('input-factory-id').selectOption(factory);
+  await page.getByTestId('input-relay-id').fill(id);
 
   await page.getByTestId('start-submit-btn').click();
+  await expect(page.getByTestId('start-result')).toBeVisible();
+  await expect(page.getByTestId('start-result-link')).toHaveText(id);
+
+  await page.getByTestId('start-done-btn').click();
   await expect(page.getByTestId('start-modal')).toHaveCount(0);
 
   return factory;
 }
 
-async function preferredFactory(page: Page, kind: string): Promise<string> {
+async function preferredFactory(page: Page, run: Run): Promise<string> {
   const options = await factoryOptions(page);
 
   expect(options.length, 'at least one factory must be available').toBeGreaterThan(0);
 
-  const seeded = SEEDED_FACTORY[kind];
-  return seeded && options.includes(seeded) ? seeded : options[0];
+  const seeded = SEEDED_FACTORY[run];
+  return options.includes(seeded) ? seeded : options[0];
 }
 
 /**
  * Stops `id` from the namespace screen the caller is already on.
  *
- * Tolerating an already-stopped operative is what makes this safe to call from
- * `finally` after the test stopped it itself; it never skips an assertion.
+ * Tolerating an already-stopped relay is what makes this safe to call from
+ * `finally` after the test stopped it itself; it never skips an assertion. A
+ * steps relay stops cooperatively and leaves the listing once its in-flight
+ * work is done, so the wait allows for that.
  */
-export async function stopOperative(page: Page, id: string): Promise<void> {
-  const row = page.getByTestId(`operative-row-${id}`);
+export async function stopRelay(page: Page, id: string): Promise<void> {
+  const row = page.getByTestId(`relay-row-${id}`);
   if ((await row.count()) === 0) return;
 
-  await page.getByTestId(`stop-operative-${id}`).click();
+  await page.getByTestId(`stop-relay-${id}`).click();
   await expect(page.getByTestId('stop-confirm-modal')).toBeVisible();
   await page.getByTestId('stop-confirm-btn').click();
-  await expect(row).toHaveCount(0);
+  await expect(row).toHaveCount(0, { timeout: 20_000 });
 }
 
 /**
@@ -241,6 +252,31 @@ export async function toggleTheme(page: Page): Promise<void> {
 export async function openPalette(page: Page): Promise<void> {
   await page.keyboard.press('Control+k');
   await expect(page.getByTestId('command-palette')).toBeVisible();
+}
+
+/**
+ * Runs `body` against a durable steps relay started for it, and stops that
+ * relay afterwards whatever happens.
+ *
+ * A steps relay that no input reaches does not stay up for the length of a
+ * suite run, so a test that needs one starts its own rather than leaning on a
+ * seed. The relay runs the seeded `steps` factory under a run-unique id.
+ */
+export async function withStepsRelay(
+  page: Page,
+  body: (id: string) => Promise<void>,
+): Promise<void> {
+  const id = `pw_steps_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`;
+
+  await visitLive(page, '/namespaces/default');
+  await startRelay(page, id, { run: 'steps' });
+
+  try {
+    await body(id);
+  } finally {
+    await visitLive(page, '/namespaces/default');
+    await stopRelay(page, id);
+  }
 }
 
 /**

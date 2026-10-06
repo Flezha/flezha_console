@@ -3,7 +3,7 @@ defmodule FlezhaUiWeb.Live.Target do
   The namespace and factory a write is aimed at, and the listings it offers
   them from.
 
-  Two forms aim a write at a target — the operative launcher and the schedule
+  Two forms aim a write at a target — the relay launcher and the schedule
   form — and both need the same four things: the namespaces the bound token can
   reach, the chosen namespace's registered factories, the rule for which of each
   stays chosen when the other moves, and a picker that falls back to free text
@@ -12,7 +12,7 @@ defmodule FlezhaUiWeb.Live.Target do
 
   Held as one value on the socket:
 
-      target = Target.load_namespaces(Target.new(), token)
+      target = Target.load_namespaces(Target.new(token))
       {target, form} = Target.aim(target, Target.namespace(target), form)
 
       <.namespace_field target={@target} name="schedule[namespace]" value={@form["namespace"]}
@@ -35,12 +35,25 @@ defmodule FlezhaUiWeb.Live.Target do
   @doc "What to say when the chosen namespace registers no factories."
   def no_factories_message, do: @no_factories
 
-  @doc "A target with nothing listed yet."
-  def new, do: %{namespaces: [], namespaces_error: nil, factories: [], factories_error: nil}
+  @doc """
+  A target with nothing listed yet, read with `token`. `run: :steps` keeps
+  only the factories that run as steps, for a form the controller refuses a
+  flow factory on.
+  """
+  def new(token, opts \\ []) do
+    %{
+      token: token,
+      run: Keyword.get(opts, :run),
+      namespaces: [],
+      namespaces_error: nil,
+      factories: [],
+      factories_error: nil
+    }
+  end
 
-  @doc "Lists the namespaces `token` can reach."
-  def load_namespaces(target, token),
-    do: put_namespaces(target, NodeManager.scoped_namespaces(token))
+  @doc "Lists the namespaces the target's token can reach."
+  def load_namespaces(target),
+    do: put_namespaces(target, NodeManager.scoped_namespaces(target.token))
 
   @doc """
   Takes the namespaces a screen has already listed, as `scoped_namespaces/1`
@@ -69,10 +82,10 @@ defmodule FlezhaUiWeb.Live.Target do
     {factories, error} =
       case String.trim(namespace || "") do
         "" -> {[], nil}
-        ns -> NodeManager.ok_or_error(NodeManager.factory_catalog(ns), [])
+        ns -> NodeManager.ok_or_error(NodeManager.factory_catalog(ns, target.token), [])
       end
 
-    %{target | factories: factories, factories_error: error}
+    %{target | factories: of_run(factories, target.run), factories_error: error}
   end
 
   @doc """
@@ -86,6 +99,9 @@ defmodule FlezhaUiWeb.Live.Target do
       do: preferred,
       else: List.first(target.namespaces) || ""
   end
+
+  defp of_run(factories, nil), do: factories
+  defp of_run(factories, run), do: Enum.filter(factories, &(to_string(&1.run) == to_string(run)))
 
   # A namespace change re-lists the catalog, and a factory the new namespace does
   # not register must not stay chosen: the write would be refused naming a
@@ -175,6 +191,31 @@ defmodule FlezhaUiWeb.Live.Target do
       %{runners: []} -> "No runner currently serves this factory."
       %{runners: runners} -> "Served by #{Enum.join(runners, ", ")}."
       nil -> nil
+    end
+  end
+
+  @doc """
+  The chosen factory's run, stated read-only: how a relay runs is its
+  factory's, announced by its runners, so no form offers to set it.
+  """
+  attr :target, :map, required: true
+  attr :value, :any, default: nil
+  attr :testid, :string, required: true
+
+  def factory_run(assigns) do
+    assigns = assign(assigns, :run, factory_run_of(assigns.target.factories, assigns.value))
+
+    ~H"""
+    <p :if={@run} class="text-xs text-th-secondary" data-testid={@testid}>
+      Runs as <span class="font-mono">{@run}</span>, as this factory's runners announce it.
+    </p>
+    """
+  end
+
+  defp factory_run_of(catalog, factory_id) do
+    case Enum.find(catalog, &(&1.id == factory_id)) do
+      %{run: run} when not is_nil(run) -> to_string(run)
+      _unknown -> nil
     end
   end
 end

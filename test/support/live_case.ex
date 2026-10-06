@@ -18,7 +18,7 @@ defmodule FlezhaUiWeb.LiveCase do
       use FlezhaUiWeb.LiveCase
 
       test "renders the namespaces", %{conn: conn, node: node} do
-        FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["default"]})
+        FakeController.set_fleet(node, namespaces: ["default"])
         {:ok, _view, html} = live(conn, ~p"/namespaces")
         assert html =~ "default"
       end
@@ -56,7 +56,7 @@ defmodule FlezhaUiWeb.LiveCase do
   @doc """
   Unfolds one of a long screen's sections and answers the screen with it open.
 
-  The lower panels of the operative and namespace screens start folded, so a
+  The lower panels of the relay and namespace screens start folded, so a
   test that reads one says so first — the same click an operator makes.
   """
   def open_section(view, key) do

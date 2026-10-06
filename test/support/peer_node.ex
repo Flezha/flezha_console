@@ -34,12 +34,12 @@ defmodule FlezhaUi.PeerNode do
 
     # A peer starts as a bare Erlang node. The controller it stands in for is an
     # Elixir application, so Elixir has to be running for the peer to behave
-    # like one — `Code.compile_string/1` needs it, in particular.
+    # like one.
     {:ok, _} = :erpc.call(node, :application, :ensure_all_started, [:elixir])
 
     # Shipped before returning, so there is no window in which a connected peer
-    # is missing a module the relay needs. A retrying bridge that found the peer
-    # in that window would fail to compile the relay there.
+    # is missing a stand-in. A retrying feed that found the peer in that window
+    # would be answered `:undef`.
     Enum.each(modules, &ship!(node, &1))
 
     {peer, node}
@@ -109,7 +109,7 @@ defmodule FlezhaUi.PeerNode do
   @doc """
   Polls `fun` until it returns true or the attempts run out.
 
-  Remote state settles asynchronously — a relay unwinding, a handler being
+  Remote state settles asynchronously — a stream ending, a subscription being
   removed — so a bare assertion after the triggering call is flaky by
   construction.
   """
@@ -126,7 +126,8 @@ defmodule FlezhaUi.PeerNode do
   end
 
   defp ensure_distributed! do
-    case :net_kernel.start([:"flezha_ui_test@127.0.0.1", :longnames]) do
+    # Named per OS process, so two test runs on one host do not collide.
+    case :net_kernel.start([:"flezha_ui_test_#{System.pid()}@127.0.0.1", :longnames]) do
       {:ok, _} -> :ok
       {:error, {:already_started, _}} -> :ok
     end

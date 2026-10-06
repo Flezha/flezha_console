@@ -10,23 +10,50 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
 
   use FlezhaUiWeb.LiveCase
 
-  alias Flezha.Cluster.Directory
-  alias Flezha.Runner.FleetManager
-  alias Flezha.Service.CliManager
-  alias Flezha.Service.HubManager
+  alias Flezha.Service.Controller
+  alias Flezha.Service.Fleet
+  alias Flezha.Service.Relay
 
   defp one_namespace(node, opts) do
-    FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["default"]})
-    FakeController.set(node, {Flezha, :list_factories}, {:ok, opts[:factories] || []})
-    FakeController.set(node, {Directory, :hub_nodes}, {:ok, opts[:hub_nodes] || []})
-    FakeController.set(node, {FleetManager, :active_runners}, {:ok, opts[:runners] || []})
+    FakeController.set(
+      node,
+      {Relay, :list_namespaces},
+      {:ok, [%{namespace: "default", running: true}]}
+    )
+
+    FakeController.set(node, {Relay, :relay_rows}, {:ok, opts[:rows] || []})
+    FakeController.set(node, {Fleet, :factories}, {:ok, opts[:factories] || []})
+    FakeController.set(node, {Fleet, :runners}, {:ok, opts[:runners] || []})
 
     FakeController.set(
       node,
-      {FleetManager, :runners_for_factory},
+      {Fleet, :runners_for_factory},
       opts[:runners_for_factory] || {:ok, []}
     )
+
+    FakeController.set(
+      node,
+      {Controller, :cluster_status},
+      opts[:status] || {:ok, status(opts[:hub_nodes] || [])}
+    )
   end
+
+  # The cluster as the namespace sees it: its hub nodes with their recovery
+  # state, as `Controller.cluster_status/2` answers it.
+  defp status(nodes) do
+    %{
+      namespace: "default",
+      nodes:
+        Enum.map(nodes, fn
+          {node, recovery} -> %{node: node, relay_count: 0, recovery_state: recovery}
+          node -> %{node: node, relay_count: 0, recovery_state: :normal}
+        end),
+      unplaced_relays: 0,
+      relay_health: %{}
+    }
+  end
+
+  defp factory(id), do: %{id: id, description: nil, run: :flow}
 
   describe "cluster membership" do
     test "marks the node this UI is connected to", %{conn: conn, node: node} do
@@ -39,29 +66,29 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       assert html =~ to_string(node)
     end
 
-    test "lists the cluster the controller reports, not just the connected node", %{
+    test "lists every hub node the controller reports, unioned across namespaces", %{
       conn: conn,
       node: node
     } do
-      one_namespace(node, [])
+      one_namespace(node, hub_nodes: [:"flezha@node-a", :"flezha@node-b"])
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
-      # `controller_cluster_nodes/0` asks the controller for `:erlang.nodes/1`,
-      # so the test VM shows up alongside the peer — proving the list came from
-      # the controller rather than from this side of the connection.
+      assert html =~ ~s(data-testid="cluster-node-flezha@node-a")
+      assert html =~ ~s(data-testid="cluster-node-flezha@node-b")
       assert html =~ ~s(data-testid="cluster-node-#{node}")
-      assert html =~ ~s(data-testid="cluster-node-#{Node.self()}")
+      # Membership comes from the controller's answer, never `:erlang.nodes/1`.
+      refute html =~ ~s(data-testid="cluster-node-#{Node.self()}")
     end
   end
 
   describe "namespaces and their fleets" do
     test "renders hub placement and the runners serving a namespace", %{conn: conn, node: node} do
       one_namespace(node,
-        factories: ["store_input"],
+        factories: [factory("store_input")],
         hub_nodes: [:"flezha@hub-1"],
-        runners: [%{id: "runner-a"}],
-        runners_for_factory: {:ok, [%{id: "runner-a"}]}
+        runners: [%{id: "runner-a", pid: nil}],
+        runners_for_factory: {:ok, ["runner-a"]}
       )
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
@@ -74,17 +101,27 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       assert html =~ "store_input"
     end
 
+    test "runners are read cluster-wide, not from the node this UI reached", %{
+      conn: conn,
+      node: node
+    } do
+      one_namespace(node, runners: [%{id: "runner-on-peer", pid: nil}])
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert html =~ "runner-on-peer"
+      assert FakeController.calls(node, {Fleet, :runners}) != []
+    end
+
     test "each runner is credited with the factories it serves", %{conn: conn, node: node} do
-      # The pairing now comes from the shared catalog rather than an inversion
-      # built here; what the fleet view reports must not have changed with it.
       one_namespace(node,
-        factories: ["store_input", "compare_filter"],
-        runners: [%{id: "runner-a"}, %{id: "runner-b"}],
+        factories: [factory("store_input"), factory("compare_filter")],
+        runners: [%{id: "runner-a", pid: nil}, %{id: "runner-b", pid: nil}],
         runners_for_factory:
           {:per_arg, 1,
            %{
-             "store_input" => {:ok, [%{id: "runner-a"}, %{id: "runner-b"}]},
-             "compare_filter" => {:ok, [%{id: "runner-b"}]}
+             "store_input" => {:ok, ["runner-a", "runner-b"]},
+             "compare_filter" => {:ok, ["runner-b"]}
            }, {:ok, []}}
       )
 
@@ -99,43 +136,73 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       assert runner_b =~ "compare_filter, store_input"
     end
 
+    test "each factory states its run", %{conn: conn, node: node} do
+      one_namespace(node,
+        factories: [
+          factory("store_input"),
+          %{id: "chat_loop_steps", description: nil, run: :steps}
+        ]
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/cluster")
+
+      assert view |> element(~s([data-testid="factory-chat_loop_steps"])) |> render() =~ "steps"
+      assert view |> element(~s([data-testid="factory-store_input"])) |> render() =~ "flow"
+    end
+
     test "renders the empty fleet rather than an empty panel", %{conn: conn, node: node} do
-      one_namespace(node, factories: ["store_input"], runners: [])
+      one_namespace(node, factories: [factory("store_input")], runners: [])
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
       assert html =~ ~s(data-testid="runners-empty-default")
     end
 
-    test "renders the empty cluster when no namespace is running", %{conn: conn, node: node} do
-      FakeController.set(node, {Flezha, :list_namespaces}, {:ok, []})
-
+    test "renders the empty cluster when no namespace is visible", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
       assert html =~ ~s(data-testid="cluster-namespaces-empty")
     end
 
+    test "a refused hub read is stated and the rest still renders", %{conn: conn, node: node} do
+      one_namespace(node,
+        runners: [%{id: "runner-a", pid: nil}],
+        status: FakeController.error("authz.role_insufficient")
+      )
+
+      {:ok, view, html} = live(conn, ~p"/cluster")
+
+      assert view |> element(~s([data-testid="hub-nodes-default"])) |> render() =~
+               "authz.role_insufficient"
+
+      assert html =~ "runner-a"
+    end
+
     test "renders the controller's refusal instead of crashing", %{conn: conn, node: node} do
-      FakeController.set(node, {Flezha, :list_namespaces}, {:error, :timeout})
+      FakeController.set(
+        node,
+        {Relay, :list_namespaces},
+        FakeController.error("controller.timeout")
+      )
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
-      assert html =~ "The flezha controller did not answer in time."
+      assert html =~ ~s(data-testid="runtime-error")
     end
   end
 
   describe "factory placement lookup" do
     setup %{node: node} do
-      one_namespace(node, factories: ["store_input"], runners: [%{id: "runner-a"}])
+      one_namespace(node,
+        factories: [factory("store_input")],
+        runners: [%{id: "runner-a", pid: nil}]
+      )
+
       :ok
     end
 
     test "names the runners serving the factory", %{conn: conn, node: node} do
-      FakeController.set(
-        node,
-        {FleetManager, :runners_for_factory},
-        {:ok, [%{id: "runner-a"}, %{id: "runner-b"}]}
-      )
+      FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, ["runner-a", "runner-b"]})
 
       {:ok, view, _html} = live(conn, ~p"/cluster")
 
@@ -150,9 +217,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       assert html =~ "runner-b"
     end
 
-    test "says so when no runner serves the factory", %{conn: conn, node: node} do
-      FakeController.set(node, {FleetManager, :runners_for_factory}, {:ok, []})
-
+    test "says so when no runner serves the factory", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/cluster")
 
       html =
@@ -161,20 +226,16 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
           "factory" => "store_input"
         })
 
-      # The state the browser suite cannot reach: every factory it can offer
-      # comes from a connected runner.
       assert html =~ ~s(data-testid="factory-runners-empty")
     end
 
     test "selecting a factory is a lookup, not another controller read", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, ~p"/cluster")
-      before = length(FakeController.calls(node, {FleetManager, :runners_for_factory}))
+      before = length(FakeController.calls(node, {Fleet, :runners_for_factory}))
 
       render_click(view, "select_factory", %{"namespace" => "default", "factory" => "store_input"})
 
-      # The catalog this screen already loaded says which runners serve each
-      # factory; asking again would be paying twice for the same answer.
-      assert length(FakeController.calls(node, {FleetManager, :runners_for_factory})) == before
+      assert length(FakeController.calls(node, {Fleet, :runners_for_factory})) == before
     end
 
     test "clearing the selection removes the result", %{conn: conn} do
@@ -193,41 +254,24 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       conn: conn,
       node: node
     } do
-      one_namespace(node, factories: [], runners: [])
+      one_namespace(node, runners: [])
 
       {:ok, view, html} = live(conn, ~p"/cluster")
       refute html =~ "runner-late"
 
-      FakeController.set(node, {FleetManager, :active_runners}, {:ok, [%{id: "runner-late"}]})
-      send(view.pid, {:flezha_event, :runner_connected, %{}})
+      FakeController.set(node, {Fleet, :runners}, {:ok, [%{id: "runner-late", pid: nil}]})
+      send(view.pid, {:flezha_event, :runner_connected, {"default", "runner-late"}})
 
       assert render(view) =~ "runner-late"
     end
   end
 
   describe "per-node rollup" do
-    defp row(id, overrides \\ %{}), do: FakeController.operative_row(id, overrides)
+    defp row(id, overrides \\ %{}), do: FakeController.relay_row(id, overrides)
 
-    defp placed(node, opts) do
-      FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["default"]})
-      FakeController.set(node, {HubManager, :operative_rows}, opts[:rows] || [])
-
-      FakeController.set(
-        node,
-        {Directory, :hub_nodes},
-        {:ok, opts[:hub_nodes] || [:"flezha@node-a"]}
-      )
-
-      FakeController.set(node, {CliManager, :cluster_status_recovery}, opts[:recovery] || %{})
-    end
-
-    test "each node shows its operative count broken down by health", %{conn: conn, node: node} do
-      placed(node,
-        rows: [
-          row("a"),
-          row("b", %{health: :degraded}),
-          row("c", %{node: :"flezha@node-b"})
-        ],
+    test "each node shows its relay count broken down by health", %{conn: conn, node: node} do
+      one_namespace(node,
+        rows: [row("a"), row("b", %{health: :degraded}), row("c", %{node: :"flezha@node-b"})],
         hub_nodes: [:"flezha@node-a", :"flezha@node-b"]
       )
 
@@ -238,9 +282,24 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       assert html =~ ~s(data-health="degraded")
     end
 
+    test "relays moving off a dead runner are counted under their own verdicts", %{
+      conn: conn,
+      node: node
+    } do
+      one_namespace(node,
+        rows: [row("a", %{health: :recovering}), row("b", %{health: :parked})],
+        hub_nodes: [:"flezha@node-a"]
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert html =~ ~s(data-health="recovering")
+      assert html =~ ~s(data-health="parked")
+      refute html =~ ~s(data-health="unknown")
+    end
+
     test "a split view makes the disagreement visible", %{conn: conn, node: node} do
-      # One node hosts everything; its peer hosts none.
-      placed(node,
+      one_namespace(node,
         rows: [row("a"), row("b")],
         hub_nodes: [:"flezha@node-a", :"flezha@node-b"]
       )
@@ -251,8 +310,8 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       refute html =~ ~s(data-testid="node-flezha@node-b")
     end
 
-    test "operatives with no live node are named", %{conn: conn, node: node} do
-      placed(node, rows: [row("stranded", %{node: nil})])
+    test "relays with no live node are named", %{conn: conn, node: node} do
+      one_namespace(node, rows: [row("stranded", %{node: nil})])
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -261,10 +320,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
     end
 
     test "a hub mid-recovery is distinguishable from one serving", %{conn: conn, node: node} do
-      placed(node,
-        rows: [row("a")],
-        recovery: %{:"flezha@node-a" => :replaying}
-      )
+      one_namespace(node, rows: [row("a")], hub_nodes: [{:"flezha@node-a", :replaying}])
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -273,8 +329,11 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       refute html =~ "serving"
     end
 
-    test "unavailable recovery state does not fail the screen", %{conn: conn, node: node} do
-      placed(node, rows: [row("a")], recovery: %{})
+    test "an unreachable node's recovery is stated, and the rest still renders", %{
+      conn: conn,
+      node: node
+    } do
+      one_namespace(node, rows: [row("a")], hub_nodes: [{:"flezha@node-a", :unreachable}])
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -283,8 +342,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
     end
 
     test "each namespace's runner principal is shown", %{conn: conn, node: node} do
-      placed(node, rows: [row("a")])
-      FakeController.set(node, {FleetManager, :active_runners}, {:ok, ["runner-a"]})
+      one_namespace(node, rows: [row("a")], runners: [%{id: "runner-a", pid: nil}])
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -292,16 +350,13 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       assert html =~ "runner@default"
     end
 
-    test "the column is absent when the controller does not carry principals", %{
-      conn: conn,
-      node: node
-    } do
-      placed(node, rows: [row("a")])
+    test "the column is absent when the controller does not say", %{conn: conn, node: node} do
+      one_namespace(node, rows: [row("a")], runners: [%{id: "runner-a", pid: nil}])
 
       FakeController.set(
         node,
-        {FleetManager, :runner_caller_context},
-        {:error, {:api_missing, FleetManager, :runner_caller_context, 1}}
+        {Fleet, :runner_caller_context},
+        FakeController.error("authz.role_insufficient")
       )
 
       {:ok, _view, html} = live(conn, ~p"/cluster")

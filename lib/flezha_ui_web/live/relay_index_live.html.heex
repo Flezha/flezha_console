@@ -1,0 +1,137 @@
+<div class="space-y-6">
+  <.header>
+    {screen_name(@scoped_namespace)}
+    <:subtitle :if={@scoped_namespace}>
+      Every relay in <span class="flz-num">{@scoped_namespace}</span>.
+    </:subtitle>
+    <:actions>
+      <span class="text-sm text-th-tertiary font-mono" data-testid="relays-count">
+        <span :if={@scoped_namespace}>{length(@rows)} in {@scoped_namespace}</span>
+        <span :if={!@scoped_namespace}>
+          {length(@rows)} across {length(@namespaces)} namespaces
+        </span>
+      </span>
+      <.button phx-click="launcher_open" data-testid="start-relay-btn" icon="hero-plus">
+        Start Relay
+      </.button>
+    </:actions>
+  </.header>
+
+  <.runtime_error error={@load_error} action="the relay listing" />
+
+  <form phx-change="filter" class="flex flex-wrap items-end gap-3">
+    <%!-- Scoped by the route, the namespace is the screen rather than one of
+          its controls, so it is stated rather than offered. --%>
+    <div :if={@scoped_namespace} class="flz-field">
+      <span class="flz-field-label">Namespace</span>
+      <p data-testid="fixed-namespace" class="flz-num text-sm text-th-primary py-2">
+        {@scoped_namespace}
+      </p>
+    </div>
+    <div :if={!@scoped_namespace}>
+      <.dropdown
+        label="Namespace"
+        id="filter-namespace"
+        name="filters[namespace]"
+        value={@filters["namespace"]}
+        testid="filter-namespace"
+        prompt="all"
+        class="w-40"
+      >
+        <:option value="">all</:option>
+        <:option :for={ns <- @namespaces} value={ns}>{ns}</:option>
+      </.dropdown>
+    </div>
+    <div>
+      <.dropdown
+        label="Health"
+        id="filter-health"
+        name="filters[health]"
+        value={@filters["health"]}
+        testid="filter-health"
+        prompt="all"
+        class="w-36"
+      >
+        <:option value="">all</:option>
+        <:option :for={health <- health_options()} value={to_string(health)}>{health}</:option>
+      </.dropdown>
+    </div>
+    <div>
+      <.dropdown
+        label="Run"
+        id="filter-run"
+        name="filters[run]"
+        value={@filters["run"]}
+        testid="filter-run"
+        prompt="all"
+        class="w-32"
+      >
+        <:option value="">all</:option>
+        <:option :for={run <- @run_options} value={to_string(run)}>{run}</:option>
+      </.dropdown>
+    </div>
+  </form>
+
+  <div class="flz-panel overflow-hidden">
+    <%= if @rows == [] do %>
+      <.empty_state icon="hero-cpu-chip" testid="relays-empty">
+        <span :if={@scoped_namespace}>No relays are running in {@scoped_namespace}.</span>
+        <span :if={!@scoped_namespace}>
+          No relays are running in any reachable namespace.
+        </span>
+      </.empty_state>
+    <% else %>
+      <table data-testid="relays-index-table" class="flz-table">
+        <thead>
+          <tr>
+            <th>Relay ID</th>
+            <th>Namespace</th>
+            <th>Factory</th>
+            <th>Health</th>
+            <th>Run</th>
+            <th>Node</th>
+            <th>Runner</th>
+            <th>Plugins</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={row <- @rows}
+            data-testid={"relay-index-row-#{row.id}"}
+          >
+            <td class="flz-num text-xs">
+              <.link
+                :if={is_nil(row[:partitions])}
+                navigate={~p"/namespaces/#{row.namespace}/relays/#{row.id}"}
+                class="text-accent-text hover:text-accent transition-colors"
+              >
+                {row.id}
+              </.link>
+              <.link
+                :if={row[:partitions]}
+                navigate={~p"/namespaces/#{row.namespace}"}
+                class="text-accent-text hover:text-accent transition-colors"
+              >
+                {row.id} <span class="flz-badge">group {row.partitions}</span>
+              </.link>
+            </td>
+            <td class="flz-num text-xs">{row.namespace}</td>
+            <td class="flz-num text-xs">{row[:factory] || "—"}</td>
+            <td><.health_badge health={row.health} /></td>
+            <td class="flz-num text-xs">
+              {row.run || "—"}
+            </td>
+            <td class="flz-num text-xs">
+              <span :if={row[:node]}>{row[:node]}</span>
+              <span :if={is_nil(row[:node])} class="text-warning">unplaced</span>
+            </td>
+            <td class="flz-num text-xs">{row[:runner] || "—"}</td>
+            <td class="flz-num text-xs">{row.plugins}</td>
+          </tr>
+        </tbody>
+      </table>
+    <% end %>
+  </div>
+</div>
+
+<.launcher_dialog launcher={@launcher} />

@@ -1,7 +1,7 @@
 defmodule FlezhaUi.AccountsFixtures do
   @moduledoc """
   This module defines test helpers for creating
-  entities via the `FlezhaUi.Accounts` context.
+  users and tokens via the `FlezhaUi.Accounts` context.
   """
 
   import Ecto.Query

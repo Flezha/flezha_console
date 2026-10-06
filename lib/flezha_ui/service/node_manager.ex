@@ -2,21 +2,28 @@ defmodule FlezhaUi.Service.NodeManager do
   @moduledoc """
   The single seam between this UI and the flezha controller node.
 
-  Every remote module name the UI depends on is declared here and nowhere else,
-  so a controller API change is a one-file diff. Callers receive either the
-  remote function's own reply or one of five normalised errors — never a raw
-  `:erpc` exit:
+  Every remote call is a function on core's published consumer surface — a
+  `Flezha.Service.*` function listed in core's
+  `docs/api/consumers/published.txt`, called with the caller context last — or
+  one of the two context-free reads a context is built from,
+  `Flezha.AuthZ.TokenStore.verify/1` and `Flezha.AuthZ.enforcement_posture/0`.
+  Each module is spelled in full at its call site, because core records this
+  console's calls by reading them from there (`scripts/consumer_surface.py`).
+
+  Every UI-facing function takes the flezha token as its last argument.
+
+  Callers receive the published function's own answer — its success value, or
+  `{:error, %Flezha.Error{}}` untouched — or one of the transport conditions
+  only this node can see:
 
     * `{:error, :node_not_connected}` — no controller node is reachable.
     * `{:error, {:api_missing, module, function, arity}}` — the controller does
-      not export the call. This is the signal that UI and controller versions
-      have diverged.
+      not export the call: UI and controller versions have diverged.
     * `{:error, :timeout}` — the controller did not answer in time.
-    * `{:error, {:forbidden, reason}}` — authorization refused the call, or no
-      principal is bound to it. A distinct shape because it has a distinct
-      remedy: present a token, or be granted a role.
-    * `{:error, {:remote_error, term}}` — anything else that went wrong on the
-      remote side.
+    * `{:error, {:remote_error, term}}` — the call raised on the controller.
+
+  `error/1` reads any of them as one map, so a screen decides how to present an
+  error from its class and code and never by matching its text.
   """
 
   require Logger
@@ -30,6 +37,10 @@ defmodule FlezhaUi.Service.NodeManager do
   @token_ttl_ms 30_000
   @posture_ttl_ms 2_000
 
+  # A verification that failed for one of these is an answer about the token,
+  # so it is cached. `authz.registry_unavailable` is transient and is not.
+  @token_codes ~w(authz.token_malformed authz.token_unknown authz.token_revoked authz.token_expired)
+
   def connected_node do
     Node.list(:connected) |> List.first()
   end
@@ -37,8 +48,8 @@ defmodule FlezhaUi.Service.NodeManager do
   @doc """
   Runs `module.function(args)` on the connected controller node.
 
-  A remote reply of `{:error, reason}` is passed through untouched — it is the
-  remote function's own answer, not a transport failure.
+  Only the two context-free reads are made this way directly; every other call
+  goes through `authorized_call/4`, which appends the caller context.
   """
   def erpc_call(module, function, args, timeout \\ @default_timeout) do
     case connected_node() do
@@ -54,37 +65,19 @@ defmodule FlezhaUi.Service.NodeManager do
     end
   end
 
-  # `:erpc.call/5` raises `ErlangError` wrapping `{:exception, :undef, stack}`
-  # when the remote module or function does not exist. The head of that stack
-  # names the entry point that was missing, which is exactly the version-skew
-  # signal we want to surface.
-  defp classify(:error, %ErlangError{original: {:exception, :undef, stack}}, m, f, args) do
-    undef_error(stack, m, f, args)
-  end
+  # `:erpc` raises `ErlangError` wrapping `{:exception, :undef, stack}` when the
+  # remote module or function does not exist. The head of that stack names the
+  # entry point that was missing, which is exactly the version-skew signal.
+  defp classify(:error, %ErlangError{original: {:exception, :undef, stack}}, m, f, args),
+    do: undef_error(stack, m, f, args)
 
-  defp classify(:error, {:exception, :undef, stack}, m, f, args) do
-    undef_error(stack, m, f, args)
-  end
-
-  # A service that raises its refusal rather than returning it still has to
-  # reach a caller as a refusal — the shape carries the remedy.
-  defp classify(
-         :error,
-         %ErlangError{original: {:exception, {:forbidden, reason}, _stack}},
-         _m,
-         _f,
-         _args
-       ),
-       do: {:error, {:forbidden, reason}}
-
-  defp classify(_kind, {:exception, {:forbidden, reason}, _stack}, _m, _f, _args),
-    do: {:error, {:forbidden, reason}}
+  defp classify(:error, {:exception, :undef, stack}, m, f, args),
+    do: undef_error(stack, m, f, args)
 
   defp classify(:error, {:erpc, :timeout}, _m, _f, _args), do: {:error, :timeout}
   defp classify(:exit, {:erpc, :timeout}, _m, _f, _args), do: {:error, :timeout}
   defp classify(:error, {:erpc, :noconnection}, _m, _f, _args), do: {:error, :node_not_connected}
   defp classify(:exit, {:erpc, :noconnection}, _m, _f, _args), do: {:error, :node_not_connected}
-
   defp classify(_kind, reason, _m, _f, _args), do: {:error, {:remote_error, reason}}
 
   defp undef_error(stack, m, f, args) do
@@ -104,11 +97,58 @@ defmodule FlezhaUi.Service.NodeManager do
     {:error, {:api_missing, mod, fun, arity}}
   end
 
+  # ---- Errors ----
+
+  @doc """
+  Any error a call can answer, as `%{code:, class:, message:, hint:}`.
+
+  A controller error is read by its fields: this node does not have the
+  `Flezha.Error` module, so it is matched as the map it is on the wire. The
+  transport conditions get the same shape, so a screen renders both one way.
+  """
+  def error({:error, reason}), do: error(reason)
+
+  def error(%{__struct__: Flezha.Error, code: code, class: class, message: message} = e),
+    do: %{code: code, class: class, message: message, hint: Map.get(e, :hint)}
+
+  def error(%{code: _, class: _, message: _} = error), do: Map.put_new(error, :hint, nil)
+
+  def error(:node_not_connected) do
+    ui_error(
+      "node_not_connected",
+      :unavailable,
+      "Not connected to a flezha controller. Screens will recover automatically once it is reachable."
+    )
+  end
+
+  def error(:timeout),
+    do: ui_error("timeout", :unavailable, "The flezha controller did not answer in time.")
+
+  def error({:api_missing, module, function, arity}) do
+    ui_error(
+      "api_missing",
+      :internal,
+      "This UI and the flezha controller have diverged: the controller does not export " <>
+        "#{inspect(module)}.#{function}/#{arity}."
+    )
+  end
+
+  def error({:remote_error, reason}),
+    do: ui_error("remote_error", :internal, "The flezha controller raised: #{inspect(reason)}")
+
+  def error(:no_token), do: ui_error("no_token", :denied, "No flezha token was presented.")
+  def error(reason), do: ui_error("unexpected", :internal, "Error: #{inspect(reason)}")
+
+  defp ui_error(code, class, message),
+    do: %{code: "ui." <> code, class: class, message: message, hint: nil}
+
+  @doc "Whether an answer is the controller refusing the caller."
+  def denied?(answer), do: match?(%{class: :denied}, error(answer))
+
   # ---- Identity ----
   #
-  # The rule is the controller's own (`Flezha.Service.CliManager.cli_context/1`):
-  # identity comes only from a verified token. A principal typed into this UI is
-  # never trusted, because a context this node assembles is a context the
+  # Identity comes only from a verified token. A principal typed into this UI
+  # is never trusted, because a context this node assembles is a context the
   # controller's audit log would name — forging it would forge the trail.
 
   @doc """
@@ -126,12 +166,9 @@ defmodule FlezhaUi.Service.NodeManager do
   Verifies a flezha token against the controller's token store.
 
   Answers `{:ok, %{principal:, namespace:, role:, expires_at:}}` or the store's
-  own `{:error, :malformed | :unknown | :token_revoked | :token_expired}`.
-  A transport failure passes through as the seam's normalised error.
-
-  Results are cached per token for a short period, never past the token's own
-  `expires_at`. A transport failure is not cached — it is not an answer about
-  the token.
+  `{:error, %Flezha.Error{}}` with an `authz.token_*` code. Results are cached
+  per token for a short period, never past the token's own `expires_at`; a
+  transport failure or `authz.registry_unavailable` is not cached.
   """
   def verify_token(nil), do: {:error, :no_token}
   def verify_token(""), do: {:error, :no_token}
@@ -148,13 +185,13 @@ defmodule FlezhaUi.Service.NodeManager do
     end
   end
 
-  def verify_token(_token), do: {:error, :malformed}
+  def verify_token(_token), do: {:error, :no_token}
 
   @doc """
   Drops a token's cached verification, so the next call re-asks the controller.
 
-  Used when a call is refused: a revocation then costs at most one refused call
-  rather than a whole TTL of them.
+  Called when a call is refused: a revocation then costs at most one refused
+  call rather than a whole TTL of them.
   """
   def evict_token(token) when is_binary(token) do
     cache_delete({:token, token_key(token)})
@@ -165,7 +202,7 @@ defmodule FlezhaUi.Service.NodeManager do
   def evict_token(_token), do: :ok
 
   @doc """
-  The caller context every authorized controller service is called with.
+  The caller context every published controller function is called with.
 
   `source: :ui` plus the principal, namespace and role a verified token
   answered. An unresolvable token leaves the context unbound, which is the
@@ -173,8 +210,6 @@ defmodule FlezhaUi.Service.NodeManager do
 
   This is the only construction site for a caller context in the UI.
   """
-  def caller_context(token \\ nil)
-
   def caller_context(token) when is_binary(token) and token != "" do
     case verify_token(token) do
       {:ok, %{principal: principal} = identity} when is_binary(principal) ->
@@ -192,24 +227,59 @@ defmodule FlezhaUi.Service.NodeManager do
 
   def caller_context(_token), do: %{source: :ui}
 
-  # An authorized controller service, called with the caller context appended.
-  # Refusals evict the token's cached verification on the way out, which is what
-  # makes a revoked token stop working within one call rather than one TTL.
-  defp authorized_call(token, module, function, args) do
-    refusal_aware(token, erpc_call(module, function, args ++ [caller_context(token)]))
+  # A published function, called with the caller context appended. A refusal
+  # evicts the token's cached verification on the way out, which is what makes
+  # a revoked token stop working within one call rather than one TTL.
+  defp authorized_call(token, module, function, args, timeout \\ @default_timeout) do
+    module
+    |> erpc_call(function, args ++ [caller_context(token)], timeout)
+    |> evicting(token)
   end
 
-  # As `authorized_call/4`, normalised to `{:ok, list}` the way `list_call/3` is.
+  # As `authorized_call/4`, for a function that answers a collection: anything
+  # but `{:ok, list}` or an error is reported rather than handed on.
   defp authorized_list_call(token, module, function, args) do
-    refusal_aware(token, list_call(module, function, args ++ [caller_context(token)]))
+    case authorized_call(token, module, function, args) do
+      {:ok, list} when is_list(list) -> {:ok, list}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:remote_error, other}}
+    end
   end
 
-  defp refusal_aware(token, {:error, {:forbidden, _reason}} = refusal) do
-    evict_token(token)
-    refusal
+  # A published stream operation, issued without waiting: the controller runs
+  # it in an `:erpc` worker and hands each event to `emit_pid` as
+  # `{:flezha_emit, event}` until that process exits. Answers the request,
+  # which `stream_result/2` recognises the operation's own answer by.
+  defp authorized_stream(token, module, function, args, emit_pid) when is_pid(emit_pid) do
+    case connected_node() do
+      nil ->
+        {:error, :node_not_connected}
+
+      node ->
+        context = token |> caller_context() |> Map.put(:emit, emit_pid)
+        request_id = :erpc.send_request(node, module, function, args ++ [context])
+        {:ok, %{node: node, id: request_id, token: token}}
+    end
   end
 
-  defp refusal_aware(_token, result), do: result
+  @doc """
+  Whether `message` is the answer of a stream `request`: `:no_response`, or
+  `{:ended, result}` with the operation's answer or a transport error. A
+  refusal evicts the token, as a refused call does.
+  """
+  def stream_result(message, %{id: request_id, token: token}) do
+    case :erpc.check_response(message, request_id) do
+      {:response, result} -> {:ended, evicting(result, token)}
+      :no_response -> :no_response
+    end
+  catch
+    kind, reason -> {:ended, classify(kind, reason, nil, nil, [])}
+  end
+
+  defp evicting(result, token) do
+    if match?({:error, _}, result) and denied?(result), do: evict_token(token)
+    result
+  end
 
   @doc """
   The controller's enforcement posture: `:open`, `:bootstrap_pending` or
@@ -239,9 +309,9 @@ defmodule FlezhaUi.Service.NodeManager do
     * `:principal`, `:namespace`, `:role` — the bound identity, or `nil`.
     * `:token?` — whether a token was presented at all, which separates "no
       credential" from "a credential the controller rejected".
-    * `:reason` — why an presented token did not bind.
+    * `:reason` — why a presented token did not bind.
   """
-  def authz_status(token \\ nil) do
+  def authz_status(token) do
     case cache_get({:authz, token_key(token)}) do
       {:ok, cached} ->
         cached
@@ -288,49 +358,6 @@ defmodule FlezhaUi.Service.NodeManager do
     end
   end
 
-  @doc """
-  What the bound token can reach: `:all` for a `_system` token, `{:namespace,
-  ns}` for a namespace-scoped one, `:unbound` when nothing verified.
-
-  The controller refuses a cross-namespace read with `namespace_mismatch`, so a
-  switcher that offered every namespace would be offering errors.
-  """
-  def token_scope(token \\ nil) do
-    case verify_token(token) do
-      {:ok, %{namespace: namespace}} when namespace in ["_system", :_system] -> :all
-      {:ok, %{namespace: namespace}} when is_binary(namespace) -> {:namespace, namespace}
-      {:ok, _identity} -> :all
-      {:error, _reason} -> :unbound
-    end
-  end
-
-  @doc """
-  `namespaces` narrowed to what `scope` can reach.
-
-  An unbound caller is narrowed to nothing only when the controller is
-  enforcing: against an open controller the UI can still read, and hiding every
-  namespace there would be a refusal the controller never made.
-  """
-  def scope_namespaces(namespaces, :all), do: namespaces
-
-  def scope_namespaces(namespaces, {:namespace, namespace}),
-    do: Enum.filter(namespaces, &(to_string(&1) == to_string(namespace)))
-
-  def scope_namespaces(namespaces, :unbound), do: namespaces
-
-  @doc """
-  The running namespaces `token` can reach, as `{names, error}`.
-
-  The read every fleet-wide screen starts from: listing and scope narrowing are
-  one rule, so two screens cannot disagree about what a namespace-scoped token
-  is allowed to see.
-  """
-  def scoped_namespaces(token) do
-    list_namespaces()
-    |> ok_or_error([])
-    |> then(fn {names, error} -> {scope_namespaces(names, token_scope(token)), error} end)
-  end
-
   # ---- Identity cache ----
 
   # Keyed by a digest rather than the token, so a crash dump or a table listing
@@ -344,12 +371,11 @@ defmodule FlezhaUi.Service.NodeManager do
     cache_put({:token, token_key(token)}, result, verification_ttl(identity))
   end
 
-  defp maybe_cache_verification(token, {:error, reason} = result)
-       when reason in [:malformed, :unknown, :token_revoked, :token_expired] do
+  defp maybe_cache_verification(token, {:error, %{code: code}} = result)
+       when code in @token_codes do
     cache_put({:token, token_key(token)}, result, @token_ttl_ms)
   end
 
-  # A transport failure is not an answer about the token, so it is not cached.
   defp maybe_cache_verification(_token, _result), do: :ok
 
   defp verification_ttl(%{expires_at: expires_at}) when is_integer(expires_at) do
@@ -395,21 +421,8 @@ defmodule FlezhaUi.Service.NodeManager do
     ArgumentError -> :ok
   end
 
-  # A call that answers a collection, normalised to `{:ok, list}`. The
-  # controller is inconsistent about this — some functions answer a bare list,
-  # others `{:ok, list}` — so each named wrapper below is spared its own
-  # unwrapper.
-  defp list_call(module, function, args) do
-    case erpc_call(module, function, args) do
-      {:ok, list} when is_list(list) -> {:ok, list}
-      list when is_list(list) -> {:ok, list}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:remote_error, other}}
-    end
-  end
-
   @doc """
-  The value out of a `list_call/3` result, or `default` when it failed.
+  The value out of a call result, or `default` when it failed.
 
   For a screen that shows a section as empty when the controller cannot answer
   it, rather than failing the whole page.
@@ -427,213 +440,163 @@ defmodule FlezhaUi.Service.NodeManager do
   def ok_or_error({:ok, value}, _default), do: {value, nil}
   def ok_or_error({:error, reason}, default), do: {default, reason}
 
-  # ---- Namespace / Operative API ----
-
-  def list_namespaces() do
-    list_call(Flezha, :list_namespaces, [])
-  end
-
-  def list_operatives(namespace) do
-    list_call(Flezha, :list_operatives, [namespace])
-  end
+  # ---- Namespaces and relays ----
 
   @doc """
-  Every operative in a namespace, from one registry dump.
-
-  Each row carries `id`, the `health` the Convergence Loop classified, the
-  bound `runner`, the declared `factory`, the `partition` identity (or `nil`),
-  and the live `node` (or `nil` for an unplaced row). One call answers a whole
-  namespace, which is what makes a listing's cost flat in the size of the
-  fleet — `list_operatives/1` answers ids alone, and health would then be an
-  overwatch round-trip per row.
-
-  A row the loop has not observed yet reports `:unknown`.
+  The namespaces the caller may see, from the controller's durable catalog,
+  as `[%{namespace:, running:}]`: a declared namespace with no hub is listed
+  too. The controller narrows the listing to the caller.
   """
-  def operative_rows(namespace) do
-    list_call(Flezha.Service.HubManager, :operative_rows, [namespace])
+  def list_namespaces(token) do
+    authorized_list_call(token, Flezha.Service.Relay, :list_namespaces, [])
   end
 
   @doc """
-  Declared plugins per operative for a whole namespace, as
-  `[{operative_id, [plugin]}]`, from the same dump `operative_rows/1` walks.
+  The names `list_namespaces/1` answers, sorted, as `{names, error}`.
 
-  Operatives with no declared plugins are absent from the list, so a caller
-  wanting a per-row count should default a missing id to zero.
+  The read every fleet-wide screen and every namespace picker starts from, so
+  two of them cannot disagree about what the bound token may see.
   """
-  def operative_plugins(namespace) do
-    list_call(Flezha.Service.HubManager, :operative_plugins, [namespace])
+  def scoped_namespaces(token) do
+    {rows, error} = token |> list_namespaces() |> ok_or_error([])
+    {rows |> Enum.map(&to_string(&1.namespace)) |> Enum.sort(), error}
   end
 
-  # `rows` with each partition group's members collapsed into one group row.
-  #
-  # The controller's own function: it is documented there as the pure seam
-  # between `operative_rows/1` and the renderers, and a group is exactly as
-  # healthy as its sickest member. Re-deriving the rollup here would be a second
-  # implementation of a rule the controller owns.
-  #
-  # A group row carries `partitions` ("3/4") and `members`; an ungrouped
-  # operative passes through untouched.
-  defp group_partition_rows(rows) when is_list(rows) do
-    list_call(Flezha.Service.CliManager, :group_partition_rows, [rows])
+  @doc "The relay ids running in `namespace`."
+  def list_relays(namespace, token) do
+    authorized_list_call(token, Flezha.Service.Relay, :list_relays, [namespace])
   end
 
   @doc """
-  A namespace's operative rows with their health resolved.
-
-  The read every listing starts from, in one place: `operative_rows/1` answers
-  the registry, and a row the Convergence Loop has not observed is `:unknown`
-  rather than absent. A failed read answers `[]` — a screen states the failure
-  from its own `load_error`, it does not need this to raise.
+  A namespace's relays as listings show them, health resolved: one row each,
+  with each partition group collapsed into one row carrying `partitions`
+  ("3/4") and `members`, as healthy as its sickest member by the controller's
+  rule. One call answers the whole namespace.
   """
-  def namespace_rows(namespace) do
-    namespace |> operative_rows() |> ok_or([]) |> decorate_health()
+  def relay_list(namespace, token) do
+    with {:ok, rows} <- authorized_list_call(token, Flezha.Service.Relay, :list, [namespace]) do
+      {:ok, decorate_health(rows)}
+    end
   end
 
   @doc """
-  Rows with their health resolved, for a caller that read `operative_rows/1`
-  itself — a screen that needs the read's failure reason rather than an empty
-  list still gets the one decoding rule.
+  Every relay of a namespace, partition members included, health resolved:
+  `id`, `health`, `runner`, `factory`, `partition` (or `nil`) and the live
+  `node` (or `nil` for an unplaced row). The rows summaries and the cluster
+  rollup count.
+  """
+  def relay_rows(namespace, token) do
+    with {:ok, rows} <-
+           authorized_list_call(token, Flezha.Service.Relay, :relay_rows, [namespace]) do
+      {:ok, decorate_health(rows)}
+    end
+  end
+
+  @doc """
+  Rows with their health resolved, for a caller that read the rows itself.
   """
   def decorate_health(rows) when is_list(rows) do
     Enum.map(rows, &Map.put(&1, :health, row_health(&1)))
   end
 
   @doc """
-  A namespace's partition groups, each carrying its coverage verdict.
+  The plugins bound to each relay of a namespace, as
+  `[{relay_id, [{plugin_id, plugin}]}]`. A relay with none is absent.
+  """
+  def relay_plugins(namespace, token) do
+    authorized_list_call(token, Flezha.Service.Relay, :relay_plugins, [namespace])
+  end
 
-  The single derivation: the controller collapses the members, the controller
-  checks the coverage, and this attaches one to the other. `:coverage` is
+  @doc """
+  A namespace's partition groups from `rows` (as `relay_rows/2` answers them),
+  each `%{id:, declared:, members:, partitions:, coverage:}` where coverage is
   `:complete`, a `%{gaps:, overlaps:}` fault, or `:unavailable` when the
   controller could not be asked — which must never read as covered.
-
-  Takes rows the caller already has, so a screen showing both a group panel and
-  a fleet summary pays for one derivation rather than two.
   """
-  def partition_groups(rows) when is_list(rows) do
-    rows
-    |> group_partition_rows()
-    |> ok_or([])
-    |> Enum.filter(&Map.has_key?(&1, :members))
-    |> Enum.map(&Map.put(&1, :coverage, coverage_verdict(&1)))
+  def partition_groups(rows, token) when is_list(rows) do
+    case authorized_list_call(token, Flezha.Service.Relay, :partition_groups, [rows]) do
+      {:ok, groups} -> Enum.map(groups, &group/1)
+      {:error, _reason} -> []
+    end
   end
+
+  defp group(report) do
+    %{
+      id: report.group,
+      declared: report.declared,
+      members: report.members,
+      partitions: "#{length(report.members)}/#{report.declared}",
+      coverage: coverage(report.coverage)
+    }
+  end
+
+  defp coverage(:ok), do: :complete
+
+  defp coverage({:error, %{gaps: gaps, overlaps: overlaps}}),
+    do: %{gaps: gaps, overlaps: overlaps}
+
+  defp coverage(_unknown), do: :unavailable
 
   @doc "The ids of the groups whose coverage is faulted."
   def faulted_group_ids(groups) when is_list(groups) do
     groups |> Enum.filter(&is_map(&1.coverage)) |> Enum.map(& &1.id)
   end
 
-  # `{:error, %{gaps: _}}` is the check's own verdict; any other error is the
-  # seam saying it could not ask.
-  defp coverage_verdict(group) do
-    case partition_coverage(group.members) do
-      :ok -> :complete
-      {:error, %{gaps: gaps, overlaps: overlaps}} -> %{gaps: gaps, overlaps: overlaps}
-      _unavailable -> :unavailable
-    end
-  end
-
-  # Whether a group's members own every key group exactly once: `:ok`, or
-  # `{:error, %{gaps: [{from, to}], overlaps: [{key_group, owners}]}}`. The
-  # controller's own check, because a key range nobody owns is silent data loss
-  # and the UI has no business deciding what counts as covered.
-  #
-  # `group_partition_rows/1` does not carry coverage — the controller computes
-  # it in a separate pass — so it is asked for per group. Groups are few; this
-  # does not grow with the number of operatives.
-  defp partition_coverage(members) when is_list(members) do
-    erpc_call(Flezha.Partition, :coverage, [Enum.map(members, &{&1.id, &1.partition.range})])
-  end
-
   @doc """
-  Every operative's kind in a namespace, as `%{operative_id => :stream | :workflow}`.
-
-  Kind is fixed at start and recorded durably in the registry entry's cspec, so
-  a whole namespace's kinds cost one read — `operative_rows/1` walks the same
-  dump but projects only the fields the CLI's listing needs.
-
-  Absent from the map means the entry carried no builder; the controller reads
-  that as `:stream` (`CliManager.operative_kind/1`), and so does this.
+  Every relay's run in a namespace, as `%{relay_id => :flow | :steps}`, from
+  one registry read: a relay's run is fixed by its factory and recorded on the
+  builder it was started from. Entries that are not relays — an enabled
+  plugin's `{:plugin, name}` child — are skipped, and a builder carrying no
+  run reads as `:flow`.
   """
-  def operative_kinds(namespace) do
-    case erpc_call(Flezha.Service.HubManager, :get_registry, [namespace]) do
-      {:ok, dump} when is_list(dump) -> {:ok, Map.new(dump, &kind_entry/1)}
-      {:ok, dump} when is_map(dump) -> {:ok, Map.new(dump, &kind_entry/1)}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:remote_error, other}}
-    end
-  end
+  def relay_runs(namespace, token) do
+    case authorized_call(token, Flezha.Service.Relay, :registry, [namespace]) do
+      {:ok, dump} when is_map(dump) or is_list(dump) ->
+        {:ok, for({id, entry} <- dump, is_binary(id), into: %{}, do: {id, entry_run(entry)})}
 
-  defp kind_entry({operative_id, entry}) do
-    {to_string(operative_id), cspec_kind(entry)}
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, {:remote_error, other}}
+    end
   end
 
   # The registry entry's cspec start-args, in the shapes the controller's own
-  # `cspec_operative/1` recognises. Decoded here for the same reason
-  # `decode_overwatch/2` exists: the controller answers a shape this node
-  # cannot pattern-match, and exactly one place should know it.
-  defp cspec_kind({cspec, _node_pids, _metadata}), do: cspec_kind(cspec)
-  defp cspec_kind({cspec, _node_pids}), do: cspec_kind(cspec)
+  # `cspec_relay/1` recognises.
+  defp entry_run({cspec, _node_pids, _metadata}), do: entry_run(cspec)
+  defp entry_run({cspec, _node_pids}), do: entry_run(cspec)
 
-  defp cspec_kind(%{start: {_module, _function, [arg]}}) do
+  defp entry_run(%{start: {_module, _function, [arg]}}) do
     case arg do
-      {_namespace, %{} = operative} -> Map.get(operative, :kind) || :stream
-      {_namespace, _runner, %{} = operative} -> Map.get(operative, :kind) || :stream
-      _other -> :stream
+      {_namespace, %{} = relay} -> builder_run(relay)
+      {_namespace, _runner, %{} = relay} -> builder_run(relay)
+      _other -> :flow
     end
   end
 
-  defp cspec_kind(_entry), do: :stream
+  defp entry_run(_entry), do: :flow
 
-  # Health as the Convergence Loop classifies it, healthiest first.
-  #
-  # `:suspended` is a health value, not a separate fact: the loop probes each
-  # instance's overwatch itself and ranks suspension in the same ladder
-  # ("evicted at a committed iteration boundary, not broken"). That is what
-  # makes suspension readable namespace-flat — it rides `operative_rows/1`
-  # rather than costing a call per instance.
-  #
-  # `:unknown` is a row the loop has not observed yet — last, and never rounded
-  # up to healthy.
-  @health_kinds [:healthy, :suspended, :degraded, :unbound, :failed, :unknown]
+  defp builder_run(%{run: :steps}), do: :steps
+  defp builder_run(_builder), do: :flow
 
-  @doc "The health values an operative row can carry, healthiest first."
-  def health_kinds, do: @health_kinds
+  # Health as the Convergence Loop classifies it, in the controller's own rank
+  # order. `:suspended` is a verdict like any other, so filtering to it costs
+  # nothing beyond the listing's own read; `:unknown` is a row the loop has not
+  # observed yet and is never rounded up to healthy.
+  @health_verdicts [
+    :healthy,
+    :unknown,
+    :suspended,
+    :degraded,
+    :recovering,
+    :unbound,
+    :failed,
+    :parked
+  ]
 
-  # The operative kinds this UI knows how to offer. Kept here, beside
-  # `@health_kinds`, for the same reason: a screen that hardcoded its own copy
-  # would drift from the one the start form starts operatives with.
-  @kind_candidates [:stream, :workflow]
-
-  @doc """
-  The kinds the controller recognises, as `[%{kind:, capabilities: [atom]}]`.
-
-  A candidate the controller does not know is dropped, so this UI cannot offer
-  a kind whose start would be refused. A controller that cannot answer at all
-  yields every candidate with no capabilities — the form is still usable, it
-  just cannot say what choosing a kind costs.
-
-  `Flezha.Operative.Kind.capabilities/1` answers a sparse map of the flags a
-  kind declares true; a sorted list of those flags is what a form renders.
-  """
-  def known_kinds do
-    Enum.flat_map(@kind_candidates, fn kind ->
-      case erpc_call(Flezha.Operative.Kind, :known?, [kind]) do
-        true -> [%{kind: kind, capabilities: kind_capabilities(kind)}]
-        false -> []
-        _unanswerable -> [%{kind: kind, capabilities: []}]
-      end
-    end)
-  end
-
-  defp kind_capabilities(kind) do
-    case erpc_call(Flezha.Operative.Kind, :capabilities, [kind]) do
-      %{} = declared ->
-        declared |> Enum.filter(&elem(&1, 1)) |> Enum.map(&elem(&1, 0)) |> Enum.sort()
-
-      _unanswerable ->
-        []
-    end
-  end
+  @doc "The health verdicts a relay row can carry, in the controller's rank order."
+  def health_verdicts, do: @health_verdicts
 
   @doc """
   A row's health, reading an absent or `nil` value as `:unknown`.
@@ -645,7 +608,7 @@ defmodule FlezhaUi.Service.NodeManager do
   def row_health(_row), do: :unknown
 
   @doc """
-  `rows` counted by health, as `{health, count}` in `health_kinds/0` order,
+  `rows` counted by health, as `{health, count}` in `health_verdicts/0` order,
   empty buckets omitted.
 
   A health this UI does not know is kept under its own name rather than folded
@@ -655,18 +618,20 @@ defmodule FlezhaUi.Service.NodeManager do
     counted = Enum.frequencies_by(rows, &row_health/1)
 
     known =
-      for kind <- @health_kinds, count = Map.get(counted, kind, 0), count > 0, do: {kind, count}
+      for verdict <- @health_verdicts,
+          count = Map.get(counted, verdict, 0),
+          count > 0,
+          do: {verdict, count}
 
-    known ++ Enum.sort(Map.drop(counted, @health_kinds))
+    known ++ Enum.sort(Map.drop(counted, @health_verdicts))
   end
 
   @doc """
   `rows` narrowed to one namespace, or left whole when there is no scope.
 
-  For the listings the controller answers globally — plugins, schedules —
-  whose rows each carry the namespace the call does not take. A row carrying
-  none is bound to nothing a scope can claim, so a scope excludes it rather
-  than filing it under an arbitrary namespace.
+  For a listing the controller answers globally — schedules — whose rows each
+  carry the namespace the call does not take. A row carrying none is bound to
+  nothing a scope can claim, so a scope excludes it.
   """
   def in_namespace(rows, nil) when is_list(rows), do: rows
 
@@ -680,7 +645,7 @@ defmodule FlezhaUi.Service.NodeManager do
   def placed_rows(rows) when is_list(rows), do: Enum.reject(rows, &is_nil(&1[:node]))
 
   @doc """
-  Plugin counts per operative id, from `operative_plugins/1`'s pairs.
+  Plugin counts per relay id, from `relay_plugins/2`'s pairs.
 
   Keyed by string id, because a row's id and a plugin pair's id are the same
   value in two shapes.
@@ -704,83 +669,113 @@ defmodule FlezhaUi.Service.NodeManager do
     |> Map.new(fn {runner, factories} -> {runner, Enum.sort(factories)} end)
   end
 
-  def list_runners(namespace) do
-    list_call(Flezha, :list_runners, [namespace])
+  # ---- Runners and factories ----
+
+  @doc """
+  Every runner serving `namespace` anywhere in the cluster, as
+  `[%{id:, pid:}]`. Never the node-local read: a fleet listing that missed the
+  runners on a peer controller would present itself as the whole fleet.
+  """
+  def runners(namespace, token) do
+    authorized_list_call(token, Flezha.Service.Fleet, :runners, [namespace])
   end
 
-  def list_factories(namespace) do
-    list_call(Flezha, :list_factories, [namespace])
+  @doc "The factories registered in `namespace`, each carrying its `run`."
+  def factories(namespace, token) do
+    authorized_list_call(token, Flezha.Service.Fleet, :factories, [namespace])
+  end
+
+  @doc "The runners serving one factory in `namespace`."
+  def runners_for_factory(namespace, factory_id, token) do
+    authorized_list_call(token, Flezha.Service.Fleet, :runners_for_factory, [
+      namespace,
+      factory_id
+    ])
   end
 
   @doc """
   A namespace's registered factories with the runners serving each, as
-  `[%{id:, description:, runners: [runner_id], servable?: boolean}]` sorted by
-  id.
+  `[%{id:, description:, run:, runners: [runner_id], servable?: boolean}]`
+  sorted by id.
 
-  Every screen that names a factory reads it from here: the picker needs to
-  mark a factory no runner serves, and the cluster screen needs the same pairing
-  the other way round. Costs the listing plus one lookup per factory — the price
-  the fleet view already paid, now paid once for every caller.
-
-  Read when a form that needs it opens, never on a refresh tick: a listing that
-  re-read it per namespace per tick would turn a flat screen into a call storm
-  for a form that is usually closed. A runner that disconnects while the form is
-  open therefore leaves `servable?` stale — the controller's refusal is still
-  the authority, so that costs a failed attempt, not a wrong outcome.
+  Every screen that names a factory reads it from here. Costs the listing plus
+  one lookup per factory, so it is read when a form that needs it opens, never
+  on a refresh tick. A runner that disconnects while the form is open leaves
+  `servable?` stale — the controller's refusal is still the authority.
   """
-  def factory_catalog(namespace) do
-    with {:ok, factories} <- list_factories(namespace) do
-      {:ok, factories |> Enum.map(&factory_entry(namespace, &1)) |> Enum.sort_by(& &1.id)}
+  def factory_catalog(namespace, token) do
+    with {:ok, factories} <- factories(namespace, token) do
+      {:ok, factories |> Enum.map(&factory_entry(namespace, &1, token)) |> Enum.sort_by(& &1.id)}
     end
   end
 
-  defp factory_entry(namespace, factory) do
+  defp factory_entry(namespace, factory, token) do
     id = identifier_id(factory)
 
     runners =
       namespace
-      |> runners_for_factory(id)
+      |> runners_for_factory(id, token)
       |> ok_or([])
       |> Enum.map(&identifier_id/1)
       |> Enum.sort()
 
     %{
       id: id,
-      description: factory_description(factory),
+      description: field(factory, :description),
+      run: field(factory, :run),
       runners: runners,
       servable?: runners != []
     }
   end
 
-  defp factory_description(%{description: description}), do: description
-  defp factory_description(%{"description" => description}), do: description
-  defp factory_description(_factory), do: nil
+  defp field(%{} = map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  defp field(_other, _key), do: nil
 
   @doc """
-  Starts an operative. The spec is a plain atom-keyed map: the controller
-  reaches its fields with dot notation, so a `%Flezha.Operative.Builder{}`
-  struct is not required on the wire.
+  The principal the controller mints for a runner connecting to `namespace`,
+  or `nil` when the controller does not say — the column is then absent rather
+  than guessed.
   """
-  def start_operative(namespace, id, factory_id, init_values \\ %{}, opts \\ [], kind \\ :stream) do
-    operative = %{
-      id: id,
-      factory_id: factory_id,
-      kind: kind,
-      init_values: init_values,
-      opts: opts
-    }
-
-    erpc_call(Flezha, :start_operative, [namespace, operative])
+  def runner_principal(namespace, token) do
+    case authorized_call(token, Flezha.Service.Fleet, :runner_caller_context, [namespace]) do
+      {:ok, %{principal: principal}} when is_binary(principal) -> principal
+      _unavailable -> nil
+    end
   end
 
-  @doc """
-  A form's typed init values as the spec map the controller takes, or the
-  message to put on the form.
+  @doc "Plugin packages installed on the controller host, each with id, version and status."
+  def installed_plugins(token) do
+    authorized_list_call(token, Flezha.Service.Fleet, :installed_plugins, [])
+  end
 
-  Blank means no init values rather than invalid ones — every form offering
-  them treats an untouched field as `%{}`. Both forms that carry init values,
-  the operative launcher and the schedule form, decode them here so a document
-  one accepts is not one the other refuses.
+  # ---- Relay lifecycle ----
+
+  @doc """
+  Starts a relay. `fields` carries `factory_id` and optionally `id`,
+  `init_values`, `opts`, `plugins` and `partitions`; how the relay runs is its
+  factory's and is never sent. Answers `{:ok, %{id:, outcome: :started |
+  :already_running}}` as the controller does.
+  """
+  def start_relay(namespace, fields, token) do
+    relay =
+      [
+        factory_id: Map.fetch!(fields, :factory_id),
+        init_values: Map.get(fields, :init_values, %{}),
+        opts: Map.get(fields, :opts, [])
+      ]
+      |> put_given(:id, Map.get(fields, :id))
+      |> put_given(:plugins, Map.get(fields, :plugins))
+      |> put_given(:partitions, Map.get(fields, :partitions))
+
+    authorized_call(token, Flezha.Service.Relay, :start, [namespace, relay])
+  end
+
+  defp put_given(fields, _key, value) when value in [nil, "", []], do: fields
+  defp put_given(fields, key, value), do: Keyword.put(fields, key, value)
+
+  @doc """
+  A form's typed init values as the map the controller takes, or the message
+  to put on the form. Blank means no init values rather than invalid ones.
   """
   def parse_init_values(raw) do
     case String.trim(raw || "") do
@@ -793,45 +788,60 @@ defmodule FlezhaUi.Service.NodeManager do
     end
   end
 
-  def stop_operative(namespace, operative_id) do
-    erpc_call(Flezha, :stop_operative, [namespace, operative_id])
-  end
-
   @doc """
-  Entity state narrowed by `selector` — `%{procedure: name}` or
-  `%{procedure: name, entity_key: key}`; `%{}` covers every Procedure.
-
-  Answers `{:ok, json, change_seq}`, where `change_seq` is the sequence the
-  state was serialised at and may be ahead of what is durable.
+  Stops a relay, or every member of the partition group it names. Answers
+  `{:ok, %{id:, stopped: :stopped | :cooperative | :group}}`.
   """
-  def entity_state(namespace, operative_id, selector) when is_map(selector) do
-    erpc_call(Flezha.Service.OperativeManager, :get_entity_state, [
-      namespace,
-      operative_id,
-      selector
-    ])
-  end
-
-  def get_overwatch_state(namespace, operative_id) do
-    erpc_call(Flezha.Service.OperativeManager, :get_overwatch_state, [namespace, operative_id])
+  def stop_relay(namespace, relay_id, token) do
+    authorized_call(token, Flezha.Service.Relay, :stop, [namespace, relay_id])
   end
 
   @doc """
-  The facts a screen wants out of an operative's overwatch state.
+  A relay's live cell state, narrowed by `cell` — `nil` for every cell,
+  `"tasklet"` or `"tasklet/cell_key"`. Answers `{:ok, json, change_seq}`.
+  """
+  def cell_state(namespace, relay_id, cell, token) do
+    authorized_call(token, Flezha.Service.Relay, :cell_state, [namespace, relay_id, cell])
+  end
+
+  @doc "One relay's overwatch state, as the controller holds it."
+  def overwatch_state(namespace, relay_id, token) do
+    authorized_call(token, Flezha.Service.Relay, :overwatch_state, [namespace, relay_id])
+  end
+
+  @doc """
+  Every relay of a namespace as `Relay.info/2` reports it, live and finished.
+  Costs an overwatch read per live relay on the controller, so it is read on
+  open, never on a refresh tick.
+  """
+  def relay_info(namespace, token) do
+    authorized_call(token, Flezha.Service.Relay, :info, [namespace])
+  end
+
+  @doc """
+  The steps relays that have finished but are still retained, as the
+  controller selects them, each `%{id:, run:, status:, error:, finished_at:}`.
+  """
+  def finished_relays(namespace, token) do
+    with {:ok, %{relays: relays}} <- relay_info(namespace, token) do
+      {:ok, Enum.filter(relays, &(Map.get(&1, :phase) == "finished"))}
+    end
+  end
+
+  @doc """
+  The facts a screen wants out of a relay's overwatch state.
 
   The controller answers a struct this node cannot pattern-match, and each
-  field needs its own rule to read: `kind` falls back to the builder the
-  operative was started from, the dead-letter class defaults to the id, uptime
-  is a wall-clock difference. Decoding it here is the bargain `extension_entries/1`
-  already makes — one place knows the shape, instead of each screen holding
-  half of it.
+  field needs its own rule to read: the run falls back to the builder, the
+  relay class defaults to the id, uptime is a wall-clock difference. Decoding
+  it here keeps one place knowing the shape.
 
   `overwatch_facts/0` is the same shape with nothing in it, for a screen whose
   read failed.
   """
-  def overwatch_facts(namespace, operative_id) do
-    case get_overwatch_state(namespace, operative_id) do
-      {:ok, state} when is_map(state) -> {:ok, decode_overwatch(state, operative_id)}
+  def overwatch_facts(namespace, relay_id, token) do
+    case overwatch_state(namespace, relay_id, token) do
+      {:ok, state} when is_map(state) -> {:ok, decode_overwatch(state, relay_id)}
       {:error, reason} -> {:error, reason}
       other -> {:error, {:remote_error, other}}
     end
@@ -839,44 +849,42 @@ defmodule FlezhaUi.Service.NodeManager do
 
   def overwatch_facts, do: decode_overwatch(%{}, nil)
 
-  defp decode_overwatch(state, operative_id) do
+  defp decode_overwatch(state, relay_id) do
     started_at = Map.get(state, :started_at)
 
     %{
       factory_id: Map.get(state, :factory_id),
       runner_id: overwatch_runner(Map.get(state, :runner_id)),
-      kind: Map.get(state, :kind) || builder_kind(Map.get(state, :builder)),
+      run: builder_run(Map.get(state, :builder) || %{}),
       suspended: Map.get(state, :suspended, false),
       effectively_once: Map.get(state, :effectively_once, false),
-      # The workflow profile. Defaulted rather than required, so an older
-      # controller whose overwatch omits a field decodes instead of failing.
-      durable_workflow: Map.get(state, :durable_workflow, false),
+      # Defaulted rather than required, so an older controller whose overwatch
+      # omits a field decodes instead of failing.
+      durable_steps: Map.get(state, :durable_steps, false),
       correction_window_ms: Map.get(state, :correction_window_ms),
       arrived_via_hotswap?: Map.get(state, :arrived_via_hotswap?, false),
       init_error: Map.get(state, :init_error),
       default_input_type: Map.get(state, :default_input_type),
+      settings: Map.get(state, :settings),
       started_at: started_at,
       uptime_ms: uptime(started_at),
-      operative_class: operative_class(state, operative_id),
-      bindings: extension_entries(state)
+      relay_class: relay_class(state, relay_id),
+      bindings: hook_entries(state)
     }
   end
-
-  defp builder_kind(%{kind: kind}), do: kind
-  defp builder_kind(_builder), do: nil
 
   defp overwatch_runner(nil), do: nil
   defp overwatch_runner(id), do: identifier_id(id)
 
-  # An operative's dead-letter class is its id unless the builder overrode it —
-  # the controller's own rule, so a DLQ join agrees with what parked there.
-  defp operative_class(_state, nil), do: nil
+  # A relay's class is its id unless the builder overrode it — the
+  # controller's own rule, so a DLQ or state join agrees with what was written.
+  defp relay_class(_state, nil), do: nil
 
-  defp operative_class(%{builder: %{opts: opts}}, operative_id) when is_list(opts) do
-    to_string(Keyword.get(opts, :operative_class, operative_id))
+  defp relay_class(%{builder: %{opts: opts}}, relay_id) when is_list(opts) do
+    to_string(Keyword.get(opts, :relay_class, relay_id))
   end
 
-  defp operative_class(_state, operative_id), do: to_string(operative_id)
+  defp relay_class(_state, relay_id), do: to_string(relay_id)
 
   # `started_at` is wall-clock ms, so it stays comparable read from another node.
   defp uptime(started_at) when is_integer(started_at) do
@@ -885,222 +893,197 @@ defmodule FlezhaUi.Service.NodeManager do
 
   defp uptime(_started_at), do: nil
 
-  # ---- Workflow instances ----
-
   @doc """
-  Workflow instances that have finished but are still retained, as
-  `[{operative_id, completion_record}]`.
+  One row per (hook, plugin) pair from a relay's overwatch state.
 
-  The controller's own rule, copied from `CliManager.finished_operatives/2` so
-  the UI and `flz operative list` agree on what "recently finished" means: an
-  operative class that is no longer live, whose completion record names this
-  namespace, and whose `finished_at` is inside the class's own
-  `workflow_completed_retention_hours`.
-
-  `live_ids` is passed in rather than re-read, so a caller that already holds
-  `operative_rows/1` does not pay for them twice.
-
-  Costs one call plus one per persisted class that is not live. There is no
-  bulk completion read on the controller, which is why this is not on a refresh
-  tick.
+  The hook table's `subs` maps each hook name to the entries subscribed to it;
+  provider and position live on the entry, so this is the only place that
+  knows the table's shape.
   """
-  def finished_instances(namespace, live_ids) when is_list(live_ids) do
-    live = MapSet.new(live_ids, &to_string/1)
+  def hook_entries(%{extensions: table}), do: hook_entries(table)
 
-    with {:ok, classes} <- list_call(Flezha.State.Registry, :operative_classes, []) do
-      now = System.system_time(:second)
-
-      {:ok,
-       classes
-       |> Enum.reject(&MapSet.member?(live, to_string(&1)))
-       |> Enum.flat_map(&retained_completion(&1, namespace, now))}
-    end
+  def hook_entries(%{subs: subs}) when is_map(subs) do
+    subs
+    |> Enum.flat_map(fn {hook, entries} ->
+      entries
+      |> List.wrap()
+      |> Enum.map(fn entry ->
+        %{
+          plugin_id: to_string(Map.get(entry, :plugin_id, "—")),
+          hook: to_string(hook),
+          provider: FlezhaUi.Format.module_name(Map.get(entry, :provider)),
+          position: Map.get(entry, :position)
+        }
+      end)
+    end)
+    |> Enum.sort_by(&{&1.hook, &1.position || 0, &1.plugin_id})
   end
 
-  # `Completion.read/1` answers a bare `:error` for a class with no record.
-  defp retained_completion(operative_id, namespace, now) do
-    with {:ok, %{namespace: ns, finished_at: finished_at} = record}
-         when ns == namespace and is_integer(finished_at) <-
-           erpc_call(Flezha.State.Completion, :read, [operative_id]),
-         hours when is_number(hours) <-
-           erpc_call(Flezha.State.PersistenceResolver, :workflow_completed_retention_hours, [
-             operative_id
-           ]),
-         true <- finished_at + hours * 3600 >= now do
-      [{to_string(operative_id), record}]
-    else
-      _outside_window_or_unreadable -> []
-    end
-  end
+  def hook_entries(_), do: []
 
-  @doc "The retention window, in hours, that applies to an operative class."
-  def workflow_retention_hours(operative_class) do
-    erpc_call(Flezha.State.PersistenceResolver, :workflow_completed_retention_hours, [
-      operative_class
+  # ---- Steps relays ----
+
+  @doc "The retention window, in hours, that applies to a relay class."
+  def completed_retention_hours(relay_class, metadata, token) do
+    authorized_call(token, Flezha.Service.Steps, :completed_retention_hours, [
+      relay_class,
+      metadata
     ])
   end
 
-  @doc """
-  A durable instance's journal entries, newest first.
+  @doc "A finished steps relay's completion record, or `{:error, :not_found}` for none."
+  def completion(relay_id, token) do
+    case authorized_call(token, Flezha.Service.Steps, :completion, [relay_id]) do
+      :error -> {:error, :not_found}
+      answer -> answer
+    end
+  end
 
-  Answers `{:ok, []}` for an instance with no journal, which is how a
-  non-durable operative reads — the panel is absent rather than empty.
+  @doc """
+  A durable steps relay's task journal as the controller reports it:
+  `%{entries:, leaf_tasks:, complete:}`, the entries newest first.
   """
-  def proc_journal(instance_id) do
-    with {:ok, entries} <- list_call(Flezha.State.ProcJournal, :read, [instance_id]) do
-      {:ok, Enum.sort_by(entries, &Map.get(&1, :seq, 0), :desc)}
+  def task_journal(relay_id, token) do
+    with {:ok, %{entries: entries} = report} <-
+           authorized_call(token, Flezha.Service.Steps, :journal, [relay_id]) do
+      {:ok, %{report | entries: Enum.sort_by(entries, &Map.get(&1, :seq, 0), :desc)}}
     end
   end
 
   @doc "The iterations the journal reports as committed — the only rewind targets."
-  def journal_committed_iterations(instance_id) do
-    list_call(Flezha.State.ProcJournal, :committed_iterations, [instance_id])
+  def committed_iterations(relay_id, token) do
+    authorized_list_call(token, Flezha.Service.Steps, :committed_iterations, [relay_id])
   end
 
-  @doc "How far the instance has consumed its inbox."
-  def journal_consumed_offset(instance_id) do
-    erpc_call(Flezha.State.ProcJournal, :consumed_offset, [instance_id])
+  @doc "The input-log offset the relay's last iteration consumed, `nil` for none."
+  def consumed_offset(relay_id, token) do
+    authorized_call(token, Flezha.Service.Steps, :consumed_offset, [relay_id])
   end
 
-  @doc "Inbox entries the instance has not consumed yet."
-  def inbox_undelivered(instance_id) do
-    list_call(Flezha.State.ProcInbox, :undelivered, [instance_id])
+  @doc "The input-log records the relay has not consumed yet."
+  def input_log_undelivered(relay_id, token) do
+    authorized_list_call(token, Flezha.Service.Steps, :undelivered, [relay_id])
   end
 
-  @doc "The highest offset written to the instance's inbox."
-  def inbox_last_offset(instance_id) do
-    erpc_call(Flezha.State.ProcInbox, :last_offset, [instance_id])
+  @doc "The last offset written to the relay's input log, `-1` when it holds none."
+  def input_log_last_offset(relay_id, token) do
+    authorized_call(token, Flezha.Service.Steps, :last_offset, [relay_id])
   end
 
   @doc "Rescales a partition group to `target` members."
-  def rescale_group(namespace, group_id, target) when is_integer(target) do
-    erpc_call(Flezha.Operative.PartitionGroup, :rescale, [namespace, group_id, target, []])
+  def rescale(namespace, group_id, target, token) when is_integer(target) do
+    authorized_call(token, Flezha.Service.Steps, :rescale, [namespace, group_id, target, []])
+  end
+
+  @doc "Rewinds a durable steps relay to a committed iteration, by its relay class."
+  def rewind(namespace, relay_class, to_iter, token) when is_integer(to_iter) do
+    authorized_call(token, Flezha.Service.Steps, :rewind, [namespace, relay_class, to_iter])
   end
 
   @doc """
-  Rewinds a durable instance to a committed iteration.
-
-  The overwatch pid is resolved first because the controller's rewind is a call
-  on that process; both hops run on the controller, so the pid never has to
-  mean anything on this node.
+  The cells of one relay class with persisted state, each with its sequences
+  and durability counters: `%{relay_class:, cells: [...]}`.
   """
-  def rewind_instance(namespace, operative_id, to_iter) when is_integer(to_iter) do
-    case erpc_call(Flezha.Service.OperativeManager, :get_operative_pid, [namespace, operative_id]) do
-      pid when is_pid(pid) ->
-        erpc_call(Flezha.Operative.Lifecycle, :rewind, [pid, to_iter])
-
-      {:ok, pid} when is_pid(pid) ->
-        erpc_call(Flezha.Operative.Lifecycle, :rewind, [pid, to_iter])
-
-      {:error, reason} ->
-        {:error, reason}
-
-      other ->
-        {:error, {:remote_error, other}}
-    end
-  end
-
-  # ---- Namespaces as declared objects ----
-  #
-  # `Flezha.list_namespaces/0` answers *running hubs*. A namespace is also a
-  # declared object with quotas and role bindings, and one can exist without
-  # the other — a declared namespace with no hub, or a hub for a namespace
-  # nobody declared. Both halves are read here so a screen can say which it is.
-
-  @doc "Declared namespaces, each `%{name:, quotas:, created_at:, created_by_principal:}`."
-  def declared_namespaces do
-    list_call(Flezha.AuthZ.NamespaceStore, :list, [])
+  def cells(relay_class, token) do
+    authorized_call(token, Flezha.Service.Steps, :cells, [relay_class])
   end
 
   @doc """
-  Every namespace name a caller can see: declared union running, narrowed to
-  the token's scope and sorted.
-
-  The two populations genuinely differ — a namespace can be declared with no
-  hub, and a hub can run for a namespace nobody declared — so a screen that
-  counted one while listing the other would disagree with itself. Derived once,
-  here, for both.
+  Where a cell's history stands at `target`, a sequence number or an ISO 8601
+  time: the sequence it resolves to and the snapshot and change-log sizes
+  behind it. `cell` is `<relay_class>/<tasklet>/<cell_key>`.
   """
-  def known_namespace_names(declared, running, scope) do
-    (Enum.map(declared, &to_string(&1.name)) ++ Enum.map(running, &to_string/1))
-    |> Enum.uniq()
-    |> Enum.sort()
-    |> scope_namespaces(scope)
+  def time_travel(cell, target, token) do
+    authorized_call(token, Flezha.Service.Steps, :time_travel, [cell, target])
   end
 
-  @doc "One declared namespace, or `{:error, :not_found}` — the store answers a bare `:error`."
-  def declared_namespace(name) do
-    case erpc_call(Flezha.AuthZ.NamespaceStore, :get, [name]) do
-      {:ok, entry} -> {:ok, entry}
-      :error -> {:error, :not_found}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:remote_error, other}}
+  # ---- Namespace administration ----
+
+  @doc """
+  Every namespace record, each `%{name:, quotas:, created_at:,
+  created_by_principal:}`.
+
+  A caller bound to one namespace may not list every record; it is answered
+  with its own namespace's record, read with `get/2`, so the screen still has
+  the declaration it may see.
+  """
+  def namespace_records(token) do
+    case authorized_list_call(token, Flezha.Service.Namespace, :list, []) do
+      {:ok, records} ->
+        {:ok, records}
+
+      {:error, reason} = refused ->
+        with true <- denied?(reason),
+             %{namespace: own} when is_binary(own) <- caller_context(token),
+             {:ok, record} <- namespace_record(own, token) do
+          {:ok, [record]}
+        else
+          _ -> refused
+        end
     end
+  end
+
+  @doc "One namespace record."
+  def namespace_record(name, token) do
+    authorized_call(token, Flezha.Service.Namespace, :get, [name])
   end
 
   @doc "Declares a namespace. `quotas` is a map of overrides over the controller's defaults."
-  def create_namespace(name, quotas \\ %{}, token \\ nil) do
-    erpc_call(Flezha.AuthZ.NamespaceStore, :create, [
-      name,
-      [quotas: quotas, created_by_principal: principal_of(token)]
-    ])
+  def create_namespace(name, quotas, token) do
+    authorized_call(token, Flezha.Service.Namespace, :create, [name, [quotas: quotas]])
   end
 
-  def delete_namespace(name) do
-    erpc_call(Flezha.AuthZ.NamespaceStore, :delete, [name])
+  def delete_namespace(name, token) do
+    authorized_call(token, Flezha.Service.Namespace, :delete, [name])
   end
 
-  @doc "Replaces a namespace's quota overrides. Only the kinds given are sent."
-  def set_namespace_quotas(name, quotas) when is_map(quotas) do
-    erpc_call(Flezha.AuthZ.NamespaceStore, :set_quotas, [name, quotas])
+  @doc """
+  Replaces a namespace's quota overrides. The controller replaces them whole,
+  so `quotas` carries every limit the namespace keeps, not only the edited ones.
+  """
+  def set_namespace_quotas(name, quotas, token) when is_map(quotas) do
+    authorized_call(token, Flezha.Service.Namespace, :set_quotas, [name, quotas])
   end
 
-  # The counter kinds the controller tracks per namespace.
-  defp quota_kinds do
-    list_call(Flezha.AuthZ.QuotaCounters, :kinds, [])
-  end
-
-  # One namespace counter's current value. The store answers `0` for an absent
-  # counter.
-  defp quota_counter(namespace, kind) do
-    erpc_call(Flezha.AuthZ.QuotaCounters, :get, [namespace, kind])
-  end
-
-  # Which quota key limits which counter. The controller's own
-  # `Quotas.counter_for/1` is private, so the inverse is carried here — for the
-  # five kinds `QuotaCounters.kinds/0` reports. `:max_message_rate_per_second`
-  # maps to a `:messages` counter that `kinds/0` does not report, so there is
-  # nothing to meter it against and it is deliberately absent.
+  # Which quota key limits which counter kind. The controller's own
+  # `Quotas.counter_for/1` is private, so the inverse is carried here.
+  # `:max_message_rate_per_second` limits a counter the controller does not
+  # report, so there is nothing to meter it against.
   @quota_limit_keys %{
-    operatives: :max_operatives,
-    entities: :max_entities_per_operative,
+    relays: :max_relays,
+    cells: :max_cells_per_relay,
     mailbox_bytes: :max_mailbox_bytes_total,
     runners: :max_runners,
     disk_bytes: :max_state_bytes
   }
 
-  # The quota key that limits a counter kind, or `nil` when none does.
-  defp quota_limit_key(kind), do: Map.get(@quota_limit_keys, kind)
-
   @doc """
   A namespace's counters paired with the limits that apply to them.
 
-  `quotas` is the declared namespace's own quota map, or `nil` for a namespace
-  with no declaration — every row then reports its value with no limit, which
-  is what "no meter drawn against an absent limit" means.
-
-  Costs one call per counter kind: the controller exposes no bulk counter read.
+  `quotas` is the namespace record's quota map, or `nil` for a namespace with
+  no record — every row then reports its value with no limit. Costs one call
+  per counter kind: the controller exposes no bulk counter read.
   """
-  def quota_usage(namespace, quotas) do
-    kinds = ok_or(quota_kinds(), Map.keys(@quota_limit_keys))
+  def quota_usage(namespace, quotas, token) do
+    kinds =
+      ok_or(
+        authorized_list_call(token, Flezha.Service.Namespace, :quota_kinds, []),
+        Map.keys(@quota_limit_keys)
+      )
 
     Enum.map(kinds, fn kind ->
-      limit = quotas && Map.get(quotas, quota_limit_key(kind))
-      value = counter_value(quota_counter(namespace, kind))
+      limit_key = Map.get(@quota_limit_keys, kind)
+      limit = quotas && Map.get(quotas, limit_key)
+
+      value =
+        case authorized_call(token, Flezha.Service.Namespace, :quota, [namespace, kind]) do
+          {:ok, count} when is_integer(count) -> count
+          _unavailable -> nil
+        end
 
       %{
         kind: kind,
-        limit_key: quota_limit_key(kind),
+        limit_key: limit_key,
         value: value,
         limit: limit,
         breached?: is_integer(limit) and is_integer(value) and value >= limit
@@ -1108,604 +1091,273 @@ defmodule FlezhaUi.Service.NodeManager do
     end)
   end
 
-  defp counter_value(value) when is_integer(value), do: value
-  defp counter_value(_value), do: nil
-
-  @doc "Role bindings for a namespace, each `%{principal:, namespace:, role:, bound_at:, bound_by:}`."
-  def role_bindings(namespace) do
-    list_call(Flezha.AuthZ.RoleStore, :list_for_namespace, [namespace])
+  @doc "The principals bound to a namespace, each `%{principal:, namespace:, roles:, ...}`."
+  def roles(namespace, token) do
+    authorized_list_call(token, Flezha.Service.Namespace, :roles, [namespace])
   end
 
-  # The principal a write is attributed to, taken from the same verified token
-  # every other call is made with — never from a form.
-  defp principal_of(token) do
-    case caller_context(token) do
-      %{principal: principal} -> principal
-      _unbound -> nil
-    end
-  end
-
-  # ---- Plugin API ----
-
-  # A plugin form names its two kinds of value with a prefix each, so a provider
-  # that declares a field called `position` stays distinguishable from the
-  # subscription option of that name. Both prefixes are stripped here, which is
-  # what lets a screen hand the form over untouched instead of translating it.
-  @sub_opt_prefix "sub_"
-  @provider_opt_prefix "field_"
-
-  # The host's extension points. Which of them a given provider exports, and
-  # which options each accepts, is the controller's call — an unexported
-  # extension is refused there and the refusal is shown to the operator.
-  @extensions ~w(on_operative_init on_input on_output on_interval on_message
-                 on_snapshot on_terminate)a
-
-  # Per-subscription option names the host's validators recognise.
-  @sub_opts ~w(position interval_ms key timeout_ms name)a
-
-  @doc "The extension points a plugin may subscribe to."
-  def extensions, do: @extensions
+  # ---- Plugins ----
 
   @doc """
-  A plugin form built from plain provider settings.
-
-  `enable_plugin/5` reads the provider's fields under this module's own form
-  prefix, so a caller holding settings rather than a submitted form builds the
-  form here instead of spelling the prefix itself.
+  Enables the plugin `name` and binds it to a relay in one call. `fields`
+  carries `provider` (the id as text), `opts` (keyed by text — the controller
+  turns only names the provider declares into atoms), `namespace`, `relay_id`
+  and `hooks` (hook names). Answers `{:ok, %{name:, outcome: :enabled |
+  :already_enabled, bound:, lacking:}}`.
   """
-  def provider_form(settings, extensions) when is_map(settings) do
-    settings
-    |> Map.new(fn {name, value} -> {@provider_opt_prefix <> to_string(name), value} end)
-    |> Map.put("extensions", extensions)
-  end
-
-  @doc """
-  Enables a plugin on the controller.
-
-  `provider` is an entry from `get_provider_info/0`: it carries the provider's
-  module name and its declared option fields. `form` is the attach form as
-  submitted — `field_<name>` for a provider option, `sub_<name>` for a
-  subscription option, plus `trigger` or `extensions`.
-  """
-  def enable_plugin(_plugin_id, nil, _form, _namespace, _operative_id) do
-    {:error, "provider not found"}
-  end
-
-  def enable_plugin(plugin_id, provider, form, namespace, operative_id) do
-    with {:ok, subscriptions} <- extract_subscriptions(form) do
-      fields = [
-        id: plugin_id,
-        provider: to_module(provider.module),
-        namespace: namespace,
-        operative_id: operative_id,
-        opts: provider_opts(form, provider),
-        subscriptions: subscriptions
+  def enable_plugin(name, fields, token) do
+    fields =
+      [
+        provider: fields.provider,
+        opts: Map.get(fields, :opts, %{}),
+        namespace: fields.namespace
       ]
+      |> put_given(:relay_id, Map.get(fields, :relay_id))
+      |> put_given(:hooks, Map.get(fields, :hooks))
 
-      # Built by the controller's own constructor so the struct stays valid if
-      # it gains enforced fields, rather than hand-assembling the map here.
-      with plugin when is_map(plugin) <- erpc_call(Flezha.Plugin, :new, [fields]) do
-        erpc_call(Flezha.Service.PluginManager, :enable_plugin, [plugin_id, plugin])
-      end
+    authorized_call(token, Flezha.Service.PluginManager, :enable, [name, fields])
+  end
+
+  @doc "Disables the plugin `name` in `namespace`; its bindings stay. Answers `:ok`."
+  def disable_plugin(name, namespace, token) do
+    case authorized_call(token, Flezha.Service.PluginManager, :disable, [
+           name,
+           [namespace: namespace]
+         ]) do
+      {:error, reason} -> {:error, reason}
+      _disabled -> :ok
     end
   end
 
   @doc """
-  Builds the `subscriptions` list from a plugin form.
-
-  Accepts the repeatable `extensions` shape and the single `trigger` shape; the
-  legacy trigger spellings `proactive` and `interval` both arm the interval
-  tick on a five-second period, matching the controller's own mapping.
+  The plugins enabled in `namespace`, each `%{name:, provider:, relays:,
+  hooks:, ...}`.
   """
-  def extract_subscriptions(form) do
-    names =
-      case Map.get(form, "extensions") do
-        list when is_list(list) -> list
-        value when value not in [nil, ""] -> [value]
-        _ -> List.wrap(blank_to_nil(Map.get(form, "trigger")))
-      end
+  def plugins(namespace, token) do
+    authorized_list_call(token, Flezha.Service.PluginManager, :enabled, [namespace])
+  end
 
-    Enum.reduce_while(names, {:ok, []}, fn name, {:ok, acc} ->
-      case subscription(name, form) do
-        {:ok, sub} -> {:cont, {:ok, acc ++ [sub]}}
-        {:error, _} = err -> {:halt, err}
-      end
-    end)
+  @doc "The providers the controller can enable, each `%{id:, module:, type:}`."
+  def providers(token) do
+    case authorized_call(token, Flezha.Service.Fleet, :providers, []) do
+      {:ok, %{providers: providers}} -> {:ok, providers}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:remote_error, other}}
+    end
+  end
+
+  @doc "One provider's help text, its type and the hooks it supports."
+  def provider(provider_id, token) do
+    authorized_call(token, Flezha.Service.Fleet, :provider, [provider_id])
+  end
+
+  # ---- Dead-letter queue ----
+
+  @doc "Parked entries, nearest-to-expiry first. `nil` lists every relay class."
+  def dlq_list(relay_class, token) do
+    authorized_list_call(token, Flezha.Service.Dlq, :list, [blank_to_nil(relay_class)])
+  end
+
+  @doc "One entry and its payload, as `{:ok, entry, payload}`."
+  def dlq_get(entry_ref, token) do
+    authorized_call(token, Flezha.Service.Dlq, :get, [entry_ref])
+  end
+
+  def dlq_drop(entry_ref, token) do
+    authorized_call(token, Flezha.Service.Dlq, :drop, [entry_ref])
+  end
+
+  @doc """
+  Re-sends a parked payload to its relay as a new input. The controller waits
+  out its replay grace and answers `{:ok, %{outcome: :removed | :re_parked,
+  generation:}}`.
+  """
+  def dlq_replay(entry_ref, token) do
+    authorized_call(token, Flezha.Service.Dlq, :replay, [entry_ref], 60_000)
+  end
+
+  @doc "The `{relay_class, tasklet_id}` pairs that hold parked entries."
+  def dlq_tasklets(relay_class, token) do
+    authorized_list_call(token, Flezha.Service.Dlq, :tasklets, [blank_to_nil(relay_class)])
+  end
+
+  @doc "Entry and byte counts per parked tasklet, keyed `relay_class` and `tasklet_id`."
+  def dlq_stats(token) do
+    authorized_list_call(token, Flezha.Service.Dlq, :stats, [])
   end
 
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
 
-  defp subscription(name, form) when name in ["proactive", "interval"] do
-    {:ok, {:on_interval, Keyword.put_new(sub_opts(form), :interval_ms, 5_000)}}
-  end
-
-  defp subscription(name, form) do
-    with {:ok, extension} <- extension_atom(name) do
-      {:ok, {extension, sub_opts(form)}}
-    end
-  end
-
-  # Matched against a fixed vocabulary rather than converted, so a crafted form
-  # value cannot grow the atom table.
-  defp extension_atom(name) when is_atom(name) do
-    if name in @extensions, do: {:ok, name}, else: {:error, {:unknown_extension, name}}
-  end
-
-  defp extension_atom(name) when is_binary(name) do
-    case Enum.find(@extensions, fn ext -> Atom.to_string(ext) == name end) do
-      nil -> {:error, {:unknown_extension, name}}
-      extension -> {:ok, extension}
-    end
-  end
-
-  defp sub_opts(form) do
-    Enum.flat_map(@sub_opts, fn opt ->
-      case Map.get(form, @sub_opt_prefix <> Atom.to_string(opt)) do
-        value when value in [nil, ""] -> []
-        value -> [{opt, cast_sub_opt(value)}]
-      end
-    end)
-  end
-
-  # Form values arrive as strings; the host's validators expect integers for
-  # `position`, `interval_ms`, and `timeout_ms`.
-  defp cast_sub_opt(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, ""} -> int
-      _ -> value
-    end
-  end
-
-  defp cast_sub_opt(value), do: value
-
-  # Providers read their options under atom keys. Only fields the provider
-  # itself declared are converted, so a crafted form field cannot grow the atom
-  # table, and anything undeclared is dropped rather than handed to an
-  # allow-list that would refuse the whole plugin.
-  defp provider_opts(form, provider) do
-    declared = Map.get(provider, :required_fields, []) ++ Map.get(provider, :optional_fields, [])
-
-    Enum.reduce(declared, %{}, fn field, acc ->
-      name = to_string(field)
-
-      case Map.get(form, @provider_opt_prefix <> name) do
-        value when value in [nil, ""] -> acc
-        value -> Map.put(acc, safe_atom(name), value)
-      end
-    end)
-  end
-
-  # The name came from the controller's own provider info, so its atom already
-  # exists there; falling back keeps a provider whose field is new to this node
-  # working rather than crashing the enable.
-  defp safe_atom(name) do
-    String.to_existing_atom(name)
-  rescue
-    ArgumentError -> String.to_atom(name)
-  end
-
-  defp to_module(mod) when is_atom(mod), do: mod
-  defp to_module("Elixir." <> _ = mod), do: safe_atom(mod)
-  defp to_module(mod) when is_binary(mod), do: safe_atom("Elixir." <> mod)
-
-  @doc """
-  A provider's own documentation for the options it takes.
-
-  The controller offers one help string per provider rather than per-field
-  descriptions, so this is what "explain the options" can honestly mean. A
-  provider that exports none answers `nil` and the form renders bare fields.
-  """
-  def provider_help(%{module: module}) do
-    case erpc_call(to_module(module), :help, []) do
-      help when is_binary(help) -> help
-      _unavailable -> nil
-    end
-  end
-
-  def provider_help(_provider), do: nil
-
-  def enable_io_listener(namespace, operative_id, io_type, recv_pid) do
-    erpc_call(Flezha.Service.PluginHelper, :enable_io_listener, [
-      namespace,
-      operative_id,
-      io_type,
-      recv_pid
-    ])
-  end
-
-  def disable_plugin(plugin_id) do
-    erpc_call(Flezha, :disable_plugin, [plugin_id])
-  end
-
-  def get_plugins() do
-    erpc_call(Flezha.Service.PluginManager, :get_plugins, [])
-  end
-
-  @doc """
-  One row per (extension, plugin) pair from an operative's overwatch state.
-
-  The extension table's `subs` maps each extension name to the entries
-  subscribed to it; provider and position live on the entry, so this is the
-  only place that knows the table's shape.
-  """
-  def extension_entries(%{extensions: extensions}), do: extension_entries(extensions)
-
-  def extension_entries(%{subs: subs}) when is_map(subs) do
-    subs
-    |> Enum.flat_map(fn {extension, entries} ->
-      entries
-      |> List.wrap()
-      |> Enum.map(fn entry ->
-        %{
-          plugin_id: to_string(Map.get(entry, :plugin_id, "—")),
-          extension: to_string(extension),
-          provider: FlezhaUi.Format.module_name(Map.get(entry, :provider)),
-          position: Map.get(entry, :position)
-        }
-      end)
-    end)
-    |> Enum.sort_by(&{&1.extension, &1.position || 0, &1.plugin_id})
-  end
-
-  def extension_entries(_), do: []
-
-  def get_provider_info() do
-    list_call(Flezha.Service.ConfigManager, :get_provider_info, [])
-  end
-
-  @doc """
-  The enabled providers, as the plugin screens want them.
-
-  `internal?` marks a provider an operator cannot configure by hand — one
-  requiring a `recv_pid`, which only code holding a live pid can supply.
-
-  Controller facts only; how they read on a screen is the view's business.
-  """
-  def providers do
-    get_provider_info()
-    |> ok_or([])
-    |> Enum.map(fn info ->
-      id = to_string(Map.get(info, :id, ""))
-      required = Map.get(info, :required_fields, [])
-
-      %{
-        id: id,
-        module: Map.get(info, :module, "unknown"),
-        type: Map.get(info, :type, :unknown),
-        required_fields: required,
-        optional_fields: Map.get(info, :optional_fields, []),
-        internal?: "recv_pid" in required
-      }
-    end)
-  end
-
-  # ---- Dead-letter queue ----
-  #
-  # The controller's CLI verbs for the DLQ print to stdout and exit on failure,
-  # so they are presentation rather than API. These call the same store the CLI
-  # calls, which keeps the two on identical semantics.
-
-  @doc "Parked entries, nearest-to-expiry first. `nil` lists every class."
-  def dlq_list(operative_class \\ nil) do
-    list_call(Flezha.Dlq.Store, :list, [Flezha.Dlq.Store, blank_to_nil(operative_class)])
-  end
-
-  def dlq_get(entry_ref) do
-    erpc_call(Flezha.Dlq.Store, :get, [Flezha.Dlq.Store, entry_ref])
-  end
-
-  def dlq_drop(entry_ref) do
-    erpc_call(Flezha.Dlq.Store, :drop, [Flezha.Dlq.Store, entry_ref])
-  end
-
-  def dlq_mark_replaying(entry_ref) do
-    erpc_call(Flezha.Dlq.Store, :mark_replaying, [Flezha.Dlq.Store, entry_ref])
-  end
-
-  @doc """
-  The `{operative_class, procedure_id}` pairs that have parked entries.
-
-  Unlike the other store functions this one takes no store argument — it reads
-  the queue's directory layout, which is how the tier groups what it ships.
-  """
-  def dlq_procedures(operative_class \\ nil) do
-    list_call(Flezha.Dlq.Store, :procedures, [blank_to_nil(operative_class)])
-  end
-
-  def dlq_stats do
-    list_call(Flezha.Dlq.Store, :stats, [Flezha.Dlq.Store])
-  end
-
-  @doc "How long the controller waits to see whether a replayed entry re-parks."
-  def dlq_replay_grace_ms do
-    case erpc_call(Application, :get_env, [:flezha, :dlq, []]) do
-      opts when is_list(opts) -> Keyword.get(opts, :replay_grace_ms, 5_000)
-      _ -> 5_000
-    end
-  end
-
   # ---- Schedules ----
 
-  def schedule_list do
-    list_call(Flezha.Schedule.Store, :list, [])
-  end
-
-  def schedule_add(fields) when is_map(fields) do
-    erpc_call(Flezha.Schedule.Store, :add, [fields])
-  end
-
-  def schedule_remove(name) do
-    erpc_call(Flezha.Schedule.Store, :remove, [name])
-  end
-
-  def schedule_statuses do
-    erpc_call(Flezha.Schedule.Hub, :statuses, [])
-  end
-
-  def schedule_assert(entry) do
-    erpc_call(Flezha.Schedule.Hub, :assert, [entry])
-  end
-
-  def schedule_retract(name) do
-    erpc_call(Flezha.Schedule.Hub, :retract, [name])
-  end
-
   @doc """
-  When `cron` next fires in `timezone`.
-
-  The hub's status reports the *last* fire, not the next one, so this is
-  computed from the expression using the controller's own cron parser — the
-  only thing that agrees with when the job will actually run.
+  Every stored schedule joined with what the schedule hub holds for it: the
+  `node` that fires it, its `last_fire` and its `next_fire`.
   """
-  def schedule_next_fire(cron, timezone) do
-    with {:ok, parsed} <- erpc_call(Flezha.Schedule.Cron, :parse, [cron]) do
-      erpc_call(Flezha.Schedule.Cron, :next_fire, [parsed, timezone, DateTime.utc_now()])
-    end
+  def schedule_list(token) do
+    authorized_list_call(token, Flezha.Service.Schedule, :list, [])
+  end
+
+  @doc "Stores a schedule and asserts it on the hub, in one call."
+  def schedule_add(fields, token) when is_map(fields) do
+    authorized_call(token, Flezha.Service.Schedule, :add, [Map.to_list(fields)])
+  end
+
+  @doc "Forgets a schedule and retracts it from the hub, in one call."
+  def schedule_remove(name, token) do
+    authorized_call(token, Flezha.Service.Schedule, :remove, [name])
   end
 
   # ---- Audit log ----
-  #
-  # `Flezha.Service.AuditLog` was written for this UI: its caller context takes
-  # `:ui` as a first-class source, so it is used as-is.
 
-  def audit_files(token \\ nil) do
-    authorized_call(token, Flezha.Service.AuditLog, :list_files, [])
+  def audit_files(token) do
+    authorized_list_call(token, Flezha.Service.AuditLog, :list_files, [])
   end
 
-  def audit_read(params, token \\ nil) when is_map(params) do
+  def audit_read(params, token) when is_map(params) do
     authorized_call(token, Flezha.Service.AuditLog, :read, [params])
   end
 
-  def audit_stats(token \\ nil) do
+  def audit_stats(token) do
     authorized_call(token, Flezha.Service.AuditLog, :stats, [])
   end
 
-  # ---- Data plane and observability ----
-
-  @doc """
-  The controller's always-on data-plane counters.
-
-  Answers `%{channels: [...], operatives: [...]}` exactly as the controller
-  produced it: one entry per channel (keyed by runner id and stream name) and
-  one per operative instance, every value a monotonic count. Rates are the
-  caller's business — this is a point reading.
-  """
-  def liveness_snapshot do
-    erpc_call(Flezha.Transport.LivenessCounters, :snapshot_all, [])
+  @doc "Opens the live audit tail for `emit_pid`. See `authorized_stream/5`."
+  def audit_tail(token, emit_pid) do
+    authorized_stream(token, Flezha.Service.AuditLog, :tail, [[]], emit_pid)
   end
 
-  @doc """
-  Recent signals from the controller's observability ring buffer.
+  # ---- Observability ----
 
-  `params` is the service's own query map — `%{source: atom, limit: n,
-  from_ts: us}`. The remote's `{:error, reason}` is its own answer and passes
-  through untouched, so a caller can tell "observability is switched off" from
-  a transport failure and render the affected region as absent rather than
-  failed.
+  @doc """
+  Recent signals from the controller's observability ring buffer. `params` is
+  the service's own query — `%{source:, limit:, from_ts:}`.
   """
-  def observability_query(params, token \\ nil) when is_map(params) do
+  def observability_query(params, token) when is_map(params) do
     authorized_call(token, Flezha.Service.Observability, :query, [params])
   end
 
   @doc """
-  The controller's monotonic clock, in microseconds.
-
-  Observability signals are stamped with the controller's monotonic time, which
-  shares no epoch with this node's. Reading the controller's own clock is the
-  only way to say how old a signal is; a local clock would answer confidently
-  and wrongly.
-  """
-  def controller_monotonic_us do
-    erpc_call(:erlang, :monotonic_time, [:microsecond])
-  end
-
-  # ---- Controller health ----
-
-  @doc "The durability backend the controller is configured with, or `:unset`."
-  def durability_backend, do: erpc_call(Flezha.State.DurabilityTier, :configured_backend, [])
-
-  @doc "`:remote_tier` when a backend is shipping, `:local_only` when durable state has one copy."
-  def durability_posture, do: erpc_call(Flezha.State.DurabilityTier, :posture, [])
-
-  @doc "References whose time since the last successful ship is past the RPO target."
-  def durability_breaches, do: list_call(Flezha.State.DurabilityTier, :breaches, [])
-
-  @doc "Per-reference shipping state, including which writer superseded this node."
-  def durability_status, do: list_call(Flezha.State.DurabilityTier, :status, [])
-
-  @doc "Whether a shutdown is under way, its phase, and the graceful-shutdown configuration."
-  def shutdown_status, do: erpc_call(Flezha.Shutdown.Coordinator, :status, [])
-
-  @doc """
-  Per-namespace boot state: the hub's recovery state and its registry row count.
-
-  Composed from the same reads `flz boot status` makes — that verb prints, so
-  the underlying functions are called directly.
-  """
-  def boot_status do
-    with {:ok, namespaces} <- list_call(Flezha.Service.HubManager, :get_running_namespaces, []) do
-      {:ok,
-       Enum.map(namespaces, fn namespace ->
-         %{namespace: to_string(namespace), recovery_state: hub_recovery_state(namespace)}
-       end)}
-    end
-  end
-
-  # A namespace hub's recovery state, or `:unavailable` when the controller
-  # cannot answer — a hub still replaying is not the same as one serving, and a
-  # column that guessed would erase the difference.
-  defp hub_recovery_state(namespace) do
-    with hub_id when is_atom(hub_id) <-
-           erpc_call(Flezha.Service.Identificator, :hub, [namespace]),
-         state when is_atom(state) <-
-           unwrap(erpc_call(Flezha.Service.HubManager, :recovery_state, [hub_id])) do
-      state
-    else
-      _unavailable -> :unavailable
-    end
-  end
-
-  defp unwrap({:ok, value}), do: value
-  defp unwrap(value), do: value
-
-  @doc """
-  The controller's memory hot spots: top processes, ETS tables, DETS files and
-  the allocator breakdown, with the time it was captured.
-
-  Expensive — a process scan plus `:recon_alloc` — so it is only ever taken
-  when an operator asks, never on a refresh tick.
-  """
-  def memory_snapshot, do: erpc_call(Flezha.Service.CliManager, :build_mem_top_snapshot, [])
-
-  # ---- Observability control ----
-
-  @doc """
-  Whether a source is emitting.
-
-  The controller carries `:status` (`:active` | `:disabled`) on the entry — not
-  an `:enabled` boolean — so the reading lives here rather than in a template
-  that would have to guess.
+  Whether a source is emitting. The controller carries `:status` (`:active` |
+  `:disabled`) on the entry, not an `:enabled` boolean.
   """
   def source_enabled?(source), do: Map.get(source, :status) == :active
 
   @doc """
-  Whether a sink is running.
-
-  A sink entry carries no enabled flag at all; what it has is a `:pid`, set
-  while its process is up. That is the honest analogue, and calling it
-  "enabled" would imply a switch the controller does not offer.
+  Whether a sink is running: a sink entry carries no enabled flag, only the
+  `:pid` set while its process is up.
   """
   def sink_running?(sink), do: is_pid(Map.get(sink, :pid))
 
-  @doc "Every observability source with its enabled state."
-  def observability_sources(token \\ nil) do
+  def observability_sources(token) do
     authorized_list_call(token, Flezha.Service.Observability, :list_sources, [])
   end
 
-  @doc "Every observability sink with its enabled state."
-  def observability_sinks(token \\ nil) do
+  def observability_sinks(token) do
     authorized_list_call(token, Flezha.Service.Observability, :list_sinks, [])
   end
 
   @doc """
-  Enables an observability source.
-
-  `source` must be an atom the controller already named — it comes back from
-  `observability_sources/1` and is passed through untouched, so a value typed
-  into a form can never grow this node's atom table.
+  Enables an observability source. `source` must be an atom the controller
+  already named, so a value typed into a form can never grow the atom table.
   """
-  def enable_source(source, token \\ nil) when is_atom(source) do
+  def enable_source(source, token) when is_atom(source) do
     authorized_call(token, Flezha.Service.Observability, :enable_source, [source])
   end
 
-  def disable_source(source, token \\ nil) when is_atom(source) do
+  def disable_source(source, token) when is_atom(source) do
     authorized_call(token, Flezha.Service.Observability, :disable_source, [source])
   end
 
-  # ---- Durable state ----
+  @doc "Opens a live tail of `source` for `emit_pid`. See `authorized_stream/5`."
+  def observability_tail(source, token, emit_pid) when is_atom(source) do
+    authorized_stream(token, Flezha.Service.Observability, :tail, [source], emit_pid)
+  end
+
+  # ---- Listen ----
 
   @doc """
-  Every persisted entity's durability counters, as `[{entity_id, counters}]`
-  where `entity_id` is `{operative_class, procedure_id, entity_key}`.
-
-  One call for the whole controller; a screen narrows it to the class it is
-  showing rather than asking per entity.
+  Opens a listen on a relay's `:output` or `:input` for `emit_pid`, which
+  receives `:attached` and then each frame. See `authorized_stream/5`.
   """
-  def state_metrics, do: list_call(Flezha.State.Metrics, :snapshot_all, [])
+  def listen(namespace, relay_id, direction, token, emit_pid)
+      when direction in [:output, :input] do
+    authorized_stream(
+      token,
+      Flezha.Service.Relay,
+      :listen,
+      [namespace, relay_id, direction, []],
+      emit_pid
+    )
+  end
+
+  # ---- Controller ----
 
   @doc """
-  An entity's state at a point in the past.
-
-  `target` is `{:seq, n}` or `{:timestamp, unix_ms}`. A target before the
-  retained history answers the controller's own error, which arrives as the
-  exception struct it raised — read as a map, since its module is not loadable
-  here.
+  The controller's status in one read: durability backend and posture, RPO
+  breach and superseded counts, the shutdown state and configuration, its
+  node and its monotonic clock.
   """
-  def time_travel(entity_id, target) do
-    erpc_call(Flezha.State.TimeTravel, :query, [entity_id, target])
+  def controller_status(token) do
+    authorized_call(token, Flezha.Service.Controller, :status, [])
   end
 
-  # ---- Cluster and fleet ----
-
-  def hub_nodes(namespace) do
-    list_call(Flezha.Cluster.Directory, :hub_nodes, [namespace])
-  end
-
-  def active_runners(namespace) do
-    list_call(Flezha.Runner.FleetManager, :active_runners, [namespace])
-  end
-
-  def runners_for_factory(namespace, factory_id) do
-    list_call(Flezha.Runner.FleetManager, :runners_for_factory, [namespace, factory_id])
+  @doc "References past their RPO target."
+  def durability_breaches(token) do
+    authorized_list_call(token, Flezha.Service.Controller, :durability_breaches, [])
   end
 
   @doc """
-  The principal the controller mints for a runner connecting to `namespace`.
-
-  Namespace-derived and identical for every runner in it, which is exactly what
-  the audit log will name. Answers `nil` on a controller that does not carry
-  runner principals, so the column can be absent rather than guessed.
+  The readiness verdict and each running namespace's hub recovery state, as
+  `%{readiness:, preconditions:, namespaces: [%{namespace:, recovery_state:}]}`.
   """
-  def runner_principal(namespace) do
-    case erpc_call(Flezha.Runner.FleetManager, :runner_caller_context, [namespace]) do
-      %{principal: principal} when is_binary(principal) -> principal
-      _unavailable -> nil
+  def boot_status(token) do
+    authorized_call(token, Flezha.Service.Controller, :boot_status, [])
+  end
+
+  @doc """
+  The controller's memory hot spots. Expensive — a process scan — so it is
+  only taken when an operator asks, never on a refresh tick.
+  """
+  def mem_top(token) do
+    authorized_call(token, Flezha.Service.Controller, :mem_top, [])
+  end
+
+  @doc """
+  The cluster as `namespace` sees it: its hub `nodes`, each with its relay
+  count and recovery state, the unplaced relay count and the health breakdown.
+  """
+  def cluster_status(namespace, token) do
+    authorized_call(token, Flezha.Service.Controller, :cluster_status, [namespace])
+  end
+
+  @doc """
+  The controller's always-on data-plane counters: `%{channels: [...],
+  relays: [...]}`, every value a monotonic count and each relay entry keyed by
+  `relay_id`. Rates are the caller's business.
+  """
+  def liveness_snapshot(token) do
+    authorized_call(token, Flezha.Service.Controller, :liveness_counters, [])
+  end
+
+  @doc """
+  The controller's monotonic clock, in microseconds. Observability signals are
+  stamped with it, and it shares no epoch with this node's, so it is the only
+  clock a signal's age can be measured against.
+  """
+  def controller_monotonic_us(token) do
+    case controller_status(token) do
+      {:ok, %{monotonic_us: now}} when is_integer(now) -> now
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:remote_error, other}}
     end
   end
 
   @doc """
-  Each node's hub recovery state for `namespace`, keyed by node.
-
-  The controller's own fan-out — the same one `flz cluster status` uses — so a
-  hub still replaying is distinguishable from one that is serving, and the two
-  views cannot disagree.
-  """
-  def cluster_recovery(namespace, nodes) when is_list(nodes) do
-    case erpc_call(Flezha.Service.CliManager, :cluster_status_recovery, [namespace, nodes]) do
-      %{} = per_node -> per_node
-      _unavailable -> %{}
-    end
-  end
-
-  @doc "Plugins installed on the controller host, each with its id, version and status."
-  def installed_plugins do
-    list_call(Flezha.Plugin.Installer, :list, [])
-  end
-
-  @doc "Erlang nodes the controller is clustered with, including itself."
-  def controller_cluster_nodes do
-    list_call(:erlang, :nodes, [[:this, :visible]])
-  end
-
-  @doc """
-  The id out of a controller identifier, whatever shape it arrives in.
-
-  `list_factories/1` answers maps carrying a description, the fleet functions
-  answer bare ids or `{id, metadata}` tuples, and anything named through the
-  controller's process registry — a stream channel, say — arrives as the
-  `:via` tuple it was registered under. Normalising here keeps every screen off
-  the question.
+  The id out of a controller identifier, whatever shape it arrives in: a map
+  carrying `id`, a bare id, an `{id, metadata}` pair, or the `:via` tuple a
+  process registered through the controller's process registry is named by.
   """
   def identifier_id(%{id: id}), do: to_string(id)
   def identifier_id(%{"id" => id}), do: to_string(id)

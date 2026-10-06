@@ -6,76 +6,76 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
   What earns its keep here is everything a live stack will not produce to
   order: two snapshots with a known delta between them, a counter reset, a
   stall verdict of a chosen age, an observability subsystem that refuses, a
-  controller that predates the liveness counters, and a listener the controller
+  controller that predates the liveness counters, and a listen the controller
   turns down.
   """
 
   use FlezhaUiWeb.LiveCase
 
-  alias Flezha.Dlq.Store
-  alias Flezha.Runner.FleetManager
+  alias Flezha.Service.Controller
+  alias Flezha.Service.Dlq
+  alias Flezha.Service.Fleet
   alias Flezha.Service.Observability
-  alias Flezha.Service.OperativeManager
-  alias Flezha.Service.PluginHelper
-  alias Flezha.Transport.LivenessCounters
+  alias Flezha.Service.Relay
 
-  @operative "/namespaces/default/operatives/op_a"
+  @relay "/namespaces/default/relays/relay_a"
+  @listen {Relay, :listen}
 
   defp overwatch(bindings \\ %{}) do
     %{
-      id: "op_a",
+      id: "relay_a",
       factory_id: "store_input",
       runner_id: "runner-a",
-      kind: :stream,
+      builder: %{run: :flow, opts: []},
       suspended: false,
       started_at: nil,
       extensions: %{subs: bindings}
     }
   end
 
-  defp summary_row(id, overrides \\ %{}), do: FakeController.operative_row(id, overrides)
+  defp summary_row(id, overrides \\ %{}), do: FakeController.relay_row(id, overrides)
 
   defp stack(node, opts \\ []) do
-    FakeController.set(
-      node,
-      {Flezha, :list_namespaces},
-      {:ok, Keyword.get(opts, :namespaces, ["staging", "default"])}
-    )
+    relays = Keyword.get(opts, :relays, ["relay_a"])
+    rows = Keyword.get(opts, :rows, Enum.map(relays, &summary_row/1))
+    namespaces = Keyword.get(opts, :namespaces, ["staging", "default"])
 
-    operatives = Keyword.get(opts, :operatives, ["op_a"])
-
-    FakeController.set(node, {Flezha, :list_operatives}, {:ok, operatives})
-
-    # The summary reads health from the registry rows, not from the id list.
-    FakeController.set(
-      node,
-      {Flezha.Service.HubManager, :operative_rows},
-      Keyword.get(opts, :rows, Enum.map(operatives, &summary_row/1))
+    # The summary reads health from the relay rows, not from an id list.
+    FakeController.set_fleet(node,
+      namespaces: namespaces,
+      rows: Map.new(namespaces, &{&1, rows})
     )
 
     FakeController.set(
       node,
-      {FleetManager, :active_runners},
-      {:ok, Keyword.get(opts, :runners, ["runner-a"])}
+      {Fleet, :runners},
+      {:ok, Enum.map(Keyword.get(opts, :runners, ["runner-a"]), &%{id: &1, pid: nil})}
     )
 
     FakeController.set(
       node,
-      {OperativeManager, :get_overwatch_state},
+      {Relay, :overwatch_state},
       {:ok, Keyword.get(opts, :overwatch, overwatch())}
     )
   end
 
-  defp snapshot(node, operatives, channels \\ []) do
-    FakeController.set(node, {LivenessCounters, :snapshot_all}, %{
-      channels: channels,
-      operatives:
-        Enum.map(operatives, fn {id, received, forwarded} ->
-          %{operative_id: id, io_in_received: received, forwarded: forwarded, filtered_nil: 0}
-        end)
-    })
+  defp snapshot(node, relays, channels \\ []) do
+    FakeController.set(
+      node,
+      {Controller, :liveness_counters},
+      {:ok,
+       %{
+         channels: channels,
+         relays:
+           Enum.map(relays, fn {id, received, forwarded} ->
+             %{relay_id: id, io_in_received: received, forwarded: forwarded, filtered_nil: 0}
+           end)
+       }}
+    )
   end
 
+  # Aged against the controller's own clock, which `Controller.status/1`
+  # reports and the stand-in reads from the peer.
   defp stall_signal(node, layer, metadata, age_us) do
     now = :erpc.call(node, :erlang, :monotonic_time, [:microsecond])
 
@@ -86,7 +86,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
        [
          %{
            kind: :event,
-           source: :flezha_data_plane,
+           source: :flezha_health,
            name: :stall_localized,
            measurements: %{count: 1},
            metadata: Map.put(metadata, :layer, layer),
@@ -104,87 +104,82 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     render(view)
   end
 
-  describe "operative pipeline" do
+  describe "relay pipeline" do
     setup %{node: node} do
       stack(node)
       :ok
     end
 
-    test "draws the chain from ingest through the core to the channel", %{conn: conn} do
-      {:ok, _view, html} = live(conn, @operative)
+    test "draws the chain from ingest through the core and channel to the output", %{
+      conn: conn
+    } do
+      {:ok, _view, html} = live(conn, @relay)
 
       assert html =~ ~s(data-testid="topology-graph")
       assert html =~ ~s(data-testid="topo-node-ingest")
-      assert html =~ ~s(data-testid="topo-node-op_a")
+      assert html =~ ~s(data-testid="topo-node-relay_a")
       assert html =~ ~s(data-testid="topo-node-channel")
       assert html =~ ~s(data-testid="topo-node-output")
+      assert html =~ "topo-node-output"
+      refute html =~ "sink"
       assert html =~ ~s(data-testid="topology-legend")
       assert html =~ "0 plugins attached"
     end
 
-    test "puts attached plugins on the record path in position order", %{conn: conn, node: node} do
+    test "puts bound plugins on the record path in position order", %{conn: conn, node: node} do
       bindings = %{
         on_output: [%{plugin_id: "fanout", provider: Some.Provider, position: 1}],
         on_input: [%{plugin_id: "guard", provider: Some.Guard, position: 0}]
       }
 
-      FakeController.set(
-        node,
-        {OperativeManager, :get_overwatch_state},
-        {:ok, overwatch(bindings)}
-      )
+      FakeController.set(node, {Relay, :overwatch_state}, {:ok, overwatch(bindings)})
 
-      {:ok, _view, html} = live(conn, @operative)
+      {:ok, _view, html} = live(conn, @relay)
 
       assert html =~ ~s(data-testid="topo-node-plugin-guard")
       assert html =~ ~s(data-testid="topo-node-plugin-fanout")
       assert html =~ "2 plugins attached"
       # The input guard feeds the core; the core feeds the output fanout.
-      assert html =~ ~s(data-testid="topo-edge-flow-plugin-guard-op_a")
-      assert html =~ ~s(data-testid="topo-edge-flow-op_a-plugin-fanout")
+      assert html =~ ~s(data-testid="topo-edge-flow-plugin-guard-relay_a")
+      assert html =~ ~s(data-testid="topo-edge-flow-relay_a-plugin-fanout")
     end
 
-    test "an off-path extension hangs off the core rather than joining the chain", %{
+    test "an off-path hook hangs off the core rather than joining the chain", %{
       conn: conn,
       node: node
     } do
       bindings = %{on_interval: [%{plugin_id: "ticker", provider: Some.Ticker, position: nil}]}
 
-      FakeController.set(
-        node,
-        {OperativeManager, :get_overwatch_state},
-        {:ok, overwatch(bindings)}
-      )
+      FakeController.set(node, {Relay, :overwatch_state}, {:ok, overwatch(bindings)})
 
-      {:ok, _view, html} = live(conn, @operative)
+      {:ok, _view, html} = live(conn, @relay)
 
       assert html =~ ~s(data-testid="topo-node-plugin-ticker")
       assert html =~ ~s(data-testid="topo-edge-branch-plugin-ticker")
     end
 
-    test "an operative bound to no runner shows an unbound channel", %{conn: conn, node: node} do
-      FakeController.set(
-        node,
-        {OperativeManager, :get_overwatch_state},
-        {:ok, %{overwatch() | runner_id: nil}}
-      )
+    test "a relay bound to no runner shows an unbound channel", %{conn: conn, node: node} do
+      FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{overwatch() | runner_id: nil}})
 
-      {:ok, _view, html} = live(conn, @operative)
+      {:ok, _view, html} = live(conn, @relay)
 
       assert html =~ "unbound"
       assert html =~ "topo-edge-degraded"
     end
 
-    test "rates appear on the counted edges once a baseline exists", %{conn: conn, node: node} do
-      snapshot(node, [{"op_a", 100, 90}])
-      {:ok, view, html} = live(conn, @operative)
+    test "rates appear on the counted edges once a baseline exists, keyed by relay id", %{
+      conn: conn,
+      node: node
+    } do
+      snapshot(node, [{"relay_a", 100, 90}])
+      {:ok, view, html} = live(conn, @relay)
 
-      refute html =~ ~s(data-testid="topo-rate-flow-ingest-op_a")
+      refute html =~ ~s(data-testid="topo-rate-flow-ingest-relay_a")
 
-      snapshot(node, [{"op_a", 1_000, 900}])
+      snapshot(node, [{"relay_a", 1_000, 900}])
       html = tick(view)
 
-      assert html =~ ~s(data-testid="topo-rate-flow-ingest-op_a")
+      assert html =~ ~s(data-testid="topo-rate-flow-ingest-relay_a")
       assert html =~ "topo-flow-fast"
     end
 
@@ -192,65 +187,62 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       conn: conn,
       node: node
     } do
-      snapshot(node, [{"op_a", 5_000, 4_900}])
-      {:ok, view, _html} = live(conn, @operative)
+      snapshot(node, [{"relay_a", 5_000, 4_900}])
+      {:ok, view, _html} = live(conn, @relay)
 
-      snapshot(node, [{"op_a", 12, 8}])
+      snapshot(node, [{"relay_a", 12, 8}])
       html = tick(view)
 
       assert html =~ "0.0/s"
       assert html =~ "topo-flow-idle"
     end
 
-    test "a controller without the liveness module still draws structure", %{
+    test "a controller without the liveness read still draws structure", %{
       conn: conn,
       node: node
     } do
-      :erpc.call(node, :code, :purge, [LivenessCounters])
-      :erpc.call(node, :code, :delete, [LivenessCounters])
-      on_exit(fn -> FlezhaUi.PeerNode.ship!(node, LivenessCounters) end)
+      FakeController.set(
+        node,
+        {Controller, :liveness_counters},
+        {:error, {:api_missing, Controller, :liveness_counters, 1}}
+      )
 
-      {:ok, _view, html} = live(conn, @operative)
+      {:ok, _view, html} = live(conn, @relay)
 
       assert html =~ ~s(data-testid="topology-skew")
       assert html =~ "have diverged"
-      assert html =~ ~s(data-testid="topo-node-op_a")
+      assert html =~ ~s(data-testid="topo-node-relay_a")
     end
 
-    test "a recent stall verdict banners, and a stale one does not", %{conn: conn, node: node} do
-      stall_signal(node, :operative_not_forwarding, %{operative_id: "op_a"}, 5_000_000)
-      {:ok, _view, html} = live(conn, @operative)
-
-      assert html =~ ~s(data-testid="topology-stall")
-      assert html =~ "Operative Not Forwarding"
-
-      stall_signal(node, :operative_not_forwarding, %{operative_id: "op_a"}, 120_000_000)
-      {:ok, _view, html} = live(conn, @operative)
-
-      refute html =~ ~s(data-testid="topology-stall")
-    end
-
-    test "an observability subsystem that refuses leaves no banner and no error", %{
+    test "a recent stall verdict naming the relay banners, and a stale one does not", %{
       conn: conn,
       node: node
     } do
-      FakeController.set(node, {Observability, :query}, {:error, :observability_disabled})
+      stall_signal(node, :relay_not_forwarding, %{relay_id: "relay_a"}, 5_000_000)
+      {:ok, _view, html} = live(conn, @relay)
 
-      {:ok, _view, html} = live(conn, @operative)
+      assert html =~ ~s(data-testid="topology-stall")
+      assert html =~ "Relay Not Forwarding"
+      assert html =~ "relay_a"
 
-      assert html =~ ~s(data-testid="topo-node-op_a")
+      stall_signal(node, :relay_not_forwarding, %{relay_id: "relay_a"}, 120_000_000)
+      {:ok, _view, html} = live(conn, @relay)
+
       refute html =~ ~s(data-testid="topology-stall")
-      refute html =~ "observability_disabled"
     end
 
-    test "selecting the core shows its facts, and dismissing clears them", %{conn: conn} do
-      {:ok, view, _html} = live(conn, @operative)
+    test "selecting the core shows its facts and links to its listen view", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @relay)
 
-      html = view |> element(~s([data-testid="topo-node-op_a"])) |> render_click()
+      html = view |> element(~s([data-testid="topo-node-relay_a"])) |> render_click()
 
       assert html =~ ~s(data-testid="topology-detail")
       assert html =~ "store_input"
-      assert html =~ "Open live stream"
+
+      assert has_element?(
+               view,
+               ~s(a[data-testid="topology-detail-link"][href="/namespaces/default/relays/relay_a/listen"])
+             )
 
       refute view |> element(~s([data-testid="topology-detail-dismiss"])) |> render_click() =~
                ~s(data-testid="topology-detail")
@@ -260,7 +252,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       conn: conn,
       node: node
     } do
-      snapshot(node, [{"op_a", 1, 1}], [
+      snapshot(node, [{"relay_a", 1, 1}], [
         %{
           runner_id: "runner-a",
           name: :chan_a,
@@ -275,7 +267,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
         }
       ])
 
-      {:ok, view, html} = live(conn, @operative)
+      {:ok, view, html} = live(conn, @relay)
 
       assert html =~ ~s(data-testid="topo-backpressure")
 
@@ -286,17 +278,17 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert has_element?(view, ~s(a[data-testid="topology-detail-link"][href="/cluster"]))
     end
 
-    test "parked entries draw the dead-letter branch, which links to the queue", %{
+    test "parked entries of the relay's class draw the dead-letter branch", %{
       conn: conn,
       node: node
     } do
       FakeController.set(
         node,
-        {Store, :stats},
-        {:ok, [%{operative_class: "op_a", procedure_id: "sh", entries: 4, bytes: 128}]}
+        {Dlq, :stats},
+        {:ok, [%{relay_class: "relay_a", tasklet_id: "sh", entries: 4, bytes: 128}]}
       )
 
-      {:ok, view, html} = live(conn, @operative)
+      {:ok, view, html} = live(conn, @relay)
 
       assert html =~ "4 parked"
       assert has_element?(view, ~s(a[data-testid="topo-node-dead-letter"][href="/dlq"]))
@@ -309,68 +301,61 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       :ok
     end
 
-    test "opening a tap attaches the listener and closing it detaches", %{conn: conn, node: node} do
-      {:ok, view, html} = live(conn, @operative)
+    test "opening a tap listens and closing it ends the listen", %{conn: conn, node: node} do
+      {:ok, view, html} = live(conn, @relay)
 
       assert html =~ ~s(data-testid="tap-output")
       refute html =~ ~s(data-testid="tap-figures")
 
-      html = render_click(view, "graph_tap", %{"io" => "output"})
+      html = render_click(view, "graph_tap", %{"direction" => "output"})
 
       assert html =~ ~s(data-testid="tap-figures")
-
-      assert FlezhaUi.PeerNode.eventually(fn ->
-               FakeController.calls(node, {PluginHelper, :enable_io_listener}) != []
-             end)
-
-      assert [["default", "op_a", "output", _pid]] =
-               FakeController.calls(node, {PluginHelper, :enable_io_listener})
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
 
       html = render_click(view, "graph_tap_close", %{})
 
       refute html =~ ~s(data-testid="tap-figures")
 
-      assert FlezhaUi.PeerNode.eventually(fn ->
-               FakeController.calls(node, {Flezha, :disable_plugin}) != []
-             end),
-             "the listener must not be left attached to the controller"
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) == [] end),
+             "the listen must not be left open on the controller"
     end
 
-    test "payloads are counted and sized as they arrive", %{conn: conn} do
-      {:ok, view, _html} = live(conn, @operative)
-      render_click(view, "graph_tap", %{"io" => "output"})
+    test "payloads are counted and sized as they arrive", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, @relay)
+      render_click(view, "graph_tap", %{"direction" => "output"})
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
 
-      send(view.pid, {:stream_message, %{message: "hello", bytes: 5, metadata: %{}}})
-      send(view.pid, {:stream_message, %{message: "world!", bytes: 6, metadata: %{}}})
+      FakeController.emit(node, @listen, {:output, "hello", %{}})
+      FakeController.emit(node, @listen, {:output, "world!", %{}})
+
+      assert PeerNode.eventually(fn -> render(view) =~ "world!" end)
       html = render(view)
 
       assert html =~ ~s(data-testid="tap-recent")
-      assert html =~ "world!"
-      # Two messages, eleven bytes — both figures come from the payloads
+      # Two payloads, eleven bytes — both figures come from the payloads
       # themselves, because nothing on the data plane counts bytes.
       assert html =~ "11 B"
       assert html =~ ~s(data-testid="tap-msg-rate")
     end
 
-    test "a listener the controller refuses is reported rather than silently dead", %{
-      conn: conn
+    test "a listen the controller refuses is reported rather than silently dead", %{
+      conn: conn,
+      node: node
     } do
-      {:ok, view, _html} = live(conn, @operative)
-      render_click(view, "graph_tap", %{"io" => "input"})
+      FakeController.set(node, @listen, FakeController.error("authz.role_insufficient"))
 
-      send(view.pid, {:stream_status, {:error, :refused}})
+      {:ok, view, _html} = live(conn, @relay)
+      render_click(view, "graph_tap", %{"direction" => "input"})
 
-      assert render(view) =~ ~s(data-testid="tap-error")
+      assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tap-error") end)
     end
 
     test "the raw payload is what gets sized, not its printable rendering" do
       # A non-UTF-8 payload renders as hex, which is twice its real size.
-      pid = start_supervised!({Agent, fn -> nil end})
-      raw = <<0xFF, 0xFE, 0xFD>>
+      frame = FlezhaUi.Format.frame(<<0xFF, 0xFE, 0xFD>>, %{})
 
-      assert byte_size(raw) == 3
-      assert String.length(FlezhaUi.Format.printable(raw)) == 6
-      Agent.stop(pid)
+      assert frame.bytes == 3
+      assert String.length(frame.message) == 6
     end
   end
 
@@ -384,7 +369,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       {:ok, _view, html} = live(conn, ~p"/?ns=default")
 
       assert html =~ ~s(data-testid="topology-summary")
-      assert html =~ ~s(data-testid="summary-operatives")
+      assert html =~ ~s(data-testid="summary-relays")
       assert html =~ ~s(data-testid="summary-runners")
       refute html =~ ~s(data-testid="topology-empty")
     end
@@ -407,45 +392,45 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       render_change(view, "select_namespace", %{"ns" => "staging"})
 
       assert_patch(view, ~p"/?ns=staging")
-      assert ["staging"] in FakeController.calls(node, {FleetManager, :active_runners})
+      assert Enum.any?(FakeController.calls(node, {Fleet, :runners}), &match?(["staging", _], &1))
     end
 
-    test "ranks the busiest operatives once a baseline exists, linking each one", %{
+    test "ranks the busiest relays once a baseline exists, linking each one", %{
       conn: conn,
       node: node
     } do
-      stack(node, operatives: ["op_a", "op_b"])
-      snapshot(node, [{"op_a", 100, 100}, {"op_b", 10, 10}])
+      stack(node, relays: ["relay_a", "relay_b"])
+      snapshot(node, [{"relay_a", 100, 100}, {"relay_b", 10, 10}])
 
       {:ok, view, html} = live(conn, ~p"/?ns=default")
 
       assert html =~ ~s(data-testid="summary-busiest-empty")
 
-      snapshot(node, [{"op_a", 5_000, 5_000}, {"op_b", 20, 20}])
+      snapshot(node, [{"relay_a", 5_000, 5_000}, {"relay_b", 20, 20}])
       html = tick(view)
 
       assert html =~ ~s(data-testid="summary-busiest")
-      assert html =~ ~s(data-testid="summary-operative-op_a")
+      assert html =~ ~s(data-testid="summary-relay-relay_a")
 
       assert has_element?(
                view,
-               ~s(a[data-testid="summary-operative-op_a"][href="/namespaces/default/operatives/op_a"])
+               ~s(a[data-testid="summary-relay-relay_a"][href="/namespaces/default/relays/relay_a"])
              )
     end
 
-    test "assembling it costs no per-operative controller call", %{conn: conn, node: node} do
-      stack(node, operatives: Enum.map(1..50, &"op_#{&1}"))
+    test "assembling it costs no per-relay controller call", %{conn: conn, node: node} do
+      stack(node, relays: Enum.map(1..50, &"relay_#{&1}"))
 
       {:ok, view, _html} = live(conn, ~p"/?ns=default")
       tick(view)
 
       # The dashboard's own tiles read namespaces, not overwatch state; the
       # summary must not walk the fleet either, or it stops working at scale.
-      assert FakeController.calls(node, {OperativeManager, :get_overwatch_state}) == []
+      assert FakeController.calls(node, {Relay, :overwatch_state}) == []
     end
 
     test "a namespace with nothing in it says so", %{conn: conn, node: node} do
-      stack(node, operatives: [], runners: [])
+      stack(node, relays: [], runners: [])
 
       {:ok, _view, html} = live(conn, ~p"/?ns=default")
 
@@ -454,14 +439,14 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     end
 
     test "backpressure and dead-letter pressure are surfaced as tiles", %{conn: conn, node: node} do
-      snapshot(node, [{"op_a", 1, 1}], [
+      snapshot(node, [{"relay_a", 1, 1}], [
         %{runner_id: "runner-a", name: :chan_a, credit_active: 1, credit_ledger_level: 0}
       ])
 
       FakeController.set(
         node,
-        {Store, :stats},
-        {:ok, [%{operative_class: "op_a", entries: 7}]}
+        {Dlq, :stats},
+        {:ok, [%{relay_class: "relay_a", tasklet_id: "sh", entries: 7, bytes: 0}]}
       )
 
       {:ok, view, _html} = live(conn, ~p"/?ns=default")
@@ -484,15 +469,17 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       refute html =~ ~s(data-testid="topology-namespace")
     end
 
-    test "a relayed runner disconnect is applied before the next tick", %{conn: conn, node: node} do
+    test "a forwarded runner disconnect is applied before the next tick", %{
+      conn: conn,
+      node: node
+    } do
       {:ok, view, html} = live(conn, ~p"/namespaces/default")
 
       assert html =~ ~s(data-testid="summary-runners")
-
       assert has_element?(view, ~s([data-testid="summary-runners"]), "1")
 
-      FakeController.set(node, {FleetManager, :active_runners}, {:ok, []})
-      send(view.pid, {:flezha_event, :runner_disconnected, %{runner_id: "runner-a"}})
+      FakeController.set(node, {Fleet, :runners}, {:ok, []})
+      send(view.pid, {:flezha_event, :runner_disconnected, {"default", "runner-a"}})
       render(view)
 
       assert has_element?(view, ~s([data-testid="summary-runners"]), "0")
@@ -500,14 +487,14 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
   end
 
   describe "fleet summary health" do
-    test "counts are broken down by health, each bucket linking to those operatives", %{
+    test "counts are broken down by health, each bucket linking to those relays", %{
       conn: conn,
       node: node
     } do
       stack(node,
         rows: [
-          summary_row("op_a"),
-          summary_row("op_b", %{health: :failed})
+          summary_row("relay_a"),
+          summary_row("relay_b", %{health: :failed})
         ]
       )
 
@@ -519,11 +506,26 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       assert has_element?(
                view,
-               ~s(a[data-testid="summary-health-failed"][href="/operatives?namespace=default&health=failed"])
+               ~s(a[data-testid="summary-health-failed"][href="/relays?namespace=default&health=failed"])
              )
     end
 
-    test "an unhealthy operative is surfaced even at zero throughput", %{conn: conn, node: node} do
+    test "recovering and parked are buckets of their own", %{conn: conn, node: node} do
+      stack(node,
+        rows: [
+          summary_row("relay_a", %{health: :recovering}),
+          summary_row("relay_b", %{health: :parked})
+        ]
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/?ns=default")
+
+      assert html =~ ~s(data-testid="summary-health-recovering")
+      assert html =~ ~s(data-testid="summary-health-parked")
+      refute html =~ ~s(data-testid="summary-health-unknown")
+    end
+
+    test "an unhealthy relay is surfaced even at zero throughput", %{conn: conn, node: node} do
       stack(node, rows: [summary_row("idle_but_sick", %{health: :degraded})])
 
       {:ok, _view, html} = live(conn, ~p"/?ns=default")
@@ -534,7 +536,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert html =~ ~s(data-testid="summary-attention-idle_but_sick")
     end
 
-    test "an unplaced operative is surfaced and named as unplaced", %{conn: conn, node: node} do
+    test "an unplaced relay is surfaced and named as unplaced", %{conn: conn, node: node} do
       stack(node, rows: [summary_row("stranded", %{node: nil})])
 
       {:ok, _view, html} = live(conn, ~p"/?ns=default")
@@ -551,22 +553,18 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       stack(node, rows: [member])
 
-      FakeController.set(node, {Flezha.Service.CliManager, :group_partition_rows}, [
-        %{
-          id: "orders",
-          health: :healthy,
-          runner: "p0",
-          factory: "store_input",
-          partitions: "1/2",
-          node: :"flezha@node-a",
-          members: [member]
-        }
-      ])
-
       FakeController.set(
         node,
-        {Flezha.Partition, :coverage},
-        {:error, %{gaps: [{128, 255}], overlaps: []}}
+        {Relay, :partition_groups},
+        {:ok,
+         [
+           %{
+             group: "orders",
+             declared: 2,
+             members: [member],
+             coverage: {:error, %{gaps: [{128, 255}], overlaps: []}}
+           }
+         ]}
       )
 
       {:ok, _view, html} = live(conn, ~p"/?ns=default")
@@ -576,39 +574,31 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     end
 
     test "a healthy fleet needs no attention list", %{conn: conn, node: node} do
-      stack(node, rows: [summary_row("op_a")])
+      stack(node, rows: [summary_row("relay_a")])
 
       {:ok, _view, html} = live(conn, ~p"/?ns=default")
 
       refute html =~ ~s(data-testid="summary-attention")
     end
-
-    test "the health breakdown costs no per-operative call", %{conn: conn, node: node} do
-      stack(node, operatives: Enum.map(1..50, &"op_#{&1}"))
-
-      {:ok, view, _html} = live(conn, ~p"/?ns=default")
-      tick(view)
-
-      assert FakeController.calls(node, {OperativeManager, :get_overwatch_state}) == []
-    end
   end
 
   describe "stall detection outcomes" do
-    test "a refusal is stated with its reason", %{conn: conn, node: node} do
+    test "a refusal is stated with its code and message", %{conn: conn, node: node} do
       stack(node)
 
       FakeController.set(
         node,
-        {Flezha.Service.Observability, :query},
-        {:error, {:forbidden, :principal_not_bound}}
+        {Observability, :query},
+        FakeController.error("authz.principal_not_bound", "no principal is bound")
       )
 
       {:ok, _view, html} = live(conn, ~p"/?ns=default")
 
       assert html =~ ~s(data-testid="topology-stall-refused")
-      assert html =~ "no flezha principal"
+      assert html =~ "authz.principal_not_bound"
+      assert html =~ "no principal is bound"
       # The rest of the summary still renders.
-      assert html =~ ~s(data-testid="summary-operatives")
+      assert html =~ ~s(data-testid="summary-relays")
     end
 
     test "a switched-off subsystem is stated as switched off", %{conn: conn, node: node} do
@@ -616,8 +606,8 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       FakeController.set(
         node,
-        {Flezha.Service.Observability, :query},
-        {:error, :observability_disabled}
+        {Observability, :query},
+        FakeController.error("observability.disabled")
       )
 
       {:ok, _view, html} = live(conn, ~p"/?ns=default")
@@ -628,7 +618,12 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
     test "any other failure stays silent", %{conn: conn, node: node} do
       stack(node)
-      FakeController.set(node, {Flezha.Service.Observability, :query}, {:error, :timeout})
+
+      FakeController.set(
+        node,
+        {Observability, :query},
+        FakeController.error("controller.timeout")
+      )
 
       {:ok, _view, html} = live(conn, ~p"/?ns=default")
 

@@ -11,7 +11,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   use FlezhaUiWeb.Topology
   use FlezhaUiWeb.Live.Launcher
 
-  # The namespace's own operatives are what the screen is for; everything that
+  # The namespace's own relays are what the screen is for; everything that
   # administers the namespace is folded away until asked for. A breached quota
   # overrides that — see the `forced` section in the template.
   use FlezhaUiWeb.Live.Sections,
@@ -19,7 +19,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       "quotas" => false,
       "role-bindings" => false,
       "partition-groups" => false,
-      "finished-instances" => false,
+      "finished-relays" => false,
       "runners" => false
     }
 
@@ -41,6 +41,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         load_error: nil,
         finished: [],
         finished_error: nil,
+        finished_loading?: false,
         rescale: nil,
         quota_form: nil,
         quota_error: nil
@@ -80,11 +81,11 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
   @impl true
   def handle_event("save_quotas", _params, socket) do
-    changed = changed_quotas(socket.assigns.quota_form, socket.assigns.quotas)
+    limits = quota_limits(socket.assigns.quota_form, socket.assigns.declared)
 
-    case NodeManager.set_namespace_quotas(socket.assigns.ns, changed) do
+    case NodeManager.set_namespace_quotas(socket.assigns.ns, limits, socket.assigns.flezha_token) do
       {:error, reason} ->
-        {:noreply, assign(socket, quota_error: inspect(reason))}
+        {:noreply, assign(socket, quota_error: reason)}
 
       _ok ->
         {:noreply,
@@ -130,12 +131,12 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   def handle_event("rescale", _params, socket) do
     %{ns: ns, rescale: %{group: group, target: target}} = socket.assigns
 
-    case NodeManager.rescale_group(ns, group, target) do
+    case NodeManager.rescale(ns, group, target, socket.assigns.flezha_token) do
       {:error, reason} ->
         {:noreply,
          socket
          |> assign(rescale: nil)
-         |> put_flash(:error, "Rescale failed: #{inspect(reason)}")}
+         |> put_flash(:error, FlezhaUiWeb.CoreComponents.error_message(reason, "the rescale"))}
 
       _ok ->
         {:noreply,
@@ -147,8 +148,8 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   end
 
   @impl true
-  def handle_event("confirm_stop", %{"operative_id" => operative_id}, socket) do
-    {:noreply, assign(socket, confirm_stop: operative_id)}
+  def handle_event("confirm_stop", %{"relay_id" => relay_id}, socket) do
+    {:noreply, assign(socket, confirm_stop: relay_id)}
   end
 
   @impl true
@@ -157,92 +158,127 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   end
 
   @impl true
-  def handle_event("stop_operative", %{"operative_id" => operative_id}, socket) do
-    ns = socket.assigns.ns
-
-    case NodeManager.stop_operative(ns, operative_id) do
-      :ok ->
-        socket =
-          socket
-          |> assign(confirm_stop: nil)
-          |> refresh()
-          |> put_flash(:info, "Operative #{operative_id} stopped.")
-
-        {:noreply, socket}
+  def handle_event("stop_relay", %{"relay_id" => relay_id}, socket) do
+    case NodeManager.stop_relay(socket.assigns.ns, relay_id, socket.assigns.flezha_token) do
+      {:ok, answer} ->
+        {:noreply,
+         socket
+         |> assign(confirm_stop: nil)
+         |> refresh()
+         |> put_flash(:info, stopped_message(relay_id, answer))}
 
       {:error, reason} ->
-        socket =
-          socket
-          |> assign(confirm_stop: nil)
-          |> put_flash(:error, "Failed to stop: #{inspect(reason)}")
-
-        {:noreply, socket}
+        {:noreply,
+         socket
+         |> assign(confirm_stop: nil)
+         |> put_flash(:error, FlezhaUiWeb.CoreComponents.error_message(reason, "the stop"))}
     end
   end
 
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
-    ns = socket.assigns.ns
+    %{ns: ns, flezha_token: token} = socket.assigns
 
-    # One registry dump answers every row's health, node, factory, runner and
-    # partition identity. The listing this replaced cost an overwatch call per
-    # operative and still could not say whether any of them were healthy.
-    {rows, load_error} = NodeManager.ok_or_error(NodeManager.operative_rows(ns), [])
+    # One listing read answers every row's health, node, factory, runner and
+    # partition group, collapsed by the controller's own rule; the member rows
+    # behind them feed the group panel and the summary.
+    {relays, load_error} = NodeManager.ok_or_error(NodeManager.relay_list(ns, token), [])
+    rows = ns |> NodeManager.relay_rows(token) |> NodeManager.ok_or([])
+    groups = rows |> NodeManager.partition_groups(token) |> with_group_health(relays)
 
     plugin_counts =
       ns
-      |> NodeManager.operative_plugins()
+      |> NodeManager.relay_plugins(token)
       |> NodeManager.ok_or([])
       |> NodeManager.plugin_counts()
 
-    decorated = NodeManager.decorate_health(rows)
-    groups = NodeManager.partition_groups(decorated)
-
-    declared = NodeManager.ok_or(NodeManager.declared_namespace(ns), nil)
-    quotas = NodeManager.quota_usage(ns, declared && declared.quotas)
+    declared = NodeManager.ok_or(NodeManager.namespace_record(ns, token), nil)
+    quotas = NodeManager.quota_usage(ns, declared && declared.quotas, token)
 
     socket
     |> assign(
-      operatives: decorated,
+      relays: relays,
+      runs: ns |> NodeManager.relay_runs(token) |> NodeManager.ok_or(%{}),
       plugin_counts: plugin_counts,
       groups: groups,
-      runners: NodeManager.ok_or(NodeManager.list_runners(ns), []),
+      runners: ns |> NodeManager.runners(token) |> NodeManager.ok_or([]),
       declared: declared,
       quotas: quotas,
       # A breach is never hidden behind a click, so it outranks the screen's
       # own collapse default and whatever the viewer last chose.
       quota_breached: Enum.any?(quotas, & &1.breached?),
-      role_bindings: NodeManager.ok_or(NodeManager.role_bindings(ns), []),
+      role_bindings: ns |> NodeManager.roles(token) |> NodeManager.ok_or([]),
       load_error: load_error
     )
-    |> Topology.load_summary(ns, %{rows: decorated, groups: groups})
+    |> Topology.load_summary(ns, %{rows: rows, groups: groups})
   end
 
-  # Only the kinds whose value actually moved are sent, so a save does not
-  # rewrite limits the operator never touched.
-  defp changed_quotas(form, quotas) do
-    Enum.reduce(quotas, %{}, fn row, acc ->
-      typed = String.trim(Map.get(form, to_string(row.limit_key), ""))
+  # A group is as healthy as its sickest member, and `Relay.list/2` already
+  # answers its row ranked that way, so the panel takes it from there rather
+  # than ranking the members a second time.
+  defp with_group_health(groups, relays) do
+    health = Map.new(relays, &{to_string(&1.id), &1.health})
+    Enum.map(groups, &Map.put(&1, :health, Map.get(health, to_string(&1.id), :unknown)))
+  end
 
-      case Integer.parse(typed) do
-        {value, ""} when value != :error ->
-          if value == row.limit, do: acc, else: Map.put(acc, row.limit_key, value)
+  # The controller replaces a namespace's overrides whole, so every limit the
+  # record holds is sent, with the ones the operator typed written over it. A
+  # field left blank keeps the limit it had.
+  defp quota_limits(form, declared) do
+    held = (declared && declared.quotas) || %{}
 
-        _ ->
-          acc
+    Enum.reduce(form, held, fn {key, typed}, acc ->
+      case Integer.parse(String.trim(typed || "")) do
+        {value, ""} when value >= 0 -> put_limit(acc, key, value)
+        _blank_or_invalid -> acc
       end
     end)
   end
 
-  # Deliberately off the refresh tick: there is no bulk completion read on the
-  # controller, so this costs one call per persisted class that is not live.
-  # Loaded on arrival and when an operator asks for it again.
-  defp load_finished(socket) do
-    live = Enum.map(socket.assigns.operatives, & &1.id)
+  defp put_limit(limits, key, value) do
+    case Enum.find(Map.keys(limits), &(to_string(&1) == key)) do
+      nil -> limits
+      atom -> Map.put(limits, atom, value)
+    end
+  end
 
-    case NodeManager.finished_instances(socket.assigns.ns, live) do
-      {:ok, finished} -> assign(socket, finished: finished, finished_error: nil)
-      {:error, reason} -> assign(socket, finished: [], finished_error: reason)
+  defp stopped_message(id, %{stopped: :cooperative}),
+    do: "Relay #{id} is stopping: it finishes its in-flight work before it is removed."
+
+  defp stopped_message(id, _answer), do: "Relay #{id} stopped."
+
+  # Off the refresh tick and off the mount: the controller reads an overwatch
+  # per live relay to answer it, which is seconds on a busy namespace. Loaded
+  # once the screen is connected, and again when an operator asks for it.
+  # A read already in flight is left to finish: starting another would cancel
+  # it, and an operator clicking Reload twice would then never see an answer.
+  defp load_finished(%{assigns: %{finished_loading?: true}} = socket), do: socket
+
+  defp load_finished(socket) do
+    if connected?(socket) do
+      %{ns: ns, flezha_token: token} = socket.assigns
+
+      socket
+      |> assign(finished_loading?: true)
+      |> start_async(:finished, fn -> NodeManager.finished_relays(ns, token) end)
+    else
+      socket
+    end
+  end
+
+  @impl true
+  def handle_async(:finished, result, socket) do
+    socket = assign(socket, finished_loading?: false)
+
+    case result do
+      {:ok, {:ok, finished}} ->
+        {:noreply, assign(socket, finished: finished, finished_error: nil)}
+
+      {:ok, {:error, reason}} ->
+        {:noreply, assign(socket, finished: [], finished_error: reason)}
+
+      {:exit, reason} ->
+        {:noreply, assign(socket, finished: [], finished_error: {:remote_error, reason})}
     end
   end
 end

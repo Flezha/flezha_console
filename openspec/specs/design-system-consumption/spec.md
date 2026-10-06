@@ -1,23 +1,31 @@
 # design-system-consumption Specification
 
 ## Purpose
-TBD - created by archiving change restyle-on-flezha-stylebook. Update Purpose after archive.
+How the console takes its look from `flezha_stylebook`: the stylebook is a declared
+npm dependency rather than a copy, its token contract is gated in this repository,
+and components another Flezha surface could reuse are contributed upstream.
 ## Requirements
 ### Requirement: The stylebook is a declared dependency, not a copy
 
-`flezha_ui` SHALL depend on `flezha-stylebook` as an npm `file:` dependency
-declared in `assets/package.json`, and SHALL reference its CSS, JavaScript, fonts,
-and SVG assets through the package name. `flezha_ui` SHALL NOT keep a checked-in
-copy of the stylebook's stylesheets, behaviours, or logo kit.
+`flezha_ui` SHALL depend on the `flezha_stylebook` repository, published as the
+package `@flezha/stylebook`, as an npm `file:` dependency declared in
+`assets/package.json` as `file:../../flezha_stylebook`, and SHALL reference its
+CSS, JavaScript, fonts, and SVG assets through the package name. `flezha_ui` SHALL
+NOT keep a checked-in copy of the stylebook's stylesheets, behaviours, or logo kit.
 
 #### Scenario: A stylesheet or behaviour is referenced
 
 - **WHEN** `assets/css/app.css` or `assets/js/app.js` pulls in stylebook code
 - **THEN** it does so by package specifier, resolved through `assets/node_modules`
 
+#### Scenario: The package resolves to the sibling checkout
+
+- **WHEN** the asset dependencies are installed with `flezha_stylebook` checked out beside `flezha_ui`
+- **THEN** `assets/node_modules/@flezha/stylebook` resolves to that checkout and is not a dangling link
+
 #### Scenario: The stylebook changes upstream
 
-- **WHEN** a token or component recipe is edited in `flezha-stylebook`
+- **WHEN** a token or component recipe is edited in `flezha_stylebook`
 - **THEN** the next asset build in `flezha_ui` picks the change up with no copy step
 
 #### Scenario: No duplicate stylebook lives in the repo
@@ -72,7 +80,8 @@ network request to a third party.
 ### Requirement: The token contract is gated in this repository
 
 `flezha_ui` SHALL run the stylebook's token gate over its own source as part of
-its checks. The gate SHALL fail on a `var()` naming a token nobody defines, on a
+its checks, invoking the gate script through the installed `@flezha/stylebook`
+package. The gate SHALL fail on a `var()` naming a token nobody defines, on a
 token defined but never referenced, and on any ink/surface pairing below its WCAG
 AA floor in either theme.
 
@@ -80,6 +89,11 @@ AA floor in either theme.
 
 - **WHEN** a template or stylesheet uses `var(--not-a-token)`
 - **THEN** the gate reports it and fails
+
+#### Scenario: The gate runs from a clean checkout
+
+- **WHEN** a developer installs the asset dependencies with `flezha_stylebook` beside the project and runs `npm run tokens`
+- **THEN** the gate script is found through the installed package and reports its result, rather than failing because its path does not exist
 
 #### Scenario: The gate is discoverable
 
@@ -90,7 +104,7 @@ AA floor in either theme.
 ### Requirement: Shared components are contributed upstream
 
 A component that another Flezha surface could reasonably reuse SHALL be added to
-`flezha-stylebook`'s component recipes, not to `flezha_ui`'s local stylesheet —
+`flezha_stylebook`'s component recipes, not to `flezha_ui`'s local stylesheet —
 application shell, sidebar, sidebar section heading, topbar, breadcrumb trail,
 tab strip, collapsible section, command palette, menu, panel, table, stat tile,
 badge, modal, toast, code block, empty state. Component recipes SHALL be built
@@ -99,14 +113,14 @@ from tokens that already exist wherever the existing palette can carry them.
 #### Scenario: The console needs an application shell
 
 - **WHEN** the sidebar-and-topbar shell and the data-dense recipes are written
-- **THEN** they live in `flezha-stylebook/css/components.css`, are documented in
+- **THEN** they live in `flezha_stylebook/css/components.css`, are documented in
   its README, and `flezha_ui` merely applies the classes
 
 #### Scenario: The console needs navigation recipes
 
 - **WHEN** the breadcrumb trail, sidebar section heading, tab strip, collapsible
   section, command palette, and menu are written
-- **THEN** they live in `flezha-stylebook/css/components.css`, appear in its
+- **THEN** they live in `flezha_stylebook/css/components.css`, appear in its
   README app-layer table, and `flezha_ui` merely applies the classes
 
 #### Scenario: A new recipe is added upstream
@@ -123,7 +137,8 @@ from tokens that already exist wherever the existing palette can carry them.
 
 #### Scenario: The stylebook records its consumers
 
-- **WHEN** `flezha-stylebook/README.md` is read after this change
+- **WHEN** `flezha_stylebook/README.md` is read
 - **THEN** `flezha_ui` is listed as a live consumer rather than a planned one, and
   the new assets and app-layer classes appear in its contents table
+- **AND** its install snippet names the dependency `file:../flezha_stylebook`
 

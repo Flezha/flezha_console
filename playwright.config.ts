@@ -11,8 +11,8 @@ export default defineConfig({
   testDir: './e2e',
 
   // The dev stack is one controller with one shared `default` namespace and one
-  // shared `testnet_store_1` operative. Several specs assert that a count
-  // returns to its starting value — which is what catches a leaked operative or
+  // shared `testnet_store_1` relay. Several specs assert that a count
+  // returns to its starting value — which is what catches a leaked relay or
   // binding — and concurrent workers mutating that state would make those
   // assertions lie in both directions.
   fullyParallel: false,

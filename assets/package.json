@@ -3,6 +3,6 @@
   "private": true,
   "description": "Asset dependencies for flezha_ui. The stylebook is a sibling checkout, not a copy.",
   "dependencies": {
-    "@flezha/stylebook": "file:../../flezha-stylebook"
+    "@flezha/stylebook": "file:../../flezha_stylebook"
   }
 }

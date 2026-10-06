@@ -148,4 +148,5 @@ namespaces = assigns[:shell_namespaces] || [] %>
   id={FlezhaUiWeb.CommandPalette.id()}
   namespaces={namespaces}
   scope={scope}
+  token={FlezhaUi.Accounts.Scope.flezha_token(assigns[:current_scope])}
 />

@@ -41,6 +41,10 @@ test.describe('Cluster and fleet', () => {
     await expect(runners.locator('li').first()).toContainText('store_input');
   });
 
+  test("each factory states its run, as its runners announce it", async ({ page }) => {
+    await expect(page.getByTestId('factory-store_input')).toContainText('flow');
+  });
+
   test('looks up which runners serve a factory, and clears the selection', async ({ page }) => {
     await page.getByTestId('factory-store_input').click();
 

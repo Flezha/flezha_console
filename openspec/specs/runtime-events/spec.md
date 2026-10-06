@@ -3,73 +3,30 @@
 ## Purpose
 TBD - created by archiving change resync-with-flezha-runtime. Update Purpose after archive.
 ## Requirements
-### Requirement: Subscriptions run in a node-resident relay
-
-For every controller API that registers the calling process as a subscriber, the UI SHALL establish the subscription from a relay process spawned on the flezha node, and that relay SHALL forward received messages to a named UI process. The UI SHALL NOT establish such subscriptions with a direct `:erpc` call, because the process an `:erpc` call runs in does not outlive the call.
-
-#### Scenario: Establishing the event subscription
-
-- **WHEN** the event bridge connects to the controller
-- **THEN** a relay process is spawned on the flezha node
-- **AND** the relay calls `Flezha.Service.EventManager.add_handler/1` from its own process
-- **AND** the relay remains alive after the establishing call returns
-
-### Requirement: The relay is shipped to the controller as a module
-
-The relay SHALL be a named module whose object code is loaded onto the controller before it is spawned, and it SHALL reference only OTP and `Flezha.*` modules. The UI SHALL NOT spawn an anonymous function on the controller, since a function carries its defining module and no module of this application exists there.
-
-#### Scenario: The controller has none of this application's code
-
-- **WHEN** the relay is started on a node whose code path excludes this application
-- **THEN** the relay module is loaded onto that node first
-- **AND** the relay runs there without `:undef`
-
-#### Scenario: The relay module cannot be loaded
-
-- **WHEN** loading the relay onto the controller fails
-- **THEN** the bridge reports the failure and retries rather than spawning a relay that cannot run
-
 ### Requirement: Runner lifecycle events reach LiveViews
 
-Runner connect and disconnect events SHALL be relayed from the controller and broadcast on the UI's PubSub so subscribed LiveViews update without a page reload.
+Runner connect and disconnect events SHALL reach the UI as the runner session signals core publishes on an observability source, SHALL be forwarded by `EventFeed`, and SHALL be broadcast on the UI's PubSub topic `"flezha:events"` as runner-connected and runner-disconnected messages, so subscribed LiveViews update without a page reload.
 
 #### Scenario: A runner connects
 
-- **WHEN** the controller dispatches `:runner_connected_event`
-- **THEN** the relay forwards it and the bridge broadcasts a runner-connected message
+- **WHEN** a runner connects and the controller publishes its runner-connected signal
+- **THEN** `EventFeed` forwards it and the bridge broadcasts a runner-connected message
 - **AND** subscribed LiveViews update their runner list
 
 #### Scenario: A runner disconnects
 
-- **WHEN** the controller dispatches `:runner_disconnected_event`
+- **WHEN** a runner disconnects and the controller publishes its runner-disconnected signal
 - **THEN** subscribed LiveViews reflect the runner's departure
 
-#### Scenario: Old event names are gone
+#### Scenario: Other signals on the same source are ignored
 
-- **WHEN** the codebase is searched for `compute_engine_connected` or `compute_engine_disconnected`
-- **THEN** no occurrence exists
+- **WHEN** the tailed source carries a signal that is not a runner session signal
+- **THEN** no runner message is broadcast for it
 
-### Requirement: Relay recovery
+#### Scenario: Retired event names stay gone
 
-The bridge SHALL monitor its relay and re-establish the subscription when the relay dies or the controller node reconnects. Before spawning a replacement, it SHALL remove the prior handler and terminate any prior relay, so at most one relay per subscription exists at any time.
-
-#### Scenario: The controller node restarts
-
-- **WHEN** the controller goes down and comes back
-- **THEN** the bridge establishes a new relay
-- **AND** events flow again without restarting the UI
-
-#### Scenario: Reconnect does not duplicate subscribers
-
-- **WHEN** the bridge reconnects several times
-- **THEN** exactly one relay is registered on the controller
-- **AND** each event is broadcast to the UI exactly once
-
-#### Scenario: The relay cannot be established
-
-- **WHEN** relay spawning fails
-- **THEN** the bridge retries on its backoff interval
-- **AND** affected screens fall back to periodic refresh so data still updates
+- **WHEN** the naming gate runs over the tracked tree
+- **THEN** it fails on any occurrence of `compute_engine`, so `compute_engine_connected` and `compute_engine_disconnected` cannot return
 
 ### Requirement: Observability sources and sinks are listed
 
@@ -82,13 +39,13 @@ The UI SHALL list the controller's observability sources from `Flezha.Service.Ob
 
 #### Scenario: Observability is disabled on the controller
 
-- **WHEN** the calls answer `{:error, :observability_disabled}`
+- **WHEN** the calls answer `{:error, %Flezha.Error{code: "observability.disabled"}}`
 - **THEN** the screen states that observability is switched off on this controller
 
 #### Scenario: The calls are refused
 
-- **WHEN** the calls answer `{:error, {:forbidden, reason}}`
-- **THEN** the screen states the refusal and names the reason
+- **WHEN** the calls answer `{:error, %Flezha.Error{class: :denied}}`
+- **THEN** the screen states the refusal and gives the error's code and message
 
 ### Requirement: Sources are toggled from the UI
 
@@ -110,34 +67,93 @@ An operator SHALL be able to enable and disable an observability source through 
 - **WHEN** the controller refuses the toggle
 - **THEN** the refusal is shown and the source's state is unchanged
 
-### Requirement: Signal tails run in the same node-resident relay
+### Requirement: Controller subscriptions are taken through the published tail operations
 
-A live tail of an observability source or of the audit log SHALL be carried by `FlezhaUi.Service.EventRelay` on the controller, the mechanism already used for runtime events, because those subscriptions register the calling process and an `:erpc` call's process does not outlive the call. A second subscription mechanism SHALL NOT be introduced.
+Every live controller subscription the UI holds — runner session events, an observability source's signals, the audit log's records — SHALL be taken through a published stream operation of the consumer API (`Flezha.Service.Observability.tail/2` or `Flezha.Service.AuditLog.tail/2`) with the UI's caller context, and SHALL be held by `FlezhaUi.Service.EventFeed`, which receives the signals on the UI node and forwards each one to the UI process that asked for it. The UI SHALL NOT call `Flezha.Service.EventManager` or any other unpublished controller module to subscribe.
+
+#### Scenario: Establishing the runner event subscription
+
+- **WHEN** the event bridge connects to the controller
+- **THEN** it asks `EventFeed` to tail the observability source on which core publishes runner session signals
+- **AND** the tail is established through `Flezha.Service.Observability.tail/2` with the UI's caller context
+- **AND** the subscription stays in place for as long as the `EventFeed` process holding it lives
+
+#### Scenario: No unpublished subscription call remains
+
+- **WHEN** `lib/` is searched for `Flezha.Service.EventManager`, `add_handler` or `rem_handler`
+- **THEN** no occurrence exists
+
+### Requirement: Event feed recovery
+
+The bridge SHALL monitor the controller connection and the feed's subscription and SHALL re-establish the subscription when the subscription ends or the controller node reconnects. A subscription SHALL be released by stopping the `EventFeed` process that holds it; the controller watches that process and removes the subscription when it exits. Before taking a replacement subscription the bridge SHALL stop the process holding the prior one, so at most one subscription per tail exists at any time.
+
+#### Scenario: The controller node restarts
+
+- **WHEN** the controller goes down and comes back
+- **THEN** the bridge takes a new subscription
+- **AND** events flow again without restarting the UI
+
+#### Scenario: Reconnect does not duplicate subscribers
+
+- **WHEN** the bridge reconnects several times
+- **THEN** exactly one subscription for the runner session source is held for the UI
+- **AND** each event is broadcast to the UI exactly once
+
+#### Scenario: The subscription cannot be established
+
+- **WHEN** the tail call fails or is refused
+- **THEN** the bridge retries on its backoff interval
+- **AND** affected screens fall back to periodic refresh so data still updates
+
+#### Scenario: Observability is switched off on the controller
+
+- **WHEN** the tail call answers `{:error, %Flezha.Error{code: "observability.disabled"}}` or `{:error, %Flezha.Error{code: "observability.pubsub_disabled"}}`
+- **THEN** the bridge logs that runner events are unavailable and keeps retrying on its backoff interval
+- **AND** screens that list runners still update on their refresh tick
+
+### Requirement: Every tail rides the event feed
+
+A live tail of an observability source or of the audit log SHALL be carried by `FlezhaUi.Service.EventFeed`, the mechanism that carries runtime events. A second subscription mechanism SHALL NOT be introduced.
 
 #### Scenario: Tailing a source
 
 - **WHEN** an operator starts a live tail of an observability source
-- **THEN** the subscription is registered by the relay process on the controller
+- **THEN** `EventFeed` takes the subscription through `Flezha.Service.Observability.tail/2`
 - **AND** signals arrive in the LiveView without a page reload
 
 #### Scenario: Tailing the audit log
 
 - **WHEN** an operator starts a live audit tail
-- **THEN** the same relay carries it
+- **THEN** `EventFeed` carries it, through `Flezha.Service.AuditLog.tail/2`
 
-#### Scenario: One relay
+#### Scenario: One feed
 
-- **WHEN** the codebase is searched for controller-side subscription registration
-- **THEN** only `EventRelay` registers one
+- **WHEN** `lib/` is searched for calls that take a controller subscription
+- **THEN** only `EventFeed` makes them
 
-#### Scenario: The relay dies
+#### Scenario: The subscription ends
 
-- **WHEN** the relay process on the controller stops
-- **THEN** the tail is re-established by the existing relay recovery path
+- **WHEN** a tail's subscription ends while the screen is open, because the controller restarted or the connection dropped
+- **THEN** the tail is re-established by the event feed's recovery path
 - **AND** the screen states that the tail reconnected rather than silently stopping
 
 #### Scenario: The pubsub sink is disabled
 
-- **WHEN** the tail answers `{:error, :pubsub_sink_disabled}`
+- **WHEN** the tail answers `{:error, %Flezha.Error{code: "observability.pubsub_disabled"}}`
 - **THEN** the screen states that live tailing is unavailable and the query-based view still works
+
+### Requirement: No code of this application runs on the controller
+
+The UI SHALL hand the controller only data — call arguments and its caller context. It SHALL NOT compile, load or spawn any module or anonymous function of its own on the controller node, so the console and the controller may run different Elixir and Erlang/OTP releases.
+
+#### Scenario: Nothing is compiled or loaded remotely
+
+- **WHEN** `lib/` is searched for `Code.compile_string`, `:code.load_binary` or a `Node.spawn` / `Node.spawn_link` aimed at the controller
+- **THEN** no occurrence exists
+
+#### Scenario: A controller without this application's code
+
+- **WHEN** the UI tails runner events, an observability source and the audit log against a controller whose code path holds no module of this application
+- **THEN** every tail delivers its signals to the UI
+- **AND** no `:undef` or `:badfun` is raised on the controller
 

@@ -19,7 +19,7 @@ defmodule FlezhaUiWeb.DisconnectedScreensTest do
   for {route, name} <- [
         {"/", "dashboard"},
         {"/namespaces", "namespaces"},
-        {"/operatives", "operatives index"},
+        {"/relays", "relays index"},
         {"/controller", "controller health"},
         {"/observability", "observability"},
         {"/cluster", "cluster"},
@@ -27,8 +27,9 @@ defmodule FlezhaUiWeb.DisconnectedScreensTest do
         {"/schedules", "schedules"},
         {"/dlq", "dead-letter queue"},
         {"/audit", "audit log"},
-        {"/namespaces/default/operatives/op_a", "operative detail"},
-        {"/namespaces/default/operatives/op_a/state", "operative state"}
+        {"/namespaces/default/relays/relay_a", "relay detail"},
+        {"/namespaces/default/relays/relay_a/listen", "relay listen"},
+        {"/namespaces/default/relays/relay_a/state", "relay state"}
       ] do
     test "the #{name} screen renders without a controller", %{conn: conn} do
       assert {:ok, _view, html} = live(conn, unquote(route))
@@ -39,30 +40,29 @@ defmodule FlezhaUiWeb.DisconnectedScreensTest do
     end
   end
 
-  test "the start form still opens, offering the kinds this UI knows", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/operatives")
+  test "the start form still opens, asking for no run", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/relays")
 
     html = render_click(view, "launcher_open", %{})
 
-    # The kinds fall back to this UI's candidates, without claiming
-    # capabilities it could not read.
+    # The factories could not be read, so the field takes a typed id, and how
+    # the relay runs is never a field.
     assert html =~ ~s(data-testid="start-modal")
-    assert has_element?(view, ~s([data-testid="input-kind"] option[value="stream"]))
-    assert has_element?(view, ~s([data-testid="input-kind"] option[value="workflow"]))
-    refute html =~ "persistent_state?"
+    assert has_element?(view, ~s([data-testid="input-factory-id"]))
+    refute has_element?(view, ~s([name="start[run]"]))
+    refute has_element?(view, ~s([data-testid="factory-run"]))
   end
 
   test "a start with nothing to start into is refused rather than attempted", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/operatives")
+    {:ok, view, _html} = live(conn, ~p"/relays")
     render_click(view, "launcher_open", %{})
 
     html =
       render_submit(view, "launcher_submit", %{
         "start" => %{
           "namespace" => "",
-          "id" => "op_a",
+          "id" => "relay_a",
           "factory_id" => "store_input",
-          "kind" => "stream",
           "init_values" => "",
           "snapshot_interval" => ""
         }
@@ -72,11 +72,21 @@ defmodule FlezhaUiWeb.DisconnectedScreensTest do
     assert html =~ "A namespace is required."
   end
 
+  test "the listen screen says it could not attach rather than spinning", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/namespaces/default/relays/relay_a/listen")
+
+    # The feed reports its refusal to the screen asynchronously.
+    assert FlezhaUi.PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="listen-error") end)
+    assert render(view) =~ "Not connected to a flezha controller"
+  end
+
   test "the seam reports no connection rather than raising", _context do
     # The shape every one of those screens depends on.
-    assert FlezhaUi.Service.NodeManager.connected_node() == nil
-    assert {:error, :node_not_connected} = FlezhaUi.Service.NodeManager.operative_rows("default")
-    assert {:error, :node_not_connected} = FlezhaUi.Service.NodeManager.enforcement_posture()
-    assert {:error, :node_not_connected} = FlezhaUi.Service.NodeManager.factory_catalog("default")
+    alias FlezhaUi.Service.NodeManager
+
+    assert NodeManager.connected_node() == nil
+    assert {:error, :node_not_connected} = NodeManager.relay_list("default", nil)
+    assert {:error, :node_not_connected} = NodeManager.enforcement_posture()
+    assert {:error, :node_not_connected} = NodeManager.factory_catalog("default", nil)
   end
 end

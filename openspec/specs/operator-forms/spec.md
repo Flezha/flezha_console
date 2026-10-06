@@ -1,7 +1,9 @@
 # operator-forms Specification
 
 ## Purpose
-TBD - created by archiving change add-operative-launcher. Update Purpose after archive.
+How the console's forms behave: one field component, dialogs sized by role, JSON
+fields that are readable to edit, and values offered from what the controller
+reports rather than typed from memory.
 ## Requirements
 ### Requirement: One field component
 
@@ -54,13 +56,13 @@ A field taking a JSON document SHALL be rendered tall enough to show a small obj
 
 #### Scenario: Editing init values
 
-- **WHEN** an operator edits a JSON field such as an operative's init values
+- **WHEN** an operator edits a JSON field such as a relay's init values
 - **THEN** the editor shows several lines at once
 - **AND** the text is monospaced
 
 ### Requirement: Enumerable values are offered, not typed
 
-Where the controller can report the set a field's value must come from — a namespace, a factory, an operative kind — the field SHALL offer that set as a selection. Free text SHALL remain available only as the fallback for a controller that cannot answer, and SHALL be presented as a fallback rather than as the normal path.
+Where the controller can report the set a field's value must come from — a namespace, a factory, a plugin provider — the field SHALL offer that set as a selection. Free text SHALL remain available only as the fallback for a controller that cannot answer, and SHALL be presented as a fallback rather than as the normal path. A value the controller decides rather than the operator, such as the run of the chosen factory, SHALL be shown read-only and SHALL NOT be offered as a field.
 
 #### Scenario: The controller can report the set
 
@@ -78,4 +80,10 @@ Where the controller can report the set a field's value must come from — a nam
 - **WHEN** the controller reports that the set is empty
 - **THEN** the field says so
 - **AND** it does not present an empty selection as if it were a choice
+
+#### Scenario: A value the controller decides
+
+- **WHEN** a form depends on a value the controller fixes, such as whether a factory runs as `flow` or `steps`
+- **THEN** the form states that value next to the choice it follows from
+- **AND** no control lets the operator set it
 

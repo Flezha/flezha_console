@@ -19,8 +19,14 @@ Every call into `Flezha.Service.AuditLog` SHALL supply the caller context built 
 
 #### Scenario: No principal is bound
 
-- **WHEN** an audit read answers `{:error, {:forbidden, :principal_not_bound}}`
+- **WHEN** an audit read answers `{:error, %Flezha.Error{code: "authz.principal_not_bound"}}`
 - **THEN** the screen states that a flezha token is required and links to settings
+- **AND** the log is not rendered as empty
+
+#### Scenario: The bound role may not read the audit log
+
+- **WHEN** an audit read answers `{:error, %Flezha.Error{class: :denied}}` with any other `authz.*` code
+- **THEN** the screen states the refusal with its code and message
 - **AND** the log is not rendered as empty
 
 ### Requirement: Audit file catalog
@@ -34,7 +40,7 @@ The UI SHALL list the controller's audit log files with the metadata the control
 
 #### Scenario: Audit logging is disabled
 
-- **WHEN** the controller returns `{:error, :audit_log_disabled}` or `{:error, :observability_disabled}`
+- **WHEN** the controller returns `{:error, %Flezha.Error{code: "audit.disabled"}}` or `{:error, %Flezha.Error{code: "observability.disabled"}}`
 - **THEN** the screen explains which flag is off and how to enable it
 - **AND** presents this as a configuration state, not a failure
 
@@ -60,12 +66,12 @@ An operator SHALL be able to read audit records filtered by file, source, name, 
 
 ### Requirement: Live tail
 
-An operator SHALL be able to tail the audit log live. The tail SHALL start paused, SHALL be established through the node-resident relay, and SHALL be unsubscribed when stopped or when the screen closes.
+An operator SHALL be able to tail the audit log live. The tail SHALL start paused, SHALL be established through `FlezhaUi.Service.EventFeed` by `Flezha.Service.AuditLog.tail/2`, and SHALL be released by stopping the `EventFeed` process holding it when the tail is stopped or the screen closes; the controller removes the subscription when that process exits.
 
 #### Scenario: Starting a tail
 
 - **WHEN** an operator starts the tail
-- **THEN** a relay is established and new records appear as they are written
+- **THEN** the event feed takes the subscription and new records appear as they are written
 
 #### Scenario: The screen opens
 
@@ -76,6 +82,11 @@ An operator SHALL be able to tail the audit log live. The tail SHALL start pause
 
 - **WHEN** an operator navigates away while tailing
 - **THEN** the tail subscription is removed on the controller
+
+#### Scenario: The tail is refused
+
+- **WHEN** `AuditLog.tail/2` answers `{:error, %Flezha.Error{}}`
+- **THEN** the screen states that the tail could not be started, with the error's code and message, and the filtered reads still work
 
 ### Requirement: Audit statistics
 

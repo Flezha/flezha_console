@@ -1,7 +1,9 @@
 # visual-identity Specification
 
 ## Purpose
-TBD - created by archiving change restyle-on-flezha-stylebook. Update Purpose after archive.
+How the console looks and identifies itself: its brand lockup and favicon, one
+source of colour, status colour that states an outcome, one control vocabulary, and
+the shared theme contract.
 ## Requirements
 ### Requirement: The console carries a Flezha UI brand lockup
 
@@ -9,7 +11,7 @@ The console SHALL identify itself with a `flezha-ui` lockup built on the same
 construction as the `flezha-market` lockups: the F mark and the FLEZHA wordmark on
 the left with a letterspaced `UI` sub-wordmark beneath, a hairline vertical rule,
 and a pipeline node-graph mark on the right. The lockup SHALL be a true-vector SVG
-shipped by `flezha-stylebook`, not text styled to look like a wordmark and not a
+shipped by `flezha_stylebook`, not text styled to look like a wordmark and not a
 raster image.
 
 The lockup SHALL exist in the same variant matrix as the other Flezha lockups:
@@ -43,7 +45,7 @@ The lockup SHALL exist in the same variant matrix as the other Flezha lockups:
 ### Requirement: The console ships the Flezha favicon
 
 The console SHALL serve the Flezha group favicon — the rounded-square gradient F
-mark from `flezha-stylebook` — as an SVG icon with a raster fallback, and SHALL NOT
+mark from `flezha_stylebook` — as an SVG icon with a raster fallback, and SHALL NOT
 ship the stock Phoenix favicon.
 
 #### Scenario: A browser requests the icon
@@ -59,7 +61,7 @@ ship the stock Phoenix favicon.
 
 ### Requirement: Colour has exactly one source
 
-Every colour the console paints SHALL resolve to a `flezha-stylebook` token.
+Every colour the console paints SHALL resolve to a `flezha_stylebook` token.
 `flezha_ui` SHALL NOT define its own colour tokens and SHALL NOT contain colour
 literals — no hex, `rgb()`, `hsl()`, or named colour — in stylesheets, templates,
 Elixir modules, JavaScript, or build configuration.
@@ -88,9 +90,9 @@ SHALL NOT reuse a brand colour. The gold accent marks interaction and the
 magenta brand colour is a fill; neither reports status. Every solid fill SHALL
 be painted with its matched foreground token.
 
-#### Scenario: An operative's health is rendered
+#### Scenario: A relay's health is rendered
 
-- **WHEN** the health of an operative is shown in either theme
+- **WHEN** the health of a relay is shown in either theme
 - **THEN** healthy reads green, degraded and unbound read amber, and failed
   reads red, each from its semantic token
 
@@ -108,7 +110,7 @@ be painted with its matched foreground token.
 
 ### Requirement: Controls share one vocabulary
 
-Every control SHALL take its skin from `flezha-stylebook`. Text inputs,
+Every control SHALL take its skin from `flezha_stylebook`. Text inputs,
 selects, textareas and a dropdown trigger SHALL be the same box; a labelled
 control SHALL use the shared field block; a picker whose menu must be styled
 SHALL use the shared dropdown, and an exclusive set of choices the shared
@@ -187,7 +189,7 @@ theme.
 ### Requirement: Every screen is rendered on the shared component vocabulary
 
 Every LiveView template, controller template, layout, and core component SHALL
-express its surfaces, controls, and data displays through `flezha-stylebook`
+express its surfaces, controls, and data displays through `flezha_stylebook`
 component classes rather than locally invented ones. Tailwind utilities SHALL be
 limited to layout and spacing.
 

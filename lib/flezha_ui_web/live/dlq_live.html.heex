@@ -5,9 +5,9 @@
       <form phx-change="filter" class="w-64">
         <.input
           type="text"
-          name="filter[operative_class]"
+          name="filter[relay_class]"
           value={@filter}
-          placeholder="Filter by operative class"
+          placeholder="Filter by relay class"
           compact
           data-testid="dlq-filter"
         />
@@ -22,19 +22,21 @@
       <.notice testid="replay-pending" icon="hero-arrow-path">
         Replaying
         <.mono>{ref}</.mono>
-        — waiting to see whether it parks again.
+        — the controller is waiting to see whether it parks again.
       </.notice>
     <% {:replayed, ref} -> %>
       <.notice testid="replay-succeeded" icon="hero-check-circle">
-        Replayed <.mono>{ref}</.mono>: the payload was accepted.
+        Replayed <.mono>{ref}</.mono>: the payload was accepted and the entry left the queue.
       </.notice>
-    <% {:reparked, ref, error} -> %>
+    <% {:reparked, ref, generation} -> %>
       <.notice kind={:error} testid="replay-reparked">
         <.mono>{ref}</.mono>
-        failed again and was parked: {error || "no error reported"}
+        failed again and was parked as generation {generation}; its new error is on the row.
       </.notice>
-    <% {:unknown, _ref, reason} -> %>
-      <.runtime_error error={reason} />
+    <% {:refused, _ref, reason} -> %>
+      <div data-testid="replay-refused">
+        <.runtime_error error={reason} action="the replay" />
+      </div>
     <% nil -> %>
   <% end %>
 
@@ -46,10 +48,10 @@
     <div data-testid="dlq-stats" class="grid grid-cols-3 gap-4">
       <div :for={stat <- @stats} class="bg-surface-input border border-brd rounded-xl px-4 py-3">
         <p class="flz-label">
-          {stat["operative_class"] || stat[:operative_class] || "total"}
+          {stat[:relay_class]}/{stat[:tasklet_id]}
         </p>
         <p class="text-2xl font-bold text-th-primary font-mono mt-1">
-          {stat["count"] || stat[:count] || 0}
+          {stat[:entries] || 0}
         </p>
       </div>
     </div>
@@ -63,21 +65,21 @@
       <.empty_state icon="hero-check-circle" testid="dlq-empty">
         {if @filter == "",
           do: "The dead-letter queue is empty.",
-          else: "No parked entries for that operative class."}
+          else: "No parked entries for that relay class."}
       </.empty_state>
     <% else %>
       <div
         :for={group <- @groups}
-        data-testid={"dlq-group-#{group.operative_class}-#{group.procedure_id}"}
+        data-testid={"dlq-group-#{group.relay_class}-#{group.tasklet_id}"}
         class="border-b border-brd last:border-b-0"
       >
         <div class="px-5 py-3 flex items-center gap-3 bg-surface-input/40">
           <.icon name="hero-folder" class="w-3.5 h-3.5 text-th-tertiary" />
           <span class="font-mono text-xs text-th-primary">
-            {group.operative_class}/{group.procedure_id}
+            {group.relay_class}/{group.tasklet_id}
           </span>
           <span
-            data-testid={"dlq-group-count-#{group.operative_class}-#{group.procedure_id}"}
+            data-testid={"dlq-group-count-#{group.relay_class}-#{group.tasklet_id}"}
             class="text-[11px] text-th-tertiary font-mono"
           >
             {group.parked} parked
@@ -88,7 +90,7 @@
             <thead>
               <tr>
                 <th>Entry</th>
-                <th>Entity</th>
+                <th>Cell</th>
                 <th>Channel</th>
                 <th>Gen</th>
                 <th>Age</th>
@@ -103,7 +105,7 @@
               >
                 <td class="text-th-primary flz-num text-xs">{entry.ref}</td>
                 <td class="flz-num text-xs">
-                  {entry.entity_key || "—"}
+                  {entry.cell_key || "—"}
                 </td>
                 <td class="text-xs">{entry.channel || "—"}</td>
                 <td class="text-xs">{entry.generation}</td>
@@ -187,8 +189,10 @@
   confirm_testid="dlq-confirm-submit"
 >
   <%= if @confirm.action == "replay" do %>
-    Re-dispatch <.mono>{@confirm.ref}</.mono>. If it fails again it will be parked again, and the
-    outcome will be reported here.
+    Re-send
+    <.mono>{@confirm.ref}</.mono>
+    to its relay as a new input. If it fails again it is
+    parked again, and the outcome is reported here.
   <% else %>
     Discard
     <.mono>{@confirm.ref}</.mono>

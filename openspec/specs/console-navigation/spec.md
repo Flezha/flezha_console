@@ -4,14 +4,14 @@
 The console's information architecture: how an operator reaches a screen,
 what tells them where they are, and what a screen says about its own
 currency.
-
 ## Requirements
 ### Requirement: The sidebar separates namespace-scoped from platform-global
 
 The navigation rail SHALL present two labelled sections. A `NAMESPACE` section
-SHALL hold Overview, Operatives, Plugins and Schedules for the namespace in
+SHALL hold Overview, Relays, Plugins and Schedules for the namespace in
 scope. A `PLATFORM` section SHALL hold Dashboard, Fleet, Namespaces, Cluster,
-Controller, Observability, Dead-letter and Audit. A screen SHALL appear in the
+Controller, Observability, Dead-letter and Audit, where Fleet is the listing of
+every reachable relay at `/relays`. A screen SHALL appear in the
 `NAMESPACE` section only when the controller call behind it accepts a namespace,
 or when the rows it returns each carry one. With no namespace in scope the
 `NAMESPACE` section SHALL say so rather than offer destinations it has no scope
@@ -21,6 +21,12 @@ to point at.
 
 - **WHEN** an operator looks at the sidebar
 - **THEN** the two groups are separated and each carries a visible heading
+
+#### Scenario: The scoped relay entry
+
+- **WHEN** a namespace is in scope
+- **THEN** the `NAMESPACE` section's Relays entry points at `/namespaces/:ns/relays`
+- **AND** the `PLATFORM` section's Fleet entry points at `/relays`
 
 #### Scenario: No namespace is in scope
 
@@ -53,8 +59,8 @@ display.
 
 #### Scenario: The scope is in the address bar
 
-- **WHEN** an operator opens a namespace's operatives
-- **THEN** the URL is `/namespaces/:ns/operatives`
+- **WHEN** an operator opens a namespace's relays
+- **THEN** the URL is `/namespaces/:ns/relays`
 
 #### Scenario: A shared link opens the same scope
 
@@ -77,8 +83,13 @@ namespace's overview.
 
 #### Scenario: Switching scope keeps the screen
 
-- **WHEN** an operator viewing one namespace's operatives picks another namespace
-- **THEN** they land on the second namespace's operatives, not on a list
+- **WHEN** an operator viewing one namespace's relays picks another namespace
+- **THEN** they land on the second namespace's relays, not on a list
+
+#### Scenario: Switching scope from one relay
+
+- **WHEN** an operator viewing one relay picks another namespace
+- **THEN** they land on the second namespace's relays, because the relay id means nothing there
 
 #### Scenario: Switching scope from a platform screen
 
@@ -95,12 +106,19 @@ namespace's overview.
 A screen deeper than the top level SHALL render a breadcrumb trail naming each
 ancestor in words, with every ancestor but the current screen navigable. The
 trail SHALL be derived from the route by the shell, not assembled by each screen.
+The crumb for the `relays` segment SHALL read Relays, for `listen` Listen, and for
+`state` State.
 
 #### Scenario: A deep screen names its ancestors
 
-- **WHEN** an operator opens an operative's durable state
-- **THEN** the trail names the namespace, the operative, and the current view
-- **AND** the namespace and the operative are links
+- **WHEN** an operator opens a relay's state at `/namespaces/:ns/relays/:id/state`
+- **THEN** the trail names the namespace, Relays, the relay, and State
+- **AND** the namespace, Relays and the relay are links
+
+#### Scenario: The listen view's crumb
+
+- **WHEN** an operator opens `/namespaces/:ns/relays/:id/listen`
+- **THEN** the last crumb reads Listen
 
 #### Scenario: The current crumb is not a link
 
@@ -124,21 +142,21 @@ as a tab strip on the object, with the active view marked. Each tab SHALL remain
 its own route so that a view holding a live subscription is not mounted while
 another view is being read.
 
-#### Scenario: An operative's three views
+#### Scenario: A relay's three views
 
-- **WHEN** an operator opens an operative
-- **THEN** Detail, Stream and State are shown as tabs on that operative
+- **WHEN** an operator opens a relay
+- **THEN** Detail, Listen and State are shown as tabs on that relay
 - **AND** the active tab is marked with `aria-current`
 
 #### Scenario: Tabs navigate rather than toggle panels
 
-- **WHEN** an operator selects the Stream tab
-- **THEN** the browser navigates to the stream route
+- **WHEN** an operator selects the Listen tab
+- **THEN** the browser navigates to `/namespaces/:ns/relays/:id/listen`
 
-#### Scenario: Leaving the stream releases it
+#### Scenario: Leaving the listen view releases it
 
-- **WHEN** an operator moves from the Stream tab to the State tab
-- **THEN** the stream's live subscription is not left running
+- **WHEN** an operator moves from the Listen tab to the State tab
+- **THEN** the listen view's live subscription is not left running
 
 ### Requirement: Long screens open on what matters
 
@@ -170,15 +188,15 @@ visit. A section's open state SHALL persist per viewer.
 ### Requirement: A command palette reaches any object by name
 
 The shell SHALL offer a command palette on `Cmd+K` and `Ctrl+K` that navigates to
-an operative by id, a namespace by name, or any screen by name. The palette SHALL
+a relay by id, a namespace by name, or any screen by name. The palette SHALL
 NOT open while a text input has focus. Every destination the palette offers SHALL
 also be reachable by clicking.
 
-#### Scenario: Jumping to an operative
+#### Scenario: Jumping to a relay
 
-- **WHEN** an operator opens the palette and types an operative id
-- **THEN** the matching operative is offered with its namespace and health
-- **AND** choosing it opens that operative
+- **WHEN** an operator opens the palette and types a relay id
+- **THEN** the matching relay is offered with its namespace and health
+- **AND** choosing it opens `/namespaces/:ns/relays/:id`
 
 #### Scenario: Jumping to a screen
 
@@ -193,16 +211,16 @@ also be reachable by clicking.
 #### Scenario: The index is built on first open
 
 - **WHEN** an operator loads a screen and never opens the palette
-- **THEN** no operative listing call is made on that screen's behalf for the palette
+- **THEN** no relay listing call is made on that screen's behalf for the palette
 
 #### Scenario: A stale entry
 
-- **WHEN** an operator chooses an operative that has since stopped
-- **THEN** the operative screen's existing not-found state is shown rather than an error page
+- **WHEN** an operator chooses a relay that has since stopped
+- **THEN** the relay screen's existing not-found state is shown rather than an error page
 
 #### Scenario: Nothing matches
 
-- **WHEN** the typed text matches no operative, namespace, or screen
+- **WHEN** the typed text matches no relay, namespace, or screen
 - **THEN** the palette says so rather than showing an empty list
 
 ### Requirement: Account controls are one menu
@@ -247,3 +265,29 @@ paused screen SHALL stop replacing what is on display.
 
 - **WHEN** a screen that suspends refreshing while a modal is open has one open
 - **THEN** refreshing is suspended as before, independently of the operator's pause
+
+### Requirement: Relay routes
+
+The router SHALL serve relays at these paths and no others: `/relays` for every
+reachable relay, `/namespaces/:ns/relays` for one namespace's relays,
+`/namespaces/:ns/relays/:id` for one relay's detail,
+`/namespaces/:ns/relays/:id/listen` for its live input and output, and
+`/namespaces/:ns/relays/:id/state` for its state. The retired `/operatives`
+paths and the `…/stream` view SHALL NOT be routed or redirected; a request for one
+SHALL answer 404.
+
+#### Scenario: Each relay route mounts its screen
+
+- **WHEN** an authenticated operator requests each of the five relay paths
+- **THEN** each mounts its screen and answers 200
+
+#### Scenario: A retired path answers 404
+
+- **WHEN** an authenticated operator requests `/operatives`, `/namespaces/:ns/operatives`, `/namespaces/:ns/operatives/:id`, `/namespaces/:ns/operatives/:id/stream`, or `/namespaces/:ns/relays/:id/stream`
+- **THEN** the response is 404 and no redirect is issued
+
+#### Scenario: Links point at the new paths
+
+- **WHEN** any screen renders a link to a relay or a relay listing
+- **THEN** the link's path starts with `/relays` or `/namespaces/:ns/relays`
+

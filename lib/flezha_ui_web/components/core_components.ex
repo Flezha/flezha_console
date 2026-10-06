@@ -24,6 +24,7 @@ defmodule FlezhaUiWeb.CoreComponents do
     statics: FlezhaUiWeb.static_paths()
 
   alias FlezhaUi.Format
+  alias FlezhaUi.Service.NodeManager
   alias Phoenix.LiveView.JS
 
   @doc """
@@ -39,7 +40,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   ## Examples
 
       <.dialog :if={@open} testid="start-modal" size="form" on_close="close_start">
-        <:title>Start an operative</:title>
+        <:title>Start a relay</:title>
         ...
       </.dialog>
   """
@@ -101,11 +102,11 @@ defmodule FlezhaUiWeb.CoreComponents do
 
       <.confirm_dialog
         :if={@confirm_stop}
-        title="Stop operative?"
+        title="Stop relay?"
         confirm_label="Stop"
-        on_confirm="stop_operative"
+        on_confirm="stop_relay"
         on_cancel="cancel_stop"
-        values={%{"operative_id" => @confirm_stop}}
+        values={%{"relay_id" => @confirm_stop}}
         testid="stop-confirm-modal"
       >
         Stop <.mono>{@confirm_stop}</.mono>? This cannot be undone.
@@ -205,7 +206,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   A short explanation sitting above or beside content.
 
   `:info` is for a state that is not a fault — a subsystem switched off, a kind
-  that has no entity state, a result the limit truncated. `:error` is for a
+  that has no cell state, a result the limit truncated. `:error` is for a
   failure. Keeping both in one component means the difference is a parameter
   rather than two blocks of markup that drifted.
 
@@ -259,17 +260,20 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   attr :action, :string,
     default: nil,
-    doc: "what was refused, named in a refusal — \"read the audit log\", \"stop the operative\""
+    doc: "what was refused, named in a refusal — \"read the audit log\", \"stop the relay\""
 
   def runtime_error(assigns) do
     assigns =
       assigns
-      |> assign(:message, runtime_error_message(assigns.error, assigns[:action]))
+      |> assign(:error, assigns.error && NodeManager.error(assigns.error))
       |> assign(:settings_link?, settings_link?(assigns.error))
 
     ~H"""
-    <.notice :if={@message} kind={:error} testid="runtime-error" class={@class}>
-      {@message}
+    <.notice :if={@error} kind={:error} testid="runtime-error" class={@class}>
+      {error_message(@error, @action)}
+      <span :if={@error.hint} class="block text-xs" data-testid="runtime-error-hint">
+        {@error.hint}
+      </span>
       <.link
         :if={@settings_link?}
         navigate={~p"/users/settings"}
@@ -281,77 +285,28 @@ defmodule FlezhaUiWeb.CoreComponents do
     """
   end
 
-  defp settings_link?({:forbidden, reason})
-       when reason in [:principal_not_bound, :no_role_binding],
-       do: true
+  # A missing identity is remedied in settings; every other refusal is a role
+  # the operator has to be granted elsewhere.
+  defp settings_link?(nil), do: false
 
-  defp settings_link?(_error), do: false
-
-  defp runtime_error_message(nil, _action), do: nil
-
-  defp runtime_error_message(:node_not_connected, _action) do
-    "Not connected to a flezha controller. Screens will recover automatically once it is reachable."
-  end
-
-  defp runtime_error_message({:api_missing, module, function, arity}, _action) do
-    "This UI and the flezha controller have diverged: the controller does not export " <>
-      "#{inspect(module)}.#{function}/#{arity}."
-  end
-
-  defp runtime_error_message(:timeout, _action) do
-    "The flezha controller did not answer in time."
-  end
-
-  defp runtime_error_message({:forbidden, reason}, action) do
-    "The controller refused #{action || "this call"}: #{forbidden_reason(reason)}"
-  end
-
-  defp runtime_error_message({:remote_error, reason}, _action) do
-    "The flezha controller reported an error: #{inspect(reason)}"
-  end
-
-  defp runtime_error_message(reason, _action), do: "Error: #{inspect(reason)}"
+  defp settings_link?(error),
+    do: NodeManager.error(error).code in ~w(authz.principal_not_bound authz.no_role_binding)
 
   @doc """
-  A refusal reason from `Flezha.AuthZ`, in the controller's own terms.
+  One line for an error a `NodeManager` call answered: the controller's own
+  message and its code, and for a refusal the action refused. A condition only
+  this node sees — no controller, a timeout — is stated in words alone.
 
-  Public because a form states a refusal inline rather than as a banner.
+  Public because a form states an error inline rather than as a banner.
   """
-  def forbidden_reason(:principal_not_bound),
-    do: "no flezha principal is bound to this UI — a verified token is required."
+  def error_message(error, action \\ nil)
 
-  def forbidden_reason(:bootstrap_pending),
-    do:
-      "authorization is enforced but unclaimed. Run `flz auth bootstrap <token>` on the controller."
+  def error_message(%{class: :denied, code: code, message: message}, action),
+    do: "The controller refused #{action || "this call"}: #{message} (#{code})"
 
-  def forbidden_reason(:no_role_binding),
-    do: "the bound principal has no role in this namespace. `flz role bind` grants one."
-
-  def forbidden_reason(:role_insufficient),
-    do: "the bound principal's role does not grant this action."
-
-  def forbidden_reason(:namespace_mismatch),
-    do: "the bound token is scoped to another namespace."
-
-  def forbidden_reason(:cross_namespace_admin_denied),
-    do: "the bound principal may not administer another namespace."
-
-  def forbidden_reason(:unknown_role),
-    do: "the bound principal's role is not one the controller knows."
-
-  def forbidden_reason(:unknown_action), do: "the controller does not know that action."
-  def forbidden_reason(:invalid_scope), do: "the scope the call was made against is not valid."
-  def forbidden_reason(reason), do: inspect(reason)
-
-  @doc """
-  Why a presented flezha token did not bind, in the token store's own terms.
-  """
-  def token_error_reason(:malformed), do: "the token is malformed."
-  def token_error_reason(:unknown), do: "the controller does not know this token."
-  def token_error_reason(:token_revoked), do: "the token has been revoked."
-  def token_error_reason(:token_expired), do: "the token has expired."
-  def token_error_reason(:no_token), do: "no token was presented."
-  def token_error_reason(reason), do: inspect(reason)
+  def error_message(%{code: "ui." <> _, message: message}, _action), do: message
+  def error_message(%{code: code, message: message}, _action), do: "#{message} (#{code})"
+  def error_message(error, action), do: error_message(NodeManager.error(error), action)
 
   @doc """
   A titled section of a screen, in the standard panel chrome.
@@ -492,7 +447,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   value that brings its own markup, such as a badge.
 
       <dl class="grid grid-cols-3 gap-4 text-sm">
-        <.stat label="Uptime" testid="operative-uptime">{Format.duration(@uptime_ms)}</.stat>
+        <.stat label="Uptime" testid="relay-uptime">{Format.duration(@uptime_ms)}</.stat>
       </dl>
   """
   attr :label, :any, required: true
@@ -539,7 +494,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   end
 
   @doc """
-  An operative's health, as the Convergence Loop classified it.
+  A relay's health, as the Convergence Loop classified it.
 
   Every value gets its own colour, `:unknown` included — a row the loop has not
   observed is not a healthy row, and rendering it like one would hide the case
@@ -603,9 +558,8 @@ defmodule FlezhaUiWeb.CoreComponents do
       class="mb-4"
     >
       <span :if={@status.token?}>
-        The flezha token this UI presents did not bind an identity — {token_error_reason(
-          @status.reason
-        )}
+        The flezha token this UI presents did not bind an identity — {@status.reason &&
+          error_message(@status.reason)}
       </span>
       <span :if={!@status.token?}>
         No flezha token is bound to this UI.
@@ -751,6 +705,11 @@ defmodule FlezhaUiWeb.CoreComponents do
   slot :inner_block, required: true
 
   def button(assigns) do
+    # A button with its own click handler is an action, not a submit: inside a
+    # form an untyped button submits it, so a dialog's Cancel would also send
+    # the form it cancels.
+    assigns = assign(assigns, :type, assigns.type || if(assigns.rest[:"phx-click"], do: "button"))
+
     ~H"""
     <button
       type={@type}
@@ -1131,7 +1090,7 @@ defmodule FlezhaUiWeb.CoreComponents do
 
       <.header mono>
         {@ns}
-        <:actions><.button icon="hero-plus">Start Operative</.button></:actions>
+        <:actions><.button icon="hero-plus">Start Relay</.button></:actions>
       </.header>
   """
   attr :class, :string, default: nil
@@ -1191,26 +1150,26 @@ defmodule FlezhaUiWeb.CoreComponents do
   @doc """
   The views of one object, as a strip of tabs on it.
 
-  Each tab is its own route, and selecting one navigates: an operative's Detail
-  polls overwatch, its Stream holds a live listener and its State does
-  point-in-time reads, so collapsing them into one screen would leave a stream
-  attached while the operator reads something else. The strip makes them read
-  as one object without making them one process.
+  Each tab is its own route, and selecting one navigates: a relay's Detail
+  polls overwatch, its Listen holds a live listener and its State does
+  point-in-time reads, so collapsing them into one screen would leave a
+  listener attached while the operator reads something else. The strip makes
+  them read as one object without making them one process.
 
-      <.operative_tabs ns={@ns} operative_id={@operative_id} current={:stream} />
+      <.relay_tabs ns={@ns} relay_id={@relay_id} current={:listen} />
   """
   attr :ns, :string, required: true
-  attr :operative_id, :string, required: true
-  attr :current, :atom, required: true, values: [:detail, :stream, :state]
+  attr :relay_id, :string, required: true
+  attr :current, :atom, required: true, values: [:detail, :listen, :state]
 
-  def operative_tabs(assigns) do
+  def relay_tabs(assigns) do
     ~H"""
-    <nav class="flz-tabstrip" data-testid="operative-tabs" aria-label="Operative views">
+    <nav class="flz-tabstrip" data-testid="relay-tabs" aria-label="Relay views">
       <.link
-        :for={{view, label, path} <- operative_views(@ns, @operative_id)}
+        :for={{view, label, path} <- relay_views(@ns, @relay_id)}
         navigate={path}
         aria-current={view == @current && "page"}
-        data-testid={"operative-tab-#{view}"}
+        data-testid={"relay-tab-#{view}"}
         class="flz-tabstrip-link"
       >
         {label}
@@ -1219,11 +1178,11 @@ defmodule FlezhaUiWeb.CoreComponents do
     """
   end
 
-  defp operative_views(ns, id) do
+  defp relay_views(ns, id) do
     [
-      {:detail, "Detail", ~p"/namespaces/#{ns}/operatives/#{id}"},
-      {:stream, "Stream", ~p"/namespaces/#{ns}/operatives/#{id}/stream"},
-      {:state, "State", ~p"/namespaces/#{ns}/operatives/#{id}/state"}
+      {:detail, "Detail", ~p"/namespaces/#{ns}/relays/#{id}"},
+      {:listen, "Listen", ~p"/namespaces/#{ns}/relays/#{id}/listen"},
+      {:state, "State", ~p"/namespaces/#{ns}/relays/#{id}/state"}
     ]
   end
 
@@ -1271,9 +1230,9 @@ defmodule FlezhaUiWeb.CoreComponents do
   @doc """
   Why a scoped listing's count is not a controller-side guarantee.
 
-  The controller has no namespaced call for either of these listings, so the
-  screen fetches all of them and narrows the rows here. Said once, so the two
-  screens cannot come to describe the same scope differently.
+  The controller answers the listing whole, so the screen fetches all of it and
+  narrows the rows here, and says so rather than implying a controller-side
+  scope.
   """
   attr :scope, :string, required: true
   attr :listing, :string, required: true, doc: "the noun the controller answers globally"

@@ -86,7 +86,7 @@
           <dt class="text-th-tertiary w-32">Bound identity</dt>
           <dd>
             none — {if @authz.reason,
-              do: token_error_reason(@authz.reason),
+              do: FlezhaUiWeb.CoreComponents.error_message(@authz.reason),
               else: "no token is presented."}
           </dd>
         </div>

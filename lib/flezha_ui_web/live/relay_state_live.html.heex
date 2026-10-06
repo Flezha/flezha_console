@@ -1,0 +1,196 @@
+<div class="space-y-6">
+  <.header>
+    <span class="flz-num">{@relay_id}</span>
+    <span class="ml-2 text-sm font-normal text-th-tertiary">durable state</span>
+  </.header>
+
+  <.relay_tabs ns={@ns} relay_id={@relay_id} current={:state} />
+
+  <.runtime_error error={@load_error} action="the state listing" />
+
+  <div class="flex items-center gap-4 text-xs text-th-muted">
+    <span data-testid="state-retention">
+      Retention: {if @retention_hours, do: "#{@retention_hours} hours", else: "not reported"}
+    </span>
+    <span data-testid="state-verbs">
+      Deleting and rotating state are <code class="font-mono">flz state</code> verbs — this screen
+      only reads.
+    </span>
+  </div>
+
+  <%= if @cells == [] do %>
+    <.empty_state icon="hero-circle-stack" testid="state-empty" boxed={true}>
+      This relay has no durable state yet.
+    </.empty_state>
+  <% else %>
+    <.panel
+      :for={{tasklet, cells} <- Enum.group_by(@cells, & &1.tasklet)}
+      testid={"tasklet-#{tasklet}"}
+      icon="hero-circle-stack"
+      class="overflow-hidden"
+    >
+      <:title>Tasklet <span class="font-mono normal-case">{tasklet}</span></:title>
+      <table class="flz-table">
+        <thead>
+          <tr>
+            <th>Cell</th>
+            <th>WAL seq</th>
+            <th>Snapshot seq</th>
+            <th>Flush p99</th>
+            <th>Fsync lag</th>
+            <th>Dedup drops</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={cell <- cells}
+            data-testid={"cell-#{cell.key}"}
+          >
+            <td class="text-th-primary flz-num text-xs">
+              <%!-- A tasklet holding one unkeyed cell reports an empty key;
+                    naming it is clearer than rendering nothing. --%>
+              {if cell.cell_key == "", do: "(unkeyed)", else: cell.cell_key}
+              <span
+                :if={lagging?(cell)}
+                data-testid={"cell-lagging-#{cell.key}"}
+                class="flz-badge flz-badge--accent ml-1"
+              >
+                lagging
+              </span>
+            </td>
+            <td class="flz-num text-xs">
+              {cell.counters[:wal_seq]}
+            </td>
+            <td class="flz-num text-xs">
+              {cell.counters[:snapshot_seq]}
+            </td>
+            <td class="flz-num text-xs">
+              {cell.counters[:flush_latency_ms_p99]}
+            </td>
+            <td class="flz-num text-xs">
+              {cell.counters[:fsync_durability_lag_ms]}
+            </td>
+            <td class="flz-num text-xs">
+              {cell.counters[:dedup_drops_total]}
+            </td>
+            <td class="text-right">
+              <button
+                phx-click="select_cell"
+                phx-value-cell={cell.key}
+                data-testid={"select-#{cell.key}"}
+                class="text-sm text-accent-text hover:text-accent transition-colors"
+              >
+                Inspect
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </.panel>
+
+    <%!-- Durability lag, sampled by this UI --%>
+    <div
+      data-testid="lag-chart"
+      class="flz-panel p-5"
+    >
+      <div class="flex items-center gap-2 mb-1">
+        <.icon name="hero-chart-bar-square" class="w-4 h-4 text-th-tertiary" />
+        <h2 class="flz-panel-title">
+          Durability lag and WAL-behind-snapshot
+        </h2>
+      </div>
+      <p data-testid="chart-provenance" class="text-xs text-th-muted mb-4">
+        Sampled by this UI every 5s — not a series the controller records. A missed tick is drawn
+        as a gap, never interpolated.
+      </p>
+      <div :for={cell <- @cells} class="mb-4 last:mb-0">
+        <p class="text-xs font-mono text-th-secondary mb-1">{cell.key}</p>
+        <div class="flex items-end gap-px h-12" data-testid={"spark-#{cell.key}"}>
+          <span
+            :for={point <- Enum.reverse(Map.get(@history, cell.key, []))}
+            class={[
+              "w-1 rounded-sm",
+              if(is_nil(point.lag_ms), do: "bg-transparent", else: "bg-accent")
+            ]}
+            style={"height: #{min(48, (point.lag_ms || 0))}px"}
+            title={"lag #{point.lag_ms || "—"}ms, wal gap #{point.wal_gap || "—"}"}
+          >
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Point-in-time read --%>
+    <div
+      :if={@selected}
+      data-testid="time-travel"
+      class="flz-panel p-5"
+    >
+      <div class="flex items-center gap-2 mb-4">
+        <.icon name="hero-clock" class="w-4 h-4 text-th-tertiary" />
+        <h2 class="flz-panel-title">
+          Where history stands — <span class="font-mono normal-case">{@selected}</span>
+        </h2>
+      </div>
+
+      <form phx-change="travel_change" class="flex items-end gap-3 mb-4">
+        <div>
+          <.dropdown
+            label="Target"
+            id="travel-kind"
+            name="travel[kind]"
+            value={@travel_form["kind"]}
+            testid="travel-kind"
+            class="w-36"
+          >
+            <:option value="seq">sequence</:option>
+            <:option value="time">ISO 8601 time</:option>
+          </.dropdown>
+        </div>
+        <div>
+          <.input
+            type="text"
+            name="travel[value]"
+            label="Value"
+            value={@travel_form["value"]}
+            compact
+            data-testid="travel-value"
+          />
+        </div>
+      </form>
+      <button
+        phx-click="travel"
+        data-testid="travel-submit"
+        class="flz-button flz-button--sm"
+      >
+        Read
+      </button>
+
+      <p
+        :if={@travel_target && @travel_result}
+        data-testid="travel-target"
+        class="text-xs text-th-muted mt-4"
+      >
+        Asked for: <span class="font-mono">{@travel_target}</span>
+      </p>
+
+      <%!-- The controller answers where the history stands, not the state
+            itself, so the sizes are shown and nothing is presented as the
+            cell's state at that point. --%>
+      <dl :if={@travel_result} data-testid="travel-result" class="grid grid-cols-3 gap-4 mt-2">
+        <.stat label="Resolved sequence" testid="travel-seq">{@travel_result.terminal_seq}</.stat>
+        <.stat label="Snapshot" testid="travel-snapshot-size">
+          {Format.bytes(@travel_result.snapshot_size)}
+        </.stat>
+        <.stat label="Change log" testid="travel-change-log-size">
+          {Format.bytes(@travel_result.change_log_size)}
+        </.stat>
+      </dl>
+
+      <.notice :if={@travel_error} kind={:error} testid="travel-error" class="mt-4">
+        {travel_reason(@travel_error)}
+      </.notice>
+    </div>
+  <% end %>
+</div>

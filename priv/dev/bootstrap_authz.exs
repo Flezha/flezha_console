@@ -14,10 +14,14 @@
 #   FLEZHA_NODE        the controller node, e.g. flezha@flezha_controller
 #   FLEZHA_TOKEN_FILE  where to write the issued token
 #   FLEZHA_UI_PRINCIPAL  optional, defaults to "flezha-ui"
+#   FLEZHA_RUNNER_TOKEN_FILE  optional: where to write a runner credential, so
+#                      the dev runner can prove its namespace to a controller
+#                      that enforces authorization
+#   FLEZHA_RUNNER_NAMESPACE  the namespace that credential is for (default)
 #
 # `flz` cannot do this here: it shells out to the release launcher, which a
-# controller running under `iex -S mix` does not have. The controller's own
-# non-printing functions over `:erpc` are the entry point.
+# controller running under `iex -S mix` does not have. The published
+# `Flezha.Service.Namespace` functions over `:erpc` are the entry point.
 
 defmodule BootstrapAuthz do
   @connect_attempts 120
@@ -41,15 +45,38 @@ defmodule BootstrapAuthz do
     connect!(node)
     await_ready!(node)
 
-    case reusable_token(node, token_path) do
-      {:ok, identity} ->
-        say("reusing the token already at #{token_path} (#{describe(identity)})")
+    ui_token =
+      case reusable_token(node, token_path) do
+        {:ok, identity} ->
+          say("reusing the token already at #{token_path} (#{describe(identity)})")
+          token_path |> File.read!() |> String.trim()
 
-      :none ->
-        token = obtain_token(node, principal)
-        write!(token_path, token)
-        say("wrote #{token_path}")
-        report(node, token)
+        :none ->
+          token = obtain_token(node, principal)
+          write!(token_path, token)
+          say("wrote #{token_path}")
+          report(node, token)
+          token
+      end
+
+    ensure_runner_token(node, ui_token)
+  end
+
+  # A runner proves the namespace it serves with a `runner` credential when
+  # enforcement is on. Issued by the UI's own `_system` admin token.
+  defp ensure_runner_token(node, ui_token) do
+    case System.get_env("FLEZHA_RUNNER_TOKEN_FILE") do
+      path when path in [nil, ""] ->
+        :ok
+
+      path ->
+        if match?({:ok, _}, reusable_token(node, path)) do
+          say("reusing the runner credential already at #{path}")
+        else
+          namespace = System.get_env("FLEZHA_RUNNER_NAMESPACE") || "default"
+          write!(path, issue_as(node, ui_token, "runner@#{namespace}", namespace, "runner"))
+          say("wrote #{path} for runner@#{namespace}")
+        end
     end
   end
 
@@ -141,14 +168,15 @@ defmodule BootstrapAuthz do
   defp obtain_token(node, principal) do
     case claim(node) do
       {:ok, admin_token} ->
-        issue(node, principal, token: admin_token, label: principal)
+        issue(node, principal, admin_token)
 
       :already_claimed ->
         # The controller was bootstrapped on an earlier run whose token is gone
-        # — a wiped volume against a persistent controller. Enforcement is
-        # already on, and this process holds the distribution cookie, which the
-        # controller treats as node ownership, so the store is asked directly
-        # rather than leaving the stack permanently unusable.
+        # — a wiped volume against a persistent controller. No published
+        # operation mints a token without holding one, but this process holds
+        # the distribution cookie, which the controller treats as node
+        # ownership, so the token store is asked directly rather than leaving
+        # the stack permanently unusable.
         say("bootstrap already claimed; minting a replacement token directly")
         issue_directly(node, principal)
     end
@@ -160,13 +188,12 @@ defmodule BootstrapAuthz do
         :already_claimed
 
       raw ->
-        case call(node, Flezha.Service.CliManager, :authz_bootstrap, [raw, []]) do
+        # Claiming is what a context is built from, so it is called with an
+        # unbound one; the token it mints is the claimant's.
+        case call(node, Flezha.Service.Namespace, :bootstrap, [raw, %{source: :ui}]) do
           {:ok, %{principal: admin, minted_token: minted}} when is_binary(minted) ->
             say("claimed the bootstrap; admin@_system is #{admin}")
             {:ok, minted}
-
-          {:error, :bootstrap_already_completed} ->
-            :already_claimed
 
           other ->
             die("could not claim the bootstrap: #{inspect(other)}")
@@ -185,16 +212,31 @@ defmodule BootstrapAuthz do
     end
   end
 
-  defp issue(node, principal, opts) do
-    case call(node, Flezha.Service.CliManager, :authz_issue, [
+  # Issued as the admin the claim just bound.
+  defp issue(node, principal, admin_token),
+    do: issue_as(node, admin_token, principal, "_system", "admin")
+
+  # A token issued with the identity `issuer_token` verifies as, so the
+  # controller attributes and authorizes it as that identity.
+  defp issue_as(node, issuer_token, principal, namespace, role) do
+    {:ok, issuer} = call(node, Flezha.AuthZ.TokenStore, :verify, [issuer_token])
+
+    context = %{
+      source: :ui,
+      principal: issuer.principal,
+      namespace: issuer.namespace,
+      role: issuer.role
+    }
+
+    case call(node, Flezha.Service.Namespace, :issue_token, [
            principal,
-           "_system",
-           :admin,
-           :never,
-           opts
+           namespace,
+           role,
+           [ttl: "never", label: principal],
+           context
          ]) do
-      {:ok, raw, _entry} -> raw
-      other -> die("could not issue a token for #{principal}: #{inspect(other)}")
+      {:ok, %{token: raw}} -> raw
+      other -> die("could not issue a #{role} token for #{principal}: #{inspect(other)}")
     end
   end
 

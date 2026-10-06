@@ -3,9 +3,9 @@ defmodule FlezhaUiWeb.Live.Refresh do
   Keeping a LiveView that projects controller state current.
 
   There are two ways such a screen goes stale and one mechanism for both: a
-  periodic reload, and the lifecycle events the controller relays. Polling is
-  the fallback that keeps a screen current when the event relay cannot be
-  established; the relayed events are what make a runner connecting or
+  periodic reload, and the runner lifecycle events the event feed forwards.
+  Polling is the fallback that keeps a screen current when the feed cannot be
+  established; the forwarded events are what make a runner connecting or
   disconnecting visible before the next tick. Holding both here means a new
   screen gets them by saying so, rather than by remembering to copy a timer and
   a subscription.
@@ -83,12 +83,12 @@ defmodule FlezhaUiWeb.Live.Refresh do
     interval = Keyword.fetch!(opts, :every)
     events = Keyword.get(opts, :on_events, [])
 
-    relayed =
+    forwarded =
       if events != [] do
         quote do
           def handle_info({:flezha_event, event, _data}, socket)
               when event in @refresh_events do
-            # The palette's operative index goes stale on exactly these events,
+            # The palette's relay index goes stale on exactly these events,
             # and this is the only place the console hears them.
             socket = FlezhaUiWeb.CommandPalette.invalidate(socket)
 
@@ -107,7 +107,7 @@ defmodule FlezhaUiWeb.Live.Refresh do
       def schedule_refresh, do: Process.send_after(self(), :refresh, @refresh_interval)
 
       @doc """
-      Arms the tick and, when this screen listens for them, the relayed events.
+      Arms the tick and, when this screen listens for them, the forwarded events.
 
       Does nothing on the dead render: there is no process there to deliver to.
       """
@@ -125,7 +125,7 @@ defmodule FlezhaUiWeb.Live.Refresh do
 
         if Phoenix.LiveView.connected?(socket) do
           if @refresh_events != [] do
-            Phoenix.PubSub.subscribe(FlezhaUi.PubSub, FlezhaUi.Service.EventBridge.topic())
+            Phoenix.PubSub.subscribe(FlezhaUi.PubSub, FlezhaUi.Service.EventFeed.topic())
           end
 
           schedule_refresh()
@@ -142,7 +142,7 @@ defmodule FlezhaUiWeb.Live.Refresh do
         {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket)}
       end
 
-      unquote(relayed)
+      unquote(forwarded)
 
       @impl Phoenix.LiveView
       def handle_event("refresh_toggle", _params, socket) do

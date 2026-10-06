@@ -118,7 +118,7 @@
     </:actions>
 
     <.notice
-      :if={@tail_error == :pubsub_sink_disabled}
+      :if={pubsub_disabled?(@tail_error)}
       kind={:info}
       testid="pubsub-sink-disabled"
       class="m-5"
@@ -128,14 +128,14 @@
     </.notice>
 
     <.runtime_error
-      :if={@tail_error && @tail_error != :pubsub_sink_disabled}
+      :if={@tail_error && !pubsub_disabled?(@tail_error)}
       error={@tail_error}
       action="the live tail"
       class="m-5"
     />
 
     <.notice :if={@tail_reconnected?} kind={:info} testid="tail-reconnected" class="m-5">
-      The tail reconnected after the controller-side relay restarted — signals emitted while it was
+      The tail reconnected after its stream to the controller was cut — signals emitted while it was
       down are not shown.
     </.notice>
 

@@ -2,8 +2,8 @@
   <.header mono>
     {@ns}
     <:actions>
-      <.button phx-click="launcher_open" data-testid="start-operative-btn" icon="hero-plus">
-        Start Operative
+      <.button phx-click="launcher_open" data-testid="start-relay-btn" icon="hero-plus">
+        Start Relay
       </.button>
     </:actions>
   </.header>
@@ -107,71 +107,83 @@
             class="last:border-b-0"
           >
             <td class="text-th-primary flz-num text-xs">{binding[:principal]}</td>
-            <td class="flz-num text-xs">{binding[:role]}</td>
+            <td class="flz-num text-xs">{Enum.join(binding[:roles] || [], ", ")}</td>
           </tr>
         </tbody>
       </table>
     <% end %>
   </.panel>
 
-  <%!-- Operatives panel --%>
+  <%!-- Relays panel --%>
   <.panel icon="hero-cpu-chip" class="overflow-hidden">
-    <:title>Operatives ({length(@operatives)})</:title>
-    <%= if @operatives == [] do %>
-      <.empty_state icon="hero-cpu-chip" testid="no-operatives-msg">
-        No operatives running.
+    <:title>Relays ({length(@relays)})</:title>
+    <%= if @relays == [] do %>
+      <.empty_state icon="hero-cpu-chip" testid="no-relays-msg">
+        No relays running.
       </.empty_state>
     <% else %>
-      <table data-testid="operatives-table" class="flz-table">
+      <table data-testid="relays-table" class="flz-table">
         <thead>
           <tr>
-            <th>Operative ID</th>
+            <th>Relay ID</th>
             <th>Health</th>
             <th>Node</th>
             <th>Factory</th>
+            <th>Run</th>
             <th>Runner</th>
             <th>Plugins</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          <%= for operative <- @operatives do %>
-            <tr data-testid={"operative-row-#{operative.id}"}>
-              <td class="text-th-primary flz-num text-xs">{operative.id}</td>
+          <%= for relay <- @relays do %>
+            <tr data-testid={"relay-row-#{relay.id}"}>
+              <td class="text-th-primary flz-num text-xs">
+                {relay.id}
+                <span :if={relay[:partitions]} class="flz-badge ml-1">
+                  group {relay.partitions}
+                </span>
+              </td>
               <td>
-                <.health_badge health={operative.health} />
+                <.health_badge health={relay.health} />
               </td>
               <td class="flz-num text-xs">
-                <span :if={operative[:node]}>{operative[:node]}</span>
+                <span :if={relay[:node]}>{relay[:node]}</span>
                 <span
-                  :if={is_nil(operative[:node])}
-                  data-testid={"unplaced-#{operative.id}"}
+                  :if={is_nil(relay[:node])}
+                  data-testid={"unplaced-#{relay.id}"}
                   class="text-warning"
                 >
                   unplaced
                 </span>
               </td>
               <td class="flz-num text-xs">
-                {operative[:factory] || "—"}
+                {relay[:factory] || "—"}
+              </td>
+              <td class="flz-num text-xs" data-testid={"relay-run-#{relay.id}"}>
+                {Map.get(@runs, to_string(relay.id), "—")}
               </td>
               <td class="flz-num text-xs">
-                {operative[:runner] || "—"}
+                {relay[:runner] || "—"}
               </td>
               <td class="flz-num text-xs">
-                {Map.get(@plugin_counts, to_string(operative.id), 0)}
+                {Map.get(@plugin_counts, to_string(relay.id), 0)}
               </td>
               <td class="text-right flex items-center justify-end gap-3">
+                <%!-- A group row is not a relay of its own; its members are
+                      listed under the partition groups. --%>
                 <a
-                  data-testid={"view-operative-#{operative.id}"}
-                  href={~p"/namespaces/#{@ns}/operatives/#{operative.id}"}
+                  :if={is_nil(relay[:partitions])}
+                  data-testid={"view-relay-#{relay.id}"}
+                  href={~p"/namespaces/#{@ns}/relays/#{relay.id}"}
                   class="text-sm font-medium text-accent-text hover:text-accent transition-colors"
                 >
                   View
                 </a>
                 <button
-                  data-testid={"stop-operative-#{operative.id}"}
+                  data-testid={"stop-relay-#{relay.id}"}
                   phx-click="confirm_stop"
-                  phx-value-operative_id={operative.id}
+                  phx-value-relay_id={relay.id}
                   class="text-sm text-danger-text hover:text-danger transition-colors"
                 >
                   Stop
@@ -249,7 +261,7 @@
           <thead>
             <tr>
               <th>Partition</th>
-              <th>Operative</th>
+              <th>Relay</th>
               <th>Key groups</th>
               <th>Runner</th>
               <th>Health</th>
@@ -262,7 +274,7 @@
               </td>
               <td class="flz-num text-xs">
                 <.link
-                  navigate={~p"/namespaces/#{@ns}/operatives/#{member.id}"}
+                  navigate={~p"/namespaces/#{@ns}/relays/#{member.id}"}
                   class="text-accent-text hover:text-accent transition-colors"
                 >
                   {member.id}
@@ -282,19 +294,20 @@
     </div>
   </.panel>
 
-  <%!-- Finished instances: retained completions, not live operatives --%>
+  <%!-- Finished relays: retained completions, not live relays --%>
   <.panel
-    fold="finished-instances"
-    open={@sections["finished-instances"]}
-    testid="finished-instances"
+    fold="finished-relays"
+    open={@sections["finished-relays"]}
+    testid="finished-relays"
     icon="hero-flag"
     class="overflow-hidden"
   >
-    <:title>Finished instances ({length(@finished)})</:title>
+    <:title>Finished relays ({length(@finished)})</:title>
     <:actions>
       <button
         phx-click="reload_finished"
         data-testid="reload-finished"
+        disabled={@finished_loading?}
         class="flz-button flz-button--sm flz-button--secondary"
       >
         Reload
@@ -303,38 +316,45 @@
     <.runtime_error
       :if={@finished_error}
       error={@finished_error}
-      action="the finished-instance listing"
+      action="the finished-relay listing"
       class="m-5"
     />
-    <%= if @finished == [] and is_nil(@finished_error) do %>
+    <p
+      :if={@finished_loading?}
+      data-testid="finished-loading"
+      class="px-5 py-3 text-xs text-th-muted"
+    >
+      Reading finished relays from the controller…
+    </p>
+    <%= if @finished == [] and is_nil(@finished_error) and not @finished_loading? do %>
       <.empty_state icon="hero-check-circle">
-        No workflow instance has finished inside its retention window.
+        No steps relay has finished inside its retention window.
       </.empty_state>
     <% else %>
       <table class="flz-table">
         <thead>
           <tr>
-            <th>Instance</th>
+            <th>Relay</th>
             <th>Status</th>
             <th>Finished at</th>
           </tr>
         </thead>
         <tbody>
           <tr
-            :for={{id, record} <- @finished}
-            data-testid={"finished-row-#{id}"}
+            :for={relay <- @finished}
+            data-testid={"finished-row-#{relay.id}"}
           >
             <td class="flz-num text-xs">
               <.link
-                navigate={~p"/namespaces/#{@ns}/operatives/#{id}"}
+                navigate={~p"/namespaces/#{@ns}/relays/#{relay.id}"}
                 class="text-accent-text hover:text-accent transition-colors"
               >
-                {id}
+                {relay.id}
               </.link>
             </td>
-            <td class="flz-num text-xs">{record[:status] || "—"}</td>
+            <td class="flz-num text-xs">{relay[:status] || "—"}</td>
             <td class="flz-num text-xs">
-              {Format.token_expiry(record[:finished_at])}
+              {Format.token_expiry(relay[:finished_at])}
             </td>
           </tr>
         </tbody>
@@ -356,7 +376,9 @@
     <% else %>
       <ul class="divide-y divide-brd-subtle">
         <%= for runner <- @runners do %>
-          <li class="px-5 py-3 text-th-secondary font-mono text-xs">{runner}</li>
+          <li class="px-5 py-3 text-th-secondary font-mono text-xs">
+            {NodeManager.identifier_id(runner)}
+          </li>
         <% end %>
       </ul>
     <% end %>
@@ -367,11 +389,11 @@
 
 <.confirm_dialog
   :if={@confirm_stop}
-  title="Stop Operative?"
+  title="Stop Relay?"
   confirm_label="Stop"
-  on_confirm="stop_operative"
+  on_confirm="stop_relay"
   on_cancel="cancel_stop"
-  values={%{"operative_id" => @confirm_stop}}
+  values={%{"relay_id" => @confirm_stop}}
   testid="stop-confirm-modal"
   cancel_testid="stop-cancel-btn"
   confirm_testid="stop-confirm-btn"
@@ -408,9 +430,9 @@
 <.dialog :if={@quota_form} testid="quota-modal" size="form" on_close="close_quotas">
   <:title>Edit quotas</:title>
 
-  <.notice :if={@quota_error} kind={:error} testid="quota-error" class="mb-4">
-    {@quota_error}
-  </.notice>
+  <div :if={@quota_error} data-testid="quota-error" class="mb-4">
+    <.runtime_error error={@quota_error} action="the quota change" />
+  </div>
 
   <form phx-change="quota_change" class="space-y-3">
     <.input

@@ -12,20 +12,26 @@ The UI uses the controller's terms exactly. If a name here disagrees with
 | Term | What it is |
 | --- | --- |
 | **Namespace** | An isolated control-plane scope. Everything below lives in one. |
-| **Operative** | A running compute unit. Has a *kind* (`:stream`, `:workflow`) fixed at start. |
-| **Runner** | An SDK-side process serving factories. Operatives are bound to one. |
-| **Factory** | A compute-unit class a runner registers and can instantiate. |
-| **Entity** | A keyed unit of state inside an operative, grouped by *Procedure*. |
-| **Plugin** | A provider subscribed to one or more *extension points* on an operative. |
-| **Provider** | The module implementing a plugin's behaviour (websocket, Kafka, stdout, …). |
-| **Extension** | A hook a plugin subscribes to: `on_input`, `on_output`, `on_interval`, `on_message`, `on_snapshot`, `on_terminate`, `on_operative_init`. |
+| **Relay** | A running unit of work, started from a factory. How it runs — its *run*, `flow` or `steps` — is its factory's. |
+| **Run** | `flow` (each input is processed as it arrives) or `steps` (a durable, journaled sequence of iterations). Announced by the factory's runners; never chosen at start. |
+| **Runner** | An SDK-side process serving factories. Relays are bound to one. |
+| **Factory** | What a runner registers and a relay is started from. |
+| **Tasklet** | A step inside a relay. |
+| **Cell** | A keyed unit of state inside a tasklet. |
+| **Output** | Where a relay's results leave it. |
+| **Task journal** | A durable steps relay's record of committed tasklets and iterations; the only rewind targets. |
+| **Input log** | A durable steps relay's journaled inputs, consumed iteration by iteration. |
+| **Plugin** | A provider enabled by name in a namespace and bound to a relay on one or more *hooks*. |
+| **Provider** | What implements a plugin (`relay_websocket`, `relay_stdout`, …). |
+| **Hook** | A point a plugin is bound on: `on_input`, `on_output`, `on_interval`, `on_message`, `on_snapshot`, `on_terminate`, `on_relay_init`. |
 | **Hub** | The per-namespace supervision root, placed on one or more cluster nodes. |
 | **Posture** | The controller's authorization stance: `open`, `bootstrap_pending`, or `enforced`. |
 | **Principal** | The identity a call is made as. The UI's comes only from a verified flezha token — never from a form field. |
-| **Quota** | A per-namespace limit (operatives, runners, state bytes, …) paired with a live counter. |
-| **Partition group** | A set of operatives that split one keyspace between them, each owning a *key-group* range. |
+| **Role** | What a principal may do in a namespace: `viewer`, `app`, `ops`, `admin`, `runner`, `spawner`, `stopper`. "Operator" in this README means the person using the console. |
+| **Quota** | A per-namespace limit (`max_relays`, `max_runners`, state bytes, …) paired with a live counter. |
+| **Partition group** | A set of relays that split one keyspace between them, each owning a *key-group* range. |
 | **Coverage** | Whether a partition group's members own every key group exactly once. A gap or an overlap is a fault. |
-| **Health** | How the Convergence Loop classified an operative: `healthy`, `suspended`, `degraded`, `unbound`, `failed`, or `unknown` when it has not been observed yet. Suspension is a health value, not a separate flag — which is what makes it readable one call per namespace. |
+| **Health** | How the Convergence Loop classified a relay: `healthy`, `unknown` (not observed yet), `suspended`, `degraded`, `recovering`, `unbound`, `failed` or `parked`. Suspension is a health value, not a separate flag — which is what makes it readable one call per namespace. |
 
 ## Screens
 
@@ -37,20 +43,20 @@ reading the namespace from the path instead of from a filter control.
 | --- | --- |
 | `/` | Connected controller, counts with a health breakdown, runners, namespace links |
 | `/namespaces` | Declared and running namespaces, their counts, and quota breaches |
-| `/namespaces/:ns` | Operatives with health; quotas, role bindings, partition groups, finished instances and runners as sections that fold |
-| `/namespaces/:ns/operatives` | That namespace's operatives, its scope fixed rather than filterable |
-| `/namespaces/:ns/plugins` | Plugins bound to an operative in that namespace |
+| `/namespaces/:ns` | Relays with health and run; quotas, role bindings, partition groups, finished relays and runners as sections that fold |
+| `/namespaces/:ns/relays` | That namespace's relays, its scope fixed rather than filterable |
+| `/namespaces/:ns/plugins` | Plugins enabled in that namespace and the relays bound to each |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
-| `/operatives` | **Fleet** — every operative across every reachable namespace, filterable by namespace, health and kind; starts one into any of them |
-| `/namespaces/:ns/operatives/:id` | Kind, runner, factory, uptime, health, node, workflow profile; journal, inbox, entity state and plugins as sections that fold |
-| `/namespaces/:ns/operatives/:id/state` | Durable entities with their WAL/snapshot sequences and durability lag; point-in-time reads |
-| `/namespaces/:ns/operatives/:id/stream` | Live input/output stream |
-| `/plugins` | Enabled plugins, and the catalog installed on the controller |
+| `/relays` | **Fleet** — every relay across every reachable namespace, filterable by namespace, health and run; starts one into any of them |
+| `/namespaces/:ns/relays/:id` | Factory, runner, run, uptime, health, node, pipeline graph, steps panel; task journal, input log, cell state and plugins as sections that fold |
+| `/namespaces/:ns/relays/:id/listen` | The relay's live outputs or inputs |
+| `/namespaces/:ns/relays/:id/state` | Durable cells with their WAL/snapshot sequences and durability lag; point-in-time reads |
+| `/plugins` | Enabled plugins per namespace, and the catalog installed on the controller |
 | `/cluster` | Cluster nodes, per-node health rollup, hub recovery, runner fleet |
 | `/observability` | Observability sources and sinks, their enabled state, and a live signal tail |
 | `/controller` | Durability posture and RPO breaches, shutdown and boot state, authorization posture, memory hot spots |
 | `/schedules` | Cron schedules with live job status and next fire |
-| `/dlq` | Parked dead-letter entries grouped by procedure; inspect, replay, drop |
+| `/dlq` | Parked dead-letter entries grouped by tasklet; inspect, replay, drop |
 | `/audit` | Audit file catalog, filtered reads, live tail |
 
 ## Getting around
@@ -59,11 +65,11 @@ The shell models the domain it controls: some concerns are scoped to a
 namespace and some are not, and it says which is which.
 
 - **The rail is two labelled sections.** `NAMESPACE` holds Overview,
-  Operatives, Plugins and Schedules; `PLATFORM` holds Dashboard, Fleet,
+  Relays, Plugins and Schedules; `PLATFORM` holds Dashboard, Fleet,
   Namespaces, Cluster, Controller, Observability, Dead-letter and Audit. A
   screen is in the first only when the controller call behind it takes a
   namespace, or the rows it returns each carry one — which is why Dead-letter
-  (keyed by operative class) and Observability (namespace-less) stay in the
+  (keyed by relay class) and Observability (namespace-less) stay in the
   second. With nothing in scope the first section says so instead of offering
   destinations it has no scope to point at.
 - **Scope lives in the URL, never in the session.** `FlezhaUiWeb.Layouts`
@@ -75,14 +81,14 @@ namespace and some are not, and it says which is which.
 - **Breadcrumbs are derived from the route, once**, in the same `on_mount` hook
   that marks the current destination — not assembled per screen. There is no
   back arrow.
-- **An operative's Detail, Stream and State are a tab strip on the object**,
-  and each stays its own route: Stream holds a live subscription, State does
+- **A relay's Detail, Listen and State are a tab strip on the object**,
+  and each stays its own route: Listen holds a live listener, State does
   point-in-time reads, Detail polls overwatch. They are three processes with
-  three lifecycles, and collapsing them would leave a stream attached while the
-  operator reads something else.
-- **`⌘K` / `Ctrl+K` opens a command palette** that reaches an operative by id, a
+  three lifecycles, and collapsing them would leave a listener attached while
+  the operator reads something else.
+- **`⌘K` / `Ctrl+K` opens a command palette** that reaches a relay by id, a
   namespace by name, or any screen by name. Its screen index is the rail's own
-  list, so it can offer nothing the rail does not. The operative index is read
+  list, so it can offer nothing the rail does not. The relay index is read
   on first open — never on mount — and dropped again on the same lifecycle
   events the screens refresh on.
 - **A long screen opens on what it is for** and folds the rest away. Which
@@ -102,7 +108,7 @@ and Kafka in one command. It expects two sibling checkouts alongside this one:
 | Path | Why |
 | --- | --- |
 | `../flezha` | The controller, built and bind-mounted into its container |
-| `../flezha-stylebook` | The design system. Its tokens, component recipes, fonts and brand lockups are what this console is skinned with. |
+| `../flezha_stylebook` | The design system. Its tokens, component recipes, fonts and brand lockups are what this console is skinned with. |
 
 The stylebook is an npm `file:` dependency, so install the asset dependencies
 once on the host — the `web` container has no Node, and the relative symlink
@@ -148,9 +154,27 @@ Then log in at http://localhost:4000 with:
 - **Email:** `dev@flezha.local`
 - **Password:** `dev_password_123`
 
-In dev the UI seeds testnet operatives and websocket plugins once the
-controller is reachable, so the dashboard is populated on arrival. See
+In dev the UI seeds testnet relays — flow and steps — and websocket plugins
+once the controller is reachable, so the dashboard is populated on arrival. See
 `:dev_setup` in `config/dev.exs`.
+
+### Resetting the dev controller
+
+Controller state written by an older controller is not migrated. To start over
+— this **discards all dev controller state**: relays, plugins, schedules,
+dead letters, the audit log and the authorization bootstrap — stop the stack,
+clear the controller's durable state, drop the UI's token volume so the
+bootstrap is claimed again, and bring the stack up:
+
+```bash
+docker compose -f docker-compose.dev.yml down
+../flezha/target/release/flz reset --yes --include-dlq --include-schedules \
+  --include-auth --include-audit --app-data-root ../flezha/app_data
+docker volume rm flezha_ui_fui_auth_data
+docker compose -f docker-compose.dev.yml up
+```
+
+A cold start then seeds cleanly in the current vocabulary.
 
 ### Services
 
@@ -167,7 +191,7 @@ Useful commands:
 
 ```bash
 docker exec fui_web mix compile                      # after editing .ex files
-docker logs fui_web 2>&1 | grep EventBridge          # relay status
+docker logs fui_web 2>&1 | grep EventFeed            # runner event feed status
 docker attach flezha_controller                      # controller iex (detach: Ctrl+P Ctrl+Q)
 ```
 
@@ -201,7 +225,9 @@ unconditionally rather than skipping, so a green run means the assertions ran.
 The ExUnit LiveView tests boot a peer BEAM node with this app's own `ebin`
 excluded from its code path, standing in for a controller that carries none of
 this application's code. `test/support/fake_controller.ex` answers as the
-controller modules by name, which is how states a live stack refuses to enter —
+published `Flezha.Service.*` modules by name, in their real return shapes and
+with `%Flezha.Error{}` failures, which is how states a live stack refuses to
+enter —
 a populated dead-letter queue, audit switched off, a disconnected or
 version-skewed controller — get covered at all.
 
@@ -210,7 +236,7 @@ the rule for deciding which layer a new assertion belongs to.
 
 ## How it looks
 
-Everything visual comes from [`flezha-stylebook`](../flezha-stylebook), the
+Everything visual comes from [`flezha_stylebook`](../flezha_stylebook), the
 Flezha group's design system. This repository defines **no colours of its own**
 — `npm run tokens` enforces that.
 
@@ -266,38 +292,52 @@ Flezha group's design system. This repository defines **no colours of its own**
 ## How the UI talks to the controller
 
 Every remote call goes through `FlezhaUi.Service.NodeManager`, which is the
-only module that names a `Flezha.*` module. It normalises failures into five
-shapes — not connected, API missing, timeout, **forbidden**, remote error — so
-a controller that has moved on shows a banner naming the missing function
-instead of crashing a LiveView, and a refusal reads as a refusal with a remedy
-rather than an empty table.
+only module that names a `Flezha.*` module, and every call is a function on
+core's **published consumer API**: a `Flezha.Service.*` function listed in
+core's `docs/api/consumers/published.txt`, called with the caller context last.
+Only two reads go without a context, because a context is built from them:
+`Flezha.AuthZ.TokenStore.verify/1` and `Flezha.AuthZ.enforcement_posture/0`.
+`test/flezha_ui/service/published_surface_test.exs` holds the console to that
+with core's own extractor and list (`FLEZHA_CORE_PATH`, default `../flezha`).
+
+A call answers the published function's own value, or its
+`{:error, %Flezha.Error{}}` — code, class, message, hint — untouched, or one of
+the transport conditions only this node sees: not connected, API missing,
+timeout, remote error. `NodeManager.error/1` reads any of them as one map, so a
+screen decides how to present an error from its class and code, never from its
+text, and a refusal reads as a refusal with the controller's own message rather
+than as an empty table.
 
 Identity works the way the controller's own CLI does it: a principal comes
 *only* from `Flezha.AuthZ.TokenStore.verify/1`. A name typed into this UI is
 never placed in a caller context, because that context is what the controller's
 audit log records. Verifications are cached briefly — never past the token's
-own expiry — and a refused call evicts the entry, so a revoked token stops
-working within one call rather than one cache lifetime.
+own expiry, and never for a transient `authz.registry_unavailable` — and a
+refused call evicts the entry, so a revoked token stops working within one call
+rather than one cache lifetime.
 
 Behaviour shared across screens is a `use`-able module rather than a copied
-block: `FlezhaUiWeb.Live.Refresh` (the tick, the relayed events, and what a
-screen says about its own currency), `FlezhaUiWeb.Live.Tail` (a
-controller-resident tail), `FlezhaUiWeb.Topology` (the pipeline graph and fleet
-summary), `FlezhaUiWeb.Live.Launcher` (starting an operative, rendered by both
-`/namespaces/:ns` and `/operatives`), `FlezhaUiWeb.Live.Target` (the namespace
-and factory a write is aimed at, shared by the launcher and the schedule form)
-and `FlezhaUiWeb.Live.Sections` (which of a long screen's panels are open). A
-write path implemented twice drifts, and the half that drifts is the one nobody
-is looking at.
+block: `FlezhaUiWeb.Live.Refresh` (the tick, the forwarded runner events, and
+what a screen says about its own currency), `FlezhaUiWeb.Live.Tail` (a live
+tail), `FlezhaUiWeb.Topology` (the pipeline graph and fleet summary),
+`FlezhaUiWeb.Live.Launcher` (starting a relay, rendered by both
+`/namespaces/:ns` and `/relays`), `FlezhaUiWeb.Live.Target` (the namespace and
+factory a write is aimed at, shared by the launcher and the schedule form) and
+`FlezhaUiWeb.Live.Sections` (which of a long screen's panels are open). A write
+path implemented twice drifts, and the half that drifts is the one nobody is
+looking at.
 
-Subscriptions are different. The controller's event bus, audit tail and
-observability tail all register the *calling* process, and an `:erpc` call runs
-in a process that dies when the call returns. So `FlezhaUi.Service.EventBridge`
-ships `FlezhaUi.Service.EventRelay`'s **source** to the controller, compiles it
-there, and spawns it — a relay that lives on the controller and forwards back.
-Source rather than a compiled beam, because the two nodes need not run the same
-Erlang/OTP release. All three subscription kinds ride that one relay; there is
-no second mechanism.
+Live data rides `FlezhaUi.Service.EventFeed`, and **no code of this
+application runs on the controller**. A feed holds one published stream
+operation — `Observability.tail/2`, `AuditLog.tail/2` or `Relay.listen/5` —
+open with `:erpc.send_request/4`, passing its own pid as the caller context's
+`:emit`; the controller hands each event to it as `{:flezha_emit, event}`.
+Runner connects and disconnects are observability signals on `:flezha_runner`,
+which a supervised feed tails and broadcasts on `"flezha:events"`; the audit
+and observability tails, the listen screen and the pipeline graph's payload tap
+each hold a feed linked to the screen. The controller watches the feed's pid,
+so stopping the feed — or closing the screen — releases the subscription. There
+is no second mechanism.
 
 ## Manual setup (no Docker)
 

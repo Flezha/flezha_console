@@ -31,7 +31,7 @@
           <tr>
             <th>Namespace</th>
             <th>State</th>
-            <th>Operatives</th>
+            <th>Relays</th>
             <th>Runners</th>
             <th>Quotas</th>
             <th></th>
@@ -64,8 +64,8 @@
                   running, undeclared
                 </span>
               </td>
-              <td data-testid={"namespace-operatives-#{ns.name}"}>
-                {ns.operative_count}
+              <td data-testid={"namespace-relays-#{ns.name}"}>
+                {ns.relay_count}
               </td>
               <td data-testid={"namespace-runners-#{ns.name}"}>
                 {ns.runner_count}
@@ -120,9 +120,21 @@
 >
   <:title>Declare Namespace</:title>
 
-  <.notice :if={@create_error} kind={:error} testid="create-namespace-error" class="mb-4">
+  <.notice
+    :if={is_binary(@create_error)}
+    kind={:error}
+    testid="create-namespace-error"
+    class="mb-4"
+  >
     {@create_error}
   </.notice>
+  <div
+    :if={@create_error && !is_binary(@create_error)}
+    data-testid="create-namespace-error"
+    class="mb-4"
+  >
+    <.runtime_error error={@create_error} action="the namespace create" />
+  </div>
 
   <form phx-submit="create" phx-change="create_change" class="space-y-4">
     <.input
@@ -139,10 +151,10 @@
     <div class="grid grid-cols-2 gap-3">
       <.input
         type="number"
-        name="create[max_operatives]"
-        label="Max operatives"
-        value={@create_form["max_operatives"]}
-        data-testid="create-max-operatives"
+        name="create[max_relays]"
+        label="Max relays"
+        value={@create_form["max_relays"]}
+        data-testid="create-max-relays"
       />
       <.input
         type="number"

@@ -65,9 +65,9 @@ defmodule FlezhaUi.Service.NodeManagerDistributedTest do
 
     test "a controller predating the liveness counters is reported as api_missing" do
       # This peer carries no stand-ins at all, which is exactly a controller
-      # that does not have the module yet.
-      assert {:error, {:api_missing, Flezha.Transport.LivenessCounters, :snapshot_all, 0}} =
-               capture_quietly(fn -> NodeManager.liveness_snapshot() end)
+      # that does not have the published read yet.
+      assert {:error, {:api_missing, Flezha.Service.Controller, :liveness_counters, 1}} =
+               capture_quietly(fn -> NodeManager.liveness_snapshot(nil) end)
     end
   end
 
@@ -87,11 +87,14 @@ defmodule FlezhaUi.Service.NodeManagerDistributedTest do
       assert [1, 2, 3] = NodeManager.erpc_call(:lists, :seq, [1, 3])
     end
 
-    test "a remote {:error, reason} is the function's own answer, not a transport failure",
+    test "a remote {:error, %Flezha.Error{}} is the function's own answer, not a transport failure",
          %{node: node} do
       PeerNode.ship!(node, StubRemoteApi)
 
-      assert {:error, :not_found} = NodeManager.erpc_call(StubRemoteApi, :fails, [])
+      assert {:error, %Flezha.Error{code: "relay.not_found"} = error} =
+               NodeManager.erpc_call(StubRemoteApi, :fails, [])
+
+      assert %{class: :not_found, code: "relay.not_found"} = NodeManager.error(error)
     end
   end
 
@@ -108,10 +111,10 @@ defmodule FlezhaUi.Service.NodeManagerDataPlaneTest do
   @moduledoc """
   The two data-plane reads the topology graph is built on.
 
-  The interesting half is the observability query: its remote answers
-  `{:error, :observability_disabled}` on a controller with the subsystem
-  switched off, and that has to stay distinguishable from a transport failure
-  so the graph can render the stall banner as absent rather than broken.
+  The interesting half is the observability query: it answers
+  `observability.disabled` on a controller with the subsystem switched off,
+  and that has to stay distinguishable from a transport failure so the graph
+  can render the stall banner as absent rather than broken.
   """
 
   use ExUnit.Case, async: false
@@ -128,23 +131,21 @@ defmodule FlezhaUi.Service.NodeManagerDataPlaneTest do
   test "the liveness snapshot is passed through as the controller produced it", %{node: node} do
     snapshot = %{
       channels: [%{runner_id: "runner-a", name: :chan_a, io_in_received: 7}],
-      operatives: [%{operative_id: "op_a", io_in_received: 9, forwarded: 8, filtered_nil: 1}]
+      relays: [%{relay_id: "relay_a", io_in_received: 9, forwarded: 8, filtered_nil: 1}]
     }
 
-    FakeController.set(node, {Flezha.Transport.LivenessCounters, :snapshot_all}, snapshot)
+    FakeController.set(node, {Flezha.Service.Controller, :liveness_counters}, {:ok, snapshot})
 
-    assert NodeManager.liveness_snapshot() == snapshot
+    assert NodeManager.liveness_snapshot(nil) == {:ok, snapshot}
   end
 
   test "the observability query carries the UI's caller context", %{node: node} do
     FakeController.set(node, {Flezha.Service.Observability, :query}, {:ok, [%{name: :stall}]})
 
     assert {:ok, [%{name: :stall}]} =
-             NodeManager.observability_query(%{source: :flezha_data_plane, limit: 20})
+             NodeManager.observability_query(%{source: :flezha_health, limit: 20}, nil)
 
-    # The stand-in only answers a context of `%{source: :ui}`; reaching it at
-    # all is the assertion that the seam identified itself.
-    assert [[%{source: :flezha_data_plane, limit: 20}]] =
+    assert [[%{source: :flezha_health, limit: 20}, %{source: :ui}]] =
              FakeController.calls(node, {Flezha.Service.Observability, :query})
   end
 
@@ -152,14 +153,25 @@ defmodule FlezhaUi.Service.NodeManagerDataPlaneTest do
     FakeController.set(
       node,
       {Flezha.Service.Observability, :query},
-      {:error, :observability_disabled}
+      FakeController.error("observability.disabled")
     )
 
-    assert {:error, :observability_disabled} =
-             NodeManager.observability_query(%{source: :flezha_data_plane})
+    assert {:error, %Flezha.Error{code: "observability.disabled"}} =
+             NodeManager.observability_query(%{source: :flezha_health}, nil)
   end
 
-  test "the controller's monotonic clock is read from the controller" do
-    assert is_integer(NodeManager.controller_monotonic_us())
+  test "the controller's monotonic clock is read from its published status", %{node: node} do
+    assert is_integer(NodeManager.controller_monotonic_us(nil))
+    assert [[%{source: :ui}]] = FakeController.calls(node, {Flezha.Service.Controller, :status})
+  end
+
+  test "a refused status is the clock's answer, not a number", %{node: node} do
+    FakeController.set(
+      node,
+      {Flezha.Service.Controller, :status},
+      FakeController.error("authz.role_insufficient")
+    )
+
+    assert {:error, %Flezha.Error{class: :denied}} = NodeManager.controller_monotonic_us(nil)
   end
 end

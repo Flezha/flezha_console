@@ -19,7 +19,7 @@ defmodule FlezhaUiWeb.Layouts do
 
   File.exists?(@theme_hydrate_path) ||
     raise """
-    flezha-stylebook is not installed, so the theme cannot be hydrated before
+    flezha_stylebook is not installed, so the theme cannot be hydrated before
     first paint and every page would flash the wrong theme.
 
     Run `mix assets.setup`.
@@ -39,7 +39,7 @@ defmodule FlezhaUiWeb.Layouts do
 
   A screen belongs to `NAMESPACE` only when the controller call behind it takes
   a namespace or the rows it returns each carry one. Dead-letter is keyed by
-  operative class and the observability calls take no namespace at all, so both
+  relay class and the observability calls take no namespace at all, so both
   stay platform-global rather than being dressed as scoped.
 
   With no namespace in force the scoped group has nothing honest to point at,
@@ -53,7 +53,7 @@ defmodule FlezhaUiWeb.Layouts do
         scope: nil,
         entries: [
           entry(~p"/", "hero-squares-2x2", "Dashboard"),
-          entry(~p"/operatives", "hero-cpu-chip", "Fleet"),
+          entry(~p"/relays", "hero-cpu-chip", "Fleet"),
           entry(~p"/namespaces", "hero-rectangle-stack", "Namespaces"),
           entry(~p"/cluster", "hero-server-stack", "Cluster"),
           entry(~p"/controller", "hero-server", "Controller"),
@@ -70,7 +70,7 @@ defmodule FlezhaUiWeb.Layouts do
   defp scoped_entries(namespace) do
     [
       entry(scoped_path(namespace, nil), "hero-home", "Overview"),
-      entry(scoped_path(namespace, "operatives"), "hero-cpu-chip", "Operatives"),
+      entry(scoped_path(namespace, "relays"), "hero-cpu-chip", "Relays"),
       entry(scoped_path(namespace, "plugins"), "hero-puzzle-piece", "Plugins"),
       entry(scoped_path(namespace, "schedules"), "hero-clock", "Schedules")
     ]
@@ -85,7 +85,7 @@ defmodule FlezhaUiWeb.Layouts do
   router, and a path built from two interpolated segments matches none of them.
   """
   def scoped_path(namespace, nil), do: ~p"/namespaces/#{namespace}"
-  def scoped_path(namespace, "operatives"), do: ~p"/namespaces/#{namespace}/operatives"
+  def scoped_path(namespace, "relays"), do: ~p"/namespaces/#{namespace}/relays"
   def scoped_path(namespace, "plugins"), do: ~p"/namespaces/#{namespace}/plugins"
   def scoped_path(namespace, "schedules"), do: ~p"/namespaces/#{namespace}/schedules"
 
@@ -93,10 +93,10 @@ defmodule FlezhaUiWeb.Layouts do
   # is an identifier the controller chose, and is shown as it is spelled.
   @crumb_labels %{
     "namespaces" => "Namespaces",
-    "operatives" => "Operatives",
+    "relays" => "Relays",
     "plugins" => "Plugins",
     "schedules" => "Schedules",
-    "stream" => "Stream",
+    "listen" => "Listen",
     "state" => "State"
   }
 
@@ -145,8 +145,8 @@ defmodule FlezhaUiWeb.Layouts do
 
   An entry owns the subtree below it, measured from its own scope: the
   dashboard and a namespace's Overview both sit at the root of theirs, so both
-  are exact matches, and Operatives still owns the operative below it. Entries
-  in different scopes never match, which is what keeps `/namespaces/x/operatives`
+  are exact matches, and Relays still owns the relay below it. Entries
+  in different scopes never match, which is what keeps `/namespaces/x/relays`
   from marking the platform Fleet entry as well as the namespace's own.
   """
   def nav_current?(current, path) do
@@ -160,8 +160,8 @@ defmodule FlezhaUiWeb.Layouts do
   # A path as `{namespace, the segments below it}`, or `{nil, its segments}`
   # when it carries no scope. Every question the shell asks about a route —
   # what is in scope, what the rail marks, where the picker goes — is asked of
-  # this one reading, and asked in segments so `/operatives` cannot be read as
-  # a prefix of `/operativesomething`.
+  # this one reading, and asked in segments so `/relays` cannot be read as
+  # a prefix of `/relaysomething`.
   defp split_scope(path) do
     case segments(path) do
       ["namespaces", namespace | below] -> {namespace, below}
@@ -195,13 +195,13 @@ defmodule FlezhaUiWeb.Layouts do
 
   One meaning in both places: show me this namespace. From anywhere under a
   scoped collection that is the same collection under the new scope — including
-  from one operative of it, whose id means nothing under the new namespace, so
+  from one relay of it, whose id means nothing under the new namespace, so
   the collection is as close as the screen kind survives. From a platform
   screen it is the namespace's own overview.
   """
   def scope_target(current, namespace) do
     case split_scope(current) do
-      {_scope, [collection | _below]} when collection in ~w(operatives plugins schedules) ->
+      {_scope, [collection | _below]} when collection in ~w(relays plugins schedules) ->
         scoped_path(namespace, collection)
 
       _otherwise ->
@@ -235,7 +235,7 @@ defmodule FlezhaUiWeb.Layouts do
   # Every route below the top level alternates a collection with one member of
   # it, so an even segment names a screen and an odd one is an identifier.
   # Reading the position rather than the word keeps a namespace called
-  # "operatives" from being relabelled as the screen of that name.
+  # "relays" from being relabelled as the screen of that name.
   defp crumb_label(segment, index) when rem(index, 2) == 0,
     do: Map.get(@crumb_labels, segment, Phoenix.Naming.humanize(segment))
 

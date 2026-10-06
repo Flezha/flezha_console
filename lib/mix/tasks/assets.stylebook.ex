@@ -1,8 +1,8 @@
 defmodule Mix.Tasks.Assets.Stylebook do
-  @shortdoc "Copies the flezha-stylebook fonts, lockups and favicons into priv/static"
+  @shortdoc "Copies the flezha_stylebook fonts, lockups and favicons into priv/static"
 
   @moduledoc """
-  Places the `flezha-stylebook` static assets the console serves into
+  Places the `flezha_stylebook` static assets the console serves into
   `priv/static`.
 
   The stylebook's `@font-face` rules resolve `../fonts/*.woff2` relative to the
@@ -27,13 +27,13 @@ defmodule Mix.Tasks.Assets.Stylebook do
 
     File.dir?(package) ||
       Mix.raise("""
-      flezha-stylebook is not installed at #{@package}.
+      flezha_stylebook is not installed at #{@package}.
 
       The console's typefaces, brand lockups and favicon all come from the
-      flezha-stylebook repository, which this project depends on as an npm
+      flezha_stylebook repository, which this project depends on as an npm
       `file:` dependency and expects alongside itself at:
 
-          #{Path.expand("../flezha-stylebook")}
+          #{Path.expand("../flezha_stylebook")}
 
       Clone it there, then run `mix assets.setup`.
       """)

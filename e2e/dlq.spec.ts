@@ -15,7 +15,7 @@ test.describe('Dead-letter queue', () => {
     await live('/dlq');
   });
 
-  test('renders the queue, grouped by procedure when it holds anything', async ({ page }) => {
+  test('renders the queue, grouped by tasklet when it holds anything', async ({ page }) => {
     // The dev controller's `app_data` carries parked entries from earlier bench
     // campaigns, so an empty queue is one valid state of two — asserting a
     // total here would be asserting somebody else's leftovers.
@@ -38,16 +38,16 @@ test.describe('Dead-letter queue', () => {
     expect(await page.locator('[data-testid^="dlq-row-"]').count()).toBeGreaterThan(0);
   });
 
-  test('filters by operative class', async ({ page }) => {
-    await page.getByTestId('dlq-filter').fill('no_such_operative_class');
+  test('filters by relay class', async ({ page }) => {
+    await page.getByTestId('dlq-filter').fill('no_such_relay_class');
 
     await expect(page.getByTestId('dlq-empty')).toContainText(
-      'No parked entries for that operative class',
+      'No parked entries for that relay class',
     );
   });
 
   test('clearing the filter restores the unfiltered view', async ({ page }) => {
-    await page.getByTestId('dlq-filter').fill('no_such_operative_class');
+    await page.getByTestId('dlq-filter').fill('no_such_relay_class');
     await expect(page.getByTestId('dlq-empty')).toContainText('No parked entries for that');
 
     await page.getByTestId('dlq-filter').fill('');

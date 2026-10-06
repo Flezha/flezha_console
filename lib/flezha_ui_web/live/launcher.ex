@@ -1,12 +1,12 @@
 defmodule FlezhaUiWeb.Live.Launcher do
   @moduledoc """
-  Starting an operative — the one write this panel exists to make easy.
+  Starting a relay — the one write this panel exists to make easy.
 
   It is reachable from two screens that ask different questions: a namespace's
   detail page, where the namespace is already decided, and the cross-namespace
-  operatives index, where it is not. Both get the same form, the same
-  validation and the same call, because a write path implemented twice drifts
-  and the half that drifts is the one nobody is looking at.
+  relays index, where it is not. Both get the same form, the same validation
+  and the same call, because a write path implemented twice drifts and the half
+  that drifts is the one nobody is looking at.
 
       use FlezhaUiWeb.Live.Refresh, every: 5_000
       use FlezhaUiWeb.Live.Launcher
@@ -19,12 +19,10 @@ defmodule FlezhaUiWeb.Live.Launcher do
   that has to ask. A screen that asks answers `launcher_namespaces/1` with the
   listing it already holds, so offering the choice costs it no second read. The
   host renders `launcher_dialog/1` and points a control at the `launcher_open`
-  event; everything else — the four events, the catalog read, the kind probe —
-  is injected.
+  event; everything else — the four events and the catalog read — is injected.
 
-  The kinds are probed once on arrival and again on each open, so a screen with
-  a kind filter can offer exactly what the form offers by reading
-  `@launcher.kinds`. The namespace and factory listings ride
+  How a relay runs is its factory's, so the form asks for none: it states the
+  chosen factory's run read-only. The namespace and factory listings ride
   `FlezhaUiWeb.Live.Target`, which the schedule form aims the same way.
 
   The screen holds still while the form is open, as every other modal on these
@@ -88,8 +86,8 @@ defmodule FlezhaUiWeb.Live.Launcher do
         open?: false,
         fixed_namespace: namespace,
         form: empty_form(namespace),
-        target: Target.new(),
-        kinds: NodeManager.known_kinds(),
+        target: Target.new(nil),
+        started: nil,
         error: nil
       }
     )
@@ -103,7 +101,6 @@ defmodule FlezhaUiWeb.Live.Launcher do
       "namespace" => namespace || "",
       "id" => "",
       "factory_id" => "",
-      "kind" => "stream",
       "init_values" => "",
       "snapshot_interval" => ""
     }
@@ -113,7 +110,11 @@ defmodule FlezhaUiWeb.Live.Launcher do
 
   @doc false
   def handle_event(module, "launcher_open", _params, socket) do
-    target = Target.put_namespaces(Target.new(), module.launcher_namespaces(socket))
+    target =
+      socket.assigns.flezha_token
+      |> Target.new()
+      |> Target.put_namespaces(module.launcher_namespaces(socket))
+
     namespace = socket.assigns.launcher.fixed_namespace || Target.namespace(target)
 
     state = %{
@@ -121,7 +122,7 @@ defmodule FlezhaUiWeb.Live.Launcher do
       | open?: true,
         form: empty_form(namespace),
         target: target,
-        kinds: NodeManager.known_kinds(),
+        started: nil,
         error: nil
     }
 
@@ -129,7 +130,7 @@ defmodule FlezhaUiWeb.Live.Launcher do
   end
 
   def handle_event(_module, "launcher_close", _params, socket) do
-    update_launcher(socket, &%{&1 | open?: false, error: nil})
+    update_launcher(socket, &%{&1 | open?: false, started: nil, error: nil})
   end
 
   def handle_event(_module, "launcher_change", %{"start" => params}, socket) do
@@ -151,40 +152,34 @@ defmodule FlezhaUiWeb.Live.Launcher do
     form = Map.merge(state.form, params)
     socket = put_launcher(socket, %{state | form: form})
 
-    case start(state, form) do
-      {:ok, namespace, id} ->
+    case start(state, form, socket.assigns.flezha_token) do
+      {:ok, started} ->
         socket
-        |> update_launcher(&%{&1 | open?: false, error: nil})
+        |> update_launcher(&%{&1 | started: started, error: nil})
         |> then(&module.refresh/1)
-        |> Phoenix.LiveView.put_flash(:info, started_message(state, namespace, id))
 
-      {:error, message} ->
-        update_launcher(socket, &%{&1 | error: message})
+      {:error, error} ->
+        update_launcher(socket, &%{&1 | error: error})
     end
   end
 
-  # The namespace screen already names its namespace in the heading, so the
-  # flash that repeats it there would be noise; the index cannot say which
-  # namespace it went to any other way.
-  defp started_message(%{fixed_namespace: nil}, namespace, id),
-    do: "Operative #{id} started in #{namespace}."
-
-  defp started_message(_state, _namespace, id), do: "Operative #{id} started."
-
-  defp start(state, form) do
+  defp start(state, form, token) do
     namespace = String.trim(form["namespace"] || "")
     id = String.trim(form["id"] || "")
     factory_id = String.trim(form["factory_id"] || "")
 
     with :ok <- require_namespace(namespace),
          :ok <- require_factories(state.target),
-         :ok <- require_id_and_factory(id, factory_id),
-         {:ok, kind} <- resolve_kind(state.kinds, form["kind"]),
-         {:ok, init_values} <- NodeManager.parse_init_values(form["init_values"]),
-         opts <- build_opts(form) do
-      case NodeManager.start_operative(namespace, id, factory_id, init_values, opts, kind) do
-        {:error, reason} -> {:error, inspect(reason)}
-        _started -> {:ok, namespace, id}
+         :ok <- require_factory(factory_id),
+         {:ok, init_values} <- NodeManager.parse_init_values(form["init_values"]) do
+      fields = %{id: id, factory_id: factory_id, init_values: init_values, opts: build_opts(form)}
+
+      case NodeManager.start_relay(namespace, fields, token) do
+        {:ok, %{id: started, outcome: outcome}} ->
+          {:ok, %{namespace: namespace, id: to_string(started), outcome: outcome}}
+
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end
@@ -200,23 +195,8 @@ defmodule FlezhaUiWeb.Live.Launcher do
       else: :ok
   end
 
-  defp require_id_and_factory("", _factory_id), do: {:error, "ID and Factory ID are required."}
-  defp require_id_and_factory(_id, ""), do: {:error, "ID and Factory ID are required."}
-  defp require_id_and_factory(_id, _factory_id), do: :ok
-
-  # Resolved against the kinds the controller recognises rather than by
-  # `String.to_atom/1`: a form field must not be able to mint atoms, and a kind
-  # the controller does not know would be refused anyway.
-  defp resolve_kind(kinds, value) do
-    value = to_string(value || "")
-
-    case Enum.find(kinds, &(to_string(&1.kind) == value)) do
-      %{kind: kind} -> {:ok, kind}
-      nil -> {:error, "Kind must be one of: #{kind_names(kinds)}."}
-    end
-  end
-
-  defp kind_names(kinds), do: Enum.map_join(kinds, ", ", &to_string(&1.kind))
+  defp require_factory(""), do: {:error, "A Factory ID is required."}
+  defp require_factory(_factory_id), do: :ok
 
   defp build_opts(form) do
     case Integer.parse(String.trim(form["snapshot_interval"] || "")) do
@@ -246,96 +226,120 @@ defmodule FlezhaUiWeb.Live.Launcher do
   def launcher_dialog(assigns) do
     ~H"""
     <.dialog :if={@launcher.open?} testid="start-modal" size="form" on_close="launcher_close">
-      <:title>Start Operative</:title>
+      <:title>Start Relay</:title>
 
-      <.notice :if={@launcher.error} kind={:error} testid="start-error" class="mb-4">
-        {@launcher.error}
-      </.notice>
-
-      <form phx-submit="launcher_submit" phx-change="launcher_change" class="space-y-4">
-        <%!-- A screen that pinned its namespace does not ask again; the form
-              keeps it, so there is nothing to submit either. --%>
-        <Target.namespace_field
-          :if={is_nil(@launcher.fixed_namespace)}
-          target={@launcher.target}
-          name="start[namespace]"
-          label="Namespace *"
-          value={@launcher.form["namespace"]}
-          testid="input-namespace"
-        />
-
-        <.input
-          type="text"
-          name="start[id]"
-          label="Operative ID *"
-          value={@launcher.form["id"]}
-          placeholder="my-operative"
-          maxlength="32"
-          data-testid="input-operative-id"
-        />
-
-        <Target.factory_field
-          target={@launcher.target}
-          name="start[factory_id]"
-          label="Factory ID *"
-          value={@launcher.form["factory_id"]}
-          testid="input-factory-id"
-        />
-
-        <.input
-          type="select"
-          name="start[kind]"
-          label="Kind *"
-          value={@launcher.form["kind"]}
-          options={kind_options(@launcher.kinds)}
-          hint={kind_hint(@launcher.kinds, @launcher.form["kind"])}
-          data-testid="input-kind"
-        />
-
-        <.input
-          type="textarea"
-          name="start[init_values]"
-          label="Init Values"
-          hint="JSON, optional"
-          value={@launcher.form["init_values"]}
-          placeholder="{}"
-          mono
-          data-testid="input-init-values"
-        />
-
-        <.input
-          type="number"
-          name="start[snapshot_interval]"
-          label="Snapshot Interval"
-          value={@launcher.form["snapshot_interval"]}
-          placeholder="optional"
-          data-testid="input-snapshot-interval"
-        />
-
-        <div class="flex justify-end gap-3 pt-2">
-          <.button variant="ghost" phx-click="launcher_close" data-testid="start-cancel-btn">
-            Cancel
-          </.button>
-          <.button
-            type="submit"
-            data-testid="start-submit-btn"
-            disabled={Target.no_factories?(@launcher.target)}
+      <%!-- What the controller answered: the id the relay runs under, which it
+            generates when none was asked for, and whether this call started it. --%>
+      <div :if={@launcher.started} data-testid="start-result" class="space-y-4">
+        <.notice icon="hero-check-circle">
+          <span :if={@launcher.started.outcome == :already_running}>
+            A relay with that id is already running in {@launcher.started.namespace}.
+          </span>
+          <span :if={@launcher.started.outcome != :already_running}>
+            Relay started in {@launcher.started.namespace}.
+          </span>
+          <.link
+            navigate={~p"/namespaces/#{@launcher.started.namespace}/relays/#{@launcher.started.id}"}
+            data-testid="start-result-link"
+            class="underline hover:no-underline font-mono"
           >
-            Start
-          </.button>
+            {@launcher.started.id}
+          </.link>
+        </.notice>
+        <div class="flex justify-end">
+          <.button phx-click="launcher_close" data-testid="start-done-btn">Done</.button>
         </div>
-      </form>
+      </div>
+
+      <div :if={is_nil(@launcher.started)}>
+        <.notice
+          :if={is_binary(@launcher.error)}
+          kind={:error}
+          testid="start-error"
+          class="mb-4"
+        >
+          {@launcher.error}
+        </.notice>
+        <div
+          :if={@launcher.error && !is_binary(@launcher.error)}
+          data-testid="start-error"
+          class="mb-4"
+        >
+          <.runtime_error error={@launcher.error} action="the start" />
+        </div>
+
+        <form phx-submit="launcher_submit" phx-change="launcher_change" class="space-y-4">
+          <%!-- A screen that pinned its namespace does not ask again; the form
+                keeps it, so there is nothing to submit either. --%>
+          <Target.namespace_field
+            :if={is_nil(@launcher.fixed_namespace)}
+            target={@launcher.target}
+            name="start[namespace]"
+            label="Namespace *"
+            value={@launcher.form["namespace"]}
+            testid="input-namespace"
+          />
+
+          <Target.factory_field
+            target={@launcher.target}
+            name="start[factory_id]"
+            label="Factory ID *"
+            value={@launcher.form["factory_id"]}
+            testid="input-factory-id"
+          />
+
+          <Target.factory_run
+            target={@launcher.target}
+            value={@launcher.form["factory_id"]}
+            testid="factory-run"
+          />
+
+          <.input
+            type="text"
+            name="start[id]"
+            label="Relay ID"
+            hint="optional — the controller generates one when left empty"
+            value={@launcher.form["id"]}
+            placeholder="my-relay"
+            maxlength="32"
+            data-testid="input-relay-id"
+          />
+
+          <.input
+            type="textarea"
+            name="start[init_values]"
+            label="Init Values"
+            hint="JSON, optional"
+            value={@launcher.form["init_values"]}
+            placeholder="{}"
+            mono
+            data-testid="input-init-values"
+          />
+
+          <.input
+            type="number"
+            name="start[snapshot_interval]"
+            label="Snapshot Interval"
+            value={@launcher.form["snapshot_interval"]}
+            placeholder="optional"
+            data-testid="input-snapshot-interval"
+          />
+
+          <div class="flex justify-end gap-3 pt-2">
+            <.button variant="ghost" phx-click="launcher_close" data-testid="start-cancel-btn">
+              Cancel
+            </.button>
+            <.button
+              type="submit"
+              data-testid="start-submit-btn"
+              disabled={Target.no_factories?(@launcher.target)}
+            >
+              Start
+            </.button>
+          </div>
+        </form>
+      </div>
     </.dialog>
     """
-  end
-
-  defp kind_options(kinds), do: Enum.map(kinds, &{to_string(&1.kind), to_string(&1.kind)})
-
-  defp kind_hint(kinds, chosen) do
-    case Enum.find(kinds, &(to_string(&1.kind) == chosen)) do
-      %{capabilities: []} -> "Declares no capabilities — no persistent entity state."
-      %{capabilities: capabilities} -> "Capabilities: #{Enum.join(capabilities, ", ")}."
-      nil -> nil
-    end
   end
 end

@@ -29,15 +29,8 @@ defmodule FlezhaUiWeb.AuditLive do
     {:ok, socket}
   end
 
-  @doc """
-  The record a relayed audit message carries.
-
-  The writer sends `{:audit_record, ref, record}`; the relay forwards whatever
-  it receives, so the envelope is unwrapped here rather than in the relay,
-  which serves other subscriptions too.
-  """
+  @doc "A forwarded audit record is shown as the controller decoded it."
   @impl FlezhaUiWeb.Live.Tail
-  def unwrap_tail({:audit_record, _ref, record}), do: record
   def unwrap_tail(record), do: record
 
   @impl true
@@ -69,12 +62,9 @@ defmodule FlezhaUiWeb.AuditLive do
 
   @impl true
   def handle_event("start_tail", _params, socket) do
-    # The same relay the event bridge ships; only the subscription differs.
-    subscription =
-      {:audit_tail, read_params(socket.assigns.filter, 0),
-       NodeManager.caller_context(socket.assigns.flezha_token)}
+    token = socket.assigns.flezha_token
 
-    {:noreply, start_tail(socket, subscription)}
+    {:noreply, start_tail(socket, &NodeManager.audit_tail(token, &1))}
   end
 
   @impl true
@@ -98,33 +88,27 @@ defmodule FlezhaUiWeb.AuditLive do
 
       # A refusal is not an empty log: the screen has to say a token is missing,
       # or the operator reads "nothing was audited" from "we were not allowed
-      # to look".
-      {:error, {:forbidden, _reason} = refusal} ->
-        assign(socket,
-          files: [],
-          stats: nil,
-          load_error: refusal,
-          read_error: nil,
-          disabled_reason: nil
-        )
-
-      {:error, reason} when reason in [:audit_log_disabled, :observability_disabled] ->
-        assign(socket,
-          files: [],
-          stats: nil,
-          load_error: nil,
-          read_error: nil,
-          disabled_reason: reason
-        )
-
+      # to look". A switched-off subsystem is a configuration, not a failure.
       {:error, reason} ->
-        assign(socket,
-          files: [],
-          stats: nil,
-          load_error: reason,
-          read_error: nil,
-          disabled_reason: nil
-        )
+        disabled = NodeManager.error(reason).code
+
+        if disabled in ~w(audit.disabled observability.disabled),
+          do:
+            assign(socket,
+              files: [],
+              stats: nil,
+              load_error: nil,
+              read_error: nil,
+              disabled_reason: disabled
+            ),
+          else:
+            assign(socket,
+              files: [],
+              stats: nil,
+              load_error: reason,
+              read_error: nil,
+              disabled_reason: nil
+            )
     end
   end
 
@@ -145,11 +129,11 @@ defmodule FlezhaUiWeb.AuditLive do
     end
   end
 
-  defp disabled_message(:audit_log_disabled) do
+  defp disabled_message("audit.disabled") do
     "Audit logging is off on the controller. Enable it with FLEZHA_AUDIT_ENABLED=true."
   end
 
-  defp disabled_message(:observability_disabled) do
+  defp disabled_message("observability.disabled") do
     "Observability is off on the controller, which disables the audit log with it. " <>
       "Enable it with FLEZHA_OBSERVABILITY_ENABLED=true."
   end

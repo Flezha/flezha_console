@@ -65,19 +65,42 @@ defmodule FlezhaUiWeb.DashboardLiveConnectedTest do
 
   use FlezhaUiWeb.LiveCase
 
-  alias Flezha.Service.ConfigManager
+  alias Flezha.Service.Fleet
   alias Flezha.Service.PluginManager
+  alias Flezha.Service.Relay
+
+  defp stat(html, testid) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(~s([data-testid="#{testid}"]))
+    |> LazyHTML.text()
+    |> String.trim()
+  end
 
   test "reports the connected node and the counts behind it", %{conn: conn, node: node} do
-    FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["default", "staging"]})
-    FakeController.set(node, {Flezha, :list_operatives}, {:ok, ["op_a", "op_b"]})
-    FakeController.set(node, {Flezha, :list_runners}, {:ok, [%{id: "runner-a"}]})
-    FakeController.set(node, {PluginManager, :get_plugins}, %{"plug_1" => {"default", "op_a"}})
+    FakeController.set_fleet(node,
+      rows: %{
+        "default" => [FakeController.relay_row("relay_a"), FakeController.relay_row("relay_b")],
+        "staging" => []
+      }
+    )
 
     FakeController.set(
       node,
-      {ConfigManager, :get_provider_info},
-      {:ok, [%{id: :operative_stdout, required_fields: []}]}
+      {Fleet, :runners},
+      {:per_arg, 0, %{"default" => {:ok, [%{id: "runner-a", pid: nil}]}}, {:ok, []}}
+    )
+
+    FakeController.set(
+      node,
+      {PluginManager, :enabled},
+      {:per_arg, 0, %{"default" => {:ok, [%{name: "plug_1"}]}}, {:ok, []}}
+    )
+
+    FakeController.set(
+      node,
+      {Fleet, :providers},
+      {:ok, %{providers: [%{id: "relay_stdout", module: "StdOut", type: :relay}], refused: 0}}
     )
 
     {:ok, _view, html} = live(conn, ~p"/")
@@ -89,25 +112,50 @@ defmodule FlezhaUiWeb.DashboardLiveConnectedTest do
     assert html =~ ~s(data-testid="dashboard-namespace-default")
     assert html =~ ~s(data-testid="dashboard-namespace-staging")
     assert html =~ ~s(data-testid="dashboard-runner-row-runner-a")
+    assert stat(html, "stat-relays") == "2"
+    assert stat(html, "stat-plugins") == "1"
     assert html =~ "1 providers available"
+  end
+
+  test "counts a declared namespace with no hub but graphs only running ones", %{
+    conn: conn,
+    node: node
+  } do
+    FakeController.set(
+      node,
+      {Relay, :list_namespaces},
+      {:ok, [%{namespace: "default", running: true}, %{namespace: "declared", running: false}]}
+    )
+
+    {:ok, _view, html} = live(conn, ~p"/")
+
+    assert stat(html, "stat-namespaces") == "2"
+    assert html =~ ~s(data-testid="dashboard-namespace-default")
+    refute html =~ ~s(data-testid="dashboard-namespace-declared")
   end
 
   test "a namespace listing that fails is reported without blanking the page", %{
     conn: conn,
     node: node
   } do
-    FakeController.set(node, {Flezha, :list_namespaces}, {:error, :timeout})
+    FakeController.set(
+      node,
+      {Relay, :list_namespaces},
+      FakeController.error(
+        "controller.timeout",
+        "a part of the controller did not answer in time"
+      )
+    )
 
     {:ok, _view, html} = live(conn, ~p"/")
 
-    assert html =~ "The flezha controller did not answer in time."
+    assert html =~ "did not answer in time"
     # Still connected — the node panel must not read as disconnected.
     assert html =~ ~s(data-testid="node-connected")
   end
 
   test "explains an empty fleet", %{conn: conn, node: node} do
-    FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["default"]})
-    FakeController.set(node, {Flezha, :list_runners}, {:ok, []})
+    FakeController.set_fleet(node, namespaces: ["default"])
 
     {:ok, _view, html} = live(conn, ~p"/")
 

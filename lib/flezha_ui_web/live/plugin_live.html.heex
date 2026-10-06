@@ -2,131 +2,96 @@
   <.header>
     Plugins
     <:subtitle :if={@scoped_namespace}>
-      Bound to an operative in <span class="flz-num">{@scoped_namespace}</span>.
+      Enabled in <span class="flz-num">{@scoped_namespace}</span>.
     </:subtitle>
   </.header>
 
-  <.scope_notice
-    :if={@scoped_namespace}
-    scope={@scoped_namespace}
-    listing="plugin"
-    testid="plugin-scope-notice"
-  />
-
   <%!-- Available Providers Grid --%>
+  <.runtime_error error={@providers_error} action="the provider listing" />
   <%= if @available_providers == [] do %>
-    <.empty_state icon="hero-puzzle-piece" boxed={true}>
-      No providers discovered from agent.
+    <.empty_state :if={is_nil(@providers_error)} icon="hero-puzzle-piece" boxed={true}>
+      This controller offers no plugin providers.
     </.empty_state>
   <% else %>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      <%= for provider <- @available_providers do %>
-        <div class="flz-panel group p-5 flex flex-col gap-3 transition-shadow hover:shadow-md">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <.icon
-                name="hero-cube"
-                class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
-              />
-              <h3 class="text-sm font-semibold text-th-primary">
-                {Format.humanize(provider.id)}
-              </h3>
-            </div>
-            <%= if provider.internal? do %>
-              <span class="flz-badge uppercase tracking-wider">
-                Internal
-              </span>
-            <% end %>
-          </div>
-
-          <div class="space-y-1 text-xs">
-            <p class="text-th-secondary">
-              <span class="text-th-tertiary">ID:</span>
-              <span class="font-mono">{provider.id}</span>
-            </p>
-            <p class="text-th-secondary">
-              <span class="text-th-tertiary">Module:</span>
-              <span class="font-mono">{provider.module}</span>
-            </p>
-            <p class="text-th-secondary">
-              <span class="text-th-tertiary">Type:</span> {provider.type}
-            </p>
-          </div>
-
-          <%= if provider.required_fields != [] do %>
-            <div>
-              <p class="flz-label mb-1">Required</p>
-              <div class="flex flex-wrap gap-1">
-                <%= for field <- provider.required_fields do %>
-                  <span class="flz-badge flz-num">
-                    {field}
-                  </span>
-                <% end %>
-              </div>
-            </div>
-          <% end %>
-
-          <%= if provider.optional_fields != [] do %>
-            <div>
-              <p class="flz-label mb-1">Optional</p>
-              <div class="flex flex-wrap gap-1">
-                <%= for field <- provider.optional_fields do %>
-                  <span class="flz-badge flz-num opacity-70">
-                    {field}
-                  </span>
-                <% end %>
-              </div>
-            </div>
-          <% end %>
+      <div
+        :for={provider <- @available_providers}
+        data-testid={"provider-#{provider.id}"}
+        class="flz-panel group p-5 flex flex-col gap-3 transition-shadow hover:shadow-md"
+      >
+        <div class="flex items-center gap-2">
+          <.icon
+            name="hero-cube"
+            class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
+          />
+          <h3 class="text-sm font-semibold text-th-primary">
+            {Format.humanize(provider.id)}
+          </h3>
         </div>
-      <% end %>
+
+        <div class="space-y-1 text-xs">
+          <p class="text-th-secondary">
+            <span class="text-th-tertiary">ID:</span>
+            <span class="font-mono">{provider.id}</span>
+          </p>
+          <p class="text-th-secondary">
+            <span class="text-th-tertiary">Module:</span>
+            <span class="font-mono">{provider.module}</span>
+          </p>
+          <p class="text-th-secondary">
+            <span class="text-th-tertiary">Type:</span> {provider.type}
+          </p>
+        </div>
+      </div>
     </div>
   <% end %>
 
-  <%!-- Active Plugins --%>
-  <h2 class="flz-modal-title pt-2">Active Plugins</h2>
+  <%!-- Enabled Plugins --%>
+  <h2 class="flz-modal-title pt-2">Enabled Plugins</h2>
+
+  <div :for={{namespace, reason} <- @refused} data-testid={"plugins-refused-#{namespace}"}>
+    <.runtime_error error={reason} action={"the plugin listing of #{namespace}"} />
+  </div>
 
   <%= if @plugins == [] do %>
     <.empty_state icon="hero-puzzle-piece" boxed={true} testid="plugins-empty">
-      <span :if={@scoped_namespace}>
-        No active plugin is bound to an operative in {@scoped_namespace}.
-      </span>
-      <span :if={!@scoped_namespace}>No active plugins found.</span>
+      <span :if={@scoped_namespace}>No plugin is enabled in {@scoped_namespace}.</span>
+      <span :if={!@scoped_namespace}>No plugin is enabled.</span>
     </.empty_state>
   <% else %>
     <div class="flz-panel overflow-hidden">
       <table class="flz-table">
         <thead>
           <tr>
-            <th>Plugin ID</th>
+            <th>Plugin</th>
             <th>Provider</th>
-            <th>Extensions</th>
+            <th>Hooks</th>
             <th>Namespace</th>
-            <th>Operative</th>
+            <th>Relays</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          <%= for plugin <- @plugins do %>
-            <tr data-testid={"plugin-row-#{plugin.id}"}>
-              <td class="text-th-primary flz-num text-xs">{plugin.id}</td>
-              <td class="text-xs">{plugin.provider}</td>
-              <td class="text-xs">{plugin.extensions}</td>
-              <td class="text-xs">{plugin.namespace || "—"}</td>
-              <td class="flz-num text-xs">
-                {plugin.operative_id || "—"}
-              </td>
-              <td class="text-right">
-                <button
-                  phx-click="confirm_disable"
-                  phx-value-plugin_id={plugin.id}
-                  class="text-xs text-danger-text hover:text-danger transition-colors"
-                >
-                  Disable
-                </button>
-              </td>
-            </tr>
-          <% end %>
+          <tr :for={plugin <- @plugins} data-testid={"plugin-row-#{plugin.name}"}>
+            <td class="text-th-primary flz-num text-xs">{plugin.name}</td>
+            <td class="text-xs">{plugin.provider}</td>
+            <td class="text-xs">{join_or_dash(plugin[:hooks])}</td>
+            <td class="text-xs">{plugin.namespace}</td>
+            <td class="flz-num text-xs" data-testid={"plugin-relays-#{plugin.name}"}>
+              {join_or_dash(plugin[:relays])}
+            </td>
+            <td class="text-right">
+              <button
+                phx-click="confirm_disable"
+                phx-value-name={plugin.name}
+                phx-value-namespace={plugin.namespace}
+                data-testid={"plugin-disable-#{plugin.name}"}
+                class="text-xs text-danger-text hover:text-danger transition-colors"
+              >
+                Disable
+              </button>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -139,9 +104,14 @@
   confirm_label="Disable"
   on_confirm="disable_plugin"
   on_cancel="cancel_disable"
-  values={%{"plugin_id" => @confirm_disable}}
+  values={%{"name" => @confirm_disable.name, "namespace" => @confirm_disable.namespace}}
+  testid="plugin-disable-modal"
+  cancel_testid="plugin-disable-cancel"
+  confirm_testid="plugin-disable-confirm"
 >
-  Disable plugin <.mono>{@confirm_disable}</.mono>?
+  Disable plugin
+  <.mono>{@confirm_disable.name}</.mono>
+  in <.mono>{@confirm_disable.namespace}</.mono>? Every running copy stops; its bindings stay.
 </.confirm_dialog>
 
 <.panel testid="installed-catalog" icon="hero-archive-box" class="overflow-hidden mt-6">
@@ -173,7 +143,7 @@
         <th>Plugin</th>
         <th>Version</th>
         <th>Status</th>
-        <th>Description</th>
+        <th>Error</th>
       </tr>
     </thead>
     <tbody>
@@ -188,7 +158,7 @@
             data-testid={"installed-status-#{plugin[:id]}"}
             class={[
               "inline-flex items-center px-2 py-0.5 rounded-lg text-[11px]",
-              if(plugin[:status] == :enabled,
+              if(plugin[:status] == :loaded,
                 do: "bg-success/10 text-success",
                 else: "bg-surface-input text-th-tertiary"
               )
@@ -197,7 +167,7 @@
             {plugin[:status]}
           </span>
         </td>
-        <td class="text-xs">{plugin[:description] || "—"}</td>
+        <td class="text-xs">{(plugin[:error] || %{})[:message] || "—"}</td>
       </tr>
     </tbody>
   </table>

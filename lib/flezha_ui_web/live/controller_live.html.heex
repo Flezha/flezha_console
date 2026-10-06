@@ -10,16 +10,25 @@
       <.icon name="hero-circle-stack" class="w-4 h-4 text-th-tertiary" />
       <h2 class="flz-panel-title">Durability</h2>
     </div>
-    <dl class="grid grid-cols-4 gap-4 text-sm">
-      <.stat label="Backend" testid="durability-backend">{backend_label(@backend)}</.stat>
-      <.stat label="Posture" testid="durability-posture">{inspect(@posture)}</.stat>
-      <.stat label="RPO breaches" testid="durability-breaches">{length(@breaches)}</.stat>
-      <.stat label="Superseded" testid="durability-superseded">{superseded(@shipments)}</.stat>
+    <.runtime_error error={@status_error} action="the controller status" />
+    <dl :if={@status} class="grid grid-cols-4 gap-4 text-sm">
+      <.stat label="Backend" testid="durability-backend">
+        {backend_label(@status[:durability_backend])}
+      </.stat>
+      <.stat label="Posture" testid="durability-posture">
+        {inspect(@status[:durability_posture])}
+      </.stat>
+      <.stat label="RPO breaches" testid="durability-breaches">
+        {@status[:durability_rpo_breaches]}
+      </.stat>
+      <.stat label="Superseded" testid="durability-superseded">
+        {@status[:durability_superseded]}
+      </.stat>
     </dl>
 
     <%!-- A stated posture, not an alarm: one copy is a choice, not a failure. --%>
     <.notice
-      :if={@posture == :local_only}
+      :if={@status && @status[:durability_posture] == :local_only}
       kind={:info}
       testid="durability-local-only"
       class="mt-4"
@@ -60,31 +69,31 @@
         <.icon name="hero-power" class="w-4 h-4 text-th-tertiary" />
         <h2 class="flz-panel-title">Shutdown</h2>
       </div>
-      <p :if={is_nil(@shutdown)} data-testid="shutdown-unavailable" class="text-sm text-th-muted">
+      <p :if={is_nil(@status)} data-testid="shutdown-unavailable" class="text-sm text-th-muted">
         Shutdown status is unavailable on this controller.
       </p>
-      <dl :if={@shutdown} class="space-y-2 text-sm">
+      <dl :if={@status} class="space-y-2 text-sm">
         <div class="flex gap-2">
           <dt class="text-th-tertiary w-48">In progress</dt>
           <dd data-testid="shutdown-in-progress" class="font-mono">
-            {if @shutdown.shutdown_in_progress, do: "yes", else: "no"}
+            {if @status.shutdown_in_progress, do: "yes", else: "no"}
           </dd>
         </div>
         <div class="flex gap-2">
           <dt class="text-th-tertiary w-48">Phase</dt>
           <dd data-testid="shutdown-phase" class="font-mono">
-            {@shutdown.shutdown_phase || "none"}
+            {@status.shutdown_phase || "none"}
           </dd>
         </div>
         <div class="flex gap-2">
           <dt class="text-th-tertiary w-48">Signal handler</dt>
-          <dd class="font-mono">{inspect(@shutdown.signal_handler_status)}</dd>
+          <dd class="font-mono">{inspect(@status.signal_handler_status)}</dd>
         </div>
         <div class="flex gap-2">
           <dt class="text-th-tertiary w-48">Graceful shutdown</dt>
           <dd class="font-mono">
-            {if @shutdown.graceful_shutdown_enabled, do: "enabled", else: "disabled"}, {Format.duration(
-              @shutdown.graceful_shutdown_timeout_ms
+            {if @status.graceful_shutdown_enabled, do: "enabled", else: "disabled"}, {Format.duration(
+              @status.graceful_shutdown_timeout_ms
             )}
           </dd>
         </div>
@@ -99,9 +108,19 @@
         <.icon name="hero-rocket-launch" class="w-4 h-4 text-th-tertiary" />
         <h2 class="flz-panel-title">Boot</h2>
       </div>
-      <p :if={@boot == []} class="text-sm text-th-muted">No namespace hub is running.</p>
-      <ul class="space-y-1 text-sm">
-        <li :for={row <- @boot} data-testid={"boot-#{row.namespace}"} class="flex gap-3">
+      <.runtime_error error={@boot_error} action="the boot status" />
+      <p :if={@boot} data-testid="boot-readiness" class="text-sm text-th-secondary mb-2">
+        Readiness: <span class="font-mono">{inspect(@boot.readiness)}</span>
+      </p>
+      <p :if={@boot && @boot.namespaces == []} class="text-sm text-th-muted">
+        No namespace hub is running.
+      </p>
+      <ul :if={@boot} class="space-y-1 text-sm">
+        <li
+          :for={row <- @boot.namespaces}
+          data-testid={"boot-#{row.namespace}"}
+          class="flex gap-3"
+        >
           <span class="font-mono text-th-primary w-48">{row.namespace}</span>
           <span class="font-mono text-th-tertiary">{row.recovery_state}</span>
         </li>

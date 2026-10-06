@@ -54,62 +54,63 @@ defmodule FlezhaUiWeb.DashboardLive do
   defp load_stats(token) do
     node = NodeManager.connected_node()
     transport = System.get_env("FLEZHA_TRANSPORT", "uds")
-    scope = NodeManager.token_scope(token)
 
-    {namespaces, known_namespaces, operatives, runners, plugins, provider_count, error} =
+    {catalog, relays, runners, plugin_count, provider_count, error} =
       if node do
-        {ns_list, ns_error} = NodeManager.scoped_namespaces(token)
+        {catalog, error} = NodeManager.ok_or_error(NodeManager.list_namespaces(token), [])
+        running = for %{namespace: ns, running: true} <- catalog, do: to_string(ns)
 
-        # The count is the same population the namespace listing shows, derived
-        # by the same function, so the two screens cannot disagree. The
-        # selector below stays on running hubs: a declared namespace with no
-        # hub has no data plane to graph.
-        known =
-          NodeManager.declared_namespaces()
-          |> NodeManager.ok_or([])
-          |> NodeManager.known_namespace_names(ns_list, scope)
-
-        # One registry dump per namespace, carrying health — the per-namespace
-        # id list it replaced could only ever answer "how many".
-        operatives =
-          Enum.flat_map(ns_list, fn ns ->
-            ns |> NodeManager.operative_rows() |> NodeManager.ok_or([])
+        # One listing per namespace, carrying health — never a call per relay.
+        relays =
+          Enum.flat_map(running, fn ns ->
+            ns |> NodeManager.relay_rows(token) |> NodeManager.ok_or([])
           end)
 
         runners =
-          Enum.flat_map(ns_list, fn ns ->
+          Enum.flat_map(running, fn ns ->
             ns
-            |> NodeManager.list_runners()
+            |> NodeManager.runners(token)
             |> NodeManager.ok_or([])
             |> Enum.map(&%{id: NodeManager.identifier_id(&1), namespace: ns})
           end)
 
-        plugins =
-          case NodeManager.get_plugins() do
-            map when is_map(map) -> map
-            _ -> %{}
-          end
+        plugin_count =
+          running
+          |> Enum.flat_map(&(&1 |> NodeManager.plugins(token) |> NodeManager.ok_or([])))
+          |> length()
 
-        provider_count = NodeManager.get_provider_info() |> NodeManager.ok_or([]) |> length()
+        provider_count = token |> NodeManager.providers() |> NodeManager.ok_or([]) |> length()
 
-        {ns_list, known, operatives, runners, plugins, provider_count, ns_error}
+        {catalog, relays, runners, plugin_count, provider_count, error}
       else
-        {[], [], [], [], %{}, 0, :node_not_connected}
+        {[], [], [], 0, 0, :node_not_connected}
       end
 
     %{
       node: node,
       transport: transport,
-      namespace_count: length(known_namespaces),
-      namespaces: namespaces,
-      operative_count: length(operatives),
-      operative_health: NodeManager.health_counts(operatives),
-      unplaced_count: length(NodeManager.unplaced_rows(operatives)),
+      # Every namespace the catalog lists, declared or running, as the
+      # namespace listing counts them. The selector below stays on running
+      # hubs: a namespace with no hub has no data plane to graph.
+      namespace_count: length(catalog),
+      namespaces: for(%{namespace: ns, running: true} <- catalog, do: to_string(ns)),
+      relay_count: length(relays),
+      relay_health: NodeManager.health_counts(relays),
+      unplaced_count: length(NodeManager.unplaced_rows(relays)),
       runners: runners,
-      plugin_count: map_size(plugins),
+      plugin_count: plugin_count,
       provider_count: provider_count,
-      token_scope: scope,
+      scoped_to: scoped_to(token),
       error: error
     }
+  end
+
+  # The namespace a token is bound to, when it is bound to one: the controller
+  # narrows what it lists to it, so the selector says why it offers no other.
+  defp scoped_to(token) do
+    case NodeManager.authz_status(token) do
+      %{namespace: namespace} when namespace not in [nil, "_system"] -> to_string(namespace)
+      _all_or_unbound -> nil
+    end
   end
 end

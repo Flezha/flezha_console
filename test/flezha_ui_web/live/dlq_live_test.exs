@@ -11,19 +11,22 @@ defmodule FlezhaUiWeb.DlqLiveTest do
 
   use FlezhaUiWeb.LiveCase
 
+  alias Flezha.Service.Dlq
+
   @ref "orders/charge/17"
 
   defp entry(overrides \\ %{}), do: entry("orders", "charge", "17", overrides)
 
-  defp entry(operative_class, procedure_id, id, overrides) do
+  defp entry(relay_class, tasklet_id, id, overrides) do
     Map.merge(
       %{
-        "operative_class" => operative_class,
-        "procedure_id" => procedure_id,
+        "relay_class" => relay_class,
+        "tasklet_id" => tasklet_id,
         "id" => id,
-        "entity_key" => "cust-9",
+        "cell_key" => "cust-9",
         "channel" => "payments",
         "generation" => 2,
+        "status" => "parked",
         "ts_ms" => System.system_time(:millisecond) - 30_000,
         "error" => "upstream refused"
       },
@@ -31,8 +34,12 @@ defmodule FlezhaUiWeb.DlqLiveTest do
     )
   end
 
-  defp with_entries(node, entries) do
-    FakeController.set(node, {Flezha.Dlq.Store, :list}, {:ok, entries})
+  defp with_entries(node, entries), do: FakeController.set(node, {Dlq, :list}, {:ok, entries})
+
+  defp replay(view) do
+    render_click(view, "confirm", %{"action" => "replay", "ref" => @ref})
+    render_click(view, "replay", %{"ref" => @ref})
+    render_async(view)
   end
 
   describe "listing" do
@@ -43,8 +50,8 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       refute html =~ ~s(data-testid="dlq-table")
     end
 
-    test "renders the parked entries", %{conn: conn, node: node} do
-      with_entries(node, [entry(), entry(%{"id" => "18", "entity_key" => "cust-4"})])
+    test "renders the parked entries with their cell key", %{conn: conn, node: node} do
+      with_entries(node, [entry(), entry(%{"id" => "18", "cell_key" => "cust-4"})])
 
       {:ok, _view, html} = live(conn, ~p"/dlq")
 
@@ -56,54 +63,59 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       assert html =~ "Parked entries (2)"
     end
 
-    test "renders the statistics panel when the controller reports any", %{
-      conn: conn,
-      node: node
-    } do
+    test "renders the statistics per parked tasklet", %{conn: conn, node: node} do
       with_entries(node, [entry()])
 
       FakeController.set(
         node,
-        {Flezha.Dlq.Store, :stats},
-        {:ok, [%{"operative_class" => "orders", "count" => 3}]}
+        {Dlq, :stats},
+        {:ok, [%{relay_class: "orders", tasklet_id: "charge", entries: 3, bytes: 120}]}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/dlq")
+      {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      assert html =~ ~s(data-testid="dlq-stats")
-      assert html =~ "orders"
+      stats = view |> element(~s([data-testid="dlq-stats"])) |> render()
+      assert stats =~ "orders/charge"
+      assert stats =~ "3"
     end
 
-    test "filtering narrows what the controller is asked for", %{conn: conn, node: node} do
+    test "filtering by relay class narrows what the controller is asked for", %{
+      conn: conn,
+      node: node
+    } do
       with_entries(node, [entry()])
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      render_change(view, "filter", %{"filter" => %{"operative_class" => "orders"}})
+      render_change(view, "filter", %{"filter" => %{"relay_class" => "orders"}})
 
-      # The screen must push the filter down to the controller rather than
-      # filter a full list in the browser.
-      assert ["orders" | _] =
-               node |> FakeController.calls({Flezha.Dlq.Store, :list}) |> List.last()
+      # The filter is pushed down to the controller rather than applied to a
+      # full list here.
+      assert ["orders", %{source: :ui}] =
+               node |> FakeController.calls({Dlq, :list}) |> List.last()
+
+      assert ["orders", _ctx] = node |> FakeController.calls({Dlq, :tasklets}) |> List.last()
+    end
+
+    test "an unfiltered listing asks for every class", %{conn: conn, node: node} do
+      {:ok, _view, _html} = live(conn, ~p"/dlq")
+
+      assert [nil, _ctx] = node |> FakeController.calls({Dlq, :list}) |> List.last()
     end
 
     test "renders the controller's refusal instead of crashing", %{conn: conn, node: node} do
-      FakeController.set(node, {Flezha.Dlq.Store, :list}, {:error, :dlq_unavailable})
+      FakeController.set(node, {Dlq, :list}, FakeController.error("authz.role_insufficient"))
 
       {:ok, _view, html} = live(conn, ~p"/dlq")
 
-      assert html =~ "dlq_unavailable"
+      assert html =~ ~s(data-testid="runtime-error")
+      assert html =~ "authz.role_insufficient"
     end
   end
 
   describe "inspecting an entry" do
     test "opens and closes the payload modal", %{conn: conn, node: node} do
       with_entries(node, [entry()])
-
-      FakeController.set(
-        node,
-        {Flezha.Dlq.Store, :get},
-        {:ok, entry(), "the parked payload"}
-      )
+      FakeController.set(node, {Dlq, :get}, {:ok, entry(), "the parked payload"})
 
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
@@ -117,12 +129,16 @@ defmodule FlezhaUiWeb.DlqLiveTest do
 
     test "reports an entry that has since left the queue", %{conn: conn, node: node} do
       with_entries(node, [entry()])
-      FakeController.set(node, {Flezha.Dlq.Store, :get}, {:error, :not_found})
+
+      FakeController.set(
+        node,
+        {Dlq, :get},
+        FakeController.error("dlq.not_found", "entry 'orders/charge/17' is not parked")
+      )
 
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      assert render_click(view, "inspect", %{"ref" => @ref}) =~
-               "That entry is no longer in the queue."
+      assert render_click(view, "inspect", %{"ref" => @ref}) =~ "is not parked"
     end
   end
 
@@ -145,8 +161,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       refute html =~ ~s(data-testid="dlq-confirm-modal")
       assert html =~ ~s(data-testid="dlq-row-#{@ref}")
 
-      # Cancelling must not have reached the controller at all.
-      assert FakeController.calls(node, {Flezha.Dlq.Store, :drop}) == []
+      assert FakeController.calls(node, {Dlq, :drop}) == []
     end
 
     test "confirming a drop reaches the controller and reports it", %{conn: conn, node: node} do
@@ -156,25 +171,26 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       html = render_click(view, "drop", %{"ref" => @ref})
 
       assert html =~ "Entry dropped"
-      assert FakeController.calls(node, {Flezha.Dlq.Store, :drop}) == [[@ref]]
+      assert [[@ref, %{source: :ui}]] = FakeController.calls(node, {Dlq, :drop})
     end
 
-    test "a refused drop is reported and the entry stays", %{conn: conn, node: node} do
-      FakeController.set(node, {Flezha.Dlq.Store, :drop}, {:error, :not_found})
+    test "a refused drop is reported", %{conn: conn, node: node} do
+      FakeController.set(node, {Dlq, :drop}, FakeController.error("authz.role_insufficient"))
 
       {:ok, view, _html} = live(conn, ~p"/dlq")
       render_click(view, "confirm", %{"action" => "drop", "ref" => @ref})
 
-      assert render_click(view, "drop", %{"ref" => @ref}) =~
-               "That entry is no longer in the queue."
+      assert render_click(view, "drop", %{"ref" => @ref}) =~ "authz.role_insufficient"
     end
 
-    test "replaying asks first and says what it will report", %{conn: conn} do
+    test "dismissing the replay confirmation attempts nothing", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
       html = render_click(view, "confirm", %{"action" => "replay", "ref" => @ref})
       assert html =~ ~s(data-testid="dlq-confirm-modal")
-      assert html =~ "Replay"
+
+      render_click(view, "cancel_confirm", %{})
+      assert FakeController.calls(node, {Dlq, :replay}) == []
     end
   end
 
@@ -184,7 +200,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       :ok
     end
 
-    test "reports pending while the grace period runs", %{conn: conn} do
+    test "says it is waiting while the controller's grace period runs", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
       render_click(view, "confirm", %{"action" => "replay", "ref" => @ref})
@@ -193,56 +209,77 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       assert html =~ ~s(data-testid="replay-pending")
     end
 
-    test "reports success when the entry left the queue", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, ~p"/dlq")
-      render_click(view, "confirm", %{"action" => "replay", "ref" => @ref})
-      render_click(view, "replay", %{"ref" => @ref})
-
-      # Gone from the queue means the payload was accepted.
-      FakeController.set(node, {Flezha.Dlq.Store, :get}, {:error, :not_found})
-      send(view.pid, {:replay_outcome, @ref})
-
-      assert render(view) =~ ~s(data-testid="replay-succeeded")
-    end
-
-    test "reports a re-park, which otherwise looks identical to success", %{
+    test "re-sends through the controller's replay and reports the entry gone", %{
       conn: conn,
       node: node
     } do
       {:ok, view, _html} = live(conn, ~p"/dlq")
-      render_click(view, "confirm", %{"action" => "replay", "ref" => @ref})
-      render_click(view, "replay", %{"ref" => @ref})
 
+      html = replay(view)
+
+      assert html =~ ~s(data-testid="replay-succeeded")
+      assert [[@ref, %{source: :ui}]] = FakeController.calls(node, {Dlq, :replay})
+    end
+
+    test "reports a re-park with its new generation", %{conn: conn, node: node} do
+      FakeController.set(node, {Dlq, :replay}, {:ok, %{outcome: :re_parked, generation: 3}})
+
+      {:ok, view, _html} = live(conn, ~p"/dlq")
+
+      html = replay(view)
+      assert html =~ ~s(data-testid="replay-reparked")
+      assert html =~ "generation 3"
+    end
+
+    test "a relay that is not running leaves the entry untouched", %{conn: conn, node: node} do
       FakeController.set(
         node,
-        {Flezha.Dlq.Store, :get},
-        {:ok, entry(%{"error" => "refused again"}), "payload"}
+        {Dlq, :replay},
+        FakeController.error("relay.not_running", "relay 'orders' is not running; start it first")
       )
 
-      send(view.pid, {:replay_outcome, @ref})
+      {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      html = render(view)
-      assert html =~ ~s(data-testid="replay-reparked")
-      assert html =~ "refused again"
+      html = replay(view)
+      assert html =~ ~s(data-testid="replay-refused")
+      assert html =~ "is not running; start it first"
+      assert html =~ ~s(data-testid="dlq-row-#{@ref}")
+    end
+
+    test "an entry with no payload bytes is refused with the controller's message", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Dlq, :replay},
+        FakeController.error("dlq.payload_not_replayable", "entry carries no payload bytes")
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/dlq")
+
+      html = replay(view)
+      assert html =~ ~s(data-testid="replay-refused")
+      assert html =~ "entry carries no payload bytes"
     end
   end
 
-  describe "grouping across procedures" do
-    test "entries spanning procedures are grouped, each with its parked count", %{
+  describe "grouping across tasklets" do
+    test "entries spanning tasklets are grouped, each with its parked count", %{
       conn: conn,
       node: node
     } do
       with_entries(node, [
-        entry("op_a", "orders", "1", %{}),
-        entry("op_a", "orders", "2", %{}),
-        entry("op_a", "shipments", "3", %{})
+        entry("relay_a", "orders", "1", %{}),
+        entry("relay_a", "orders", "2", %{}),
+        entry("relay_a", "shipments", "3", %{})
       ])
 
       {:ok, _view, html} = live(conn, ~p"/dlq")
 
-      assert html =~ ~s(data-testid="dlq-group-op_a-orders")
-      assert html =~ ~s(data-testid="dlq-group-op_a-shipments")
-      assert html =~ ~s(data-testid="dlq-group-count-op_a-orders")
+      assert html =~ ~s(data-testid="dlq-group-relay_a-orders")
+      assert html =~ ~s(data-testid="dlq-group-relay_a-shipments")
+      assert html =~ ~s(data-testid="dlq-group-count-relay_a-orders")
       assert html =~ "2 parked"
       assert html =~ "1 parked"
     end
@@ -251,31 +288,22 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       now = System.system_time(:millisecond)
 
       with_entries(node, [
-        entry("op_a", "orders", "new", %{"ts_ms" => now - 1_000}),
-        entry("op_a", "orders", "old", %{"ts_ms" => now - 600_000})
+        entry("relay_a", "orders", "new", %{"ts_ms" => now - 1_000}),
+        entry("relay_a", "orders", "old", %{"ts_ms" => now - 600_000})
       ])
 
       {:ok, _view, html} = live(conn, ~p"/dlq")
 
-      assert :binary.match(html, "dlq-row-op_a/orders/old") <
-               :binary.match(html, "dlq-row-op_a/orders/new")
+      assert :binary.match(html, "dlq-row-relay_a/orders/old") <
+               :binary.match(html, "dlq-row-relay_a/orders/new")
     end
 
-    test "the class filter narrows the procedures asked for", %{conn: conn, node: node} do
-      with_entries(node, [entry("op_a", "orders", "1", %{})])
-
-      {:ok, view, _html} = live(conn, ~p"/dlq")
-      render_change(view, "filter", %{"filter" => %{"operative_class" => "op_a"}})
-
-      assert ["op_a"] = FakeController.calls(node, {Flezha.Dlq.Store, :procedures}) |> List.last()
-    end
-
-    test "a procedure the store knows but with nothing parked is not invented", %{
+    test "a tasklet the controller knows but with nothing parked is not invented", %{
       conn: conn,
       node: node
     } do
       with_entries(node, [])
-      FakeController.set(node, {Flezha.Dlq.Store, :procedures}, [{"op_a", "orders"}])
+      FakeController.set(node, {Dlq, :tasklets}, {:ok, [{"relay_a", "orders"}]})
 
       {:ok, _view, html} = live(conn, ~p"/dlq")
 

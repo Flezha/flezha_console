@@ -5,7 +5,7 @@ TBD - created by archiving change resync-with-flezha-runtime. Update Purpose aft
 ## Requirements
 ### Requirement: The dev stack builds against current flezha
 
-`docker-compose.dev.yml` SHALL build the controller service from `flezha/docker/dev/Dockerfile.toolchain` and SHALL NOT reference any deleted path, image, or binary.
+`docker-compose.dev.yml` SHALL build the controller service from `flezha/docker/dev/Dockerfile.toolchain` and SHALL NOT reference any deleted path, image, or binary. The runner service SHALL run core's `test/apps/rust_runner`.
 
 #### Scenario: Building the dev stack
 
@@ -14,8 +14,9 @@ TBD - created by archiving change resync-with-flezha-runtime. Update Purpose aft
 
 #### Scenario: No stale references remain
 
-- **WHEN** the compose file is searched for `Dockerfile.agent` or `rust_compute_engine`
+- **WHEN** the compose file is searched for `Dockerfile.agent`
 - **THEN** no occurrence exists
+- **AND** the naming gate fails on any `compute_engine` occurrence in the tracked tree, so `rust_compute_engine` cannot return
 
 ### Requirement: The runner runs as its own service
 
@@ -33,7 +34,7 @@ The Rust runner SHALL run as a dedicated compose service that waits for the cont
 
 ### Requirement: One command brings up the whole stack
 
-`docker compose -f docker-compose.dev.yml up` SHALL start the controller, the UI, the database, and Kafka, and the UI SHALL connect to the controller node with no manual step. The UI service SHALL also have the `flezha-stylebook` sibling repository bind-mounted at the container path that the resolved package symlink points to, so the asset watchers can build the stylesheet without a further step.
+`docker compose -f docker-compose.dev.yml up` SHALL start the controller, the UI, the database, and Kafka, and the UI SHALL connect to the controller node with no manual step. The UI service SHALL also have the `flezha_stylebook` sibling repository bind-mounted at the container path that the resolved package symlink points to, so the asset watchers can build the stylesheet without a further step.
 
 #### Scenario: Cold start
 
@@ -48,26 +49,33 @@ The Rust runner SHALL run as a dedicated compose service that waits for the cont
 #### Scenario: The stylebook is reachable from the UI container
 
 - **WHEN** the resolved stylebook package path is dereferenced inside the running UI container
-- **THEN** it points at the mounted sibling repository and its `css` directory is readable
+- **THEN** it points at the mounted `flezha_stylebook` repository and its `css` directory is readable
 
 #### Scenario: The stylesheet builds inside the container
 
 - **WHEN** the Tailwind watcher rebuilds after the stack is up
 - **THEN** the generated stylesheet contains the stylebook's tokens and component recipes, and the console renders styled rather than bare
 
+#### Scenario: No hyphenated stylebook path remains
+
+- **WHEN** the compose file, `assets/package.json`, the root `package.json`, `lib/mix/tasks/assets.stylebook.ex` and `README.md` are searched for `flezha-stylebook`
+- **THEN** no occurrence exists
+
 ### Requirement: Dev seeding populates the dashboard
 
-In the dev environment the UI SHALL seed testnet operatives and plugins on boot using the current operative and plugin APIs, and the seeding SHALL be idempotent.
+In the dev environment the UI SHALL seed testnet relays and plugins on boot through the published consumer API — relays with `Flezha.Service.Relay.start/3`, plugins enabled by name with `Flezha.Service.PluginManager.enable/3` and bound to their relay — and the seeding SHALL be idempotent. Seeded relays SHALL name factories the runner at core's `test/apps/rust_runner` announces, and seeded plugins SHALL use current provider ids such as `relay_websocket`. A seeded relay SHALL carry no kind: its run is its factory's.
 
 #### Scenario: First boot
 
 - **WHEN** the stack starts against an empty controller
-- **THEN** the seeded operatives and plugins exist and the dashboard is populated
+- **THEN** the seeded relays and plugins exist and the dashboard is populated
+- **AND** each seeded plugin is bound to the relay its seed names
 
 #### Scenario: Repeated boot
 
 - **WHEN** the UI restarts against a controller that is already seeded
 - **THEN** nothing is duplicated and no error is reported
+- **AND** a start answering `outcome: :already_running` and an enable answering `outcome: :already_enabled` count as seeded
 
 #### Scenario: The controller is not yet reachable
 
@@ -78,6 +86,11 @@ In the dev environment the UI SHALL seed testnet operatives and plugins on boot 
 
 - **WHEN** the application runs outside the dev environment
 - **THEN** no seeding is attempted
+
+#### Scenario: The seeds use current names
+
+- **WHEN** `config/dev.exs` is read
+- **THEN** its seeds name relays, `relay_websocket` and `max_relays`, and carry no `kind`
 
 ### Requirement: The dev stack claims its own authorization bootstrap
 
@@ -107,7 +120,7 @@ The dev stack SHALL leave authorization enforced and SHALL claim its own bootstr
 
 ### Requirement: A dev namespace is declared, not merely running
 
-Dev seeding SHALL declare its namespace through the controller's namespace store with quotas set, so the namespace administration screens have real data on a fresh stack rather than only a running hub with no declaration.
+Dev seeding SHALL declare its namespace through `Flezha.Service.Namespace.create/3` with quotas set under the controller's current quota keys (`max_relays`, `max_runners`), so the namespace administration screens have real data on a fresh stack rather than only a running hub with no declaration.
 
 #### Scenario: First boot
 
@@ -120,36 +133,50 @@ Dev seeding SHALL declare its namespace through the controller's namespace store
 - **WHEN** the UI restarts against a controller whose namespace is already declared
 - **THEN** the declaration is left alone and no error is reported
 
-### Requirement: Dev seeding covers both operative kinds
-
-Dev seeding SHALL start at least one stream operative and one workflow instance, so the workflow panels, the journal view, and the finished-instance listing are populated on a fresh stack.
-
-#### Scenario: First boot seeds both kinds
-
-- **WHEN** the stack starts against an empty controller
-- **THEN** at least one `:stream` operative and one `:workflow` instance are running
-
-#### Scenario: A workflow instance completes
-
-- **WHEN** a seeded workflow instance runs to completion
-- **THEN** it appears in the finished-instance listing within its retention window
-
 ### Requirement: The asset build resolves the stylebook from a clean checkout
 
-Asset setup SHALL install the `flezha_ui` asset dependencies and place the stylebook's fonts and brand SVGs into the served static tree. It SHALL fail with an actionable message when the sibling `flezha-stylebook` repository is absent, rather than producing an unstyled build.
+Asset setup SHALL install the `flezha_ui` asset dependencies and place the stylebook's fonts and brand SVGs into the served static tree. It SHALL fail with an actionable message when the sibling `flezha_stylebook` repository is absent, rather than producing an unstyled build.
 
 #### Scenario: Setting up a clean checkout
 
-- **WHEN** a developer runs the project's setup command with the sibling repository present
+- **WHEN** a developer runs the project's setup command with the sibling repository present at `../flezha_stylebook`
 - **THEN** the stylebook is installed, the fonts and brand SVGs land in the static tree, and the asset build produces a styled stylesheet
 
 #### Scenario: The sibling repository is missing
 
-- **WHEN** asset setup runs without `flezha-stylebook` alongside the project
-- **THEN** it stops with a message naming the missing repository and the expected location
+- **WHEN** asset setup runs without `flezha_stylebook` alongside the project
+- **THEN** it stops with a message naming the missing `flezha_stylebook` repository and the expected location
 
 #### Scenario: A developer looks up the prerequisite
 
 - **WHEN** a developer reads `README.md`
-- **THEN** the sibling-repository requirement and the asset setup command are documented
+- **THEN** the `flezha_stylebook` sibling-repository requirement and the asset setup command are documented
+
+### Requirement: Dev seeding covers both runs
+
+Dev seeding SHALL start at least one relay of a `flow` factory and at least one relay of a `steps` factory — a long-lived `chat_loop_steps` relay and a run-once `echo_steps` relay — so the steps panels, the task journal view, and the finished-relay listing are populated on a fresh stack.
+
+#### Scenario: First boot seeds both runs
+
+- **WHEN** the stack starts against an empty controller
+- **THEN** at least one relay of a `flow` factory and one relay of a `steps` factory are running
+
+#### Scenario: A steps relay completes
+
+- **WHEN** the seeded `echo_steps` relay runs to completion
+- **THEN** it appears in the finished-relay listing within its retention window
+
+### Requirement: Controller state from before the rename is wiped, not migrated
+
+The dev environment SHALL NOT migrate controller state written under the retired vocabulary. `README.md` SHALL document a one-time reset of the dev stack's controller state — stop the controller, clear its durable state with `flz reset --yes` or by removing the dev state directory, then bring the stack up — after which a cold start seeds cleanly in the current vocabulary.
+
+#### Scenario: Starting over from old state
+
+- **WHEN** a developer whose dev controller holds state from before the rename follows the documented reset and brings the stack up
+- **THEN** the controller boots, seeding completes, and only the seeded relays and plugins exist
+
+#### Scenario: The reset is documented
+
+- **WHEN** `README.md` is read
+- **THEN** it gives the reset steps and states that they discard all dev controller state
 

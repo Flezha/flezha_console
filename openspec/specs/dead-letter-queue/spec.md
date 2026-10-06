@@ -5,23 +5,23 @@ TBD - created by archiving change resync-with-flezha-runtime. Update Purpose aft
 ## Requirements
 ### Requirement: Parked entry listing
 
-The UI SHALL list dead-letter entries oldest first, showing each entry's reference, entity key, channel, generation, age, and error, and SHALL allow filtering by operative class. Entries SHALL be grouped by procedure, matching how the controller stores and ships them, with each procedure's parked count shown on its group.
+The UI SHALL list dead-letter entries from `Flezha.Service.Dlq.list/2` oldest first, showing each entry's reference, cell key, channel, generation, age, and error, and SHALL allow filtering by relay class. Entries SHALL be grouped by tasklet, matching how the controller stores and ships them, with each tasklet's parked count shown on its group.
 
 #### Scenario: Entries are parked
 
 - **WHEN** an operator opens the dead-letter queue
-- **THEN** parked entries are listed oldest first with reference, entity key, channel, generation, age, and error
+- **THEN** parked entries are listed oldest first with reference, cell key, channel, generation, age, and error
 
-#### Scenario: Entries span procedures
+#### Scenario: Entries span tasklets
 
-- **WHEN** parked entries belong to more than one procedure
-- **THEN** they are grouped by procedure with a parked count per group
+- **WHEN** parked entries belong to more than one tasklet
+- **THEN** they are grouped by tasklet with a parked count per group
 
-#### Scenario: Filtering by operative class
+#### Scenario: Filtering by relay class
 
-- **WHEN** an operator filters by an operative class
-- **THEN** only entries belonging to that class are listed
-- **AND** the procedures listed are those `Flezha.Dlq.Store.procedures/1` reports for that class
+- **WHEN** an operator filters by a relay class
+- **THEN** only entries whose `relay_class` is that class are listed
+- **AND** the tasklets listed are those `Flezha.Service.Dlq.tasklets/2` reports for that class
 
 #### Scenario: The queue is empty
 
@@ -44,23 +44,29 @@ An operator SHALL be able to open a single entry by reference and see its metada
 
 ### Requirement: Replay reports its outcome
 
-Replaying an entry SHALL wait for the controller's replay grace period and report whether the payload was accepted or re-parked. Replay SHALL require an explicit confirmation step.
+Replaying an entry SHALL re-send its payload to its relay through `Flezha.Service.Dlq.replay/2`, which re-injects the payload as a new input, waits out the controller's replay grace period, and answers whether the entry was removed or re-parked. The UI SHALL report that answer as it is, and SHALL NOT mark an entry as replaying, read the grace period, or wait on its own. Replay SHALL require an explicit confirmation step.
 
 #### Scenario: Replay succeeds
 
-- **WHEN** an operator confirms a replay and the payload is accepted
-- **THEN** the entry leaves the queue and the result is reported as replayed
+- **WHEN** an operator confirms a replay and the controller answers `outcome: :removed`
+- **THEN** the result is reported as replayed
+- **AND** the entry leaves the queue
 
 #### Scenario: Replay re-parks
 
-- **WHEN** the payload fails again and is re-parked within the grace period
-- **THEN** the result is reported as re-parked, with the new error
-- **AND** the entry remains in the queue
+- **WHEN** the controller answers `outcome: :re_parked` with a new generation
+- **THEN** the result is reported as re-parked with that generation
+- **AND** the entry remains in the queue showing its new error
 
-#### Scenario: The operative is not running
+#### Scenario: The relay is not running
 
-- **WHEN** the controller refuses the replay because the operative is not running
-- **THEN** that reason is displayed and the entry is left untouched
+- **WHEN** the controller refuses the replay with `relay.not_running`
+- **THEN** the error's message is displayed and the entry is left untouched
+
+#### Scenario: The entry carries no payload
+
+- **WHEN** the controller refuses the replay with `dlq.payload_not_replayable`, because the entry is an input between tasklets with no payload bytes
+- **THEN** the error's message is displayed and the entry is left untouched
 
 #### Scenario: Replay is not confirmed
 

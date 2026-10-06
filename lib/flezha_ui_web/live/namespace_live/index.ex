@@ -2,11 +2,10 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
   @moduledoc """
   Namespaces as objects, not merely as running hubs.
 
-  `Flezha.list_namespaces/0` answers hubs that are up. A namespace is also a
-  declared record with quotas and role bindings, and the two sets do not have
-  to agree: a namespace can be declared with nothing running, and a hub can be
-  running for a namespace nobody declared. Both are listed, and each row says
-  which it is.
+  The controller's catalog answers every namespace the caller may see with
+  whether a hub runs for it, so a namespace declared with nothing running is
+  listed too, and each row says which it is. The declarations — quotas and who
+  created them — are read beside it.
   """
 
   use FlezhaUiWeb, :live_view
@@ -24,7 +23,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
        page_title: "Namespaces",
        declarations_unavailable?: false,
        show_create: false,
-       create_form: %{"name" => "", "max_operatives" => "", "max_runners" => ""},
+       create_form: %{"name" => "", "max_relays" => "", "max_runners" => ""},
        create_error: nil,
        confirm_delete: nil,
        delete_confirmation: ""
@@ -67,7 +66,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
            |> put_flash(:info, "Namespace #{name} declared.")}
 
         {:error, reason} ->
-          {:noreply, assign(socket, create_error: refusal(reason))}
+          {:noreply, assign(socket, create_error: reason)}
       end
     end
   end
@@ -94,12 +93,12 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
     # The typed name is a confirmation, never an argument: the namespace acted
     # on is the one the operator opened the dialog for.
     if socket.assigns.delete_confirmation == name do
-      case NodeManager.delete_namespace(name) do
+      case NodeManager.delete_namespace(name, socket.assigns.flezha_token) do
         {:error, reason} ->
           {:noreply,
            socket
            |> assign(confirm_delete: nil, delete_confirmation: "")
-           |> put_flash(:error, "Delete failed: #{refusal(reason)}")}
+           |> put_flash(:error, FlezhaUiWeb.CoreComponents.error_message(reason, "the delete"))}
 
         _ok ->
           {:noreply,
@@ -115,72 +114,61 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
 
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
-    {declared, unavailable?} = declared_namespaces()
+    token = socket.assigns.flezha_token
 
-    case NodeManager.list_namespaces() do
-      {:ok, running} ->
+    case NodeManager.list_namespaces(token) do
+      {:ok, catalog} ->
+        {records, unavailable?} = records(token)
+
         assign(socket,
-          namespaces: rows(declared, running, socket.assigns.flezha_token),
+          namespaces: Enum.map(catalog, &row(&1, records, token)),
           declarations_unavailable?: unavailable?,
           load_error: nil
         )
 
       {:error, reason} ->
-        assign(socket,
-          namespaces: [],
-          declarations_unavailable?: unavailable?,
-          load_error: reason
-        )
+        assign(socket, namespaces: [], declarations_unavailable?: false, load_error: reason)
     end
   end
 
-  # A controller predating declared namespaces still runs hubs, so the listing
-  # falls back to those and says the declarations are what is missing.
-  defp declared_namespaces do
-    case NodeManager.declared_namespaces() do
-      {:ok, entries} -> {entries, false}
-      {:error, {:api_missing, _module, _function, _arity}} -> {[], true}
-      {:error, _reason} -> {[], true}
+  # A controller that cannot answer the records still lists its namespaces,
+  # and the screen says the declarations are what is missing.
+  defp records(token) do
+    case NodeManager.namespace_records(token) do
+      {:ok, records} -> {Map.new(records, &{to_string(&1.name), &1}), false}
+      {:error, _reason} -> {%{}, true}
     end
   end
 
-  defp rows(declared, running, token) do
-    scope = NodeManager.token_scope(token)
-    running = NodeManager.scope_namespaces(running, scope) |> Enum.map(&to_string/1)
-    by_name = Map.new(declared, &{to_string(&1.name), &1})
+  defp row(%{namespace: name, running: running?}, records, token) do
+    name = to_string(name)
+    record = Map.get(records, name)
 
-    declared
-    |> NodeManager.known_namespace_names(running, scope)
-    |> Enum.map(fn name ->
-      entry = Map.get(by_name, name)
-      running? = name in running
-
-      %{
-        name: name,
-        declared?: entry != nil,
-        running?: running?,
-        quotas: entry && entry.quotas,
-        # A declared namespace with no hub has nothing running in it, which is
-        # zero rather than unknown.
-        operative_count: if(running?, do: count(NodeManager.operative_rows(name)), else: 0),
-        runner_count: if(running?, do: count(NodeManager.list_runners(name)), else: 0),
-        breaches: breaches(name, entry)
-      }
-    end)
+    %{
+      name: name,
+      declared?: record != nil,
+      running?: running?,
+      quotas: record && record.quotas,
+      # A namespace with no hub has nothing running in it, which is zero
+      # rather than unknown.
+      relay_count: if(running?, do: count(NodeManager.list_relays(name, token)), else: 0),
+      runner_count: if(running?, do: count(NodeManager.runners(name, token)), else: 0),
+      breaches: breaches(name, record, token)
+    }
   end
 
   # Only a declared namespace has limits to breach; an undeclared one has
   # counters but nothing to measure them against.
-  defp breaches(_name, nil), do: []
+  defp breaches(_name, nil, _token), do: []
 
-  defp breaches(name, entry) do
-    name |> NodeManager.quota_usage(entry.quotas) |> Enum.filter(& &1.breached?)
+  defp breaches(name, record, token) do
+    name |> NodeManager.quota_usage(record.quotas, token) |> Enum.filter(& &1.breached?)
   end
 
   defp count(result), do: result |> NodeManager.ok_or([]) |> length()
 
   defp quota_overrides(params) do
-    ~w(max_operatives max_runners)a
+    ~w(max_relays max_runners)a
     |> Enum.reduce(%{}, fn key, acc ->
       case Integer.parse(String.trim(params[to_string(key)] || "")) do
         {value, ""} -> Map.put(acc, key, value)
@@ -188,7 +176,4 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
       end
     end)
   end
-
-  defp refusal({:forbidden, reason}), do: FlezhaUiWeb.CoreComponents.forbidden_reason(reason)
-  defp refusal(reason), do: inspect(reason)
 end

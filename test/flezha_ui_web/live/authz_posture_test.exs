@@ -39,7 +39,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
     node: node
   } do
     FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
-    FakeController.set(node, {TokenStore, :verify}, {:error, :unknown})
+    FakeController.set(node, {TokenStore, :verify}, FakeController.error("authz.token_unknown"))
 
     {:ok, _view, html} = live(conn, ~p"/")
 
@@ -50,7 +50,12 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
 
   test "a rejected token states why it did not bind", %{conn: conn, node: node} do
     FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
-    FakeController.set(node, {TokenStore, :verify}, {:error, :token_revoked})
+
+    FakeController.set(
+      node,
+      {TokenStore, :verify},
+      FakeController.error("authz.token_revoked", "the token has been revoked")
+    )
 
     {:ok, _view, html} = live(conn, ~p"/")
 
@@ -64,7 +69,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
     FakeController.set(
       node,
       {TokenStore, :verify},
-      {:ok, %{principal: "alice", namespace: "acme", role: :operator, expires_at: :never}}
+      {:ok, %{principal: "alice", namespace: "acme", role: :ops, expires_at: :never}}
     )
 
     {:ok, _view, html} = live(conn, ~p"/")
@@ -91,7 +96,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
     FakeController.set(
       node,
       {TokenStore, :verify},
-      {:ok, %{principal: "alice", namespace: "acme", role: :operator, expires_at: :never}}
+      {:ok, %{principal: "alice", namespace: "acme", role: :ops, expires_at: :never}}
     )
 
     {:ok, _view, html} = live(conn, ~p"/")
@@ -101,12 +106,14 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
 
   test "the namespace switcher offers only what the token can reach", %{conn: conn, node: node} do
     FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
-    FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["acme", "other"]})
+    # The controller narrows its catalog to the caller, so a token bound to
+    # acme is answered acme alone.
+    FakeController.set_fleet(node, namespaces: ["acme"])
 
     FakeController.set(
       node,
       {TokenStore, :verify},
-      {:ok, %{principal: "alice", namespace: "acme", role: :operator, expires_at: :never}}
+      {:ok, %{principal: "alice", namespace: "acme", role: :ops, expires_at: :never}}
     )
 
     {:ok, _view, html} = live(conn, ~p"/")
@@ -118,7 +125,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
 
   test "a _system token is offered every namespace", %{conn: conn, node: node} do
     FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
-    FakeController.set(node, {Flezha, :list_namespaces}, {:ok, ["acme", "other"]})
+    FakeController.set_fleet(node, namespaces: ["acme", "other"])
 
     FakeController.set(
       node,

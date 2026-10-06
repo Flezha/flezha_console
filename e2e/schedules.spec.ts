@@ -11,7 +11,7 @@ import { test, expect, type Page } from './fixtures';
  * Unique per run, so a leftover from a failed run cannot collide.
  *
  * Kept short deliberately: the controller allows 11 bytes, because the cron
- * instance id it composes (`<name>@<slot-iso>`) must fit the 32-byte operative
+ * instance id it composes (`<name>@<slot-iso>`) must fit the 32-byte relay
  * id limit.
  */
 function uniqueScheduleName(prefix = 'pw'): string {
@@ -72,7 +72,7 @@ test.describe('Schedules', () => {
 
     try {
       await openForm(page);
-      await fillForm(page, name, '*/5 * * * *', 'echo_workflow');
+      await fillForm(page, name, '*/5 * * * *', 'echo_steps');
       await page.getByTestId('schedule-form-submit').click();
 
       await expect(page.getByTestId('schedule-form-modal')).toHaveCount(0);
@@ -95,7 +95,7 @@ test.describe('Schedules', () => {
     const name = uniqueScheduleName('pwc');
 
     await openForm(page);
-    await fillForm(page, name, 'not a cron expression', 'echo_workflow');
+    await fillForm(page, name, 'not a cron expression', 'echo_steps');
     await page.getByTestId('schedule-form-submit').click();
 
     await expect(page.getByTestId('schedule-form-error')).toContainText('cron');
@@ -110,7 +110,7 @@ test.describe('Schedules', () => {
     const name = uniqueScheduleName('pwt');
 
     await openForm(page);
-    await fillForm(page, name, '*/5 * * * *', 'echo_workflow');
+    await fillForm(page, name, '*/5 * * * *', 'echo_steps');
     await page.getByTestId('schedule-input-timezone').fill('Mars/Olympus_Mons');
     await page.getByTestId('schedule-form-submit').click();
 
@@ -136,10 +136,12 @@ test.describe('Schedules', () => {
     expect(namespaces).toContain('default');
 
     const factories = await optionValues(page, 'schedule-input-factory');
-    expect(factories, 'at least one factory should be offered').toContain('echo_workflow');
+    expect(factories, 'at least one factory should be offered').toContain('echo_steps');
+    // Only a steps factory can be scheduled, so a flow one is not offered.
+    expect(factories, 'a flow factory must not be offered').not.toContain('store_input');
 
     // Which runner serves the chosen factory, at the point of choosing it.
-    await page.getByTestId('schedule-input-factory').selectOption('echo_workflow');
+    await page.getByTestId('schedule-input-factory').selectOption('echo_steps');
     await expect(page.getByTestId('schedule-form-modal')).toContainText('Served by');
 
     await page.getByTestId('schedule-form-cancel').click();
@@ -150,7 +152,7 @@ test.describe('Schedules', () => {
 
     try {
       await openForm(page);
-      await fillForm(page, name, '*/5 * * * *', 'echo_workflow');
+      await fillForm(page, name, '*/5 * * * *', 'echo_steps');
       await page.getByTestId('schedule-form-submit').click();
       await expect(page.getByTestId(`schedule-row-${name}`)).toBeVisible();
 

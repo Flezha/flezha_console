@@ -45,40 +45,43 @@ defmodule FlezhaUiWeb.ClusterLive do
 
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
+    token = socket.assigns.flezha_token
     connected = NodeManager.connected_node()
-    {namespaces, load_error} = NodeManager.ok_or_error(NodeManager.list_namespaces(), [])
+    {names, load_error} = NodeManager.scoped_namespaces(token)
+    namespaces = Enum.map(names, &describe_namespace(&1, token))
 
     assign(socket,
       load_error: load_error,
       connected_node: connected,
-      cluster_nodes: cluster_nodes(connected),
-      namespaces: Enum.map(namespaces, &describe_namespace/1)
+      cluster_nodes: cluster_nodes(namespaces, connected),
+      namespaces: namespaces
     )
   end
 
-  defp cluster_nodes(connected) do
-    case NodeManager.controller_cluster_nodes() do
-      {:ok, nodes} ->
-        Enum.map(nodes, fn node -> %{name: node, connected?: node == connected} end)
-
-      {:error, _reason} ->
-        # A controller that cannot answer is still the node we are talking to.
-        if connected, do: [%{name: connected, connected?: true}], else: []
-    end
+  # The members are the nodes holding a hub for some namespace the caller can
+  # see, as the controller answers them. The node this UI reached is always
+  # one of them, even before it hosts a hub.
+  defp cluster_nodes(namespaces, connected) do
+    namespaces
+    |> Enum.flat_map(& &1.hub_nodes)
+    |> Enum.concat(List.wrap(connected))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.map(&%{name: &1, connected?: &1 == connected})
   end
 
-  defp describe_namespace(ns) do
+  defp describe_namespace(ns, token) do
     # The same rows `flz cluster status` reads, so the UI and the CLI cannot
-    # disagree about where operatives are or how healthy they are.
-    rows = NodeManager.namespace_rows(ns)
+    # disagree about where relays are or how healthy they are.
+    rows = ns |> NodeManager.relay_rows(token) |> NodeManager.ok_or([])
 
-    hub_nodes = NodeManager.ok_or(NodeManager.hub_nodes(ns), [])
-    recovery = NodeManager.cluster_recovery(ns, hub_nodes)
-
-    placed = NodeManager.placed_rows(rows)
+    {status, status_error} = NodeManager.ok_or_error(NodeManager.cluster_status(ns, token), %{})
+    hub_nodes = status |> Map.get(:nodes, []) |> Enum.map(& &1.node)
+    recovery = Map.new(Map.get(status, :nodes, []), &{&1.node, &1.recovery_state})
 
     per_node =
-      placed
+      rows
+      |> NodeManager.placed_rows()
       |> Enum.group_by(& &1[:node])
       |> Enum.map(fn {node, node_rows} ->
         %{
@@ -90,16 +93,12 @@ defmodule FlezhaUiWeb.ClusterLive do
       end)
       |> Enum.sort_by(&inspect(&1.node))
 
-    describe_fleet(ns, rows, hub_nodes, per_node)
-  end
-
-  defp describe_fleet(ns, rows, hub_nodes, per_node) do
-    catalog = ns |> NodeManager.factory_catalog() |> NodeManager.ok_or([])
+    catalog = ns |> NodeManager.factory_catalog(token) |> NodeManager.ok_or([])
     factories_by_runner = NodeManager.factories_by_runner(catalog)
 
     runners =
       ns
-      |> NodeManager.active_runners()
+      |> NodeManager.runners(token)
       |> NodeManager.ok_or([])
       |> Enum.map(fn runner ->
         id = NodeManager.identifier_id(runner)
@@ -109,10 +108,11 @@ defmodule FlezhaUiWeb.ClusterLive do
     %{
       name: ns,
       hub_nodes: hub_nodes,
+      hub_error: status_error,
       runners: runners,
       # Namespace-derived and the same for every runner in it — the controller
       # mints it at connect, and it is what the audit log will name.
-      runner_principal: NodeManager.runner_principal(ns),
+      runner_principal: NodeManager.runner_principal(ns, token),
       factories: catalog,
       per_node: per_node,
       health: NodeManager.health_counts(rows),

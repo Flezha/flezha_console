@@ -5,18 +5,40 @@ TBD - created by archiving change resync-with-flezha-platform. Update Purpose af
 ## Requirements
 ### Requirement: Identity is resolved from a verified token
 
-The UI SHALL derive its flezha principal only from `Flezha.AuthZ.TokenStore.verify/1`. The principal, namespace, and role in the caller context SHALL be the values that call returned. A principal, namespace, or role supplied by a UI user SHALL NOT be placed in a caller context.
+The UI SHALL derive its flezha principal only from `Flezha.AuthZ.TokenStore.verify/1`. The principal, namespace, and role in the caller context SHALL be the values that call returned. A principal, namespace, role, or list of roles supplied by a UI user, or assembled by the UI itself, SHALL NOT be placed in a caller context. Every other controller call SHALL carry this caller context as its last argument; `Flezha.AuthZ.TokenStore.verify/1` and `Flezha.AuthZ.enforcement_posture/0` are the only calls made without one. The role SHALL be shown as the controller names it — one of `viewer`, `app`, `ops`, `admin`, `runner`, `spawner`, `stopper`.
 
 #### Scenario: A valid token binds an identity
 
 - **WHEN** a token verifies successfully
 - **THEN** the caller context carries `source: :ui` plus the `principal`, `namespace`, and `role` from the verification result
 
+#### Scenario: An ops token is shown as ops
+
+- **WHEN** the bound token's role is `ops`
+- **THEN** the top bar and the settings screen name the role `ops`
+
+#### Scenario: A principal bound to several roles
+
+- **WHEN** the token's principal holds several roles in its namespace
+- **THEN** the caller context still carries only the `role` the token verified with, and no `roles` list
+- **AND** the controller judges each call by that role
+
 #### Scenario: An invalid token leaves the context unbound
 
-- **WHEN** verification answers `{:error, :malformed | :unknown | :token_revoked | :token_expired}`
+- **WHEN** verification answers `{:error, %Flezha.Error{}}` with code `authz.token_malformed`, `authz.token_unknown`, `authz.token_revoked` or `authz.token_expired`
 - **THEN** the caller context carries `source: :ui` and no principal
-- **AND** the reason is shown to the operator
+- **AND** the error's message is shown to the operator
+
+#### Scenario: The token registry is not open yet
+
+- **WHEN** verification answers `{:error, %Flezha.Error{code: "authz.registry_unavailable"}}`
+- **THEN** the caller context is unbound for that call
+- **AND** the answer is not cached, so the next call verifies again
+
+#### Scenario: Every call carries the context
+
+- **WHEN** any controller call other than the two context-free reads is made through `NodeManager`
+- **THEN** its last argument is the caller context `NodeManager.caller_context/1` built
 
 #### Scenario: A typed principal is not trusted
 
@@ -50,7 +72,7 @@ The UI SHALL use the signed-in user's own flezha token when they have stored one
 
 ### Requirement: Verification results are cached
 
-Token verification SHALL be cached, keyed by the token, for a period no longer than the token's own `expires_at`, so a screen does not spend one remote call establishing identity per remote call that does work. A `{:error, {:forbidden, _}}` answer from any call SHALL evict the cached entry for the token that made it.
+Token verification SHALL be cached, keyed by a digest of the token, for a period no longer than the token's own `expires_at`, so a screen does not spend one remote call establishing identity per remote call that does work. A verification failure with an `authz.token_*` code SHALL be cached for the same short period; a transport failure or `authz.registry_unavailable` SHALL NOT be cached. A refusal from any call — `{:error, %Flezha.Error{class: :denied}}` — SHALL evict the cached entry for the token that made it.
 
 #### Scenario: Repeated calls reuse one verification
 
@@ -62,6 +84,11 @@ Token verification SHALL be cached, keyed by the token, for a period no longer t
 - **WHEN** a cached token is revoked on the controller and a subsequent call is refused
 - **THEN** the cache entry is evicted
 - **AND** the next call re-verifies and finds the token revoked
+
+#### Scenario: A failure that is not about the token
+
+- **WHEN** a call fails with a class other than `:denied`, such as `:not_found` or `:unavailable`
+- **THEN** the cached verification is kept
 
 ### Requirement: Authorization posture is stated on every screen
 
@@ -90,18 +117,23 @@ The UI SHALL read `Flezha.AuthZ.enforcement_posture/0` on the same tick that ref
 
 ### Requirement: Refusals are a distinct, explained outcome
 
-A refused call SHALL surface as a refusal naming the action and the reason, never as an empty section. A screen SHALL continue to render the sections whose calls succeeded.
+A refused call — one answering `{:error, %Flezha.Error{class: :denied}}` — SHALL surface as a refusal naming the action, the error's code, and its message, never as an empty section. A screen SHALL continue to render the sections whose calls succeeded.
 
 #### Scenario: One panel on a screen is refused
 
-- **WHEN** one call on a screen answers `{:error, {:forbidden, reason}}`
-- **THEN** that panel states it was refused and why
+- **WHEN** one call on a screen answers `{:error, %Flezha.Error{class: :denied, code: "authz.role_insufficient"}}`
+- **THEN** that panel states it was refused and gives the code and the controller's message
 - **AND** the other panels still render their data
+
+#### Scenario: A refusal for want of an identity
+
+- **WHEN** a call answers `{:error, %Flezha.Error{code: "authz.principal_not_bound"}}` or `{:error, %Flezha.Error{code: "authz.no_role_binding"}}`
+- **THEN** the refusal links to the settings screen where a token is stored
 
 #### Scenario: A mutation is refused
 
-- **WHEN** a start, stop, attach, detach, or quota change is refused
-- **THEN** the form states the refusal and the required role
+- **WHEN** a start, stop, plugin enable or disable, or quota change is refused
+- **THEN** the form states the refusal with the error's code and message
 - **AND** no success message is shown
 
 ### Requirement: The UI's reach matches its token's scope

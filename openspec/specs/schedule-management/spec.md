@@ -5,12 +5,12 @@ TBD - created by archiving change resync-with-flezha-runtime. Update Purpose aft
 ## Requirements
 ### Requirement: Schedule listing with live status
 
-The UI SHALL list persisted schedule entries with their name, cron expression, timezone, and target, joined with each entry's live job status from the schedule hub. The same LiveView SHALL additionally serve a namespace-scoped listing at `/namespaces/:ns/schedules`, filtering on the namespace each entry already carries. Because the controller exposes no namespaced schedule call, the scoped screen SHALL state that its scope is a view filter over the full listing rather than a controller-side scope.
+The UI SHALL list schedule entries from `Flezha.Service.Schedule.list/1`, which answers each stored entry with its name, cron expression, timezone, and target joined with what the schedule hub holds for it: the node that fires it, its last fire, and its next fire. The same LiveView SHALL additionally serve a namespace-scoped listing at `/namespaces/:ns/schedules`, filtering on the namespace each entry already carries. Because the controller keeps one schedule registry for the whole cluster and answers it whole, the scoped screen SHALL state that its scope is a view filter over the full listing rather than a controller-side scope.
 
 #### Scenario: Schedules exist
 
 - **WHEN** an operator opens the schedules screen
-- **THEN** each entry is listed with its cron expression, timezone, target, and current job status
+- **THEN** each entry is listed with its cron expression, timezone, target, the node that fires it, its last fire, and its next fire
 
 #### Scenario: A namespace's own schedules
 
@@ -34,23 +34,23 @@ The UI SHALL list persisted schedule entries with their name, cron expression, t
 
 #### Scenario: An entry has no live job
 
-- **WHEN** a persisted entry has not been asserted onto the hub
+- **WHEN** the hub holds nothing for a stored entry, so no node fires it
 - **THEN** the entry is listed with an explicit not-armed status rather than a blank status
 
 #### Scenario: No schedules exist
 
-- **WHEN** no schedule entries are persisted
+- **WHEN** no schedule entries are stored
 - **THEN** an empty state explains that no schedule has been created
 
 ### Requirement: Schedule creation
 
-An operator SHALL be able to create a schedule by supplying a name, cron expression, timezone, and target. The entry SHALL be persisted and then asserted onto the schedule hub. The target's namespace and factory SHALL be chosen from what the controller reports — the namespaces the bound token can reach, and the factories registered in the chosen namespace — rather than typed from memory, with free text kept only for the case where the controller cannot answer.
+An operator SHALL be able to create a schedule by supplying a name, cron expression, timezone, and target. The schedule SHALL be created through one call to `Flezha.Service.Schedule.add/2`, which stores the entry and asserts it on the schedule hub. Only a factory whose run is `steps` can be scheduled: the controller refuses a factory its runners announce as `flow`, and the form SHALL offer only steps factories. The target's namespace and factory SHALL be chosen from what the controller reports — the namespaces the bound token can reach, and the factories registered in the chosen namespace — rather than typed from memory, with free text kept only for the case where the controller cannot answer.
 
 #### Scenario: Creating a valid schedule
 
-- **WHEN** an operator submits a valid name, cron expression, timezone, and target
-- **THEN** the entry is persisted and asserted onto the hub
-- **AND** it appears in the list with an armed status
+- **WHEN** an operator submits a valid name, cron expression, timezone, and a steps factory as target
+- **THEN** `Service.Schedule.add/2` is called once with those fields
+- **AND** the entry appears in the list with an armed status and its next fire
 
 #### Scenario: Choosing the target namespace
 
@@ -60,8 +60,14 @@ An operator SHALL be able to create a schedule by supplying a name, cron express
 #### Scenario: Choosing the target factory
 
 - **WHEN** an operator has chosen a namespace
-- **THEN** the factory field offers that namespace's registered factories
+- **THEN** the factory field offers that namespace's registered factories whose run is `steps`
 - **AND** a factory no runner currently serves is marked as such
+
+#### Scenario: A flow factory is refused
+
+- **WHEN** a typed factory turns out to run as `flow` and the controller refuses it with `relay.factory_not_steps`
+- **THEN** the error's message is displayed on the form
+- **AND** nothing is stored
 
 #### Scenario: The chosen namespace changes
 
@@ -76,19 +82,19 @@ An operator SHALL be able to create a schedule by supplying a name, cron express
 
 #### Scenario: The cron expression is invalid
 
-- **WHEN** the controller rejects the cron expression
-- **THEN** the rejection reason is displayed on the form
-- **AND** nothing is persisted
+- **WHEN** the controller refuses the cron expression
+- **THEN** the error's message is displayed on the form
+- **AND** nothing is stored
 
 #### Scenario: The timezone is invalid
 
-- **WHEN** the controller rejects the timezone
-- **THEN** the rejection reason is displayed on the form
-- **AND** nothing is persisted
+- **WHEN** the controller refuses the timezone with `schedule.invalid_timezone`
+- **THEN** the error's message is displayed on the form
+- **AND** nothing is stored
 
 #### Scenario: The name is already taken
 
-- **WHEN** an entry with that name already exists
+- **WHEN** the controller refuses the entry with `schedule.already_exists`
 - **THEN** the conflict is reported and the existing entry is left unchanged
 
 ### Requirement: Schedule removal
