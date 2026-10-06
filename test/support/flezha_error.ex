@@ -42,7 +42,20 @@ defmodule Flezha.Error do
     "observability.pubsub_disabled" => :unavailable,
     "audit.disabled" => :unavailable,
     "controller.timeout" => :unavailable,
-    "internal.uncatalogued" => :internal
+    "internal.uncatalogued" => :internal,
+    "diagnose.no_runner" => :unavailable,
+    "diagnose.finished" => :conflict,
+    "diagnose.unknown" => :unavailable,
+    "api.channel_unknown" => :not_found,
+    "api.not_advertised" => :unavailable,
+    "call.timeout" => :unavailable,
+    "usage.invalid_number" => :invalid,
+    "authz.unknown_role" => :invalid,
+    "authz.bootstrap_token_mismatch" => :denied,
+    "plugin.package_invalid" => :invalid,
+    "schedule.not_found" => :not_found,
+    "state.inbox_unreadable" => :unavailable,
+    "audit.writer_unavailable" => :unavailable
   }
 
   @doc "An error for `code`, with the class the catalogue gives it."

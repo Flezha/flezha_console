@@ -1,4 +1,12 @@
 import { test as base, expect, type Page } from '@playwright/test';
+import { submitLogin } from './global-setup';
+
+/** Unique per test, so a leftover from a failed run cannot collide. */
+export function uniqueId(prefix: string): string {
+  const ts = Date.now().toString(36).slice(-4);
+  const rand = Math.random().toString(36).slice(2, 5);
+  return `${prefix}_${ts}_${rand}`;
+}
 
 /**
  * Opens `path` and waits for its LiveView to finish connecting.
@@ -7,7 +15,7 @@ import { test as base, expect, type Page } from '@playwright/test';
  * dead-render — the markup Phoenix sends before the socket joins — so events
  * fire into nothing and dynamic content is missing.
  */
-async function visitLive(page: Page, path: string): Promise<void> {
+export async function visitLive(page: Page, path: string): Promise<void> {
   await page.goto(path);
 
   const main = page.locator('[data-phx-main]');
@@ -266,7 +274,7 @@ export async function withStepsRelay(
   page: Page,
   body: (id: string) => Promise<void>,
 ): Promise<void> {
-  const id = `pw_steps_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`;
+  const id = uniqueId('pw_steps');
 
   await visitLive(page, '/namespaces/default');
   await startRelay(page, id, { run: 'steps' });
@@ -276,6 +284,100 @@ export async function withStepsRelay(
   } finally {
     await visitLive(page, '/namespaces/default');
     await stopRelay(page, id);
+  }
+}
+
+/**
+ * Unique per run, so a leftover from a failed run cannot collide.
+ *
+ * Kept short deliberately: the controller allows 11 bytes, because the cron
+ * instance id it composes (`<name>@<slot-iso>`) must fit the 32-byte relay
+ * id limit.
+ */
+export function uniqueScheduleName(prefix = 'pw'): string {
+  return `${prefix}${Date.now().toString(36).slice(-6)}`;
+}
+
+export async function openScheduleForm(page: Page): Promise<void> {
+  await page.getByTestId('schedule-new-btn').click();
+  await expect(page.getByTestId('schedule-form-modal')).toBeVisible();
+}
+
+/**
+ * Fills the form, choosing the factory rather than typing it.
+ *
+ * The target's namespace and factory are now offered from what the controller
+ * reports, so a spec that typed an id would be exercising a path only an
+ * unreachable controller reaches.
+ */
+export async function fillScheduleForm(
+  page: Page,
+  name: string,
+  cron: string,
+  factory: string,
+): Promise<void> {
+  await page.getByTestId('schedule-input-name').fill(name);
+  await page.getByTestId('schedule-input-cron').fill(cron);
+  await page.getByTestId('schedule-input-namespace').selectOption('default');
+  await page.getByTestId('schedule-input-factory').selectOption(factory);
+}
+
+/**
+ * Cleanup, so a failure does not leave a cron job armed.
+ *
+ * Tolerating an already-removed schedule is what makes this safe to call from
+ * `finally` after the test removed it itself; it never skips an assertion.
+ */
+export async function removeSchedule(page: Page, name: string): Promise<void> {
+  const row = page.getByTestId(`schedule-row-${name}`);
+  if ((await row.count()) === 0) return;
+
+  await page.getByTestId(`schedule-remove-${name}`).click();
+  await page.getByTestId('schedule-remove-confirm').click();
+  await expect(row).toHaveCount(0);
+}
+
+/**
+ * Disables `name` from the plugins screen, whatever any relay screen shows.
+ * Safe to call from `finally`: a plugin already gone is left alone.
+ */
+export async function disablePlugin(page: Page, name: string): Promise<void> {
+  await visitLive(page, '/namespaces/default/plugins');
+  const row = page.getByTestId(`plugin-row-${name}`);
+  if ((await row.count()) === 0) return;
+
+  await page.getByTestId(`plugin-disable-${name}`).click();
+  await page.getByTestId('plugin-disable-confirm').click();
+  await expect(row).toHaveCount(0);
+}
+
+/**
+ * Opens the settings screen. Settings sits behind sudo mode, whose window is
+ * shorter than a full suite run, so this re-authenticates rather than trusting
+ * the shared session. The email field is readonly on the re-auth form — only
+ * the password is asked for.
+ */
+export async function openSettings(page: Page): Promise<void> {
+  await page.goto('/users/settings');
+
+  if (page.url().includes('/users/log-in')) {
+    await submitLogin(page);
+    await page.waitForURL(/\/users\/settings$/);
+  }
+
+  await expect(page.getByTestId('flezha-token-settings')).toBeVisible();
+}
+
+/**
+ * Clears the token stored for the signed-in user, leaving the service token in
+ * charge. Safe from `finally`: with none stored it does nothing.
+ */
+export async function clearStoredToken(page: Page): Promise<void> {
+  await openSettings(page);
+
+  if (await page.locator('#clear_flezha_token').count()) {
+    await page.locator('#clear_flezha_token button').click();
+    await expect(page.getByTestId('flezha-token-binding')).toContainText('using the service token');
   }
 }
 

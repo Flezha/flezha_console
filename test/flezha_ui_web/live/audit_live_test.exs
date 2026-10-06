@@ -266,4 +266,45 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       assert render_click(view, "read", %{}) =~ ~s(data-testid="audit-records")
     end
   end
+
+  describe "rotating the audit log" do
+    test "rotates and reloads the catalog, which lists the closed file", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
+      {:ok, view, _html} = live(conn, ~p"/audit")
+
+      closed = %{name: "audit-20261006T120000.jsonl", size_bytes: 512, record_count: 3}
+      FakeController.set(node, {AuditLog, :list_files}, {:ok, [closed]})
+
+      html = view |> element(~s([data-testid="audit-rotate-btn"])) |> render_click()
+
+      assert [[_ctx]] = FakeController.calls(node, {AuditLog, :rotate})
+      assert html =~ "audit-20261006T120000.jsonl"
+      assert html =~ "Audit log rotated"
+    end
+
+    test "a refused rotation shows the error and leaves the catalog as it was", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
+
+      FakeController.set(
+        node,
+        {AuditLog, :rotate},
+        FakeController.error("authz.role_insufficient", "viewer may not rotate the audit log")
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/audit")
+      files_before = length(FakeController.calls(node, {AuditLog, :list_files}))
+
+      html = view |> element(~s([data-testid="audit-rotate-btn"])) |> render_click()
+
+      assert html =~ ~s(data-testid="audit-rotate-error")
+      assert html =~ "viewer may not rotate the audit log"
+      assert length(FakeController.calls(node, {AuditLog, :list_files})) == files_before
+    end
+  end
 end

@@ -22,7 +22,8 @@ defmodule FlezhaUiWeb.AuditLive do
         filter: %{"file" => "", "source" => "", "name" => "", "limit" => "100"},
         records: nil,
         truncated: false,
-        disabled_reason: nil
+        disabled_reason: nil,
+        rotate_error: nil
       )
       |> load_catalog()
 
@@ -57,6 +58,23 @@ defmodule FlezhaUiWeb.AuditLive do
 
       {:error, reason} ->
         {:noreply, assign(socket, records: [], truncated: false, read_error: reason)}
+    end
+  end
+
+  # Closes the current file so it joins the catalog; nothing is lost, so it
+  # asks no confirmation. A refusal leaves the catalog as it was.
+  @impl true
+  def handle_event("rotate", _params, socket) do
+    case NodeManager.audit_rotate(socket.assigns.flezha_token) do
+      {:ok, _rotated} ->
+        {:noreply,
+         socket
+         |> assign(rotate_error: nil)
+         |> load_catalog()
+         |> put_flash(:info, "Audit log rotated: the closed file is listed below.")}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, rotate_error: reason)}
     end
   end
 

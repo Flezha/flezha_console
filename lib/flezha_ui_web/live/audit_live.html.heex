@@ -30,6 +30,19 @@
     <%!-- Files --%>
     <.panel icon="hero-document-text">
       <:title>Files ({length(@files)})</:title>
+      <:actions>
+        <button
+          :if={NodeManager.granted?(@operations, "AuditLog.rotate")}
+          phx-click="rotate"
+          data-testid="audit-rotate-btn"
+          class="flz-button flz-button--sm flz-button--secondary"
+        >
+          <.icon name="hero-arrow-path-rounded-square" class="w-3.5 h-3.5" /> Rotate
+        </button>
+      </:actions>
+      <div :if={@rotate_error} data-testid="audit-rotate-error" class="px-5 pt-3">
+        <.runtime_error error={@rotate_error} action="the rotation" />
+      </div>
       <%= if @files == [] do %>
         <%!-- The catalog lists rotated files, so it is empty until the first
               rotation even while the current file is being written. --%>

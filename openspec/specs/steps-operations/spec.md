@@ -137,3 +137,24 @@ For a durable steps relay the UI SHALL show its task journal from `Flezha.Servic
 - **WHEN** a relay is not a durable steps relay
 - **THEN** the task journal and input log panels are absent rather than empty
 
+### Requirement: The input log lists its retained records
+
+For a durable steps relay, the input log section SHALL list the retained records from `Flezha.Service.Steps.inbox/2`: each record's offset, whether it is at or below the instance's floor and so consumed, its size in bytes, and its channel. The floor SHALL be stated. The records SHALL be read when the section is expanded and SHALL NOT be read on the refresh tick. Payloads SHALL NOT be shown.
+
+#### Scenario: An input log with consumed and pending records
+
+- **WHEN** an operator expands the input log section of a durable steps relay
+- **THEN** each retained record is listed with its offset, size and channel
+- **AND** records at or below the floor are marked consumed and the rest pending
+
+#### Scenario: The section is collapsed
+
+- **WHEN** the relay detail screen refreshes with the input log section collapsed
+- **THEN** no `inbox/2` call is made
+
+#### Scenario: The input log cannot be read
+
+- **WHEN** the controller refuses or cannot read the input log
+- **THEN** the section shows the error with its code and hint
+- **AND** the rest of the screen still renders
+

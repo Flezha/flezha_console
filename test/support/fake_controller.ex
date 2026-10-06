@@ -371,6 +371,23 @@ defmodule Flezha.Service.Relay do
 
   defstub stop(ns, id, %{source: :ui} = ctx), do: {:ok, %{id: id, stopped: :stopped}}
 
+  defstub diagnose(ns, id, %{source: :ui} = ctx),
+    do: {:ok, %{relay: id, verdict: :ok, findings: []}}
+
+  defstub api(ns, id, %{source: :ui} = ctx), do: {:ok, []}
+
+  defstub send(ns, id, message, channel, opts, %{source: :ui} = ctx),
+    do: {:ok, %{to: id, verdict: :delivered}}
+
+  # The real one answers a 3-tuple, the answer's metadata keyed by text.
+  defstub call(ns, id, message, channel, opts, %{source: :ui} = ctx),
+    do: {:ok, message, %{"channel" => "out"}}
+
+  defstub call_channel(ns, id, channel, value, opts, %{source: :ui} = ctx),
+    do: {:ok, %{accepted: true}}
+
+  defstub replay(ns, path, from, %{source: :ui} = ctx), do: {:ok, %{cell: path, from_seq: 0}}
+
   def listen(ns, id, direction, opts, %{source: :ui} = ctx),
     do:
       FakeController.stream({__MODULE__, :listen}, [ns, id, direction, opts, ctx], ctx, [
@@ -383,7 +400,7 @@ defmodule Flezha.Service.Steps do
   use FakeController.Stub
 
   defstub cells(relay_class, %{source: :ui} = ctx),
-    do: {:ok, %{relay_class: relay_class, cells: []}}
+    do: {:ok, %{relay_class: relay_class, history_retention_hours: 24, cells: []}}
 
   defstub time_travel(cell, target, %{source: :ui} = ctx),
     do:
@@ -402,6 +419,29 @@ defmodule Flezha.Service.Steps do
   defstub last_offset(id, %{source: :ui} = ctx), do: {:ok, -1}
   defstub rescale(ns, group, target, opts, %{source: :ui} = ctx), do: {:ok, %{group: group}}
   defstub rewind(ns, relay_class, to_iter, %{source: :ui} = ctx), do: :ok
+
+  defstub inbox(instance_id, %{source: :ui} = ctx),
+    do: {:ok, %{instance: instance_id, floor: -1, entries: []}}
+
+  defstub outbox(cell, %{source: :ui} = ctx),
+    do:
+      {:ok,
+       %{
+         cell: cell,
+         last_persisted_seq: 0,
+         outbox_durable_seq: 0,
+         outbox_flushed_seq: 0,
+         epoch: 0,
+         pending: 0,
+         held: 0,
+         input_watermark: nil
+       }}
+
+  defstub rotate(cell, %{source: :ui} = ctx), do: {:ok, %{cell: cell}}
+  defstub delete(cell, %{source: :ui} = ctx), do: {:ok, %{cell: cell}}
+
+  defstub set_retention(relay_class, hours, %{source: :ui} = ctx),
+    do: {:ok, %{relay_class: relay_class, hours: hours}}
 end
 
 defmodule Flezha.Service.Fleet do
@@ -440,6 +480,54 @@ defmodule Flezha.Service.Namespace do
 
   defstub quota(name, kind, %{source: :ui} = ctx), do: {:ok, 0}
   defstub roles(name, %{source: :ui} = ctx), do: {:ok, []}
+
+  # Without `operations`, as a core older than that field answers, so every
+  # control renders unless a test sets a list.
+  defstub whoami(%{source: :ui} = ctx),
+    do: {:ok, Map.take(ctx, [:principal, :namespace, :role])}
+
+  defstub tokens(%{source: :ui} = ctx), do: {:ok, []}
+
+  defstub issue_token(principal, namespace, role, opts, %{source: :ui} = ctx),
+    do:
+      {:ok,
+       %{
+         id: "tok-new",
+         principal: principal,
+         namespace: namespace,
+         role: role,
+         label: opts[:label],
+         status: :active,
+         token: "flzt_issued_secret_value"
+       }}
+
+  defstub revoke_token(id, %{source: :ui} = ctx),
+    do:
+      {:ok,
+       %{
+         id: id,
+         principal: "p",
+         namespace: "default",
+         role: :viewer,
+         label: nil,
+         status: :revoked
+       }}
+
+  defstub bind_role(principal, role, namespace, %{source: :ui} = ctx),
+    do:
+      {:ok,
+       %{
+         principal: principal,
+         role: role,
+         namespace: namespace,
+         binding: %{principal: principal, namespace: namespace, roles: [role]}
+       }}
+
+  defstub unbind_role(principal, role, %{source: :ui} = ctx),
+    do: {:ok, %{principal: principal, role: role, binding: nil}}
+
+  defstub bootstrap(bootstrap_token, %{source: :ui} = ctx),
+    do: {:ok, %{principal: "admin-claimed", minted_token: "flzt_minted_admin_secret"}}
 end
 
 defmodule Flezha.Service.Dlq do
@@ -467,6 +555,9 @@ defmodule Flezha.Service.Schedule do
     do: {:ok, %{entry: Map.new(fields), next_fire: nil, runner_missing: false}}
 
   defstub remove(name, %{source: :ui} = ctx), do: :ok
+
+  defstub run(name, %{source: :ui} = ctx),
+    do: {:ok, %{relay_id: "#{name}@manual-1", outcome: :spawned}}
 end
 
 defmodule Flezha.Service.Controller do
@@ -511,6 +602,11 @@ defmodule Flezha.Service.PluginManager do
 
   defstub disable(name, fields, %{source: :ui} = ctx), do: {:ok, "plugin disabled"}
   defstub enabled(ns, %{source: :ui} = ctx), do: {:ok, []}
+  defstub bind(name, fields, %{source: :ui} = ctx), do: :ok
+  defstub unbind(name, fields, %{source: :ui} = ctx), do: :ok
+
+  defstub update(name, fields, %{source: :ui} = ctx),
+    do: {:ok, %{applied: :live, relays: []}}
 end
 
 defmodule Flezha.Service.Observability do

@@ -120,6 +120,7 @@
         <thead>
           <tr>
             <th>Runner ID</th>
+            <th>OS pid</th>
             <th>Namespace</th>
           </tr>
         </thead>
@@ -127,6 +128,7 @@
           <%= for runner <- @stats.runners do %>
             <tr data-testid={"dashboard-runner-row-#{runner.id}"}>
               <td class="flz-num text-xs">{runner.id}</td>
+              <td class="flz-num text-xs">{runner.pid || "—"}</td>
               <td>{runner.namespace}</td>
             </tr>
           <% end %>

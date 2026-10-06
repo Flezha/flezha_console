@@ -25,14 +25,11 @@ test.describe('Relay durable state', () => {
     await expect(rows.first()).toContainText(/\d+/);
   });
 
-  test('states the retention window and names flz for the destructive verbs', async ({ page }) => {
-    await expect(page.getByTestId('state-retention')).toContainText(/hours|not reported/);
-
-    const verbs = page.getByTestId('state-verbs');
-    await expect(verbs).toContainText('flz state');
-    // The screen reads; it does not offer a delete or a rotate.
-    await expect(page.locator('[phx-click="delete_state"]')).toHaveCount(0);
-    await expect(page.locator('[phx-click="rotate_state"]')).toHaveCount(0);
+  test('states the history retention of a flow relay, and no finished-instance one', async ({
+    page,
+  }) => {
+    await expect(page.getByTestId('history-retention')).toContainText(/\d+ hours/);
+    await expect(page.getByTestId('finished-retention')).toHaveCount(0);
   });
 
   test('the lag chart says the series is sampled by this UI', async ({ page }) => {

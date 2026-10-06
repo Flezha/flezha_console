@@ -11,7 +11,12 @@
           {length(@rows)} across {length(@namespaces)} namespaces
         </span>
       </span>
-      <.button phx-click="launcher_open" data-testid="start-relay-btn" icon="hero-plus">
+      <.button
+        :if={NodeManager.granted?(@operations, "Relay.start")}
+        phx-click="launcher_open"
+        data-testid="start-relay-btn"
+        icon="hero-plus"
+      >
         Start Relay
       </.button>
     </:actions>
@@ -132,6 +137,36 @@
       </table>
     <% end %>
   </div>
+
+  <%!-- Relay lifecycle, as it happens --%>
+  <.panel testid="lifecycle-feed" icon="hero-signal">
+    <:title>Lifecycle ({length(@lifecycle)})</:title>
+    <div :if={@lifecycle_error} data-testid="lifecycle-error" class="px-5 pt-3">
+      <.runtime_error error={@lifecycle_error} action="the relay lifecycle feed" />
+    </div>
+    <p :if={@lifecycle == []} class="flz-empty">
+      Relays starting, stopping and losing their runner appear here as it happens.
+    </p>
+    <ol :if={@lifecycle != []} class="divide-y divide-brd-subtle">
+      <li
+        :for={{entry, index} <- Enum.with_index(@lifecycle)}
+        data-testid={"lifecycle-entry-#{index}"}
+        class="px-5 py-2 text-xs flex gap-3"
+      >
+        <span class="flz-num text-th-muted">{Format.time_of_day(entry.at)}</span>
+        <span class="flz-num text-th-tertiary">{entry.namespace}</span>
+        <.link
+          navigate={~p"/namespaces/#{entry.namespace}/relays/#{entry.relay}"}
+          class="flz-num text-accent-text hover:text-accent"
+        >
+          {entry.relay}
+        </.link>
+        <span data-testid={"lifecycle-what-#{index}"} class="text-th-secondary">
+          {lifecycle_text(entry)}
+        </span>
+      </li>
+    </ol>
+  </.panel>
 </div>
 
 <.launcher_dialog launcher={@launcher} />

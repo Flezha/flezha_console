@@ -2,7 +2,12 @@
   <.header mono>
     {@ns}
     <:actions>
-      <.button phx-click="launcher_open" data-testid="start-relay-btn" icon="hero-plus">
+      <.button
+        :if={NodeManager.granted?(@operations, "Relay.start")}
+        phx-click="launcher_open"
+        data-testid="start-relay-btn"
+        icon="hero-plus"
+      >
         Start Relay
       </.button>
     </:actions>
@@ -26,7 +31,7 @@
     </:title>
     <:actions>
       <button
-        :if={@declared}
+        :if={@declared != nil and NodeManager.granted?(@operations, "Namespace.set_quotas")}
         phx-click="open_quotas"
         data-testid="edit-quotas-btn"
         class="flz-button flz-button--sm flz-button--secondary"
@@ -84,7 +89,7 @@
     </table>
   </.panel>
 
-  <%!-- Role bindings, read-only --%>
+  <%!-- Role bindings --%>
   <.panel
     fold="role-bindings"
     open={@sections["role-bindings"]}
@@ -93,10 +98,24 @@
     class="overflow-hidden"
   >
     <:title>Role bindings ({length(@role_bindings)})</:title>
+    <:actions>
+      <button
+        :if={NodeManager.granted?(@operations, "Namespace.bind_role")}
+        phx-click="open_bind"
+        data-testid="bind-role-btn"
+        class="flz-button flz-button--sm flz-button--secondary"
+      >
+        <.icon name="hero-plus" class="w-3.5 h-3.5" /> Bind
+      </button>
+    </:actions>
     <%= if @role_bindings == [] do %>
       <.empty_state icon="hero-key" testid="role-bindings-empty">
         No principal is bound to this namespace.
-        <:detail>Bind one with <code class="font-mono">flz role bind</code>.</:detail>
+        <:detail :if={NodeManager.granted?(@operations, "Namespace.bind_role")}>
+          <button phx-click="open_bind" data-testid="bind-role-empty-btn" class="underline">
+            Bind one
+          </button>
+        </:detail>
       </.empty_state>
     <% else %>
       <table class="flz-table">
@@ -107,11 +126,103 @@
             class="last:border-b-0"
           >
             <td class="text-th-primary flz-num text-xs">{binding[:principal]}</td>
-            <td class="flz-num text-xs">{Enum.join(binding[:roles] || [], ", ")}</td>
+            <td class="flz-num text-xs">
+              <span
+                :for={role <- binding[:roles] || []}
+                class="inline-flex items-center gap-1 mr-2"
+                data-testid={"role-#{binding[:principal]}-#{role}"}
+              >
+                {role}
+                <button
+                  :if={NodeManager.granted?(@operations, "Namespace.unbind_role")}
+                  phx-click="confirm_unbind"
+                  phx-value-principal={binding[:principal]}
+                  phx-value-namespace={binding[:namespace]}
+                  phx-value-role={role}
+                  data-testid={"unbind-role-#{binding[:principal]}-#{role}"}
+                  class="text-danger-text hover:text-danger"
+                  aria-label={"Unbind #{role}"}
+                >
+                  <.icon name="hero-x-mark" class="w-3 h-3" />
+                </button>
+              </span>
+            </td>
+            <td class="text-right">
+              <button
+                :if={NodeManager.granted?(@operations, "Namespace.unbind_role")}
+                phx-click="confirm_unbind"
+                phx-value-principal={binding[:principal]}
+                phx-value-namespace={binding[:namespace]}
+                data-testid={"unbind-binding-#{binding[:principal]}"}
+                class="text-xs text-danger-text hover:text-danger transition-colors"
+              >
+                Remove binding
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>
     <% end %>
+  </.panel>
+
+  <%!-- Tokens; never the token itself --%>
+  <.panel
+    fold="tokens"
+    open={@sections["tokens"]}
+    testid="tokens-panel"
+    icon="hero-identification"
+    class="overflow-hidden"
+  >
+    <:title>Tokens ({length(@tokens)})</:title>
+    <:actions>
+      <button
+        :if={NodeManager.granted?(@operations, "Namespace.issue_token")}
+        phx-click="open_issue"
+        data-testid="issue-token-btn"
+        class="flz-button flz-button--sm flz-button--secondary"
+      >
+        <.icon name="hero-plus" class="w-3.5 h-3.5" /> Issue
+      </button>
+    </:actions>
+    <.runtime_error error={@tokens_error} action="the token listing" />
+    <.empty_state :if={@tokens == [] and is_nil(@tokens_error)} icon="hero-identification">
+      No token is issued for this namespace.
+    </.empty_state>
+    <table :if={@tokens != []} class="flz-table">
+      <thead>
+        <tr>
+          <th>Id</th>
+          <th>Principal</th>
+          <th>Role</th>
+          <th>Label</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr :for={row <- @tokens} data-testid={"token-#{row.id}"}>
+          <td class="flz-num text-xs">{row.id}</td>
+          <td class="flz-num text-xs">{row.principal}</td>
+          <td class="text-xs">{row.role}</td>
+          <td class="text-xs">{row[:label] || "—"}</td>
+          <td class="text-xs" data-testid={"token-status-#{row.id}"}>{row.status}</td>
+          <td class="text-right">
+            <button
+              :if={
+                row.status == :active and
+                  NodeManager.granted?(@operations, "Namespace.revoke_token")
+              }
+              phx-click="confirm_revoke"
+              phx-value-id={row.id}
+              data-testid={"revoke-token-#{row.id}"}
+              class="text-xs text-danger-text hover:text-danger transition-colors"
+            >
+              Revoke
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
   </.panel>
 
   <%!-- Relays panel --%>
@@ -181,6 +292,7 @@
                   View
                 </a>
                 <button
+                  :if={NodeManager.granted?(@operations, "Relay.stop")}
                   data-testid={"stop-relay-#{relay.id}"}
                   phx-click="confirm_stop"
                   phx-value-relay_id={relay.id}
@@ -232,6 +344,7 @@
             coverage unavailable on this controller
           </span>
           <button
+            :if={NodeManager.granted?(@operations, "Steps.rescale")}
             type="button"
             phx-click="open_rescale"
             phx-value-group={group.id}
@@ -378,6 +491,12 @@
         <%= for runner <- @runners do %>
           <li class="px-5 py-3 text-th-secondary font-mono text-xs">
             {NodeManager.identifier_id(runner)}
+            <span
+              data-testid={"os-pid-#{NodeManager.identifier_id(runner)}"}
+              class="text-th-tertiary ml-2"
+            >
+              pid {runner[:pid] || "—"}
+            </span>
           </li>
         <% end %>
       </ul>
@@ -449,3 +568,159 @@
     <.button phx-click="save_quotas" data-testid="quota-save">Save</.button>
   </div>
 </.dialog>
+
+<.dialog
+  :if={@token_issue}
+  testid="issue-token-modal"
+  size="form"
+  on_close="close_issue"
+  close_testid="issue-token-close"
+>
+  <:title>Issue a token for {@ns}</:title>
+
+  <%= if @token_issue.issued do %>
+    <div data-testid="issued-token" class="space-y-3">
+      <.notice icon="hero-exclamation-triangle">
+        This token is shown once and kept nowhere. Copy it now; closing this dialog drops it.
+      </.notice>
+      <p class="text-xs text-th-muted">
+        For <span class="font-mono">{@token_issue.issued.principal}</span>
+        as {@token_issue.issued.role}, id <span data-testid="issued-token-id" class="font-mono">{@token_issue.issued.id}</span>.
+      </p>
+      <pre id="issued-token-value" data-testid="issued-token-value" class="flz-code break-all">{@token_issue.issued.token}</pre>
+      <div class="flex justify-end gap-3">
+        <.button
+          variant="secondary"
+          phx-click={JS.dispatch("flz:copy", to: "#issued-token-value")}
+          data-testid="issued-token-copy"
+          icon="hero-clipboard"
+        >
+          Copy
+        </.button>
+        <.button phx-click="close_issue" data-testid="issued-token-done">Done</.button>
+      </div>
+    </div>
+  <% else %>
+    <.form_error error={@token_issue.error} action="the token issue" testid="issue-token-error" />
+    <form phx-submit="issue_token" class="space-y-4">
+      <.input
+        type="text"
+        name="token[principal]"
+        label="Principal *"
+        value={@token_issue.form["principal"]}
+        mono
+        data-testid="issue-token-principal"
+      />
+      <.input
+        type="text"
+        name="token[role]"
+        label="Role *"
+        hint="admin, ops, app, viewer or runner"
+        value={@token_issue.form["role"]}
+        mono
+        data-testid="issue-token-role"
+      />
+      <.input
+        type="text"
+        name="token[ttl]"
+        label="Lifetime"
+        hint="seconds, or never"
+        value={@token_issue.form["ttl"]}
+        mono
+        data-testid="issue-token-ttl"
+      />
+      <.input
+        type="text"
+        name="token[label]"
+        label="Label"
+        hint="optional"
+        value={@token_issue.form["label"]}
+        data-testid="issue-token-label"
+      />
+      <div class="flex justify-end gap-3 pt-2">
+        <.button variant="ghost" phx-click="close_issue" data-testid="issue-token-cancel">
+          Cancel
+        </.button>
+        <.button type="submit" data-testid="issue-token-submit">Issue</.button>
+      </div>
+    </form>
+  <% end %>
+</.dialog>
+
+<.confirm_dialog
+  :if={@confirm_revoke}
+  title="Revoke token?"
+  confirm_label="Revoke"
+  on_confirm="revoke_token"
+  on_cancel="cancel_revoke"
+  values={%{"id" => @confirm_revoke.id}}
+  testid="revoke-token-modal"
+  cancel_testid="revoke-token-cancel"
+  confirm_testid="revoke-token-confirm"
+>
+  Revoke token
+  <.mono>{@confirm_revoke.id}</.mono>
+  of <.mono>{@confirm_revoke.principal}</.mono>? Whoever holds it can no longer use it.
+</.confirm_dialog>
+
+<.dialog :if={@role_bind} testid="bind-role-modal" size="form" on_close="close_bind">
+  <:title>Bind a role in {@ns}</:title>
+  <.form_error error={@role_bind.error} action="the bind" testid="bind-role-error" />
+  <form phx-submit="bind_role" class="space-y-4">
+    <.input
+      type="text"
+      name="binding[principal]"
+      label="Principal *"
+      value={@role_bind.form["principal"]}
+      mono
+      data-testid="bind-role-principal"
+    />
+    <.input
+      type="text"
+      name="binding[role]"
+      label="Role *"
+      hint="admin, ops, app or viewer"
+      value={@role_bind.form["role"]}
+      mono
+      data-testid="bind-role-role"
+    />
+    <div class="flex justify-end gap-3 pt-2">
+      <.button variant="ghost" phx-click="close_bind" data-testid="bind-role-cancel">
+        Cancel
+      </.button>
+      <.button type="submit" data-testid="bind-role-submit">Bind</.button>
+    </div>
+  </form>
+</.dialog>
+
+<.confirm_dialog
+  :if={@confirm_unbind}
+  title={if @confirm_unbind.role, do: "Unbind role?", else: "Remove binding?"}
+  confirm_label={if @confirm_unbind.role, do: "Unbind", else: "Remove"}
+  on_confirm="unbind_role"
+  on_cancel="cancel_unbind"
+  values={%{"principal" => @confirm_unbind.principal, "role" => @confirm_unbind.role || ""}}
+  testid="unbind-role-modal"
+  cancel_testid="unbind-role-cancel"
+  confirm_testid="unbind-role-confirm"
+>
+  <%= if @confirm_unbind.role do %>
+    Take
+    <.mono>{@confirm_unbind.role}</.mono>
+    away from
+    <.mono>{@confirm_unbind.principal}</.mono>
+    in <.mono>{@confirm_unbind.namespace}</.mono>? Its other roles stay.
+  <% else %>
+    Remove every role
+    <.mono>{@confirm_unbind.principal}</.mono>
+    holds in <.mono>{@confirm_unbind.namespace}</.mono>? It can no longer act on this
+    controller until it is bound again.
+  <% end %>
+  <span
+    :if={@confirm_unbind.namespace == "_system"}
+    class="block mt-2"
+    data-testid="unbind-cluster-wide"
+  >
+    This binding is cluster-wide: it reaches every namespace, not only this one.
+  </span>
+</.confirm_dialog>

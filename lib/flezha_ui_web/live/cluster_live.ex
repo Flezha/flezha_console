@@ -102,7 +102,7 @@ defmodule FlezhaUiWeb.ClusterLive do
       |> NodeManager.ok_or([])
       |> Enum.map(fn runner ->
         id = NodeManager.identifier_id(runner)
-        %{id: id, factories: Map.get(factories_by_runner, id, [])}
+        %{id: id, pid: Map.get(runner, :pid), factories: Map.get(factories_by_runner, id, [])}
       end)
 
     %{

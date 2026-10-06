@@ -10,6 +10,7 @@ import {
   stopRelay,
   withStepsRelay,
   HEALTH_VERDICTS,
+  uniqueId,
 } from './fixtures';
 
 /**
@@ -20,13 +21,6 @@ import {
  * controller's `app_data` may carry durable state from earlier campaigns, so
  * any absolute count is somebody else's number.
  */
-/** Unique per test, so a leftover from a failed run cannot collide. */
-function uniqueRelayId(prefix = 'pw_idx'): string {
-  const ts = Date.now().toString(36).slice(-4);
-  const rand = Math.random().toString(36).slice(2, 5);
-  return `${prefix}_${ts}_${rand}`;
-}
-
 test.describe('Relays index', () => {
   test.beforeEach(async ({ live }) => {
     await live('/relays');
@@ -110,7 +104,7 @@ test.describe('Relays index', () => {
   });
 
   test('starts a relay into a namespace chosen on this screen', async ({ live, page }) => {
-    const id = uniqueRelayId();
+    const id = uniqueId('pw_idx');
 
     try {
       await startRelay(page, id, { namespace: 'default' });
@@ -131,7 +125,7 @@ test.describe('Relays index', () => {
     live,
     page,
   }) => {
-    const id = uniqueRelayId('pw_idxst');
+    const id = uniqueId('pw_idxst');
 
     try {
       await startRelay(page, id, { namespace: 'default', run: 'steps' });

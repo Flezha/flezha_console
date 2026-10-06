@@ -158,7 +158,12 @@
             data-testid={"runner-#{runner.id}"}
             class="bg-surface-input border border-brd rounded-xl px-4 py-3"
           >
-            <p class="text-th-primary font-mono text-xs">{runner.id}</p>
+            <p class="text-th-primary font-mono text-xs">
+              {runner.id}
+              <span data-testid={"os-pid-#{runner.id}"} class="text-th-tertiary ml-2">
+                pid {runner.pid || "—"}
+              </span>
+            </p>
             <p class="text-th-tertiary text-xs mt-1">
               {if runner.factories == [],
                 do: "no factories registered",

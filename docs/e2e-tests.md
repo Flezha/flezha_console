@@ -50,7 +50,9 @@ e2e/
                     stop catching the drift it exists to prevent; and the shell
                     helpers `openSection()`/`closeSection()` (a screen's folded
                     panels), `toggleTheme()` (the toggle lives in the account
-                    menu) and `openPalette()`
+                    menu) and `openPalette()`; the schedule form helpers, and
+                    `openSettings()`/`clearStoredToken()` for the token a spec
+                    stores and must leave behind it undone
   login.spec.ts     the form itself, with no stored session
   dashboard.spec.ts namespaces.spec.ts listen.spec.ts
   audit.spec.ts cluster.spec.ts dlq.spec.ts schedules.spec.ts
@@ -63,6 +65,16 @@ e2e/
   controller-health.spec.ts  durability posture, shutdown, boot, memory
   observability.spec.ts      sources, sinks, toggles, the live tail
   relay-state.spec.ts        durable cells and point-in-time reads
+  relay-calls.spec.ts        diagnosis, the relay's API, calling `orders`'
+                             channels from schema fields, raw send and call
+  relay-state-tools.spec.ts  outbox, rotate, replay, delete and retention on a
+                             relay of its own; the input log's records
+  plugin-management.spec.ts  the loaded and the refused package, a controller
+                             plugin with hooks, bind, unbind and update
+  access.spec.ts             tokens issued and revoked, role bindings, and the
+                             controls a viewer token does not get
+  fleet-actions.spec.ts      runner pids, a schedule run now, audit rotation,
+                             the relay lifecycle feed
   console-navigation.spec.ts the shell: the two-section rail, the scope in the
                              route, breadcrumbs, a relay's tabs, the
                              palette's keyboard, a fold surviving a reload
@@ -88,6 +100,26 @@ giving each worker its own namespace, which is a dev-stack change.
 `test/apps/rust_runner` announces — and never asks for a kind: how a relay runs
 is its factory's, and the start form only states it. The seeds themselves are
 `:dev_setup` in `config/dev.exs`.
+
+Seeds the newer specs rely on:
+
+- `orders`, the dev runner's relay API fixture: `place` is a JSON channel whose
+  schema asks for `pair` and `amount` and which answers the placed order;
+  `audit` takes a line of text and answers nothing.
+- `lifecycle_webhook`, a `hook_webhook` controller plugin enabled with
+  `on_relay_started` and `on_relay_stopped`, so the plugins screen lists a
+  controller plugin with no relay.
+- Two plugin packages the `plugin_packages` service places in the controller's
+  plugin root before it boots (`priv/dev/plugin_packages.sh`): `flezha_http`,
+  built with the controller's toolchain, which loads, and
+  `flezha_http_tampered`, whose manifest changed after it was checksummed,
+  which the loader refuses with `plugin.package_invalid`.
+
+A spec that writes state does it on something it made itself — a relay, a
+plugin, a schedule, a token, a binding — and undoes it in `finally`; the one
+seeded value a spec changes, a relay class's history retention, it sets back.
+A revoked token stays listed as revoked: the controller has no way to delete
+one.
 
 ## Plugin providers
 

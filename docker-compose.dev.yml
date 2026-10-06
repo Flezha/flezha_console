@@ -41,6 +41,9 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      # The plugin root is read once, at boot.
+      plugin_packages:
+        condition: service_completed_successfully
     # Graceful shutdown — see flezha's docs/operations/graceful_shutdown.md.
     stop_signal: SIGTERM
     stop_grace_period: 75s
@@ -62,6 +65,25 @@ services:
       - fui_flezha_build:/flezha/_build
       - fui_flezha_deps:/flezha/deps
       - fui_flezha_cargo_target:/flezha/target
+    networks:
+      - fui_network
+
+  # Builds the flezha_http plugin package with the controller's toolchain and
+  # places it, with a copy the loader refuses, in the plugin root the
+  # controller reads at boot. See priv/dev/plugin_packages.sh.
+  plugin_packages:
+    build:
+      context: ../flezha
+      dockerfile: docker/dev/Dockerfile.toolchain
+    container_name: fui_plugin_packages
+    restart: "no"
+    command: ["sh", "/flezha_ui_dev/plugin_packages.sh"]
+    volumes:
+      - ../flezha:/flezha
+      - ./priv/dev:/flezha_ui_dev:ro
+      # Mounted over a directory the image gives its build user, so the
+      # volume is that user's too.
+      - fui_plugin_build:/home/flezha/_build
     networks:
       - fui_network
 
@@ -266,6 +288,7 @@ services:
       - fui_network
 
 volumes:
+  fui_plugin_build:
   fui_auth_data:
   fui_socket_data:
   fui_flezha_build:

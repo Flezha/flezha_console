@@ -157,3 +157,17 @@ The runner fleet view SHALL show, for each active runner, the namespace-derived 
 - **WHEN** the controller's answer carries no principal, or the read fails
 - **THEN** the column is absent rather than showing a guess
 
+### Requirement: Runner rows show the runner's OS process id
+
+Every runner listing SHALL show each runner's operating-system process id, from the `pid` that `Flezha.Service.Fleet.runners/2` answers. When the controller cannot say, the row SHALL show a placeholder rather than an empty cell. The pid SHALL be presented as information about the runner host and SHALL NOT be used by the console for any action.
+
+#### Scenario: A connected runner
+
+- **WHEN** a runner is connected and its control channel reports its process id
+- **THEN** its row shows that process id
+
+#### Scenario: The pid is unknown
+
+- **WHEN** `runners/2` answers `pid: nil` for a runner
+- **THEN** the row shows a placeholder in the pid column
+

@@ -296,8 +296,8 @@ defmodule FlezhaUiWeb.RelayLiveTest do
     test "offers the provider's own hooks and help", %{conn: conn} do
       {:ok, view, _html} = live(conn, @url)
 
-      assert render_click(view, "open_attach", %{}) =~ ~s(data-testid="provider-btn-relay_stdout")
-      html = render_click(view, "choose_provider", %{"provider" => "relay_stdout"})
+      assert open_attach(view) =~ ~s(data-testid="provider-btn-relay_stdout")
+      html = render_click(view, "plugin_form_provider", %{"provider" => "relay_stdout"})
 
       assert html =~ ~s(data-testid="input-hook-on_input")
       assert html =~ ~s(data-testid="input-hook-on_output")
@@ -309,11 +309,11 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       node: node
     } do
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "open_attach", %{})
-      render_click(view, "choose_provider", %{"provider" => "relay_stdout"})
+      open_attach(view)
+      render_click(view, "plugin_form_provider", %{"provider" => "relay_stdout"})
 
       html =
-        render_submit(view, "attach_plugin", %{
+        render_submit(view, "plugin_form_submit", %{
           "plugin" => %{
             "name" => "out_1",
             "hooks" => ["", "on_output"],
@@ -321,7 +321,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
           }
         })
 
-      assert html =~ "Plugin out_1 enabled and bound to this relay."
+      assert html =~ "Plugin out_1 enabled and bound to relay_a."
 
       assert [["out_1", fields, %{source: :ui}]] =
                FakeController.calls(node, {PluginManager, :enable})
@@ -338,11 +338,11 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       node: node
     } do
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "open_attach", %{})
-      render_click(view, "choose_provider", %{"provider" => "relay_stdout"})
+      open_attach(view)
+      render_click(view, "plugin_form_provider", %{"provider" => "relay_stdout"})
 
       html =
-        render_submit(view, "attach_plugin", %{
+        render_submit(view, "plugin_form_submit", %{
           "plugin" => %{"name" => "out_1", "opts" => "[1, 2]"}
         })
 
@@ -358,10 +358,10 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       )
 
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "open_attach", %{})
-      render_click(view, "choose_provider", %{"provider" => "relay_stdout"})
+      open_attach(view)
+      render_click(view, "plugin_form_provider", %{"provider" => "relay_stdout"})
 
-      assert render_submit(view, "attach_plugin", %{"plugin" => %{"name" => "out_1"}}) =~
+      assert render_submit(view, "plugin_form_submit", %{"plugin" => %{"name" => "out_1"}}) =~
                "Plugin out_1 was already enabled; this relay is bound to it."
     end
 
@@ -376,10 +376,10 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       )
 
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "open_attach", %{})
-      render_click(view, "choose_provider", %{"provider" => "relay_stdout"})
+      open_attach(view)
+      render_click(view, "plugin_form_provider", %{"provider" => "relay_stdout"})
 
-      html = render_submit(view, "attach_plugin", %{"plugin" => %{"name" => "out_1"}})
+      html = render_submit(view, "plugin_form_submit", %{"plugin" => %{"name" => "out_1"}})
       assert html =~ ~s(data-testid="attach-error")
       assert html =~ "a relay_stdout plugin has no option x"
     end
@@ -582,4 +582,8 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       assert render_click(view, "fetch_state", %{}) =~ "not held in memory"
     end
   end
+
+  # The relay screen opens the shared plugin form with this relay fixed.
+  defp open_attach(view),
+    do: view |> element(~s([data-testid="attach-plugin-btn"])) |> render_click()
 end

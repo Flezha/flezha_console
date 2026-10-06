@@ -18,6 +18,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     open: %{
       "quotas" => false,
       "role-bindings" => false,
+      "tokens" => false,
       "partition-groups" => false,
       "finished-relays" => false,
       "runners" => false
@@ -45,7 +46,13 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         finished_loading?: false,
         rescale: nil,
         quota_form: nil,
-        quota_error: nil
+        quota_error: nil,
+        tokens: [],
+        tokens_error: nil,
+        token_issue: nil,
+        confirm_revoke: nil,
+        role_bind: nil,
+        confirm_unbind: nil
       )
       |> refresh()
       |> load_finished()
@@ -53,11 +60,136 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     {:ok, socket}
   end
 
-  # Four dialogs and the launcher, any of which a row could move underneath.
+  # The dialogs and the launcher, any of which a row could move underneath.
   @impl FlezhaUiWeb.Live.Refresh
   def refresh_paused?(socket) do
-    FlezhaUiWeb.Live.Launcher.open?(socket) or socket.assigns.confirm_stop != nil or
-      socket.assigns.rescale != nil or socket.assigns.quota_form != nil
+    FlezhaUiWeb.Live.Launcher.open?(socket) or
+      Enum.any?(
+        ~w(confirm_stop rescale quota_form token_issue confirm_revoke role_bind confirm_unbind)a,
+        &(socket.assigns[&1] != nil)
+      )
+  end
+
+  # ---- Tokens ----
+  #
+  # An issued token is held in the issue dialog's assign alone, shown once and
+  # dropped when the dialog closes: never flashed, logged or put in a URL.
+
+  @impl true
+  def handle_event("open_issue", _params, socket) do
+    form = %{"principal" => "", "role" => "", "ttl" => "86400", "label" => ""}
+    {:noreply, assign(socket, token_issue: %{form: form, error: nil, issued: nil})}
+  end
+
+  @impl true
+  def handle_event("close_issue", _params, socket) do
+    {:noreply, socket |> assign(token_issue: nil) |> refresh()}
+  end
+
+  @impl true
+  def handle_event("issue_token", %{"token" => params}, %{assigns: %{token_issue: %{}}} = socket) do
+    %{token_issue: issue, ns: ns, flezha_token: token} = socket.assigns
+    form = Map.merge(issue.form, params)
+    label = String.trim(form["label"] || "")
+    opts = if label == "", do: [], else: [label: label]
+
+    with {:ok, principal, role} <- principal_and_role(form),
+         {:ok, ttl} <- parse_ttl(form["ttl"]),
+         {:ok, issued} <- NodeManager.issue_token(principal, ns, role, [ttl: ttl] ++ opts, token) do
+      {:noreply, assign(socket, token_issue: %{issue | form: form, error: nil, issued: issued})}
+    else
+      {:error, error} ->
+        {:noreply, assign(socket, token_issue: %{issue | form: form, error: error})}
+    end
+  end
+
+  def handle_event("issue_token", _params, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("confirm_revoke", %{"id" => id}, socket) do
+    {:noreply, assign(socket, confirm_revoke: Enum.find(socket.assigns.tokens, &(&1.id == id)))}
+  end
+
+  @impl true
+  def handle_event("cancel_revoke", _params, socket) do
+    {:noreply, assign(socket, confirm_revoke: nil)}
+  end
+
+  @impl true
+  def handle_event("revoke_token", %{"id" => id}, socket) do
+    socket = assign(socket, confirm_revoke: nil)
+
+    case NodeManager.revoke_token(id, socket.assigns.flezha_token) do
+      {:ok, _row} ->
+        {:noreply, socket |> refresh() |> put_flash(:info, "Token #{id} revoked.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, error_message(reason, "the revocation"))}
+    end
+  end
+
+  # ---- Role bindings ----
+
+  @impl true
+  def handle_event("open_bind", _params, socket) do
+    {:noreply, assign(socket, role_bind: %{form: %{"principal" => "", "role" => ""}, error: nil})}
+  end
+
+  @impl true
+  def handle_event("close_bind", _params, socket) do
+    {:noreply, assign(socket, role_bind: nil)}
+  end
+
+  @impl true
+  def handle_event("bind_role", %{"binding" => params}, %{assigns: %{role_bind: %{}}} = socket) do
+    %{role_bind: bind, ns: ns, flezha_token: token} = socket.assigns
+    form = Map.merge(bind.form, params)
+
+    with {:ok, principal, role} <- principal_and_role(form),
+         {:ok, _bound} <- NodeManager.bind_role(principal, role, ns, token) do
+      {:noreply,
+       socket
+       |> assign(role_bind: nil)
+       |> refresh()
+       |> put_flash(:info, "#{principal} bound as #{role} in #{ns}.")}
+    else
+      {:error, error} -> {:noreply, assign(socket, role_bind: %{bind | form: form, error: error})}
+    end
+  end
+
+  def handle_event("bind_role", _params, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("confirm_unbind", %{"principal" => principal} = params, socket) do
+    role = if params["role"] in [nil, ""], do: nil, else: params["role"]
+    namespace = params["namespace"] || socket.assigns.ns
+
+    {:noreply,
+     assign(socket, confirm_unbind: %{principal: principal, role: role, namespace: namespace})}
+  end
+
+  @impl true
+  def handle_event("cancel_unbind", _params, socket) do
+    {:noreply, assign(socket, confirm_unbind: nil)}
+  end
+
+  @impl true
+  def handle_event("unbind_role", %{"principal" => principal} = params, socket) do
+    role = if params["role"] in [nil, ""], do: nil, else: params["role"]
+    socket = assign(socket, confirm_unbind: nil)
+
+    case NodeManager.unbind_role(principal, role, socket.assigns.flezha_token) do
+      {:ok, _unbound} ->
+        message =
+          if role,
+            do: "#{role} unbound from #{principal}.",
+            else: "#{principal}'s whole binding removed."
+
+        {:noreply, socket |> refresh() |> put_flash(:info, message)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, error_message(reason, "the unbind"))}
+    end
   end
 
   @impl true
@@ -176,6 +308,32 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     end
   end
 
+  # What both the issue and the bind dialog ask for, trimmed and required.
+  defp principal_and_role(form) do
+    principal = String.trim(form["principal"] || "")
+    role = String.trim(form["role"] || "")
+
+    cond do
+      principal == "" -> {:error, "A principal is required."}
+      role == "" -> {:error, "A role is required."}
+      true -> {:ok, principal, role}
+    end
+  end
+
+  # A lifetime is a positive number of seconds or `never`, as core takes it.
+  defp parse_ttl(raw) do
+    case String.trim(raw || "") do
+      "never" ->
+        {:ok, "never"}
+
+      text ->
+        case Integer.parse(text) do
+          {seconds, ""} when seconds > 0 -> {:ok, seconds}
+          _invalid -> {:error, "The lifetime must be a positive number of seconds or never."}
+        end
+    end
+  end
+
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
     %{ns: ns, flezha_token: token} = socket.assigns
@@ -212,6 +370,24 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       load_error: load_error
     )
     |> Topology.load_summary(ns, %{rows: rows, groups: groups})
+    |> load_tokens()
+  end
+
+  # The controller answers every token the caller may see; this screen shows
+  # its own namespace's.
+  defp load_tokens(socket) do
+    %{ns: ns, flezha_token: token} = socket.assigns
+
+    case NodeManager.list_tokens(token) do
+      {:ok, rows} ->
+        assign(socket,
+          tokens: Enum.filter(rows, &(to_string(&1.namespace) == ns)),
+          tokens_error: nil
+        )
+
+      {:error, reason} ->
+        assign(socket, tokens: [], tokens_error: reason)
+    end
   end
 
   # A group is as healthy as its sickest member, and `Relay.list/2` already

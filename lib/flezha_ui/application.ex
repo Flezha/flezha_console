@@ -39,7 +39,7 @@ defmodule FlezhaUi.Application do
   # to be connected, racing the test that owns that peer.
   defp event_feed_children do
     if Application.get_env(:flezha_ui, :start_event_feed, true) do
-      [FlezhaUi.Service.EventFeed.runners_child_spec()]
+      FlezhaUi.Service.EventFeed.signal_child_specs()
     else
       []
     end

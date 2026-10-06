@@ -97,3 +97,19 @@ The UI SHALL display the controller's reported audit statistics.
 - **WHEN** an operator opens the audit log screen
 - **THEN** the controller's reported statistics are displayed
 
+### Requirement: The audit log is rotated on request
+
+The audit screen SHALL offer a control that closes the current audit file and starts a new one through `Flezha.Service.AuditLog.rotate/1`, and SHALL reload the file catalog afterwards so the closed file is listed.
+
+#### Scenario: Rotating the audit log
+
+- **WHEN** an operator rotates the audit log
+- **THEN** `rotate/1` is called
+- **AND** the file catalog is reloaded and lists the file that was closed
+
+#### Scenario: Rotation is refused
+
+- **WHEN** the controller refuses the rotation, for example because the role lacks `audit.rotate`
+- **THEN** the error is shown with its code and hint
+- **AND** the file catalog is left as it was
+

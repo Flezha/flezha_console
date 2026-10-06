@@ -34,7 +34,8 @@ defmodule FlezhaUiWeb.ScheduleLive do
         confirm_remove: nil,
         target: Target.new(nil),
         schedules: [],
-        load_error: nil
+        load_error: nil,
+        ran: nil
       )
 
     {:ok, socket}
@@ -104,6 +105,22 @@ defmodule FlezhaUiWeb.ScheduleLive do
     else
       {:error, reason} -> {:noreply, assign(socket, form_error: schedule_error(reason))}
     end
+  end
+
+  # Fires the schedule once, whatever its cron says and whether or not the
+  # schedule hub is up. What it answered stays above the listing until the
+  # next run replaces it.
+  @impl true
+  def handle_event("run_now", %{"name" => name}, socket) do
+    schedule = Enum.find(socket.assigns.schedules, %{}, &(&1.name == name))
+
+    ran =
+      case NodeManager.schedule_run(name, socket.assigns.flezha_token) do
+        {:ok, answer} -> %{name: name, namespace: Map.get(schedule, :namespace), answer: answer}
+        {:error, reason} -> %{name: name, error: reason}
+      end
+
+    {:noreply, socket |> assign(ran: ran) |> refresh()}
   end
 
   @impl true

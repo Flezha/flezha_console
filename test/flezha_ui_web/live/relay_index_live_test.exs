@@ -11,8 +11,17 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
 
   alias Flezha.Service.Fleet
   alias Flezha.Service.Relay
+  alias FlezhaUi.Service.EventFeed
 
   defp row(id, overrides \\ %{}), do: FakeController.relay_row(id, overrides)
+
+  defp signal(name, metadata),
+    do: EventFeed.signal_event(:flezha_relay, %{name: name, metadata: metadata})
+
+  defp feed(view, message) do
+    send(view.pid, message)
+    render(view)
+  end
 
   defp with_fleet(node, opts) do
     namespaces = opts[:namespaces] || ["default"]
@@ -395,6 +404,103 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
       # The run rides one registry read per namespace, not one per relay.
       assert length(FakeController.calls(node, {Relay, :registry})) == small
       assert FakeController.calls(node, {Relay, :overwatch_state}) == []
+    end
+  end
+
+  describe "the relay lifecycle feed" do
+    test "each signal is an entry, newest first, and reloads the rows", %{conn: conn, node: node} do
+      with_fleet(node, rows: [row("r1")])
+      {:ok, view, _html} = live(conn, ~p"/relays")
+      reads = length(FakeController.calls(node, {Relay, :list}))
+
+      feed(view, signal(:relay_started, %{namespace: "default", relay: "r1", factory: "orders"}))
+      feed(view, signal(:relay_stopped, %{namespace: "default", relay: "r1", reason: :stopped}))
+
+      html =
+        feed(
+          view,
+          signal(:relay_exited, %{
+            namespace: "default",
+            relay_id: "r1",
+            runner_id: "runner-a",
+            reason: "runner_disconnected"
+          })
+        )
+
+      assert html =~
+               ~r/data-testid="lifecycle-what-0"[^>]*>\s*exited on runner runner-a: runner_disconnected/
+
+      assert html =~ ~r/data-testid="lifecycle-what-1"[^>]*>\s*stopped: :stopped/
+      assert html =~ ~r/data-testid="lifecycle-what-2"[^>]*>\s*started from orders/
+      assert length(FakeController.calls(node, {Relay, :list})) >= reads + 3
+    end
+
+    test "a signal from a namespace the token does not reach is not shown", %{
+      conn: conn,
+      node: node
+    } do
+      with_fleet(node, rows: [row("r1")])
+      {:ok, view, _html} = live(conn, ~p"/relays")
+
+      reads = length(FakeController.calls(node, {Relay, :list}))
+      html = feed(view, signal(:relay_started, %{namespace: "secret", relay: "x", factory: "f"}))
+
+      refute html =~ ~s(data-testid="lifecycle-entry-0")
+      assert length(FakeController.calls(node, {Relay, :list})) == reads
+    end
+
+    test "the scoped screen shows its own namespace's signals alone", %{conn: conn, node: node} do
+      with_fleet(node, namespaces: ["default", "staging"], rows: [row("r1")])
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default/relays")
+
+      feed(view, signal(:relay_started, %{namespace: "staging", relay: "s1", factory: "f"}))
+
+      html =
+        feed(view, signal(:relay_started, %{namespace: "default", relay: "r1", factory: "f"}))
+
+      assert html =~ ~s(data-testid="lifecycle-entry-0")
+      refute html =~ ~s(data-testid="lifecycle-entry-1")
+    end
+
+    test "only the most recent fifty are kept", %{conn: conn, node: node} do
+      with_fleet(node, rows: [row("r1")])
+      {:ok, view, _html} = live(conn, ~p"/relays")
+
+      for n <- 1..55,
+          do:
+            send(
+              view.pid,
+              signal(:relay_started, %{namespace: "default", relay: "r#{n}", factory: "f"})
+            )
+
+      html = render(view)
+
+      assert html =~ "Lifecycle (50)"
+      assert html =~ ~s(data-testid="lifecycle-entry-49")
+      refute html =~ ~s(data-testid="lifecycle-entry-50")
+      assert html =~ "/namespaces/default/relays/r55"
+      refute html =~ "/namespaces/default/relays/r5\""
+    end
+
+    test "a refused feed states why, and the index keeps refreshing", %{conn: conn, node: node} do
+      with_fleet(node, rows: [row("r1")])
+      {:ok, view, _html} = live(conn, ~p"/relays")
+
+      refusal =
+        Flezha.Error.new("observability.pubsub_disabled", "pubsub is off", "enable the sink")
+
+      html = feed(view, {:flezha_feed, EventFeed.signal_feed(:flezha_relay), refusal})
+
+      assert html =~ ~s(data-testid="lifecycle-error")
+      assert html =~ "observability.pubsub_disabled"
+      assert html =~ "enable the sink"
+
+      reads = length(FakeController.calls(node, {Relay, :list}))
+      feed(view, :refresh)
+      assert length(FakeController.calls(node, {Relay, :list})) > reads
+
+      html = feed(view, {:flezha_feed, EventFeed.signal_feed(:flezha_relay), nil})
+      refute html =~ ~s(data-testid="lifecycle-error")
     end
   end
 end

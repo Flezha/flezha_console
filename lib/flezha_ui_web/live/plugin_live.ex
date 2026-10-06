@@ -7,11 +7,15 @@ defmodule FlezhaUiWeb.PluginLive do
   controller answers the plugins of one namespace per call, so the scoped
   screen reads that namespace alone: the scope is the controller's, not a
   filter applied here.
+
+  Plugins are enabled, bound to further relays and given new options here
+  through `FlezhaUiWeb.Live.PluginForm`, the form the relay screen attaches with.
   """
 
   use FlezhaUiWeb, :live_view
 
   use FlezhaUiWeb.Live.Refresh, every: 5_000
+  use FlezhaUiWeb.Live.PluginForm
 
   alias FlezhaUi.Service.NodeManager
 
@@ -20,7 +24,8 @@ defmodule FlezhaUiWeb.PluginLive do
     {:ok,
      socket
      |> start_refresh()
-     |> assign(confirm_disable: nil, page_title: "Plugins")}
+     |> plugin_form_init()
+     |> assign(confirm_disable: nil, confirm_unbind: nil, page_title: "Plugins")}
   end
 
   @impl true
@@ -34,11 +39,14 @@ defmodule FlezhaUiWeb.PluginLive do
   def refresh(socket) do
     token = socket.assigns.flezha_token
     {catalog, catalog_error} = NodeManager.ok_or_error(NodeManager.installed_plugins(token), [])
-    {providers, providers_error} = NodeManager.ok_or_error(NodeManager.providers(token), [])
+
+    {listing, providers_error} =
+      NodeManager.ok_or_error(NodeManager.providers(token), %{providers: [], refused: 0})
 
     socket
     |> assign(
-      available_providers: providers,
+      available_providers: listing.providers,
+      refused_packages: listing.refused,
       providers_error: providers_error,
       catalog: catalog,
       catalog_error: catalog_error
@@ -94,6 +102,54 @@ defmodule FlezhaUiWeb.PluginLive do
          |> assign(confirm_disable: nil)
          |> put_flash(:error, disable_error(name, reason))}
     end
+  end
+
+  @impl true
+  def handle_event("confirm_unbind", params, socket) do
+    %{"name" => name, "namespace" => namespace, "relay" => relay} = params
+    {:noreply, assign(socket, confirm_unbind: %{name: name, namespace: namespace, relay: relay})}
+  end
+
+  @impl true
+  def handle_event("cancel_unbind", _params, socket) do
+    {:noreply, assign(socket, confirm_unbind: nil)}
+  end
+
+  @impl true
+  def handle_event(
+        "unbind_plugin",
+        %{"name" => name, "namespace" => namespace, "relay" => relay},
+        socket
+      ) do
+    case NodeManager.unbind_plugin(name, namespace, relay, socket.assigns.flezha_token) do
+      :ok ->
+        {:noreply,
+         socket
+         |> assign(confirm_unbind: nil)
+         |> assign_plugins()
+         |> put_flash(:info, "#{relay} unbound from plugin #{name}, which stays enabled.")}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(confirm_unbind: nil)
+         |> put_flash(:error, error_message(reason, "the unbind"))}
+    end
+  end
+
+  @doc """
+  The id an enabled plugin's provider is registered under, which describing it
+  takes. A core that answers no `provider_id` gives its name, which is the id
+  for most providers.
+  """
+  def provider_id(plugin), do: to_string(plugin[:provider_id] || plugin.provider)
+
+  @doc """
+  Whether an enabled plugin runs on controllers: its provider says so. A
+  provider this controller does not describe reads as a relay plugin.
+  """
+  def controller_plugin?(plugin, providers) do
+    Enum.any?(providers, &(to_string(&1.id) == provider_id(plugin) and &1.type == :controller))
   end
 
   defp join_or_dash(list) when list in [nil, []], do: "—"

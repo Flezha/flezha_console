@@ -9,12 +9,19 @@ defmodule FlezhaUiWeb.RelayLive do
     on_events: [:runner_connected, :runner_disconnected]
 
   use FlezhaUiWeb.Topology
+  use FlezhaUiWeb.Live.PluginForm
 
-  # The graph and the relay's own facts are what the screen is for; the task
-  # journal, the input log, the SDK state and the bindings are what an
+  # The graph and the relay's own facts are what the screen is for; the API,
+  # the task journal, the input log, the SDK state and the bindings are what an
   # operator goes looking for, so they start folded away.
   use FlezhaUiWeb.Live.Sections,
-    open: %{"journal" => false, "input-log" => false, "sdk-state" => false, "plugins" => false}
+    open: %{
+      "api" => false,
+      "journal" => false,
+      "input-log" => false,
+      "sdk-state" => false,
+      "plugins" => false
+    }
 
   alias FlezhaUi.Format
   alias FlezhaUi.Service.EventFeed
@@ -28,6 +35,7 @@ defmodule FlezhaUiWeb.RelayLive do
       |> start_refresh()
       |> Topology.init()
       |> sections_init()
+      |> plugin_form_init()
       |> assign(
         ns: ns,
         relay_id: id,
@@ -39,17 +47,24 @@ defmodule FlezhaUiWeb.RelayLive do
         selector_form: %{"tasklet" => "", "cell_key" => ""},
         auto_refresh_state: false,
         confirm_stop: false,
-        attach: nil,
         confirm_detach: nil,
         rewind_target: nil,
         completion: nil,
         journal: nil,
         committed_iterations: [],
         input_log: nil,
-        tap: nil
+        inbox: nil,
+        inbox_error: nil,
+        tap: nil,
+        diagnosis: nil,
+        diagnosis_error: nil,
+        api: [],
+        api_error: nil,
+        talk: nil
       )
       |> load_data()
       |> load_completion()
+      |> load_api()
       |> Topology.load_pipeline()
 
     {:ok, socket}
@@ -193,88 +208,6 @@ defmodule FlezhaUiWeb.RelayLive do
   end
 
   @impl true
-  def handle_event("open_attach", _params, socket) do
-    {providers, error} =
-      socket.assigns.flezha_token |> NodeManager.providers() |> NodeManager.ok_or_error([])
-
-    {:noreply,
-     assign(socket,
-       attach: %{
-         providers: providers,
-         providers_error: error,
-         provider: nil,
-         form: %{"name" => generate_plugin_name(), "opts" => "", "hooks" => []},
-         error: nil
-       }
-     )}
-  end
-
-  @impl true
-  def handle_event("close_attach", _params, socket) do
-    {:noreply, assign(socket, attach: nil)}
-  end
-
-  # A form event that lands after its dialog closed has nothing to act on.
-  def handle_event(event, _params, %{assigns: %{attach: nil}} = socket)
-      when event in ~w(choose_provider attach_change attach_plugin),
-      do: {:noreply, socket}
-
-  # The provider's own description — its help and the hooks it supports — is
-  # read once on selection rather than on every keystroke. A provider whose
-  # help cannot be read still renders the form, without the help.
-  @impl true
-  def handle_event("choose_provider", %{"provider" => id}, socket) do
-    provider =
-      case NodeManager.provider(id, socket.assigns.flezha_token) do
-        {:ok, described} -> Map.put(described, :id, id)
-        {:error, _reason} -> %{id: id, help: nil, hooks: []}
-      end
-
-    {:noreply, update(socket, :attach, &%{&1 | provider: provider, error: nil})}
-  end
-
-  @impl true
-  def handle_event("attach_change", %{"plugin" => params}, socket) do
-    {:noreply,
-     update(socket, :attach, fn attach ->
-       %{attach | form: Map.merge(attach.form, Map.put_new(params, "hooks", []))}
-     end)}
-  end
-
-  @impl true
-  def handle_event("attach_plugin", %{"plugin" => params}, socket) do
-    %{ns: ns, relay_id: relay_id, attach: attach, flezha_token: token} = socket.assigns
-    form = Map.merge(attach.form, Map.put_new(params, "hooks", []))
-    name = String.trim(form["name"] || "")
-
-    with :ok <- require_name(name),
-         {:ok, opts} <- parse_opts(form["opts"]) do
-      fields = %{
-        provider: attach.provider.id,
-        opts: opts,
-        namespace: ns,
-        relay_id: relay_id,
-        hooks: Enum.reject(List.wrap(form["hooks"]), &(&1 == ""))
-      }
-
-      case NodeManager.enable_plugin(name, fields, token) do
-        {:ok, answer} ->
-          {:noreply,
-           socket
-           |> assign(attach: nil)
-           |> load_data()
-           |> put_flash(:info, attached_message(name, answer))}
-
-        {:error, reason} ->
-          {:noreply, assign(socket, attach: %{attach | form: form, error: reason})}
-      end
-    else
-      {:error, message} ->
-        {:noreply, assign(socket, attach: %{attach | form: form, error: message})}
-    end
-  end
-
-  @impl true
   def handle_event("confirm_detach", %{"plugin_id" => plugin_id}, socket) do
     {:noreply, assign(socket, confirm_detach: plugin_id)}
   end
@@ -301,6 +234,115 @@ defmodule FlezhaUiWeb.RelayLive do
          |> put_flash(:error, error_message(reason, "the disable"))}
     end
   end
+
+  # ---- Diagnosis ----
+  #
+  # On request only: the controller reads verdicts, runners, dead letters and
+  # the input log to answer it, so it never rides the tick.
+
+  @impl true
+  def handle_event("diagnose", _params, socket) do
+    %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
+
+    case NodeManager.diagnose_relay(ns, id, token) do
+      {:ok, diagnosis} -> {:noreply, assign(socket, diagnosis: diagnosis, diagnosis_error: nil)}
+      {:error, reason} -> {:noreply, assign(socket, diagnosis: nil, diagnosis_error: reason)}
+    end
+  end
+
+  # ---- Talking to the relay ----
+  #
+  # One dialog sends to the relay, calls it, or calls an entry channel its API
+  # announces. A call waits for the relay's answer, so it runs as an async
+  # task: the screen keeps refreshing, and closing the dialog cancels the wait.
+
+  @impl true
+  def handle_event("talk_open", _params, socket) do
+    mode = if api_channels(socket.assigns.api) == [], do: :raw, else: :channel
+
+    talk = %{
+      mode: mode,
+      channel: socket.assigns.api |> api_channels() |> List.first(),
+      fields: %{
+        "payload" => "",
+        "channel" => "",
+        "key" => "",
+        "msg_id" => "",
+        "deadline_ms" => "30000",
+        "json" => "",
+        "value" => %{}
+      },
+      error: nil,
+      waiting: nil,
+      result: nil
+    }
+
+    {:noreply, assign(socket, talk: talk)}
+  end
+
+  @impl true
+  def handle_event("talk_close", _params, socket) do
+    {:noreply, socket |> cancel_async(:talk) |> assign(talk: nil)}
+  end
+
+  def handle_event(event, _params, %{assigns: %{talk: nil}} = socket)
+      when event in ~w(talk_mode talk_change talk_submit),
+      do: {:noreply, socket}
+
+  @impl true
+  def handle_event("talk_mode", %{"mode" => mode}, socket) when mode in ~w(channel raw) do
+    {:noreply,
+     update(socket, :talk, &%{&1 | mode: String.to_existing_atom(mode), error: nil, result: nil})}
+  end
+
+  @impl true
+  def handle_event("talk_change", %{"talk" => params}, socket) do
+    {:noreply, update(socket, :talk, &talk_change(&1, params, socket.assigns.api))}
+  end
+
+  @impl true
+  def handle_event(
+        "talk_submit",
+        %{"talk" => params},
+        %{assigns: %{talk: %{waiting: nil}}} = socket
+      ) do
+    talk = talk_change(socket.assigns.talk, params, socket.assigns.api)
+    %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
+
+    case talk_request(talk, params["action"], {ns, id, token}) do
+      {:ok, kind, call} ->
+        {:noreply,
+         socket
+         |> assign(talk: %{talk | waiting: kind, error: nil, result: nil})
+         |> start_async(:talk, fn -> {kind, call.()} end)}
+
+      {:error, message} ->
+        {:noreply, assign(socket, talk: %{talk | error: message, result: nil})}
+    end
+  end
+
+  # One request at a time: a second submit while the first waits is dropped.
+  def handle_event("talk_submit", _params, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_async(:talk, _result, %{assigns: %{talk: nil}} = socket), do: {:noreply, socket}
+
+  def handle_async(:talk, {:ok, {kind, {:ok, answer}}}, socket) do
+    {:noreply, update(socket, :talk, &%{&1 | waiting: nil, result: {kind, answer}, error: nil})}
+  end
+
+  def handle_async(:talk, {:ok, {_kind, {:error, reason}}}, socket) do
+    {:noreply, update(socket, :talk, &%{&1 | waiting: nil, result: nil, error: reason})}
+  end
+
+  def handle_async(:talk, {:exit, reason}, socket) do
+    {:noreply,
+     update(socket, :talk, &%{&1 | waiting: nil, result: nil, error: {:remote_error, reason}})}
+  end
+
+  def section_opened(socket, "api"), do: load_api(socket)
+  def section_opened(socket, "input-log"), do: load_inbox(socket)
+  def section_opened(socket, _key), do: socket
 
   @impl true
   def handle_info({kind, :payload_tap, event}, %{assigns: %{tap: %{} = tap}} = socket) do
@@ -331,6 +373,33 @@ defmodule FlezhaUiWeb.RelayLive do
   defp close_tap(%{assigns: %{tap: tap}} = socket) do
     EventFeed.stop(tap.feed, :payload_tap)
     assign(socket, tap: nil)
+  end
+
+  # Read when the screen opens and when the API section opens, never on the
+  # tick: the answer changes only when a runner announces again. The dead
+  # render has no dialog to call from, so it does not read it.
+  defp load_api(socket) do
+    if connected?(socket), do: read_api(socket), else: socket
+  end
+
+  defp read_api(socket) do
+    %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
+
+    case NodeManager.relay_api(ns, id, token) do
+      {:ok, api} -> assign(socket, api: api, api_error: nil)
+      {:error, reason} -> assign(socket, api: [], api_error: reason)
+    end
+  end
+
+  # The retained records, read when the input log section opens, never on the
+  # tick; payloads are never read.
+  defp load_inbox(%{assigns: %{input_log: nil}} = socket), do: socket
+
+  defp load_inbox(socket) do
+    case NodeManager.inbox(socket.assigns.relay_id, socket.assigns.flezha_token) do
+      {:ok, inbox} -> assign(socket, inbox: inbox, inbox_error: nil)
+      {:error, reason} -> assign(socket, inbox: nil, inbox_error: reason)
+    end
   end
 
   defp load_data(socket) do
@@ -468,33 +537,189 @@ defmodule FlezhaUiWeb.RelayLive do
     end
   end
 
-  defp attached_message(name, %{outcome: :already_enabled}),
-    do: "Plugin #{name} was already enabled; this relay is bound to it."
+  @doc "The entry channels the relay's API announces, across its factory entries."
+  def api_channels(api), do: Enum.flat_map(api, &List.wrap(&1[:channels]))
 
-  defp attached_message(name, _answer), do: "Plugin #{name} enabled and bound to this relay."
+  defp talk_change(talk, params, api) do
+    channel =
+      case params["channel_pick"] do
+        nil -> talk.channel
+        picked -> Enum.find(api_channels(api), talk.channel, &(&1.channel == picked))
+      end
 
-  defp require_name(""), do: {:error, "A plugin name is required."}
-  defp require_name(_name), do: :ok
+    fields = Map.merge(talk.fields, Map.drop(params, ["channel_pick", "action"]))
 
-  # The provider describes its options only in its help text, so they are
-  # taken as one JSON object, keyed by text: the controller turns only names
-  # the provider declares into atoms.
-  defp parse_opts(raw) do
-    case String.trim(raw || "") do
-      "" ->
-        {:ok, %{}}
+    # A channel picked anew starts from empty fields: another channel's values
+    # would be sent under names this one does not declare.
+    fields =
+      if channel != talk.channel, do: %{fields | "value" => %{}, "json" => ""}, else: fields
 
-      json ->
-        case Jason.decode(json) do
-          {:ok, %{} = opts} -> {:ok, opts}
-          _not_an_object -> {:error, "Options must be a JSON object."}
-        end
+    %{talk | channel: channel, fields: fields}
+  end
+
+  # What a submit asks for, as its kind and the controller call to wait on, or
+  # the message naming the field that stops it. A call that cannot be made is
+  # refused here, before anything is sent.
+  defp talk_request(%{mode: :channel, channel: nil}, _action, _relay),
+    do: {:error, "The relay's API announces no channel to call."}
+
+  defp talk_request(%{mode: :channel, channel: channel, fields: fields}, _action, relay) do
+    {ns, id, token} = relay
+
+    with {:ok, value} <- channel_value(channel, fields),
+         {:ok, deadline_ms} <- deadline(fields["deadline_ms"]) do
+      opts = [deadline_ms: deadline_ms]
+
+      {:ok, :channel,
+       fn -> NodeManager.call_channel(ns, id, channel.channel, value, opts, token) end}
     end
   end
 
-  defp generate_plugin_name do
-    "plugin-" <> (:crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower))
+  defp talk_request(%{mode: :raw, fields: fields}, "call", {ns, id, token}) do
+    with {:ok, deadline_ms} <- deadline(fields["deadline_ms"]) do
+      opts = put_text([deadline_ms: deadline_ms], :key, fields["key"])
+      payload = fields["payload"] || ""
+      channel = trimmed(fields["channel"])
+      {:ok, :call, fn -> NodeManager.call_relay(ns, id, payload, channel, opts, token) end}
+    end
   end
+
+  defp talk_request(%{mode: :raw, fields: fields}, _send, {ns, id, token}) do
+    opts = [] |> put_text(:key, fields["key"]) |> put_text(:msg_id, fields["msg_id"])
+    payload = fields["payload"] || ""
+    channel = trimmed(fields["channel"])
+    {:ok, :send, fn -> NodeManager.send_relay(ns, id, payload, channel, opts, token) end}
+  end
+
+  # A call holds an async task and a controller call for its whole deadline,
+  # so it is bounded here; five minutes outlasts any answer worth waiting for.
+  @max_deadline_ms 300_000
+
+  defp deadline(raw) do
+    case Integer.parse(trimmed(raw)) do
+      {ms, ""} when ms > 0 and ms <= @max_deadline_ms ->
+        {:ok, ms}
+
+      _invalid ->
+        {:error,
+         "The deadline must be a whole number of milliseconds from 1 to #{@max_deadline_ms}."}
+    end
+  end
+
+  defp put_text(opts, key, value) do
+    case trimmed(value) do
+      "" -> opts
+      text -> Keyword.put(opts, key, text)
+    end
+  end
+
+  defp trimmed(value), do: String.trim(value || "")
+
+  @doc """
+  How a channel's value is entered: `{:fields, fields}` generated from a flat
+  object schema, `:json` for any other JSON value, or `:text` for a channel
+  whose format is not JSON (text as typed, base64 for the binary formats).
+  """
+  def channel_form(%{codec: "json", schema: schema}), do: schema_fields(schema)
+  def channel_form(_channel), do: :text
+
+  # A top-level object whose every property is a string, enum, number, integer
+  # or boolean becomes one field per property; anything else is one JSON value.
+  defp schema_fields(%{"type" => "object", "properties" => properties} = schema)
+       when is_map(properties) and map_size(properties) > 0 do
+    required = List.wrap(schema["required"])
+
+    fields =
+      for {name, property} <- Enum.sort(properties),
+          do: schema_field(name, property, name in required)
+
+    if Enum.all?(fields), do: {:fields, fields}, else: :json
+  end
+
+  defp schema_fields(_schema), do: :json
+
+  # An enum is chosen by its text and sent as the value the schema lists, so a
+  # numeric or boolean enum keeps its type.
+  defp schema_field(name, %{"enum" => values}, required) when is_list(values),
+    do: %{name: name, type: :enum, values: values, required: required}
+
+  defp schema_field(name, %{"type" => type}, required)
+       when type in ~w(string number integer boolean),
+       do: %{name: name, type: String.to_existing_atom(type), required: required}
+
+  defp schema_field(_name, _property, _required), do: nil
+
+  defp channel_value(channel, fields) do
+    case channel_form(channel) do
+      {:fields, specs} -> object_value(specs, fields["value"] || %{})
+      :json -> json_value(fields["json"])
+      :text -> {:ok, fields["json"] || ""}
+    end
+  end
+
+  defp object_value(specs, typed) do
+    Enum.reduce_while(specs, {:ok, %{}}, fn spec, {:ok, acc} ->
+      case field_value(spec, trimmed(typed[spec.name])) do
+        :skip -> {:cont, {:ok, acc}}
+        {:ok, value} -> {:cont, {:ok, Map.put(acc, spec.name, value)}}
+        {:error, message} -> {:halt, {:error, message}}
+      end
+    end)
+  end
+
+  defp field_value(%{required: true, name: name}, ""), do: {:error, "#{name} is required."}
+  defp field_value(_spec, ""), do: :skip
+  defp field_value(%{type: :boolean}, raw), do: {:ok, raw == "true"}
+
+  defp field_value(%{type: :enum, values: values, name: name}, raw) do
+    case Enum.find(values, &(to_string(&1) == raw)) do
+      nil -> {:error, "#{name} must be one of #{Enum.map_join(values, ", ", &to_string/1)}."}
+      value -> {:ok, value}
+    end
+  end
+
+  defp field_value(%{type: :integer, name: name}, raw) do
+    case Integer.parse(raw) do
+      {int, ""} -> {:ok, int}
+      _invalid -> {:error, "#{name} must be a whole number."}
+    end
+  end
+
+  defp field_value(%{type: :number, name: name}, raw) do
+    case Float.parse(raw) do
+      {number, ""} ->
+        {:ok, if(String.contains?(raw, [".", "e", "E"]), do: number, else: trunc(number))}
+
+      _invalid ->
+        {:error, "#{name} must be a number."}
+    end
+  end
+
+  defp field_value(_text, raw), do: {:ok, raw}
+
+  defp json_value(raw) do
+    case Jason.decode(trimmed(raw)) do
+      {:ok, value} -> {:ok, value}
+      {:error, _reason} -> {:error, "The value must be valid JSON."}
+    end
+  end
+
+  @doc "An answer as text: JSON for a decoded value, the payload as it came otherwise."
+  def answer_text(value) when is_binary(value), do: Format.printable(value)
+  def answer_text(value), do: Jason.encode!(value, pretty: true)
+
+  # The field a generated property is entered through.
+  defp field_input(%{type: :string}), do: "text"
+  defp field_input(%{type: type}) when type in [:number, :integer], do: "number"
+  defp field_input(_choice), do: "select"
+
+  defp field_options(%{type: :boolean}), do: ~w(true false)
+  defp field_options(%{type: :enum, values: values}), do: Enum.map(values, &to_string/1)
+  defp field_options(_typed), do: nil
+
+  defp verdict_tone(:ok), do: "flz-badge flz-badge--positive"
+  defp verdict_tone(:warning), do: "flz-badge flz-badge--warning"
+  defp verdict_tone(_problem), do: "flz-badge flz-badge--negative"
 
   # The controller answers `-1` for an input log that holds no records.
   defp last_offset(-1), do: "no records"

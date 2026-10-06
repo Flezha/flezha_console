@@ -350,3 +350,39 @@ The UI SHALL provide a **Fleet** screen at `/relays` listing every relay across 
 - **WHEN** no namespace holds a relay
 - **THEN** an empty state says so rather than rendering an empty table
 
+### Requirement: A relay is diagnosed on request
+
+The relay detail screen SHALL offer a Diagnose control that calls `Flezha.Service.Relay.diagnose/3` for the relay and shows its verdict (`ok`, `warning` or `problem`) and every finding in the order the controller gives them. Each finding SHALL be shown with its level, its message, its `diagnose.*` code, its hint when it has one, and a link to the `diagnose` family of core's errors reference. Diagnosis SHALL NOT be called on the refresh tick; the operator SHALL be able to run it again.
+
+#### Scenario: A healthy relay
+
+- **WHEN** an operator diagnoses a relay whose findings are only notes
+- **THEN** the verdict is shown as ok
+- **AND** each note is listed with its message and code
+
+#### Scenario: A relay with a problem
+
+- **WHEN** the diagnosis answers `problem`, for example with `diagnose.no_runner`
+- **THEN** the verdict is shown as a problem
+- **AND** the finding's hint is shown as the next command to run
+
+#### Scenario: A finished relay
+
+- **WHEN** an operator diagnoses a steps relay that finished within its retention window
+- **THEN** the finished finding is shown with the completion status it carries
+
+#### Scenario: Diagnosis is not part of the tick
+
+- **WHEN** the relay detail screen refreshes on its timer
+- **THEN** no `diagnose/3` call is made
+
+#### Scenario: Running it again
+
+- **WHEN** an operator runs the diagnosis a second time
+- **THEN** the shown findings are replaced by the new answer
+
+#### Scenario: The relay is unknown
+
+- **WHEN** the controller answers that the relay is neither live nor retained
+- **THEN** the error is shown with its code and hint instead of a verdict
+

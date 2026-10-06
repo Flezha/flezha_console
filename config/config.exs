@@ -24,6 +24,10 @@ config :flezha_ui,
   ecto_repos: [FlezhaUi.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# Where a controller error's code links to: core's errors reference, one
+# section per code family.
+config :flezha_ui, :core_docs_url, "https://docs.flezha.com"
+
 # Configures the endpoint
 config :flezha_ui, FlezhaUiWeb.Endpoint,
   url: [host: "localhost"],

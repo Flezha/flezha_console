@@ -30,6 +30,13 @@ defmodule FlezhaUi.Service.NodeManager do
 
   @default_timeout 15_000
 
+  # How long past a call's own deadline the console waits, so a relay that does
+  # not answer in time is reported by the controller rather than as a lost one.
+  @deadline_margin_ms 5_000
+
+  # `Relay.call_channel/6`'s own default deadline.
+  @channel_deadline_ms 30_000
+
   # Verified identities and the enforcement posture, so a screen that makes
   # several controller calls on one tick does not spend a round trip
   # re-establishing who it is before each of them.
@@ -111,7 +118,9 @@ defmodule FlezhaUi.Service.NodeManager do
   def error(%{__struct__: Flezha.Error, code: code, class: class, message: message} = e),
     do: %{code: code, class: class, message: message, hint: Map.get(e, :hint)}
 
-  def error(%{code: _, class: _, message: _} = error), do: Map.put_new(error, :hint, nil)
+  # A diagnosis finding has this shape with a `level` in place of a class.
+  def error(%{code: _, message: _} = error),
+    do: error |> Map.put_new(:class, nil) |> Map.put_new(:hint, nil)
 
   def error(:node_not_connected) do
     ui_error(
@@ -169,6 +178,10 @@ defmodule FlezhaUi.Service.NodeManager do
   `{:error, %Flezha.Error{}}` with an `authz.token_*` code. Results are cached
   per token for a short period, never past the token's own `expires_at`; a
   transport failure or `authz.registry_unavailable` is not cached.
+
+  A verified identity also carries `operations`, the names `whoami/1` answers
+  the token's role is granted, read once with the verification and cached with
+  it. A controller that answers none leaves it out.
   """
   def verify_token(nil), do: {:error, :no_token}
   def verify_token(""), do: {:error, :no_token}
@@ -179,13 +192,46 @@ defmodule FlezhaUi.Service.NodeManager do
         cached
 
       :miss ->
-        result = erpc_call(Flezha.AuthZ.TokenStore, :verify, [token])
+        result = with_operations(erpc_call(Flezha.AuthZ.TokenStore, :verify, [token]))
         maybe_cache_verification(token, result)
         result
     end
   end
 
   def verify_token(_token), do: {:error, :no_token}
+
+  defp with_operations({:ok, %{principal: principal} = identity}) when is_binary(principal) do
+    case erpc_call(Flezha.Service.Namespace, :whoami, [identity_context(identity)]) do
+      {:ok, %{operations: operations}} when is_list(operations) ->
+        {:ok, Map.put(identity, :operations, operations)}
+
+      _none ->
+        {:ok, identity}
+    end
+  end
+
+  defp with_operations(result), do: result
+
+  @doc """
+  The names of the operations the token's role is granted, or `nil` when every
+  control should render: the posture is `:open`, or the controller answered
+  no list. See `granted?/2`.
+  """
+  def operations(token) do
+    with %{posture: posture} when posture != :open <- authz_status(token),
+         {:ok, %{operations: operations}} <- verify_token(token) do
+      operations
+    else
+      _all -> nil
+    end
+  end
+
+  @doc """
+  Whether a control performing the operation `name` (`"Relay.stop"`) renders
+  for `operations/1`'s answer. Advice only: the controller still judges the call.
+  """
+  def granted?(nil, _name), do: true
+  def granted?(operations, name) when is_list(operations), do: name in operations
 
   @doc """
   Drops a token's cached verification, so the next call re-asks the controller.
@@ -224,13 +270,7 @@ defmodule FlezhaUi.Service.NodeManager do
   defp resolve_context(token) do
     case verify_token(token) do
       {:ok, %{principal: principal} = identity} when is_binary(principal) ->
-        {:ok,
-         %{
-           source: :ui,
-           principal: principal,
-           namespace: Map.get(identity, :namespace),
-           role: Map.get(identity, :role)
-         }}
+        {:ok, identity_context(identity)}
 
       {:error, :timeout} = failed ->
         failed
@@ -241,6 +281,15 @@ defmodule FlezhaUi.Service.NodeManager do
       _ ->
         {:ok, %{source: :ui}}
     end
+  end
+
+  defp identity_context(identity) do
+    %{
+      source: :ui,
+      principal: identity.principal,
+      namespace: Map.get(identity, :namespace),
+      role: Map.get(identity, :role)
+    }
   end
 
   # A published function, called with the caller context appended. A refusal
@@ -816,6 +865,88 @@ defmodule FlezhaUi.Service.NodeManager do
   end
 
   @doc """
+  What is wrong with a relay and what to do about it: `%{relay:, verdict: :ok |
+  :warning | :problem, findings: [%{level:, code:, message:, details:, hint:}]}`.
+  Reads verdicts, runners, dead letters and the input log, so it is made on
+  request, never on a refresh tick.
+  """
+  def diagnose_relay(namespace, relay_id, token) do
+    authorized_call(token, Flezha.Service.Relay, :diagnose, [namespace, relay_id])
+  end
+
+  @doc """
+  The API the relay's factory announces, as `[%{factory:, description:,
+  channels: [%{channel:, codec:, schema:, description:, answer_codec:,
+  answer_schema:}], disagree:, relay:}]`.
+  """
+  def relay_api(namespace, relay_id, token) do
+    authorized_list_call(token, Flezha.Service.Relay, :api, [namespace, relay_id])
+  end
+
+  @doc """
+  Sends `payload` to a relay's input `channel` (`""` for none). `opts` carries
+  `key` and `msg_id`. Answers `{:ok, %{to:, verdict: :delivered | :absorbed |
+  :suspended}}`.
+  """
+  def send_relay(namespace, relay_id, payload, channel, opts, token) do
+    authorized_call(token, Flezha.Service.Relay, :send, [
+      namespace,
+      relay_id,
+      payload,
+      channel,
+      opts
+    ])
+  end
+
+  @doc """
+  Calls a relay with `payload` and waits up to `opts[:deadline_ms]` for its
+  answer, as `{:ok, %{payload:, channel:}}`.
+  """
+  def call_relay(namespace, relay_id, payload, channel, opts, token) do
+    timeout = call_timeout(Keyword.fetch!(opts, :deadline_ms))
+
+    case authorized_call(
+           token,
+           Flezha.Service.Relay,
+           :call,
+           [namespace, relay_id, payload, channel, opts],
+           timeout
+         ) do
+      {:ok, answer, meta} -> {:ok, %{payload: answer, channel: Map.get(meta, "channel")}}
+      other -> unexpected(other)
+    end
+  end
+
+  @doc """
+  Calls an entry channel the relay's API announces with `value`, answering
+  `{:ok, %{answer:, answer_codec:}}` from a channel that answers and
+  `{:ok, %{accepted: true}}` from one that does not.
+  """
+  def call_channel(namespace, relay_id, channel, value, opts, token) do
+    timeout = call_timeout(Keyword.get(opts, :deadline_ms, @channel_deadline_ms))
+
+    authorized_call(
+      token,
+      Flezha.Service.Relay,
+      :call_channel,
+      [namespace, relay_id, channel, value, opts],
+      timeout
+    )
+  end
+
+  @doc "How long a call with `deadline_ms` is waited on: its deadline and a margin."
+  def call_timeout(deadline_ms) when is_integer(deadline_ms),
+    do: deadline_ms + @deadline_margin_ms
+
+  @doc """
+  Re-runs a flow relay's cell (`<relay_class>/<tasklet>/<cell_key>`) from `from`,
+  a sequence or an ISO 8601 time. Answers `{:ok, %{cell:, from_seq:}}`.
+  """
+  def replay_cell(namespace, cell, from, token) do
+    authorized_call(token, Flezha.Service.Relay, :replay, [namespace, cell, from])
+  end
+
+  @doc """
   A relay's live cell state, narrowed by `cell` — `nil` for every cell,
   `"tasklet"` or `"tasklet/cell_key"`. Answers `{:ok, json, change_seq}`.
   """
@@ -1015,6 +1146,40 @@ defmodule FlezhaUi.Service.NodeManager do
     authorized_call(token, Flezha.Service.Steps, :time_travel, [cell, target])
   end
 
+  @doc """
+  A durable relay's retained input records, `%{instance:, floor:, entries:
+  [%{offset:, consumed:, bytes:, channel:}]}`, never the payloads.
+  """
+  def inbox(instance_id, token) do
+    authorized_call(token, Flezha.Service.Steps, :inbox, [instance_id])
+  end
+
+  @doc """
+  A cell's outbox: durable seq, flush cursor, epoch, `pending` and `held` (both
+  `nil` while its writer is not running) and the relay's `input_watermark`.
+  """
+  def outbox(cell, token) do
+    authorized_call(token, Flezha.Service.Steps, :outbox, [cell])
+  end
+
+  @doc "Asks the cell's runner to compact its persisted state. Answers `{:ok, %{cell:}}`."
+  def rotate_cell(cell, token) do
+    authorized_call(token, Flezha.Service.Steps, :rotate, [cell])
+  end
+
+  @doc "Deletes a cell's write-ahead log, snapshots and outbox deduplication for good."
+  def delete_cell(cell, token) do
+    authorized_call(token, Flezha.Service.Steps, :delete, [cell])
+  end
+
+  @doc """
+  Retains a relay class's write-ahead history for `hours` until the controller
+  next boots. Answers `{:ok, %{relay_class:, hours:}}`.
+  """
+  def set_retention(relay_class, hours, token) when is_integer(hours) do
+    authorized_call(token, Flezha.Service.Steps, :set_retention, [relay_class, hours])
+  end
+
   # ---- Namespace administration ----
 
   @doc """
@@ -1114,14 +1279,60 @@ defmodule FlezhaUi.Service.NodeManager do
     authorized_list_call(token, Flezha.Service.Namespace, :roles, [namespace])
   end
 
+  @doc """
+  The tokens the caller may see, each `%{id:, principal:, namespace:, role:,
+  label:, status:}` — never the token itself.
+  """
+  def list_tokens(token) do
+    authorized_list_call(token, Flezha.Service.Namespace, :tokens, [])
+  end
+
+  @doc """
+  Issues a token for `principal` holding `role` in `namespace`. `opts` carries
+  `ttl` (seconds or `"never"`) and `label`. The answer's `token` is the
+  credential, shown once.
+  """
+  def issue_token(principal, namespace, role, opts, token) do
+    authorized_call(token, Flezha.Service.Namespace, :issue_token, [
+      principal,
+      namespace,
+      role,
+      opts
+    ])
+  end
+
+  @doc "Revokes the token `token_id`, answering its row."
+  def revoke_token(token_id, token) do
+    authorized_call(token, Flezha.Service.Namespace, :revoke_token, [token_id])
+  end
+
+  @doc "Binds `principal` to `role` in `namespace`."
+  def bind_role(principal, role, namespace, token) do
+    authorized_call(token, Flezha.Service.Namespace, :bind_role, [principal, role, namespace])
+  end
+
+  @doc "Unbinds `role` from `principal`, or its whole binding when `role` is `nil`."
+  def unbind_role(principal, role, token) do
+    authorized_call(token, Flezha.Service.Namespace, :unbind_role, [principal, role])
+  end
+
+  @doc """
+  Claims the controller's pending bootstrap with its one-time token, answering
+  `{:ok, %{principal:, minted_token:}}`.
+  """
+  def bootstrap(bootstrap_token, token) do
+    authorized_call(token, Flezha.Service.Namespace, :bootstrap, [bootstrap_token])
+  end
+
   # ---- Plugins ----
 
   @doc """
-  Enables the plugin `name` and binds it to a relay in one call. `fields`
-  carries `provider` (the id as text), `opts` (keyed by text — the controller
-  turns only names the provider declares into atoms), `namespace`, `relay_id`
-  and `hooks` (hook names). Answers `{:ok, %{name:, outcome: :enabled |
-  :already_enabled, bound:, lacking:}}`.
+  Enables the plugin `name`, and binds it to a relay in the same call when
+  `fields` names one. `fields` carries `provider` (the id as text), `opts`
+  (keyed by text — the controller turns only names the provider declares into
+  atoms), `namespace`, and optionally `relay_id`, `hooks` (hook names) and
+  `single`. Answers `{:ok, %{name:, outcome: :enabled | :already_enabled,
+  bound:, lacking: [node]}}`.
   """
   def enable_plugin(name, fields, token) do
     fields =
@@ -1130,10 +1341,50 @@ defmodule FlezhaUi.Service.NodeManager do
         opts: Map.get(fields, :opts, %{}),
         namespace: fields.namespace
       ]
-      |> put_given(:relay_id, Map.get(fields, :relay_id))
-      |> put_given(:hooks, Map.get(fields, :hooks))
+      |> plugin_fields(fields, [:relay_id, :hooks, :single])
 
     authorized_call(token, Flezha.Service.PluginManager, :enable, [name, fields])
+  end
+
+  @doc """
+  Binds the enabled plugin `name` to `fields.relay_id` with `hooks` and
+  `channel`. Answers `{:ok, :bound}` or `{:ok, :already_bound}`.
+  """
+  def bind_plugin(name, fields, token) do
+    fields = plugin_fields([namespace: fields.namespace], fields, [:relay_id, :hooks, :channel])
+
+    case authorized_call(token, Flezha.Service.PluginManager, :bind, [name, fields]) do
+      :ok -> {:ok, :bound}
+      :already_bound -> {:ok, :already_bound}
+      other -> unexpected(other)
+    end
+  end
+
+  @doc "Unbinds `relay_id` from the plugin `name`, which stays enabled. Answers `:ok`."
+  def unbind_plugin(name, namespace, relay_id, token) do
+    case authorized_call(token, Flezha.Service.PluginManager, :unbind, [
+           name,
+           [namespace: namespace, relay_id: relay_id]
+         ]) do
+      :ok -> :ok
+      other -> unexpected(other)
+    end
+  end
+
+  @doc """
+  Changes the plugin `name`'s `opts` and, for a controller plugin, its `hooks`.
+  Answers `{:ok, %{applied: :live | :restarted | :unchanged, relays:}}`.
+  """
+  def update_plugin(name, fields, token) do
+    fields =
+      plugin_fields([namespace: fields.namespace, opts: fields.opts], fields, [:hooks])
+
+    authorized_call(token, Flezha.Service.PluginManager, :update, [name, fields])
+  end
+
+  # The optional plugin fields a form filled in, by the names the controller reads.
+  defp plugin_fields(base, fields, keys) do
+    Enum.reduce(keys, base, &put_given(&2, &1, Map.get(fields, &1)))
   end
 
   @doc "Disables the plugin `name` in `namespace`; its bindings stay. Answers `:ok`."
@@ -1155,10 +1406,13 @@ defmodule FlezhaUi.Service.NodeManager do
     authorized_list_call(token, Flezha.Service.PluginManager, :enabled, [namespace])
   end
 
-  @doc "The providers the controller can enable, each `%{id:, module:, type:}`."
+  @doc """
+  The providers the controller can enable, each `%{id:, module:, type:}`, and
+  how many installed packages it refused at boot: `{:ok, %{providers:, refused:}}`.
+  """
   def providers(token) do
     case authorized_call(token, Flezha.Service.Fleet, :providers, []) do
-      {:ok, %{providers: providers}} -> {:ok, providers}
+      {:ok, %{providers: _} = listing} -> {:ok, Map.put_new(listing, :refused, 0)}
       other -> unexpected(other)
     end
   end
@@ -1226,6 +1480,14 @@ defmodule FlezhaUi.Service.NodeManager do
     authorized_call(token, Flezha.Service.Schedule, :remove, [name])
   end
 
+  @doc """
+  Fires a schedule once, now. Answers `{:ok, %{relay_id:, outcome: :spawned |
+  :already_running}}`, `relay_id` being `nil` when none was started.
+  """
+  def schedule_run(name, token) do
+    authorized_call(token, Flezha.Service.Schedule, :run, [name])
+  end
+
   # ---- Audit log ----
 
   def audit_files(token) do
@@ -1238,6 +1500,11 @@ defmodule FlezhaUi.Service.NodeManager do
 
   def audit_stats(token) do
     authorized_call(token, Flezha.Service.AuditLog, :stats, [])
+  end
+
+  @doc "Closes the current audit file and starts a new one."
+  def audit_rotate(token) do
+    authorized_call(token, Flezha.Service.AuditLog, :rotate, [])
   end
 
   @doc "Opens the live audit tail for `emit_pid`. See `authorized_stream/5`."

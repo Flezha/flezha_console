@@ -95,7 +95,7 @@ An operator SHALL be able to create a namespace with quota overrides, change an 
 
 ### Requirement: Role bindings for a namespace are visible
 
-The namespace screen SHALL list the principals bound to the namespace, from `Flezha.Service.Namespace.roles/2`, with every role each principal holds there. The UI SHALL NOT bind or unbind roles. Role bindings SHALL be rendered as a section that collapses, whose header states how many principals are bound so the count is readable while the section is shut.
+The namespace screen SHALL list the principals bound to the namespace, from `Flezha.Service.Namespace.roles/2`, with every role each principal holds there. An operator SHALL be able to bind a principal to a role in the screen's namespace through `Flezha.Service.Namespace.bind_role/4`, and to unbind one role, or a principal's whole binding, through `Flezha.Service.Namespace.unbind_role/3` after an explicit confirmation that states what will be taken away. Role bindings SHALL be rendered as a section that collapses, whose header states how many principals are bound so the count is readable while the section is shut.
 
 #### Scenario: A namespace has bound principals
 
@@ -115,5 +115,33 @@ The namespace screen SHALL list the principals bound to the namespace, from `Fle
 #### Scenario: A namespace has no bound principals
 
 - **WHEN** no principal is bound to the namespace
-- **THEN** an empty state says so and names `flz role bind` as the way to add one
+- **THEN** an empty state says so and offers the bind control
+
+#### Scenario: Binding a role
+
+- **WHEN** an operator binds a principal to a role
+- **THEN** `bind_role/4` is called with the principal, the role and the screen's namespace
+- **AND** the principal is listed with that role on the next read
+
+#### Scenario: An unknown role
+
+- **WHEN** the controller refuses the bind with `authz.unknown_role`
+- **THEN** the refusal is shown with its message, which names the roles there are
+
+#### Scenario: Unbinding one role
+
+- **WHEN** an operator confirms unbinding one role from a principal
+- **THEN** `unbind_role/3` is called with the principal and that role
+- **AND** the principal's other roles remain listed
+
+#### Scenario: Unbinding a whole binding
+
+- **WHEN** an operator confirms removing a principal's whole binding
+- **THEN** `unbind_role/3` is called with the principal and no role
+- **AND** the principal is no longer listed
+
+#### Scenario: The unbind is not confirmed
+
+- **WHEN** an operator opens the unbind confirmation and dismisses it
+- **THEN** no call is made
 

@@ -126,6 +126,7 @@
                     Inspect
                   </button>
                   <button
+                    :if={NodeManager.granted?(@operations, "Dlq.replay")}
                     phx-click="confirm"
                     phx-value-action="replay"
                     phx-value-ref={entry.ref}
@@ -135,6 +136,7 @@
                     Replay
                   </button>
                   <button
+                    :if={NodeManager.granted?(@operations, "Dlq.drop")}
                     phx-click="confirm"
                     phx-value-action="drop"
                     phx-value-ref={entry.ref}

@@ -1,4 +1,12 @@
-import { test, expect, openSection, testIds, type Page } from './fixtures';
+import {
+  test,
+  expect,
+  disablePlugin,
+  openSection,
+  testIds,
+  uniqueId,
+  type Page,
+} from './fixtures';
 
 /**
  * Enabling a plugin by name and binding it to a relay, from the relay screen,
@@ -31,13 +39,6 @@ const PROVIDERS: ReadonlyArray<ProviderCase> = [
   { id: 'relay_stdout', opts: {}, hooks: ['on_output'] },
   { id: 'relay_websocket', opts: { uri: 'ws://flezha_controller:4500' }, hooks: ['on_terminate'] },
 ];
-
-/** Unique per test, so a leftover from a failed run cannot collide. */
-function uniquePluginName(prefix = 'pw_plugin'): string {
-  const ts = Date.now().toString(36).slice(-4);
-  const rand = Math.random().toString(36).slice(2, 5);
-  return `${prefix}_${ts}_${rand}`;
-}
 
 /** The plugin ids of the binding rows currently in the table. */
 const bindingIds = (page: Page) => testIds(page, 'binding-row-');
@@ -88,20 +89,6 @@ async function disableFromRelay(page: Page, name: string) {
   await expect(page.locator('body')).toContainText(`Plugin ${name} disabled`);
 }
 
-/**
- * Disables `name` from the plugins screen, whatever the relay screen shows.
- * Safe to call from `finally`: a plugin already gone is left alone.
- */
-async function disableEverywhere(page: Page, live: (path: string) => Promise<void>, name: string) {
-  await live('/namespaces/default/plugins');
-  const row = page.getByTestId(`plugin-row-${name}`);
-  if ((await row.count()) === 0) return;
-
-  await page.getByTestId(`plugin-disable-${name}`).click();
-  await page.getByTestId('plugin-disable-confirm').click();
-  await expect(row).toHaveCount(0);
-}
-
 test.describe('Plugin attachment', () => {
   test.beforeEach(async ({ page, live }) => {
     await live(RELAY_URL);
@@ -132,7 +119,7 @@ test.describe('Plugin attachment', () => {
       page,
       live,
     }) => {
-      const name = uniquePluginName();
+      const name = uniqueId('pw_plugin');
 
       try {
         await openConfigureForm(page, id);
@@ -149,7 +136,7 @@ test.describe('Plugin attachment', () => {
         await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
         await expect(page.getByTestId(`plugin-relays-${name}`)).toContainText('testnet_store_1');
       } finally {
-        await disableEverywhere(page, live, name);
+        await disablePlugin(page, name);
       }
     });
   }
@@ -180,7 +167,7 @@ test.describe('Plugin attachment', () => {
   });
 
   test("the controller's refusal is shown on the form with its code", async ({ page, live }) => {
-    const name = uniquePluginName('pw_refused');
+    const name = uniqueId('pw_refused');
 
     try {
       await openConfigureForm(page, 'relay_stdout');
@@ -194,12 +181,12 @@ test.describe('Plugin attachment', () => {
 
       await page.getByTestId('attach-cancel-btn').click();
     } finally {
-      await disableEverywhere(page, live, name);
+      await disablePlugin(page, name);
     }
   });
 
   test('disabling from the relay screen reports it in the flash', async ({ page, live }) => {
-    const name = uniquePluginName('pw_disable');
+    const name = uniqueId('pw_disable');
 
     try {
       await openConfigureForm(page, 'relay_stdout');
@@ -214,7 +201,7 @@ test.describe('Plugin attachment', () => {
       await disableFromRelay(page, name);
       await expect(page.getByTestId('runtime-error')).toHaveCount(0);
     } finally {
-      await disableEverywhere(page, live, name);
+      await disablePlugin(page, name);
     }
   });
 });

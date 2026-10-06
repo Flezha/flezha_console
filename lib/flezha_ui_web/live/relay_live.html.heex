@@ -3,7 +3,7 @@
     {@relay_id}
     <:actions>
       <button
-        :if={is_nil(@completion)}
+        :if={is_nil(@completion) and NodeManager.granted?(@operations, "Relay.stop")}
         phx-click="confirm_stop"
         data-testid="stop-relay-btn"
         class="flz-button flz-button--md flz-button--danger"
@@ -182,6 +182,119 @@
     </div>
   </div>
 
+  <%!-- Diagnosis, on request --%>
+  <.panel testid="diagnose-panel" icon="hero-wrench-screwdriver">
+    <:title>
+      Diagnosis
+      <span
+        :if={@diagnosis}
+        data-testid="diagnose-verdict"
+        class={verdict_tone(@diagnosis.verdict)}
+      >
+        {@diagnosis.verdict}
+      </span>
+    </:title>
+    <:actions>
+      <button
+        :if={NodeManager.granted?(@operations, "Relay.diagnose")}
+        phx-click="diagnose"
+        data-testid="diagnose-btn"
+        class="flz-button flz-button--sm flz-button--secondary"
+      >
+        <.icon name="hero-magnifying-glass" class="w-3.5 h-3.5" />
+        {if @diagnosis || @diagnosis_error, do: "Run again", else: "Diagnose"}
+      </button>
+    </:actions>
+    <div class="flz-panel-body space-y-3">
+      <div :if={@diagnosis_error} data-testid="diagnose-error">
+        <.runtime_error error={@diagnosis_error} action="the diagnosis" />
+      </div>
+      <p :if={is_nil(@diagnosis) and is_nil(@diagnosis_error)} class="text-sm text-th-muted">
+        Ask the controller what is wrong with this relay and what to do about it.
+      </p>
+      <p :if={@diagnosis && @diagnosis.findings == []} class="text-sm text-th-muted">
+        The controller found nothing to report.
+      </p>
+      <ol :if={@diagnosis} class="space-y-2">
+        <li
+          :for={finding <- @diagnosis.findings}
+          data-testid={"diagnose-finding-#{finding.code}"}
+          class="space-y-1"
+        >
+          <span class="flz-label">{finding.level}</span>
+          <.runtime_error
+            error={finding}
+            kind={if finding.level == :note, do: :info, else: :error}
+          />
+        </li>
+      </ol>
+    </div>
+  </.panel>
+
+  <%!-- The relay's announced API --%>
+  <.panel
+    :if={is_nil(@completion)}
+    fold="api"
+    open={@sections["api"]}
+    testid="api-panel"
+    icon="hero-command-line"
+  >
+    <:title>API</:title>
+    <:actions>
+      <button
+        :if={NodeManager.granted?(@operations, "Relay.send")}
+        phx-click="talk_open"
+        data-testid="talk-open-btn"
+        class="flz-button flz-button--sm"
+      >
+        <.icon name="hero-paper-airplane" class="w-3.5 h-3.5" /> Send or call
+      </button>
+    </:actions>
+    <div class="flz-panel-body space-y-4">
+      <.runtime_error error={@api_error} action="the relay's API" />
+      <div :for={entry <- @api} class="space-y-3">
+        <p :if={entry[:description]} class="text-sm text-th-secondary">{entry.description}</p>
+        <.notice :if={entry[:disagree]} testid="api-disagree">
+          This factory's runners announce different APIs; the latest announcement is shown.
+        </.notice>
+        <p :if={entry.channels == []} data-testid="api-none" class="text-sm text-th-muted">
+          The factory <span class="font-mono">{entry.factory}</span>
+          announces no API. The relay can still be sent a message or called.
+        </p>
+        <table :if={entry.channels != []} data-testid="api-channels" class="flz-table">
+          <thead>
+            <tr>
+              <th>Channel</th>
+              <th>Format</th>
+              <th>Answers</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={channel <- entry.channels} data-testid={"api-channel-#{channel.channel}"}>
+              <td class="flz-num text-xs">{channel.channel}</td>
+              <td class="flz-num text-xs">{channel.codec}</td>
+              <td class="text-xs">
+                {if channel[:answer_codec], do: "yes, #{channel.answer_codec}", else: "no"}
+              </td>
+              <td class="text-xs">
+                {channel[:description] || "—"}
+                <details :if={channel[:schema]} data-testid={"api-schema-#{channel.channel}"}>
+                  <summary class="text-accent-text cursor-pointer">input schema</summary>
+                  <pre class="flz-code mt-1">{answer_text(channel.schema)}</pre>
+                </details>
+                <details :if={channel[:answer_schema]}>
+                  <summary class="text-accent-text cursor-pointer">answer schema</summary>
+                  <pre class="flz-code mt-1">{answer_text(channel.answer_schema)}</pre>
+                </details>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </.panel>
+
   <%!-- Completion record: a finished relay is not in the registry at all --%>
   <.panel :if={@completion} testid="completion-record" icon="hero-flag">
     <:title>Finished relay</:title>
@@ -242,7 +355,7 @@
     <:title>Task journal</:title>
     <:actions>
       <button
-        :if={@committed_iterations != []}
+        :if={@committed_iterations != [] and NodeManager.granted?(@operations, "Steps.rewind")}
         phx-click="open_rewind"
         data-testid="open-rewind-btn"
         class="flz-button flz-button--sm flz-button--secondary"
@@ -312,6 +425,37 @@
       </.stat>
       <.stat label="Consumed offset">{@input_log.consumed_offset || "—"}</.stat>
     </dl>
+    <div :if={@inbox_error} data-testid="inbox-error" class="px-5 pb-4">
+      <.runtime_error error={@inbox_error} action="the input log" />
+    </div>
+    <div :if={@inbox} data-testid="inbox-records">
+      <p data-testid="inbox-floor" class="px-5 pb-2 text-xs text-th-muted">
+        <span :if={@inbox.floor >= 0}>
+          Floor <span class="font-mono">{@inbox.floor}</span>: records at or below it are consumed.
+        </span>
+        <span :if={@inbox.floor < 0}>Floor: nothing is consumed yet.</span>
+        Payloads are not shown.
+      </p>
+      <p :if={@inbox.entries == []} class="flz-empty">The input log retains no records.</p>
+      <table :if={@inbox.entries != []} class="flz-table">
+        <thead>
+          <tr>
+            <th>Offset</th>
+            <th>State</th>
+            <th>Size</th>
+            <th>Channel</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={entry <- @inbox.entries} data-testid={"inbox-entry-#{entry.offset}"}>
+            <td class="flz-num text-xs">{entry.offset}</td>
+            <td class="text-xs">{if entry.consumed, do: "consumed", else: "pending"}</td>
+            <td class="flz-num text-xs">{Format.bytes(entry.bytes)}</td>
+            <td class="flz-num text-xs">{entry.channel || "—"}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </.panel>
 
   <%!-- SDK State Panel --%>
@@ -382,7 +526,11 @@
     <:title>Plugins / Bindings</:title>
     <:actions>
       <button
-        phx-click="open_attach"
+        :if={NodeManager.granted?(@operations, "PluginManager.enable")}
+        phx-click="plugin_form_open"
+        phx-value-mode="enable"
+        phx-value-namespace={@ns}
+        phx-value-relay={@relay_id}
         data-testid="attach-plugin-btn"
         class="flz-button flz-button--sm"
       >
@@ -420,6 +568,7 @@
               </td>
               <td class="text-right">
                 <button
+                  :if={NodeManager.granted?(@operations, "PluginManager.disable")}
                   phx-click="confirm_detach"
                   phx-value-plugin_id={plugin_id}
                   data-testid={"detach-btn-#{plugin_id}"}
@@ -463,101 +612,227 @@
   Disable plugin <.mono>{@confirm_detach}</.mono>? Every running copy stops; its bindings stay.
 </.confirm_dialog>
 
-<%!-- Attach Plugin Modal --%>
+<.plugin_form_dialog form={@plugin_form} />
+
+<%!-- Send to the relay, call it, or call an entry channel of its API --%>
 <.dialog
-  :if={@attach}
-  testid="attach-modal"
+  :if={@talk}
+  testid="talk-modal"
   size="form"
-  on_close="close_attach"
-  close_testid="attach-close-btn"
+  on_close="talk_close"
+  close_testid="talk-close-btn"
 >
-  <:title>{if @attach.provider, do: "Configure Plugin", else: "Choose Provider"}</:title>
+  <:title>Talk to {@relay_id}</:title>
 
-  <%= if is_nil(@attach.provider) do %>
-    <.runtime_error error={@attach.providers_error} action="the provider listing" />
-    <p :if={@attach.providers == [] and is_nil(@attach.providers_error)} class="flz-empty">
-      This controller offers no plugin providers.
+  <div class="flex gap-2 mb-4">
+    <.button
+      :if={api_channels(@api) != []}
+      size="sm"
+      variant={if @talk.mode == :channel, do: "primary", else: "ghost"}
+      phx-click="talk_mode"
+      phx-value-mode="channel"
+      data-testid="talk-mode-channel"
+    >
+      API channel
+    </.button>
+    <.button
+      size="sm"
+      variant={if @talk.mode == :raw, do: "primary", else: "ghost"}
+      phx-click="talk_mode"
+      phx-value-mode="raw"
+      data-testid="talk-mode-raw"
+    >
+      Raw message
+    </.button>
+  </div>
+
+  <.form_error error={@talk.error} action="the call" testid="talk-error" />
+
+  <.notice :if={@talk.waiting} testid="talk-waiting" icon="hero-clock" class="mb-4">
+    Waiting for {@relay_id} to answer. Closing this dialog stops waiting; the relay may still
+    act on what was sent.
+  </.notice>
+
+  <div :if={@talk.result} data-testid="talk-result" class="mb-4 space-y-2">
+    <%= case @talk.result do %>
+      <% {:send, %{verdict: :delivered} = sent} -> %>
+        <.notice icon="hero-check-circle">Delivered to <.mono>{sent.to}</.mono>.</.notice>
+      <% {:send, %{verdict: :absorbed} = sent} -> %>
+        <.notice>
+          <.mono>{sent.to}</.mono>
+          absorbed it as a duplicate: its input log already holds that message id.
+        </.notice>
+      <% {:send, %{verdict: :suspended} = sent} -> %>
+        <.notice>
+          <.mono>{sent.to}</.mono>
+          is suspended; the message is journaled until the instance wakes.
+        </.notice>
+      <% {:call, answer} -> %>
+        <p class="text-xs text-th-muted">
+          Answer on <span class="font-mono">{answer.channel || "—"}</span>
+        </p>
+        <pre data-testid="talk-answer" class="flz-code">{answer_text(answer.payload)}</pre>
+      <% {:channel, %{accepted: true}} -> %>
+        <.notice icon="hero-check-circle">The relay accepted the input.</.notice>
+      <% {:channel, answer} -> %>
+        <p class="text-xs text-th-muted">
+          Answer, <span class="font-mono">{answer.answer_codec}</span>
+        </p>
+        <pre data-testid="talk-answer" class="flz-code">{answer_text(answer.answer)}</pre>
+    <% end %>
+  </div>
+
+  <form
+    :if={@talk.mode == :channel and @talk.channel}
+    phx-change="talk_change"
+    phx-submit="talk_submit"
+    class="space-y-4"
+  >
+    <.input
+      type="select"
+      name="talk[channel_pick]"
+      label="Channel"
+      value={@talk.channel.channel}
+      options={Enum.map(api_channels(@api), & &1.channel)}
+      data-testid="talk-channel-pick"
+    />
+    <p class="text-xs text-th-muted" data-testid="talk-channel-facts">
+      {@talk.channel[:description] || "No description."} Takes <span class="font-mono">{@talk.channel.codec}</span>{if @talk.channel[
+                                                                                                                         :answer_codec
+                                                                                                                       ],
+                                                                                                                       do:
+                                                                                                                         ", answers #{@talk.channel.answer_codec}.",
+                                                                                                                       else:
+                                                                                                                         "; does not answer."}
     </p>
-    <div data-testid="provider-grid" class="grid grid-cols-2 gap-3">
-      <button
-        :for={provider <- @attach.providers}
-        phx-click="choose_provider"
-        phx-value-provider={provider.id}
-        data-testid={"provider-btn-#{provider.id}"}
-        class="group text-left p-4 bg-surface-input hover:bg-surface-hover border border-brd rounded-xl hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
+    <%= case channel_form(@talk.channel) do %>
+      <% {:fields, fields} -> %>
+        <.input
+          :for={field <- fields}
+          type={field_input(field)}
+          step={(field.type == :integer && "1") || (field.type == :number && "any")}
+          name={"talk[value][#{field.name}]"}
+          label={field.name <> if(field.required, do: " *", else: "")}
+          value={@talk.fields["value"][field.name]}
+          prompt={field_options(field) && ""}
+          options={field_options(field)}
+          data-testid={"talk-field-#{field.name}"}
+        />
+      <% :json -> %>
+        <.input
+          type="textarea"
+          name="talk[json]"
+          label="Value"
+          hint="JSON"
+          value={@talk.fields["json"]}
+          mono
+          data-testid="talk-json"
+        />
+      <% :text -> %>
+        <.input
+          type="textarea"
+          name="talk[json]"
+          label="Value"
+          hint={if @talk.channel.codec == "text", do: "text", else: "base64"}
+          value={@talk.fields["json"]}
+          mono
+          data-testid="talk-json"
+        />
+    <% end %>
+    <.input
+      type="number"
+      name="talk[deadline_ms]"
+      label="Deadline (ms)"
+      value={@talk.fields["deadline_ms"]}
+      data-testid="talk-deadline"
+    />
+    <div class="flex justify-end">
+      <.button
+        :if={NodeManager.granted?(@operations, "Relay.call_channel")}
+        type="submit"
+        disabled={@talk.waiting != nil}
+        data-testid="talk-channel-submit"
       >
-        <div class="flex items-center gap-2">
-          <.icon
-            name="hero-cube"
-            class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
-          />
-          <p class="text-sm font-medium text-th-primary">{Format.humanize(provider.id)}</p>
-        </div>
-        <p class="text-xs text-th-tertiary mt-1 font-mono">{provider.id}</p>
-      </button>
+        {if @talk.channel[:answer_codec], do: "Call", else: "Send"}
+      </.button>
     </div>
-  <% else %>
-    <.form_error error={@attach.error} action="the plugin" testid="attach-error" />
+  </form>
 
-    <form phx-submit="attach_plugin" phx-change="attach_change" class="space-y-4">
+  <form
+    :if={@talk.mode == :raw}
+    phx-change="talk_change"
+    phx-submit="talk_submit"
+    class="space-y-4"
+  >
+    <.input
+      type="textarea"
+      name="talk[payload]"
+      label="Payload"
+      value={@talk.fields["payload"]}
+      mono
+      data-testid="talk-payload"
+    />
+    <div class="grid grid-cols-3 gap-3">
       <.input
         type="text"
-        name="plugin[name]"
-        label="Plugin name"
-        value={@attach.form["name"]}
+        name="talk[channel]"
+        label="Input channel"
+        hint="optional"
+        value={@talk.fields["channel"]}
         mono
-        data-testid="input-plugin-name"
+        data-testid="talk-channel"
       />
-
-      <fieldset data-testid="input-hooks">
-        <legend class="flz-label mb-2">Hooks</legend>
-        <p :if={@attach.provider.hooks == []} class="text-xs text-th-muted">
-          The controller did not say which hooks this provider supports.
-        </p>
-        <input type="hidden" name="plugin[hooks][]" value="" />
-        <label
-          :for={hook <- @attach.provider.hooks}
-          class="flex items-center gap-2 text-sm text-th-secondary"
-        >
-          <input
-            type="checkbox"
-            name="plugin[hooks][]"
-            value={hook}
-            checked={to_string(hook) in List.wrap(@attach.form["hooks"])}
-            data-testid={"input-hook-#{hook}"}
-          />
-          <span class="font-mono">{hook}</span>
-        </label>
-      </fieldset>
-
-      <%!-- The provider's own help, when it answers any; the options field
-            renders without it rather than the form failing. --%>
-      <details :if={@attach.provider.help} data-testid="provider-help" open>
-        <summary class="text-xs text-accent-text cursor-pointer hover:text-accent">
-          {Format.humanize(@attach.provider.id)} options
-        </summary>
-        <pre class="flz-code mt-2 max-h-64">{@attach.provider.help}</pre>
-      </details>
-
       <.input
-        type="textarea"
-        name="plugin[opts]"
-        label="Options"
-        hint="JSON object, optional"
-        value={@attach.form["opts"]}
-        placeholder="{}"
+        type="text"
+        name="talk[key]"
+        label="Partition key"
+        hint="optional"
+        value={@talk.fields["key"]}
         mono
-        data-testid="input-plugin-opts"
+        data-testid="talk-key"
       />
-
-      <div class="flex justify-between pt-2">
-        <.button variant="ghost" phx-click="close_attach" data-testid="attach-cancel-btn">
-          Cancel
-        </.button>
-        <.button type="submit" data-testid="attach-submit-btn">Attach</.button>
-      </div>
-    </form>
-  <% end %>
+      <.input
+        type="text"
+        name="talk[msg_id]"
+        label="Message id"
+        hint="optional, send only"
+        value={@talk.fields["msg_id"]}
+        mono
+        data-testid="talk-msg-id"
+      />
+    </div>
+    <.input
+      type="number"
+      name="talk[deadline_ms]"
+      label="Deadline (ms)"
+      hint="for a call"
+      value={@talk.fields["deadline_ms"]}
+      data-testid="talk-deadline"
+    />
+    <div class="flex justify-end gap-3">
+      <.button
+        :if={NodeManager.granted?(@operations, "Relay.send")}
+        type="submit"
+        name="talk[action]"
+        value="send"
+        variant="secondary"
+        disabled={@talk.waiting != nil}
+        data-testid="talk-send-btn"
+      >
+        Send
+      </.button>
+      <.button
+        :if={NodeManager.granted?(@operations, "Relay.call")}
+        type="submit"
+        name="talk[action]"
+        value="call"
+        disabled={@talk.waiting != nil}
+        data-testid="talk-call-btn"
+      >
+        Call
+      </.button>
+    </div>
+  </form>
 </.dialog>
 
 <.dialog :if={@rewind_target} testid="rewind-modal" size="confirm">

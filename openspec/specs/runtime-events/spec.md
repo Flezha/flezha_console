@@ -172,3 +172,40 @@ The UI SHALL hand the controller only data — call arguments and its caller con
 - **THEN** every tail delivers its signals to the UI
 - **AND** no `:undef` or `:badfun` is raised on the controller
 
+### Requirement: Relay lifecycle signals reach the relays index
+
+The console SHALL receive the `relay_started`, `relay_stopped` and `relay_exited` signals of the `:flezha_relay` observability source through a supervised `Flezha.Service.Observability.tail/2` feed of the same kind that carries runner session signals, with no second subscription mechanism, broadcast on a topic of its own so that only the screens handling them receive them. The relays index, platform-wide and namespace-scoped, SHALL show the most recent fifty such signals newest first, each with its time, namespace, relay and what happened (started with its factory, stopped with its reason, exited with its runner and reason), and SHALL reload its rows when a signal arrives. Signals SHALL be narrowed to the namespaces the bound token reaches before they are shown.
+
+#### Scenario: A relay starts
+
+- **WHEN** a relay is started while an operator has the relays index open
+- **THEN** a started entry with the relay and its factory appears at the top of the feed
+- **AND** the relay's row appears without waiting for the refresh tick
+
+#### Scenario: A relay stops
+
+- **WHEN** a relay is stopped or completes
+- **THEN** a stopped entry with its reason appears
+- **AND** the relay's row leaves the live listing
+
+#### Scenario: A relay's runner exits
+
+- **WHEN** a relay's runner exits and the relay is rebound
+- **THEN** an exited entry names the runner and the reason
+
+#### Scenario: A signal from an unreachable namespace
+
+- **WHEN** a signal names a namespace the bound token does not reach
+- **THEN** it is not shown
+
+#### Scenario: The feed is bounded
+
+- **WHEN** more than fifty signals have arrived
+- **THEN** only the most recent fifty are kept
+
+#### Scenario: The source cannot be tailed
+
+- **WHEN** the controller refuses or cannot tail `:flezha_relay`
+- **THEN** the feed states why with the error's code and hint
+- **AND** the index keeps refreshing on its timer
+

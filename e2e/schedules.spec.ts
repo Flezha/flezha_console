@@ -1,4 +1,12 @@
-import { test, expect, type Page } from './fixtures';
+import {
+  test,
+  expect,
+  fillScheduleForm,
+  openScheduleForm,
+  removeSchedule,
+  uniqueScheduleName,
+  type Page,
+} from './fixtures';
 
 /**
  * The schedules screen.
@@ -6,51 +14,6 @@ import { test, expect, type Page } from './fixtures';
  * Each test removes the schedule it created, so a failure does not leave a
  * cron job firing against the dev controller.
  */
-
-/**
- * Unique per run, so a leftover from a failed run cannot collide.
- *
- * Kept short deliberately: the controller allows 11 bytes, because the cron
- * instance id it composes (`<name>@<slot-iso>`) must fit the 32-byte relay
- * id limit.
- */
-function uniqueScheduleName(prefix = 'pw'): string {
-  return `${prefix}${Date.now().toString(36).slice(-6)}`;
-}
-
-async function openForm(page: Page) {
-  await page.getByTestId('schedule-new-btn').click();
-  await expect(page.getByTestId('schedule-form-modal')).toBeVisible();
-}
-
-/**
- * Fills the form, choosing the factory rather than typing it.
- *
- * The target's namespace and factory are now offered from what the controller
- * reports, so a spec that typed an id would be exercising a path only an
- * unreachable controller reaches.
- */
-async function fillForm(page: Page, name: string, cron: string, factory: string) {
-  await page.getByTestId('schedule-input-name').fill(name);
-  await page.getByTestId('schedule-input-cron').fill(cron);
-  await page.getByTestId('schedule-input-namespace').selectOption('default');
-  await page.getByTestId('schedule-input-factory').selectOption(factory);
-}
-
-/**
- * Cleanup, so a failure does not leave a cron job armed.
- *
- * Tolerating an already-removed schedule is what makes this safe to call from
- * `finally` after the test removed it itself; it never skips an assertion.
- */
-async function removeSchedule(page: Page, name: string) {
-  const row = page.getByTestId(`schedule-row-${name}`);
-  if ((await row.count()) === 0) return;
-
-  await page.getByTestId(`schedule-remove-${name}`).click();
-  await page.getByTestId('schedule-remove-confirm').click();
-  await expect(row).toHaveCount(0);
-}
 
 /** The values a select offers, without its placeholder option. */
 async function optionValues(page: Page, testid: string): Promise<string[]> {
@@ -71,8 +34,8 @@ test.describe('Schedules', () => {
     const name = uniqueScheduleName();
 
     try {
-      await openForm(page);
-      await fillForm(page, name, '*/5 * * * *', 'echo_steps');
+      await openScheduleForm(page);
+      await fillScheduleForm(page, name, '*/5 * * * *', 'echo_steps');
       await page.getByTestId('schedule-form-submit').click();
 
       await expect(page.getByTestId('schedule-form-modal')).toHaveCount(0);
@@ -94,8 +57,8 @@ test.describe('Schedules', () => {
   test('rejects an invalid cron expression without persisting anything', async ({ page }) => {
     const name = uniqueScheduleName('pwc');
 
-    await openForm(page);
-    await fillForm(page, name, 'not a cron expression', 'echo_steps');
+    await openScheduleForm(page);
+    await fillScheduleForm(page, name, 'not a cron expression', 'echo_steps');
     await page.getByTestId('schedule-form-submit').click();
 
     await expect(page.getByTestId('schedule-form-error')).toContainText('cron');
@@ -109,8 +72,8 @@ test.describe('Schedules', () => {
   test('rejects an unknown timezone without persisting anything', async ({ page }) => {
     const name = uniqueScheduleName('pwt');
 
-    await openForm(page);
-    await fillForm(page, name, '*/5 * * * *', 'echo_steps');
+    await openScheduleForm(page);
+    await fillScheduleForm(page, name, '*/5 * * * *', 'echo_steps');
     await page.getByTestId('schedule-input-timezone').fill('Mars/Olympus_Mons');
     await page.getByTestId('schedule-form-submit').click();
 
@@ -121,7 +84,7 @@ test.describe('Schedules', () => {
   });
 
   test('requires the fields the controller requires', async ({ page }) => {
-    await openForm(page);
+    await openScheduleForm(page);
     await page.getByTestId('schedule-input-name').fill('');
     await page.getByTestId('schedule-form-submit').click();
 
@@ -130,7 +93,7 @@ test.describe('Schedules', () => {
   });
 
   test('offers the namespaces and factories the controller reports', async ({ page }) => {
-    await openForm(page);
+    await openScheduleForm(page);
 
     const namespaces = await optionValues(page, 'schedule-input-namespace');
     expect(namespaces).toContain('default');
@@ -151,8 +114,8 @@ test.describe('Schedules', () => {
     const name = uniqueScheduleName('pwr');
 
     try {
-      await openForm(page);
-      await fillForm(page, name, '*/5 * * * *', 'echo_steps');
+      await openScheduleForm(page);
+      await fillScheduleForm(page, name, '*/5 * * * *', 'echo_steps');
       await page.getByTestId('schedule-form-submit').click();
       await expect(page.getByTestId(`schedule-row-${name}`)).toBeVisible();
 

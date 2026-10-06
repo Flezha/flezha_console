@@ -365,4 +365,18 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       assert html =~ ~s(data-testid="node-rollup-default")
     end
   end
+
+  describe "runner pids" do
+    test "a runner's OS pid is on its row, a placeholder when unknown", %{conn: conn, node: node} do
+      one_namespace(node,
+        runners: [%{id: "runner-a", pid: 4242}, %{id: "runner-b", pid: nil}],
+        runners_for_factory: {:ok, []}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert html =~ ~r/data-testid="os-pid-runner-a"[^>]*>\s*pid 4242/
+      assert html =~ ~r/data-testid="os-pid-runner-b"[^>]*>\s*pid —/
+    end
+  end
 end

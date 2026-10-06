@@ -249,7 +249,10 @@ defmodule FlezhaUiWeb.CoreComponents do
   Renders a banner for a normalised `FlezhaUi.Service.NodeManager` error.
 
   Renders nothing when `error` is `nil`, so a screen can pass its last call
-  result unconditionally.
+  result unconditionally. A controller error links to its code's family in
+  core's errors reference; a condition only this node sees has no code there
+  and no link. A diagnosis finding has the same shape and renders here too,
+  as `:info` when it is only a note.
 
   ## Examples
 
@@ -257,6 +260,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   """
   attr :error, :any, default: nil, doc: "a normalised NodeManager error, or nil"
   attr :class, :string, default: nil
+  attr :kind, :atom, default: :error, values: [:info, :error]
 
   attr :action, :string,
     default: nil,
@@ -269,11 +273,21 @@ defmodule FlezhaUiWeb.CoreComponents do
       |> assign(:settings_link?, settings_link?(assigns.error))
 
     ~H"""
-    <.notice :if={@error} kind={:error} testid="runtime-error" class={@class}>
+    <.notice :if={@error} kind={@kind} testid="runtime-error" class={@class}>
       {error_message(@error, @action)}
       <span :if={@error.hint} class="block text-xs" data-testid="runtime-error-hint">
         {@error.hint}
       </span>
+      <a
+        :if={reference_url(@error.code)}
+        href={reference_url(@error.code)}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-testid="runtime-error-reference"
+        class="block text-xs underline hover:no-underline"
+      >
+        What {@error.code} means
+      </a>
       <.link
         :if={@settings_link?}
         navigate={~p"/users/settings"}
@@ -284,6 +298,17 @@ defmodule FlezhaUiWeb.CoreComponents do
     </.notice>
     """
   end
+
+  # Core's errors reference has one section per family — the code before its
+  # first dot — and no anchor per code, so the family is the deepest link.
+  defp reference_url("ui." <> _), do: nil
+
+  defp reference_url(code) when is_binary(code) do
+    [family | _] = String.split(code, ".", parts: 2)
+    "#{Application.fetch_env!(:flezha_ui, :core_docs_url)}/errors.html##{family}"
+  end
+
+  defp reference_url(_code), do: nil
 
   @doc """
   A form's error: its own validation message as written, or what a call

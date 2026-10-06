@@ -80,21 +80,67 @@ The relay state screen SHALL list the cells with persisted state belonging to th
 
 ### Requirement: Retention facts
 
-The state screen SHALL show the retention window that applies to the relay's class, from `Flezha.Service.Steps.completed_retention_hours/3`. The UI SHALL NOT delete or rotate state.
+The state screen SHALL show the retention facts that apply to the relay's class, each labelled for what it keeps: how long the cells' write-ahead history is retained, from the `history_retention_hours` that `Flezha.Service.Steps.cells/2` answers, and, for a steps relay, how long a finished instance is retained, from `Flezha.Service.Steps.completed_retention_hours/3`. An operator SHALL be able to set the history retention through `Flezha.Service.Steps.set_retention/3`; the form SHALL state that the value lasts until the controller next boots unless its runtime configuration says the same.
 
 #### Scenario: Retention is shown
 
 - **WHEN** an operator opens the state screen
-- **THEN** the retention window that applies to the class is stated in hours
+- **THEN** the history retention that applies to the class is stated in hours
+- **AND** for a steps relay the finished-instance retention is stated beside it under its own label
 
 #### Scenario: Retention cannot be read
 
 - **WHEN** the controller refuses or cannot answer the retention read
 - **THEN** the retention is shown as unavailable and the cell listing still renders
 
-#### Scenario: Destructive state verbs are absent
+#### Scenario: An older controller
 
-- **WHEN** the state screen is rendered
-- **THEN** no control deletes or rotates state
-- **AND** the screen names `flz state` as where those verbs live
+- **WHEN** the `cells/2` answer carries no `history_retention_hours`
+- **THEN** the history retention is stated as unknown rather than omitted
+
+#### Scenario: History retention is set
+
+- **WHEN** an operator submits a new history retention in whole hours
+- **THEN** `set_retention/3` is called with the relay class and those hours
+- **AND** the screen shows the value the controller answered
+- **AND** it states that the value lasts until the controller next boots
+
+#### Scenario: An invalid retention
+
+- **WHEN** an operator submits a negative or non-numeric retention
+- **THEN** the form names the field
+- **AND** no call is made
+
+### Requirement: A cell's persisted state is inspected and maintained from the state screen
+
+Selecting a cell on the state screen SHALL read its outbox through `Flezha.Service.Steps.outbox/2` and show its durable sequence, flush cursor, epoch, pending and held entries, and the relay's input watermark. An operator SHALL be able to rotate a cell's persisted state through `Flezha.Service.Steps.rotate/2` and delete it through `Flezha.Service.Steps.delete/2`, each after an explicit confirmation that names the cell. The delete confirmation SHALL state that the cell's write-ahead log, snapshots and outbox deduplication are removed and cannot be recovered.
+
+#### Scenario: A cell's outbox
+
+- **WHEN** an operator selects a cell
+- **THEN** its outbox facts are shown
+- **AND** pending and held entries are shown as unknown when the controller answers that the cell's writer is not running
+
+#### Scenario: Rotating a cell
+
+- **WHEN** an operator confirms rotating a cell
+- **THEN** `rotate/2` is called with the cell path
+- **AND** the screen states that a compaction was requested
+
+#### Scenario: Deleting a cell
+
+- **WHEN** an operator confirms deleting a cell
+- **THEN** `delete/2` is called with the cell path
+- **AND** the cell's row is refreshed from the controller
+
+#### Scenario: A destructive action is not confirmed
+
+- **WHEN** an operator opens the rotate or delete confirmation and dismisses it
+- **THEN** no call is made
+
+#### Scenario: The role cannot change state
+
+- **WHEN** the bound role is not granted rotate, delete or retention
+- **THEN** the controls it is not granted are not rendered
+- **AND** the read-only facts are still shown
 

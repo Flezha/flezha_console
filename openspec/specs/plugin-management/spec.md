@@ -134,3 +134,114 @@ The UI SHALL attach a plugin to a relay by calling `Flezha.Service.PluginManager
 - **WHEN** `Service.PluginManager.enable/3` answers an error, for example `plugin.id_taken`, `plugin.unknown_options`, or `plugin.init_after_start`
 - **THEN** the error's message is displayed on the form and no plugin is listed
 
+### Requirement: A refused package explains itself
+
+Each row of the installed-package catalog SHALL show the providers its package declares. A refused package SHALL show the error it was refused with, its code, message and hint, through the console's error component. A pending package SHALL show the version loaded before it when there is one. The provider listing SHALL state how many packages the controller refused at boot, from the `refused` count `Flezha.Service.Fleet.providers/1` answers, and SHALL NOT offer a refused package's providers for enabling.
+
+#### Scenario: A package was refused
+
+- **WHEN** a package was refused at boot
+- **THEN** its row shows the error's code, message and hint
+- **AND** its providers are not offered on the enable form
+
+#### Scenario: A loaded package
+
+- **WHEN** a package loaded at boot
+- **THEN** its row lists the providers it declares
+
+#### Scenario: A package replaced since boot
+
+- **WHEN** the plugin root holds a newer package than the one loaded at boot
+- **THEN** its pending row shows the version still loaded
+
+#### Scenario: The refused count
+
+- **WHEN** the controller refused one or more packages at boot
+- **THEN** the provider listing states how many were refused and points at the catalog
+
+### Requirement: Enabling states where a plugin will not run
+
+After a plugin is enabled, the UI SHALL show whether it was enabled or was already enabled, and SHALL name each controller in the `lacking` list `Flezha.Service.PluginManager.enable/3` answers as a controller that holds the namespace but lacks the provider, where the plugin does not run.
+
+#### Scenario: Every controller has the provider
+
+- **WHEN** an enable answers an empty `lacking` list
+- **THEN** the UI reports the plugin enabled with no warning
+
+#### Scenario: Some controllers lack the provider
+
+- **WHEN** an enable answers a non-empty `lacking` list
+- **THEN** the UI reports the plugin enabled
+- **AND** a warning names each lacking controller and says the plugin does not run there
+
+#### Scenario: The plugin was already enabled
+
+- **WHEN** an enable answers `already_enabled`
+- **THEN** the UI says the plugin was already enabled rather than reporting a new one
+
+### Requirement: Bindings and options are changed apart from enabling
+
+Each enabled plugin SHALL offer a control to change its options and, for a controller plugin, its hooks (`Flezha.Service.PluginManager.update/3`). Each enabled relay plugin SHALL additionally offer controls to bind it to a further relay with hooks and a channel (`bind/3`) and to unbind it from a relay while it stays enabled (`unbind/3`). These controls SHALL reuse the enable form's fields and provider help. Unbinding SHALL require an explicit confirmation. An update SHALL report whether it was applied live, by restarting the plugin's copies, or changed nothing, and the relays bound to it.
+
+#### Scenario: Binding to another relay
+
+- **WHEN** an operator binds an enabled plugin to a relay
+- **THEN** `bind/3` is called with the plugin's name and the relay, hooks and channel chosen
+- **AND** the relay appears among the plugin's bound relays on the next read
+
+#### Scenario: The relay is already bound
+
+- **WHEN** a bind answers `already_bound`
+- **THEN** the UI says the relay already holds the binding
+
+#### Scenario: Unbinding a relay
+
+- **WHEN** an operator confirms unbinding a relay from a plugin
+- **THEN** `unbind/3` is called
+- **AND** the plugin stays listed as enabled without that relay
+
+#### Scenario: Updating options
+
+- **WHEN** an operator changes a plugin's options and submits
+- **THEN** `update/3` is called with the new options
+- **AND** the UI reports whether they were applied live, by restart, or changed nothing
+
+### Requirement: Controller plugins are enabled with controller hooks
+
+When the selected provider's type, from `Flezha.Service.Fleet.provider/2`, is `controller`, the enable form SHALL NOT ask for a relay and SHALL offer the controller hooks the provider supports — of `on_relay_started`, `on_relay_stopped`, `on_relay_failed`, `on_dead_letter` and `on_plugin_unhealthy` — and whether the plugin runs as one `single` copy for the whole cluster. A relay plugin's form SHALL offer only relay hooks.
+
+#### Scenario: Enabling a controller plugin
+
+- **WHEN** an operator selects a controller provider such as `hook_webhook`, picks hooks and submits
+- **THEN** `enable/3` is called with those hooks and no relay
+- **AND** the plugin is listed with its hooks and no bound relay
+
+#### Scenario: A relay provider
+
+- **WHEN** an operator selects a relay provider
+- **THEN** the form asks for a relay and offers relay hooks only
+
+#### Scenario: A single controller plugin
+
+- **WHEN** an operator enables a controller plugin with `single` chosen
+- **THEN** `enable/3` is called with `single: true`
+
+### Requirement: Plugin rows show where a plugin runs
+
+Each enabled plugin row SHALL show, from `Flezha.Service.PluginManager.enabled/2`, whether it is `single`, the controllers it runs on, and, for a controller plugin, its hooks and the controllers whose copy lags behind the events sent to it.
+
+#### Scenario: A plugin running on several controllers
+
+- **WHEN** a plugin runs on more than one controller
+- **THEN** each controller is listed on its row
+
+#### Scenario: A lagging controller plugin
+
+- **WHEN** a controller plugin's copy lags on a controller
+- **THEN** that controller is named as lagging on the plugin's row
+
+#### Scenario: Nothing lags
+
+- **WHEN** the `lagging` list is empty
+- **THEN** the row shows no lag warning
+

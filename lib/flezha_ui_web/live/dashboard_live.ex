@@ -71,7 +71,7 @@ defmodule FlezhaUiWeb.DashboardLive do
             ns
             |> NodeManager.runners(token)
             |> NodeManager.ok_or([])
-            |> Enum.map(&%{id: NodeManager.identifier_id(&1), namespace: ns})
+            |> Enum.map(&%{id: NodeManager.identifier_id(&1), pid: &1[:pid], namespace: ns})
           end)
 
         plugin_count =
@@ -79,7 +79,12 @@ defmodule FlezhaUiWeb.DashboardLive do
           |> Enum.flat_map(&(&1 |> NodeManager.plugins(token) |> NodeManager.ok_or([])))
           |> length()
 
-        provider_count = token |> NodeManager.providers() |> NodeManager.ok_or([]) |> length()
+        provider_count =
+          token
+          |> NodeManager.providers()
+          |> NodeManager.ok_or(%{providers: []})
+          |> Map.get(:providers)
+          |> length()
 
         {catalog, relays, runners, plugin_count, provider_count, error}
       else

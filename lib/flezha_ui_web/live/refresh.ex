@@ -77,15 +77,21 @@ defmodule FlezhaUiWeb.Live.Refresh do
   def concerns?(_socket, _data), do: true
 
   @doc """
-  Puts the caller's flezha token on the socket, once.
+  Puts the caller's flezha token on the socket, once, with the operations its
+  role is granted (`NodeManager.operations/1`), which decide the controls a
+  screen renders through `NodeManager.granted?/2`.
 
-  Every authorized controller call needs it, and resolving it per call would
-  re-read the user's stored credential on every panel of every tick. Held as an
-  assign so a screen threads a value it already has.
+  Every authorized controller call needs the token, and resolving it per call
+  would re-read the user's stored credential on every panel of every tick. Held
+  as an assign so a screen threads a value it already has.
   """
   def assign_token(socket) do
-    Phoenix.Component.assign_new(socket, :flezha_token, fn ->
+    socket
+    |> Phoenix.Component.assign_new(:flezha_token, fn ->
       FlezhaUi.Accounts.Scope.flezha_token(socket.assigns[:current_scope])
+    end)
+    |> Phoenix.Component.assign_new(:operations, fn %{flezha_token: token} ->
+      FlezhaUi.Service.NodeManager.operations(token)
     end)
   end
 

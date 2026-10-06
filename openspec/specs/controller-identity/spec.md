@@ -160,3 +160,113 @@ The namespace switcher SHALL offer only namespaces the bound token can reach. A 
 - **WHEN** the bound token's namespace is `_system`
 - **THEN** every namespace is offered
 
+### Requirement: Tokens are administered from the namespace screen
+
+The namespace screen SHALL list the tokens of that namespace from `Flezha.Service.Namespace.tokens/1`, each with its id, principal, role, label and status (active, revoked or expired), and never the token itself. An operator SHALL be able to issue a token for a principal and role in that namespace through `Flezha.Service.Namespace.issue_token/5`, with an optional label and a lifetime in seconds or `never`, and to revoke a listed token through `Flezha.Service.Namespace.revoke_token/2` after an explicit confirmation.
+
+#### Scenario: Tokens are listed
+
+- **WHEN** an operator opens a namespace screen
+- **THEN** each token of that namespace is listed with its id, principal, role, label and status
+- **AND** no token value appears in the rendered page
+
+#### Scenario: Issuing a token
+
+- **WHEN** an operator issues a token for a principal and role
+- **THEN** `issue_token/5` is called with the principal, the screen's namespace, the role and the lifetime and label given
+- **AND** the new token is listed on the next read
+
+#### Scenario: An invalid lifetime
+
+- **WHEN** an operator enters a lifetime that is neither a positive number of seconds nor `never`
+- **THEN** the form names the lifetime field
+- **AND** no call is made
+
+#### Scenario: Revoking a token
+
+- **WHEN** an operator confirms revoking a listed token
+- **THEN** `revoke_token/2` is called with its id
+- **AND** the token is listed as revoked
+
+#### Scenario: The revocation is not confirmed
+
+- **WHEN** an operator opens the revoke confirmation and dismisses it
+- **THEN** no call is made
+
+### Requirement: An issued token is shown once and kept nowhere
+
+The token value `issue_token/5` answers SHALL be shown once, in the dialog that issued it, with a control to copy it and a statement that it will not be shown again. It SHALL be dropped from the screen's state when the dialog closes and SHALL NOT be written to a flash message, a log line, a URL, or any store.
+
+#### Scenario: The token is shown after issue
+
+- **WHEN** a token is issued
+- **THEN** its value is shown in the issue dialog with a copy control and a show-once notice
+
+#### Scenario: The dialog is closed
+
+- **WHEN** the operator closes the issue dialog
+- **THEN** the token value is no longer present in the rendered page or the LiveView's assigns
+
+#### Scenario: The token does not leak into logs
+
+- **WHEN** a token is issued
+- **THEN** the console's log output for that request does not contain the token value
+
+### Requirement: The bootstrap is claimed from settings without showing the token
+
+While the enforcement posture is `:bootstrap_pending`, the settings screen SHALL offer to claim the bootstrap with the one-time bootstrap token through `Flezha.Service.Namespace.bootstrap/2`. When the claim answers a minted token, it SHALL be stored as the signed-in user's own flezha token through the same encrypted path a pasted token uses, and SHALL NOT be rendered. The claim SHALL NOT be offered under any other posture, so the console never performs a recovery claim that would invalidate an existing admin.
+
+#### Scenario: Claiming a pending bootstrap
+
+- **WHEN** the posture is `:bootstrap_pending` and an operator submits the bootstrap token
+- **THEN** `bootstrap/2` is called with it
+- **AND** the settings screen shows the principal now bound as `admin@_system`
+
+#### Scenario: The minted token is stored, not shown
+
+- **WHEN** the claim answers a minted token
+- **THEN** it becomes the signed-in user's stored token
+- **AND** its value does not appear in the rendered page
+
+#### Scenario: The posture is not pending
+
+- **WHEN** the posture is `:enforced` or `:open`
+- **THEN** no bootstrap claim control is rendered
+
+#### Scenario: A wrong bootstrap token
+
+- **WHEN** the controller refuses the presented token
+- **THEN** the refusal is shown with its code and hint
+- **AND** no token is stored
+
+### Requirement: Controls follow the operations the caller's role grants
+
+The console SHALL read, once per verified token and cached with that verification, the `operations` list that `Flezha.Service.Namespace.whoami/1` answers: the names of the published operations the caller's role grants. A control that performs an operation SHALL be rendered only when that operation's name is in the list. When the answer carries no `operations` list, or the enforcement posture is `:open`, every control SHALL be rendered. The controller's own judgement of each call, and the console's display of a refusal, SHALL apply unchanged.
+
+#### Scenario: A viewer token
+
+- **WHEN** the bound role is `viewer`
+- **THEN** no start, stop, send, call, replay, bind, rotate, delete, issue or revoke control is rendered
+- **AND** the read-only panels still render
+
+#### Scenario: An ops token
+
+- **WHEN** the bound role is `ops`
+- **THEN** state rotation and replay controls are rendered
+- **AND** state delete, retention, token and role-binding controls are not
+
+#### Scenario: An older controller
+
+- **WHEN** `whoami/1` answers without an `operations` list
+- **THEN** every control is rendered as before
+
+#### Scenario: One read per token
+
+- **WHEN** a screen refreshes several times with the same token
+- **THEN** `whoami/1` is called at most once for that token until its verification expires or is evicted
+
+#### Scenario: A rendered control is still refused
+
+- **WHEN** a rendered control's call is refused by the controller
+- **THEN** the refusal is shown as before
+

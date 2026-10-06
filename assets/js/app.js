@@ -88,6 +88,12 @@ Hooks.ScrollBottom = {
   scrollToBottom() { this.el.scrollTop = this.el.scrollHeight }
 }
 
+// A control dispatches `flz:copy` at the element whose text it copies, so a
+// value shown once can be taken without selecting it by hand.
+window.addEventListener("flz:copy", event => {
+  navigator.clipboard?.writeText(event.target.textContent.trim()).catch(() => {})
+})
+
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,

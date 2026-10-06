@@ -8,14 +8,50 @@
 
   <.runtime_error error={@load_error} action="the state listing" />
 
-  <div class="flex items-center gap-4 text-xs text-th-muted">
-    <span data-testid="state-retention">
-      Retention: {if @retention_hours, do: "#{@retention_hours} hours", else: "not reported"}
-    </span>
-    <span data-testid="state-verbs">
-      Deleting and rotating state are <code class="font-mono">flz state</code> verbs — this screen
-      only reads.
-    </span>
+  <div class="flz-panel p-5 space-y-3" data-testid="state-retention">
+    <dl class="flex flex-wrap gap-6 text-sm">
+      <div>
+        <dt class="flz-label">History retention</dt>
+        <dd data-testid="history-retention" class="flz-num text-th-primary mt-1">
+          <%= case @history_retention do %>
+            <% nil -> %>
+              unavailable
+            <% :unknown -> %>
+              unknown — this controller does not report it
+            <% hours -> %>
+              {hours} hours
+          <% end %>
+        </dd>
+      </div>
+      <div :if={@run != :flow}>
+        <dt class="flz-label">Finished-instance retention</dt>
+        <dd data-testid="finished-retention" class="flz-num text-th-primary mt-1">
+          {if @retention_hours, do: "#{@retention_hours} hours", else: "unavailable"}
+        </dd>
+      </div>
+    </dl>
+    <form
+      :if={NodeManager.granted?(@operations, "Steps.set_retention")}
+      phx-change="retention_change"
+      phx-submit="set_retention"
+      data-testid="retention-form"
+      class="flex flex-wrap items-end gap-3"
+    >
+      <.input
+        type="number"
+        name="retention[hours]"
+        label="Set history retention (hours)"
+        value={@retention_form["hours"]}
+        compact
+        data-testid="retention-hours"
+      />
+      <.button type="submit" size="sm" data-testid="retention-submit">Set</.button>
+      <p class="text-xs text-th-muted basis-full">
+        Kept in the controller's memory: it lasts until the controller next boots unless its
+        runtime configuration says the same.
+      </p>
+    </form>
+    <.form_error error={@retention_error} action="the retention change" testid="retention-error" />
   </div>
 
   <%= if @cells == [] do %>
@@ -74,7 +110,7 @@
             <td class="flz-num text-xs">
               {cell.counters[:dedup_drops_total]}
             </td>
-            <td class="text-right">
+            <td class="text-right whitespace-nowrap space-x-3">
               <button
                 phx-click="select_cell"
                 phx-value-cell={cell.key}
@@ -82,6 +118,26 @@
                 class="text-sm text-accent-text hover:text-accent transition-colors"
               >
                 Inspect
+              </button>
+              <button
+                :if={NodeManager.granted?(@operations, "Steps.rotate")}
+                phx-click="confirm"
+                phx-value-action="rotate"
+                phx-value-cell={cell.key}
+                data-testid={"rotate-#{cell.key}"}
+                class="text-sm text-accent-text hover:text-accent transition-colors"
+              >
+                Rotate
+              </button>
+              <button
+                :if={NodeManager.granted?(@operations, "Steps.delete")}
+                phx-click="confirm"
+                phx-value-action="delete"
+                phx-value-cell={cell.key}
+                data-testid={"delete-#{cell.key}"}
+                class="text-sm text-danger-text hover:text-danger transition-colors"
+              >
+                Delete
               </button>
             </td>
           </tr>
@@ -159,13 +215,31 @@
           />
         </div>
       </form>
-      <button
-        phx-click="travel"
-        data-testid="travel-submit"
-        class="flz-button flz-button--sm"
-      >
-        Read
-      </button>
+      <div class="flex gap-3">
+        <button
+          phx-click="travel"
+          data-testid="travel-submit"
+          class="flz-button flz-button--sm"
+        >
+          Read
+        </button>
+        <%!-- Core refuses a steps relay's cell, so replay is a flow relay's alone. --%>
+        <button
+          :if={@run == :flow and NodeManager.granted?(@operations, "Relay.replay")}
+          phx-click="confirm"
+          phx-value-action="replay"
+          phx-value-cell={@selected}
+          data-testid="replay-open"
+          class="flz-button flz-button--sm flz-button--secondary"
+        >
+          Replay from here
+        </button>
+      </div>
+
+      <p :if={@replayed} data-testid="replay-result" class="text-sm text-th-secondary mt-4">
+        Replaying <span class="font-mono">{@replayed.cell}</span>
+        from sequence <span class="font-mono">{@replayed.from_seq}</span>.
+      </p>
 
       <p
         :if={@travel_target && @travel_result}
@@ -191,6 +265,57 @@
       <.notice :if={@travel_error} kind={:error} testid="travel-error" class="mt-4">
         {travel_reason(@travel_error)}
       </.notice>
+
+      <div data-testid="outbox" class="mt-6">
+        <h3 class="flz-label mb-2">Outbox</h3>
+        <.runtime_error error={@outbox_error} action="the outbox" />
+        <dl :if={@outbox} class="grid grid-cols-3 gap-4">
+          <.stat label="Durable seq" testid="outbox-durable-seq">
+            {@outbox[:outbox_durable_seq] || "unknown — writer not running"}
+          </.stat>
+          <.stat label="Flush cursor">{@outbox[:outbox_flushed_seq]}</.stat>
+          <.stat label="Persisted WAL seq" testid="outbox-persisted-seq">
+            {@outbox[:last_persisted_seq]}
+          </.stat>
+          <.stat label="Epoch">{@outbox[:epoch]}</.stat>
+          <.stat label="Pending" testid="outbox-pending">
+            {if is_nil(@outbox[:pending]),
+              do: "unknown — writer not running",
+              else: @outbox.pending}
+          </.stat>
+          <.stat label="Held" testid="outbox-held">
+            {if is_nil(@outbox[:held]), do: "unknown — writer not running", else: @outbox.held}
+          </.stat>
+          <.stat label="Input watermark">{@outbox[:input_watermark] || "—"}</.stat>
+        </dl>
+      </div>
     </div>
   <% end %>
 </div>
+
+<.confirm_dialog
+  :if={@confirm}
+  title={confirm_title(@confirm.action)}
+  confirm_label={confirm_label(@confirm.action)}
+  on_confirm={@confirm.action}
+  on_cancel="cancel_confirm"
+  variant={if @confirm.action == "rotate", do: "accent", else: "danger"}
+  values={%{"cell" => @confirm.cell}}
+  testid="state-confirm-modal"
+  cancel_testid="state-confirm-cancel"
+  confirm_testid="state-confirm-btn"
+>
+  <%= case @confirm.action do %>
+    <% "rotate" -> %>
+      Compact the persisted state of <.mono>{@confirm.cell}</.mono>? Its runner writes a fresh
+      snapshot; nothing is lost.
+    <% "delete" -> %>
+      Delete the persisted state of <.mono>{@confirm.cell}</.mono>? Its write-ahead log,
+      snapshots and outbox deduplication are removed and cannot be recovered.
+    <% "replay" -> %>
+      Replay
+      <.mono>{@confirm.cell}</.mono>
+      from <.mono>{@travel_form["value"]}</.mono>? The cell is rewound to that point and its
+      retained inputs are run again through the current code.
+  <% end %>
+</.confirm_dialog>

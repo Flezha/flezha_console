@@ -1,5 +1,4 @@
-import { test, expect, type Page } from './fixtures';
-import { submitLogin } from './global-setup';
+import { test, expect, clearStoredToken, openSettings } from './fixtures';
 
 /**
  * The controller's authorization posture, and the token this UI presents.
@@ -41,31 +40,9 @@ test.describe('Authorization posture', () => {
 test.describe('The flezha token in settings', () => {
   const BAD_TOKEN = 'flz_e2e_deliberately_invalid';
 
-  /**
-   * Settings sits behind sudo mode, whose window is shorter than a full suite
-   * run, so this re-authenticates rather than trusting the shared session. The
-   * email field is readonly on the re-auth form — only the password is asked
-   * for.
-   */
-  async function openSettings(page: Page) {
-    await page.goto('/users/settings');
-
-    if (page.url().includes('/users/log-in')) {
-      await submitLogin(page);
-      await page.waitForURL(/\/users\/settings$/);
-    }
-
-    await expect(page.getByTestId('flezha-token-settings')).toBeVisible();
-  }
-
   test.afterEach(async ({ page }) => {
     // Leave the service token in charge, whatever the test did.
-    await openSettings(page);
-
-    if (await page.locator('#clear_flezha_token').count()) {
-      await page.locator('#clear_flezha_token button').click();
-      await expect(page.getByTestId('flezha-token-binding')).toContainText('using the service token');
-    }
+    await clearStoredToken(page);
   });
 
   test('with no personal token, the service token binds the identity', async ({ page }) => {

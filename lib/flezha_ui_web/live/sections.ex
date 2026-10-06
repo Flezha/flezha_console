@@ -13,6 +13,10 @@ defmodule FlezhaUiWeb.Live.Sections do
         {:ok, socket |> sections_init() |> load()}
       end
 
+  A section whose content is read only when someone looks at it overrides
+  `section_opened/2`, called with the socket and the key each time a section
+  opens — by a click or by the hook restoring it.
+
   The state is held here rather than in the browser because LiveView re-renders
   from the server: an attribute the client flipped would be patched back on the
   next tick, and these screens tick. The viewer's own last choice is restored
@@ -33,8 +37,17 @@ defmodule FlezhaUiWeb.Live.Sections do
 
       @impl Phoenix.LiveView
       def handle_event("section_toggle", %{"key" => key}, socket) do
-        {:noreply, FlezhaUiWeb.Live.Sections.toggle(socket, key)}
+        socket = FlezhaUiWeb.Live.Sections.toggle(socket, key)
+
+        if socket.assigns.sections[key],
+          do: {:noreply, section_opened(socket, key)},
+          else: {:noreply, socket}
       end
+
+      @doc false
+      def section_opened(socket, _key), do: socket
+
+      defoverridable section_opened: 2
     end
   end
 

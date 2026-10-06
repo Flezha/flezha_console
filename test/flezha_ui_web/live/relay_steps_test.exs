@@ -210,6 +210,63 @@ defmodule FlezhaUiWeb.RelayStepsTest do
     end
   end
 
+  describe "the input log's records" do
+    test "are listed on expanding, consumed up to the floor", %{conn: conn, node: node} do
+      steps(node)
+
+      FakeController.set(
+        node,
+        {Steps, :inbox},
+        {:ok,
+         %{
+           instance: "relay_steps",
+           floor: 5,
+           entries: [
+             %{offset: 5, consumed: true, bytes: 12, channel: "prompts"},
+             %{offset: 6, consumed: false, bytes: 2048, channel: nil}
+           ]
+         }}
+      )
+
+      {:ok, view, _html} = live(conn, @url)
+      assert FakeController.calls(node, {Steps, :inbox}) == []
+
+      html = open_section(view, "input-log")
+
+      assert [["relay_steps", _ctx]] = FakeController.calls(node, {Steps, :inbox})
+      assert html =~ ~r/data-testid="inbox-floor".*Floor <span class="font-mono">5</s
+      assert html =~ ~r/data-testid="inbox-entry-5".*consumed.*12 B.*prompts/s
+      assert html =~ ~r/data-testid="inbox-entry-6".*pending.*2.0 KB/s
+    end
+
+    test "are not read on the tick", %{conn: conn, node: node} do
+      steps(node)
+      {:ok, view, _html} = live(conn, @url)
+
+      send(view.pid, :refresh)
+      render(view)
+
+      assert FakeController.calls(node, {Steps, :inbox}) == []
+    end
+
+    test "an unreadable log states why and the screen still renders", %{conn: conn, node: node} do
+      steps(node)
+
+      FakeController.set(
+        node,
+        {Steps, :inbox},
+        FakeController.error("state.inbox_unreadable", "the log is on another node")
+      )
+
+      {:ok, view, _html} = live(conn, @url)
+      html = open_section(view, "input-log")
+
+      assert html =~ ~s(data-testid="inbox-error")
+      assert html =~ "state.inbox_unreadable"
+      assert html =~ ~s(data-testid="steps-panel")
+    end
+  end
+
   describe "finished relays" do
     test "the controller's finished relays are listed, separated from live ones", %{
       conn: conn,

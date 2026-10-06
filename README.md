@@ -43,21 +43,21 @@ reading the namespace from the path instead of from a filter control.
 | --- | --- |
 | `/` | Connected controller, counts with a health breakdown, runners, namespace links |
 | `/namespaces` | Declared and running namespaces, their counts, and quota breaches |
-| `/namespaces/:ns` | Relays with health and run; quotas, role bindings, partition groups, finished relays and runners as sections that fold |
+| `/namespaces/:ns` | Relays with health and run; quotas, role bindings (bind, unbind), tokens (issue once, revoke), partition groups, finished relays and runners with their OS pids as sections that fold |
 | `/namespaces/:ns/relays` | That namespace's relays, its scope fixed rather than filterable |
-| `/namespaces/:ns/plugins` | Plugins enabled in that namespace and the relays bound to each |
+| `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
-| `/relays` | **Fleet** — every relay across every reachable namespace, filterable by namespace, health and run; starts one into any of them |
-| `/namespaces/:ns/relays/:id` | Factory, runner, run, uptime, health, node, pipeline graph, steps panel; task journal, input log, cell state and plugins as sections that fold |
+| `/relays` | **Fleet** — every relay across every reachable namespace, filterable by namespace, health and run; starts one into any of them; the relay lifecycle feed as it happens |
+| `/namespaces/:ns/relays/:id` | Factory, runner, run, uptime, health, node, pipeline graph, steps panel, diagnosis on request; the relay's API, task journal, input log and its records, cell state and plugins as sections that fold; send to the relay, call it, or call an entry channel from a form built from its schema |
 | `/namespaces/:ns/relays/:id/listen` | The relay's live outputs or inputs |
-| `/namespaces/:ns/relays/:id/state` | Durable cells with their WAL/snapshot sequences and durability lag; point-in-time reads |
-| `/plugins` | Enabled plugins per namespace, and the catalog installed on the controller |
-| `/cluster` | Cluster nodes, per-node health rollup, hub recovery, runner fleet |
+| `/namespaces/:ns/relays/:id/state` | Durable cells with their WAL/snapshot sequences and durability lag; point-in-time reads, a cell's outbox, replay from a point (flow relays), rotate, delete; history and finished-instance retention, the former settable |
+| `/plugins` | Enabled plugins per namespace, and the packages installed on the controller with their providers and why one was refused |
+| `/cluster` | Cluster nodes, per-node health rollup, hub recovery, runner fleet with OS pids |
 | `/observability` | Observability sources and sinks, their enabled state, and a live signal tail |
 | `/controller` | Durability posture and RPO breaches, shutdown and boot state, authorization posture, memory hot spots |
-| `/schedules` | Cron schedules with live job status and next fire |
+| `/schedules` | Cron schedules with live job status and next fire; run one now |
 | `/dlq` | Parked dead-letter entries grouped by tasklet; inspect, replay, drop |
-| `/audit` | Audit file catalog, filtered reads, live tail |
+| `/audit` | Audit file catalog, filtered reads, live tail, rotation |
 
 ## Getting around
 
@@ -154,9 +154,14 @@ Then log in at http://localhost:4000 with:
 - **Email:** `dev@flezha.local`
 - **Password:** `dev_password_123`
 
-In dev the UI seeds testnet relays — flow and steps — and websocket plugins
+In dev the UI seeds testnet relays — flow and steps, and `orders`, the runner's
+relay API fixture — websocket plugins and a `hook_webhook` controller plugin
 once the controller is reachable, so the dashboard is populated on arrival. See
-`:dev_setup` in `config/dev.exs`.
+`:dev_setup` in `config/dev.exs`. Before the controller boots, the
+`plugin_packages` service builds the `flezha_http` plugin package with the
+controller's toolchain and places it in the plugin root with a copy the loader
+refuses, so the plugin screens show a loaded and a refused package
+(`priv/dev/plugin_packages.sh`).
 
 ### Resetting the dev controller
 
@@ -180,6 +185,7 @@ A cold start then seeds cleanly in the current vocabulary.
 
 | Container | Role |
 | --- | --- |
+| `fui_plugin_packages` | One-shot: builds and places the plugin packages the controller loads at boot |
 | `flezha_controller` | The controller, built from `../flezha/docker/dev/Dockerfile.toolchain` |
 | `flezha_rust_runner` | `test/apps/rust_runner`, waits for the control socket then connects |
 | `fui_bootstrap` | One-shot: claims the authorization bootstrap and issues the UI's token |
@@ -191,7 +197,7 @@ Useful commands:
 
 ```bash
 docker exec fui_web mix compile                      # after editing .ex files
-docker logs fui_web 2>&1 | grep EventFeed            # runner event feed status
+docker logs fui_web 2>&1 | grep EventFeed            # signal feed status
 docker attach flezha_controller                      # controller iex (detach: Ctrl+P Ctrl+Q)
 ```
 
@@ -306,7 +312,17 @@ the transport conditions only this node sees: not connected, API missing,
 timeout, remote error. `NodeManager.error/1` reads any of them as one map, so a
 screen decides how to present an error from its class and code, never from its
 text, and a refusal reads as a refusal with the controller's own message rather
-than as an empty table.
+than as an empty table. `CoreComponents.runtime_error/1` renders every one of
+them, and a diagnosis finding, with its code, its hint and a link to the code's
+family in core's errors reference (`:core_docs_url`, default
+`https://docs.flezha.com`).
+
+Controls follow the bound role. The operations a token's role grants are read
+once with its verification, from the `operations` that
+`Flezha.Service.Namespace.whoami/1` answers, and `NodeManager.granted?/2` decides
+whether a control renders. A controller that answers no list, or one whose
+posture is `:open`, renders every control; either way the controller still
+judges each call.
 
 Identity works the way the controller's own CLI does it: a principal comes
 *only* from `Flezha.AuthZ.TokenStore.verify/1`. A name typed into this UI is
@@ -324,7 +340,9 @@ ignored by a screen scoped to another namespace — and what a screen says
 about its own currency), `FlezhaUiWeb.Live.Tail` (a live
 tail), `FlezhaUiWeb.Topology` (the pipeline graph and fleet summary),
 `FlezhaUiWeb.Live.Launcher` (starting a relay, rendered by both
-`/namespaces/:ns` and `/relays`), `FlezhaUiWeb.Live.Target` (the namespace and
+`/namespaces/:ns` and `/relays`), `FlezhaUiWeb.Live.PluginForm` (enabling,
+binding and updating a plugin, from a relay's screen and the plugins screen),
+`FlezhaUiWeb.Live.Target` (the namespace and
 factory a write is aimed at, shared by the launcher and the schedule form) and
 `FlezhaUiWeb.Live.Sections` (which of a long screen's panels are open). A write
 path implemented twice drifts, and the half that drifts is the one nobody is
@@ -336,7 +354,9 @@ operation — `Observability.tail/2`, `AuditLog.tail/2` or `Relay.listen/5` —
 open with `:erpc.send_request/4`, passing its own pid as the caller context's
 `:emit`; the controller hands each event to it as `{:flezha_emit, event}`.
 Runner connects and disconnects are observability signals on `:flezha_runner`,
-which a supervised feed tails and broadcasts on `"flezha:events"`; the audit
+which a supervised feed tails and broadcasts on `"flezha:events"`; relay starts,
+stops and exits on `:flezha_relay` get a supervised feed of their own, on
+`"flezha:relays"`, which only the relays index hears; the audit
 and observability tails, the listen screen and the pipeline graph's payload tap
 each hold a feed linked to the screen. The controller watches the feed's pid,
 so stopping the feed — or closing the screen — releases the subscription. There

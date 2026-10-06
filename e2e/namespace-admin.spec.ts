@@ -25,16 +25,12 @@ test.describe('Namespace administration', () => {
     await expect(page.getByTestId('quota-relays')).toContainText(/of \d+/);
   });
 
-  test('role bindings are listed read-only, naming flz for the write', async ({ page, live }) => {
+  test('role bindings are listed with the control that binds one', async ({ page, live }) => {
     await live('/namespaces/default');
     await openSection(page, 'role-bindings');
 
     await expect(page.getByTestId('role-bindings')).toBeVisible();
-
-    const empty = page.getByTestId('role-bindings-empty');
-    if (await empty.count()) {
-      await expect(empty).toContainText('flz role bind');
-    }
+    await expect(page.getByTestId('bind-role-btn')).toBeVisible();
   });
 
   test('the listing marks a namespace as declared and running', async ({ page, live }) => {

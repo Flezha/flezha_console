@@ -365,4 +365,60 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
       assert render_click(view, "remove", %{"name" => "nightly"}) =~ "authz.role_insufficient"
     end
   end
+
+  describe "running a schedule now" do
+    test "names the relay it started and links to it", %{conn: conn, node: node} do
+      with_entries(node, [entry()])
+
+      FakeController.set(
+        node,
+        {Schedule, :run},
+        {:ok, %{relay_id: "nightly@manual-1", outcome: :spawned}}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+      html = view |> element(~s([data-testid="schedule-run-nightly"])) |> render_click()
+
+      assert [["nightly", _ctx]] = FakeController.calls(node, {Schedule, :run})
+      assert html =~ ~r{href="/namespaces/default/relays/nightly(@|%40)manual-1"}
+      assert html =~ "nightly ran now and started"
+    end
+
+    test "an instance already running is said so, and none was started", %{
+      conn: conn,
+      node: node
+    } do
+      with_entries(node, [entry()])
+
+      FakeController.set(
+        node,
+        {Schedule, :run},
+        {:ok, %{relay_id: nil, outcome: :already_running}}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+      html = view |> element(~s([data-testid="schedule-run-nightly"])) |> render_click()
+
+      assert html =~ "has an instance running already, so none was started"
+      refute html =~ ~s(data-testid="schedule-ran-link")
+    end
+
+    test "a refused run shows the error and names no relay", %{conn: conn, node: node} do
+      with_entries(node, [entry()])
+
+      FakeController.set(
+        node,
+        {Schedule, :run},
+        {:error,
+         Flezha.Error.new("schedule.not_found", "no schedule nightly", "flz schedule list")}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+      html = view |> element(~s([data-testid="schedule-run-nightly"])) |> render_click()
+
+      assert html =~ "schedule.not_found"
+      assert html =~ "flz schedule list"
+      refute html =~ ~s(data-testid="schedule-ran-link")
+    end
+  end
 end

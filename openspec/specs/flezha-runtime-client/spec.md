@@ -279,3 +279,28 @@ Every remote call `NodeManager` makes SHALL name a function on core's published 
 - **THEN** it calls `TokenStore.verify/1` or `AuthZ.enforcement_posture/0` with no caller context
 - **AND** no other call is made without one
 
+### Requirement: A controller error is shown with its code, hint and reference
+
+Wherever the console shows a `%Flezha.Error{}`, it SHALL show the error's message, its `code`, its `hint` when it has one, and a link to the section of core's errors reference for the code's family (the part of the code before the first dot). The reference's base address SHALL come from application configuration, defaulting to `https://docs.flezha.com`. One component SHALL render every controller error and every diagnosis finding.
+
+#### Scenario: An error with a hint
+
+- **WHEN** a call fails with an error carrying a code and a hint
+- **THEN** the message, the code and the hint are shown
+- **AND** a link points at `<base>/errors.html#<family>` for that code
+
+#### Scenario: An error without a hint
+
+- **WHEN** an error's hint is `nil`
+- **THEN** the message, code and link are shown and no empty hint is rendered
+
+#### Scenario: The reference address is configured
+
+- **WHEN** the application config sets a different docs base address
+- **THEN** every error link uses that address
+
+#### Scenario: A transport failure
+
+- **WHEN** a call fails because no controller is connected or the call timed out
+- **THEN** the existing transport message is shown and no reference link is rendered
+

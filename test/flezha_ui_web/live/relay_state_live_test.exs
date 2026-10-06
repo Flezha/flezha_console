@@ -31,8 +31,18 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
     )
   end
 
-  defp cells(node, rows),
-    do: FakeController.set(node, {Steps, :cells}, {:ok, %{relay_class: "relay_a", cells: rows}})
+  defp cells(node, rows, extra \\ []) do
+    answer = Map.merge(%{relay_class: "relay_a", cells: rows}, Map.new(extra))
+    FakeController.set(node, {Steps, :cells}, {:ok, answer})
+  end
+
+  defp select_and_target(view, kind, value) do
+    render_click(view, "select_cell", %{"cell" => "relay_a/orders/k1"})
+    render_change(view, "travel_change", %{"travel" => %{"kind" => kind, "value" => value}})
+  end
+
+  defp run(node, run),
+    do: FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{builder: %{run: run}}})
 
   describe "cell listing" do
     test "cells are listed with their sequences and durability metrics", %{
@@ -99,20 +109,52 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       assert html =~ ~s(data-testid="cell-lagging-relay_a/orders/k1")
     end
 
-    test "the retention window that applies is stated", %{conn: conn, node: node} do
-      cells(node, [cell("orders", "k1")])
+    test "a steps relay states both retentions, each under its own label", %{
+      conn: conn,
+      node: node
+    } do
+      run(node, :steps)
+      cells(node, [cell("orders", "k1")], history_retention_hours: 12)
       FakeController.set(node, {Steps, :completed_retention_hours}, {:ok, 48})
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert html =~ ~s(data-testid="state-retention")
-      assert html =~ "48 hours"
+      assert html =~ ~r/data-testid="history-retention"[^>]*>\s*12 hours/
+      assert html =~ ~r/data-testid="finished-retention"[^>]*>\s*48 hours/
 
       assert [["relay_a", %{}, %{source: :ui}] | _] =
                FakeController.calls(node, {Steps, :completed_retention_hours})
     end
 
-    test "an unreadable retention is stated and the cells still list", %{conn: conn, node: node} do
+    test "a finished relay, with no overwatch, states its finished-instance retention", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {Relay, :overwatch_state}, FakeController.error("relay.not_found"))
+      cells(node, [], history_retention_hours: 12)
+      FakeController.set(node, {Steps, :completed_retention_hours}, {:ok, 72})
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert html =~ ~r/data-testid="finished-retention"[^>]*>\s*72 hours/
+    end
+
+    test "a flow relay states the history retention alone", %{conn: conn, node: node} do
+      run(node, :flow)
+      cells(node, [cell("orders", "k1")], history_retention_hours: 12)
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert html =~ ~r/data-testid="history-retention"[^>]*>\s*12 hours/
+      refute html =~ ~s(data-testid="finished-retention")
+      assert FakeController.calls(node, {Steps, :completed_retention_hours}) == []
+    end
+
+    test "an unreadable retention is unavailable and the cells still list", %{
+      conn: conn,
+      node: node
+    } do
+      run(node, :steps)
       cells(node, [cell("orders", "k1")])
 
       FakeController.set(
@@ -123,22 +165,215 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert html =~ "not reported"
+      assert html =~ ~r/data-testid="finished-retention"[^>]*>\s*unavailable/
       assert html =~ ~s(data-testid="cell-relay_a/orders/k1")
     end
 
-    test "no control deletes or rotates state, and flz is named instead", %{
+    test "an older controller's answer states the history retention as unknown", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {Steps, :cells}, {:ok, %{relay_class: "relay_a", cells: []}})
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert html =~ ~r/data-testid="history-retention"[^>]*>\s*unknown/
+    end
+  end
+
+  describe "setting the history retention" do
+    test "sets the class's retention and states it lasts until the next boot", %{
       conn: conn,
       node: node
     } do
       cells(node, [cell("orders", "k1")])
+      {:ok, view, html} = live(conn, @url)
+      assert html =~ "lasts until the controller next boots"
 
-      {:ok, _view, html} = live(conn, @url)
+      html = render_submit(view, "set_retention", %{"retention" => %{"hours" => "6"}})
 
-      assert html =~ ~s(data-testid="state-verbs")
-      assert html =~ "flz state"
-      refute html =~ "phx-click=\"delete_state\""
-      refute html =~ "phx-click=\"rotate_state\""
+      assert [["relay_a", 6, _ctx]] = FakeController.calls(node, {Steps, :set_retention})
+      assert html =~ "History retention set to 6 hours until the controller next boots."
+      assert html =~ ~r/data-testid="history-retention"[^>]*>\s*6 hours/
+    end
+
+    test "a negative or non-numeric value is named and nothing is called", %{
+      conn: conn,
+      node: node
+    } do
+      cells(node, [cell("orders", "k1")])
+      {:ok, view, _html} = live(conn, @url)
+
+      for hours <- ["-1", "six", ""] do
+        html = render_submit(view, "set_retention", %{"retention" => %{"hours" => hours}})
+        assert html =~ "Hours must be a whole number of zero or more."
+      end
+
+      assert FakeController.calls(node, {Steps, :set_retention}) == []
+    end
+  end
+
+  describe "a selected cell's outbox" do
+    test "is read on selecting and its facts are shown", %{conn: conn, node: node} do
+      cells(node, [cell("orders", "k1")])
+
+      FakeController.set(
+        node,
+        {Steps, :outbox},
+        {:ok,
+         %{
+           cell: "relay_a/orders/k1",
+           last_persisted_seq: 118,
+           outbox_durable_seq: 118,
+           outbox_flushed_seq: 117,
+           epoch: 3,
+           pending: 2,
+           held: 1,
+           input_watermark: 40
+         }}
+      )
+
+      {:ok, view, _html} = live(conn, @url)
+      html = render_click(view, "select_cell", %{"cell" => "relay_a/orders/k1"})
+
+      assert [["relay_a/orders/k1", _ctx]] = FakeController.calls(node, {Steps, :outbox})
+      assert html =~ ~r/data-testid="outbox-durable-seq"[^>]*>\s*118/
+      assert html =~ ~r/data-testid="outbox-persisted-seq"[^>]*>\s*118/
+      assert html =~ ~r/data-testid="outbox-pending"[^>]*>\s*2/
+    end
+
+    test "without a running writer, pending and held are unknown", %{conn: conn, node: node} do
+      cells(node, [cell("orders", "k1")])
+
+      FakeController.set(
+        node,
+        {Steps, :outbox},
+        {:ok,
+         %{
+           cell: "relay_a/orders/k1",
+           last_persisted_seq: 118,
+           outbox_flushed_seq: 117,
+           epoch: 3,
+           pending: nil,
+           held: nil
+         }}
+      )
+
+      {:ok, view, _html} = live(conn, @url)
+      html = render_click(view, "select_cell", %{"cell" => "relay_a/orders/k1"})
+
+      assert html =~ ~r/data-testid="outbox-pending"[^>]*>\s*unknown — writer not running/
+      assert html =~ ~r/data-testid="outbox-held"[^>]*>\s*unknown — writer not running/
+      assert html =~ ~r/data-testid="outbox-durable-seq"[^>]*>\s*unknown — writer not running/
+      assert html =~ ~r/data-testid="outbox-persisted-seq"[^>]*>\s*118/
+    end
+  end
+
+  describe "rotating and deleting a cell" do
+    test "a rotation is confirmed by name and requests a compaction", %{conn: conn, node: node} do
+      cells(node, [cell("orders", "k1")])
+      {:ok, view, _html} = live(conn, @url)
+
+      html = view |> element(~s([data-testid="rotate-relay_a/orders/k1"])) |> render_click()
+      assert html =~ ~s(data-testid="state-confirm-modal")
+      assert html =~ "relay_a/orders/k1"
+
+      html = view |> element(~s([data-testid="state-confirm-btn"])) |> render_click()
+
+      assert [["relay_a/orders/k1", _ctx]] = FakeController.calls(node, {Steps, :rotate})
+      assert html =~ "Compaction requested for relay_a/orders/k1."
+    end
+
+    test "a delete says it cannot be undone and refreshes the row", %{conn: conn, node: node} do
+      cells(node, [cell("orders", "k1")])
+      {:ok, view, _html} = live(conn, @url)
+
+      html = view |> element(~s([data-testid="delete-relay_a/orders/k1"])) |> render_click()
+      assert html =~ "cannot be recovered"
+
+      cells_before = length(FakeController.calls(node, {Steps, :cells}))
+      cells(node, [])
+      html = view |> element(~s([data-testid="state-confirm-btn"])) |> render_click()
+
+      assert [["relay_a/orders/k1", _ctx]] = FakeController.calls(node, {Steps, :delete})
+      assert length(FakeController.calls(node, {Steps, :cells})) > cells_before
+      assert html =~ ~s(data-testid="state-empty")
+    end
+
+    test "a dismissed confirmation calls nothing", %{conn: conn, node: node} do
+      cells(node, [cell("orders", "k1")])
+      {:ok, view, _html} = live(conn, @url)
+
+      for action <- ~w(rotate delete) do
+        view |> element(~s([data-testid="#{action}-relay_a/orders/k1"])) |> render_click()
+        html = view |> element(~s([data-testid="state-confirm-cancel"])) |> render_click()
+        refute html =~ ~s(data-testid="state-confirm-modal")
+      end
+
+      assert FakeController.calls(node, {Steps, :rotate}) == []
+      assert FakeController.calls(node, {Steps, :delete}) == []
+    end
+  end
+
+  describe "replaying a flow relay's cell" do
+    test "replays from a sequence after confirming", %{conn: conn, node: node} do
+      run(node, :flow)
+      cells(node, [cell("orders", "k1")])
+
+      FakeController.set(
+        node,
+        {Relay, :replay},
+        {:ok, %{cell: "relay_a/orders/k1", from_seq: 40}}
+      )
+
+      {:ok, view, _html} = live(conn, @url)
+      select_and_target(view, "seq", "40")
+
+      html = view |> element(~s([data-testid="replay-open"])) |> render_click()
+      assert html =~ "retained inputs are run again"
+
+      html = view |> element(~s([data-testid="state-confirm-btn"])) |> render_click()
+
+      assert [["default", "relay_a/orders/k1", "40", _ctx]] =
+               FakeController.calls(node, {Relay, :replay})
+
+      assert html =~ ~r/data-testid="replay-result".*relay_a\/orders\/k1.*40/s
+    end
+
+    test "replays from an ISO 8601 time", %{conn: conn, node: node} do
+      run(node, :flow)
+      cells(node, [cell("orders", "k1")])
+      {:ok, view, _html} = live(conn, @url)
+      select_and_target(view, "time", "2026-10-06T12:00:00Z")
+
+      view |> element(~s([data-testid="replay-open"])) |> render_click()
+      view |> element(~s([data-testid="state-confirm-btn"])) |> render_click()
+
+      assert [["default", "relay_a/orders/k1", "2026-10-06T12:00:00Z", _ctx]] =
+               FakeController.calls(node, {Relay, :replay})
+    end
+
+    test "a dismissed replay calls nothing", %{conn: conn, node: node} do
+      run(node, :flow)
+      cells(node, [cell("orders", "k1")])
+      {:ok, view, _html} = live(conn, @url)
+      select_and_target(view, "seq", "40")
+
+      view |> element(~s([data-testid="replay-open"])) |> render_click()
+      view |> element(~s([data-testid="state-confirm-cancel"])) |> render_click()
+
+      assert FakeController.calls(node, {Relay, :replay}) == []
+    end
+
+    test "a steps relay offers no replay", %{conn: conn, node: node} do
+      run(node, :steps)
+      cells(node, [cell("orders", "k1")])
+      {:ok, view, _html} = live(conn, @url)
+
+      html = render_click(view, "select_cell", %{"cell" => "relay_a/orders/k1"})
+
+      assert html =~ ~s(data-testid="time-travel")
+      refute html =~ ~s(data-testid="replay-open")
     end
   end
 

@@ -17,6 +17,10 @@ defmodule FlezhaUiWeb.RelayIndexLive do
   the same listing with the namespace filter already applied — taken from the
   path rather than from the form, so the address bar names the scope and the
   screen renders it as fixed rather than as something to clear.
+
+  Relays starting, stopping and losing their runner arrive on the event feed
+  as they happen; each one reloads the rows and is kept, newest first, in a
+  bounded lifecycle list narrowed to the namespaces the token reaches.
   """
 
   use FlezhaUiWeb, :live_view
@@ -27,7 +31,11 @@ defmodule FlezhaUiWeb.RelayIndexLive do
 
   use FlezhaUiWeb.Live.Launcher
 
+  alias FlezhaUi.Service.EventFeed
   alias FlezhaUi.Service.NodeManager
+
+  @lifecycle_events [:relay_started, :relay_stopped, :relay_exited]
+  @lifecycle_max 50
 
   @impl true
   def mount(_params, _session, socket) do
@@ -41,8 +49,42 @@ defmodule FlezhaUiWeb.RelayIndexLive do
        rows: [],
        run_options: [],
        namespaces: [],
-       load_error: nil
+       load_error: nil,
+       lifecycle: [],
+       lifecycle_error: subscribe_lifecycle(socket)
      )}
+  end
+
+  # Subscribes to the relay lifecycle feed and answers why it is refused, if it
+  # is. Only once connected: the dead render has no feed to hear from.
+  defp subscribe_lifecycle(socket) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventFeed.topic(:flezha_relay))
+      EventFeed.error(EventFeed.signal_feed(:flezha_relay))
+    end
+  end
+
+  @impl true
+  def handle_info({:flezha_event, event, {namespace, entry}}, socket)
+      when event in @lifecycle_events do
+    if shown?(socket, namespace) do
+      socket = update(socket, :lifecycle, &Enum.take([entry | &1], @lifecycle_max))
+      {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:flezha_feed, _feed, error}, socket),
+    do: {:noreply, assign(socket, lifecycle_error: error)}
+
+  # A signal is shown only for a namespace the token reaches, and on a scoped
+  # screen only for its own.
+  defp shown?(socket, namespace) do
+    namespace = to_string(namespace)
+
+    namespace in socket.assigns.namespaces and
+      socket.assigns.scoped_namespace in [nil, namespace]
   end
 
   # The start form offers the namespaces this screen already listed, so asking
@@ -156,6 +198,18 @@ defmodule FlezhaUiWeb.RelayIndexLive do
 
   defp matches?(value, _actual) when value in [nil, ""], do: true
   defp matches?(value, actual), do: value == actual
+
+  @doc "What a lifecycle entry says happened."
+  def lifecycle_text(%{event: :relay_started} = entry),
+    do: "started from #{entry.factory || "an unnamed factory"}"
+
+  def lifecycle_text(%{event: :relay_stopped} = entry), do: "stopped: #{reason(entry.reason)}"
+
+  def lifecycle_text(%{event: :relay_exited} = entry),
+    do: "exited on runner #{entry.runner || "—"}: #{reason(entry.reason)}"
+
+  defp reason(nil), do: "no reason given"
+  defp reason(reason), do: Format.printable(reason)
 
   @doc """
   What this screen is called at the scope it is showing.

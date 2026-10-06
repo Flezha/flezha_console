@@ -17,4 +17,5 @@ defmodule Flezha.Service.AuditLog do
   defstub list_files(%{source: :ui} = ctx), do: {:ok, []}
   defstub read(params, %{source: :ui} = ctx), do: {:ok, []}
   defstub stats(%{source: :ui} = ctx), do: {:ok, %{}}
+  defstub rotate(%{source: :ui} = ctx), do: {:ok, %{}}
 end

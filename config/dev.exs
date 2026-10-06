@@ -110,33 +110,47 @@ config :flezha_ui, :dev_setup,
     # log panels have something to show, and a run-once one that completes so
     # the finished-relay listing is not empty either.
     %{id: "testnet_chat", factory_id: "chat_loop_steps", init_values: %{}},
-    %{id: "testnet_echo", factory_id: "echo_steps", init_values: %{}}
+    %{id: "testnet_echo", factory_id: "echo_steps", init_values: %{}},
+    # The relay API fixture: `place` is a JSON channel with a schema that
+    # answers, `audit` a text channel that does not.
+    %{id: "orders", factory_id: "orders", init_values: %{}}
   ],
   plugins:
-    Enum.map(
-      [
-        {"ws_store_1", "testnet_store_1", "store_1 ping"},
-        {"ws_store_2", "testnet_store_2", "store_2 ping"},
-        {"ws_store_3", "testnet_store_3", "store_3 ping"},
-        {"ws_filter", "testnet_filter", "filter ping"},
-        {"ws_noop", "testnet_noop", "noop ping"}
-      ],
-      fn {name, relay_id, message} ->
-        %{
-          name: name,
-          relay_id: relay_id,
-          provider: "relay_websocket",
-          hooks: ["on_terminate"],
-          opts: %{
-            "uri" => "ws://flezha_controller:4500",
-            "post_connect" => %{
-              "payload" => %{
-                "type" => "text",
-                "message" =>
-                  ~s({"event_type":"subscribe","event_data":{"default_message":"#{message}","interval":5000}})
+    [
+      # A controller plugin, enabled with controller hooks and bound to no
+      # relay. Its receiver is the console, which drops the events unread.
+      %{
+        name: "lifecycle_webhook",
+        relay_id: nil,
+        provider: "hook_webhook",
+        hooks: ["on_relay_started", "on_relay_stopped"],
+        opts: %{"url" => "http://fui_web:4000/dev/null"}
+      }
+    ] ++
+      Enum.map(
+        [
+          {"ws_store_1", "testnet_store_1", "store_1 ping"},
+          {"ws_store_2", "testnet_store_2", "store_2 ping"},
+          {"ws_store_3", "testnet_store_3", "store_3 ping"},
+          {"ws_filter", "testnet_filter", "filter ping"},
+          {"ws_noop", "testnet_noop", "noop ping"}
+        ],
+        fn {name, relay_id, message} ->
+          %{
+            name: name,
+            relay_id: relay_id,
+            provider: "relay_websocket",
+            hooks: ["on_terminate"],
+            opts: %{
+              "uri" => "ws://flezha_controller:4500",
+              "post_connect" => %{
+                "payload" => %{
+                  "type" => "text",
+                  "message" =>
+                    ~s({"event_type":"subscribe","event_data":{"default_message":"#{message}","interval":5000}})
+                }
               }
             }
           }
-        }
-      end
-    )
+        end
+      )

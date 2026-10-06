@@ -6,6 +6,7 @@
     </:subtitle>
     <:actions>
       <button
+        :if={NodeManager.granted?(@operations, "Schedule.add")}
         phx-click="open_form"
         data-testid="schedule-new-btn"
         class="flz-button flz-button--md"
@@ -16,6 +17,22 @@
   </.header>
 
   <.runtime_error error={@load_error} />
+
+  <div :if={@ran} data-testid="schedule-ran">
+    <.runtime_error :if={@ran[:error]} error={@ran[:error]} action={"the run of #{@ran.name}"} />
+    <.notice :if={@ran[:answer] && @ran.answer.outcome == :spawned} icon="hero-play">
+      {@ran.name} ran now and started <.link
+        navigate={~p"/namespaces/#{@ran.namespace || "default"}/relays/#{@ran.answer.relay_id}"}
+        data-testid="schedule-ran-link"
+        class="underline hover:no-underline font-mono"
+      >
+        {@ran.answer.relay_id}
+      </.link>.
+    </.notice>
+    <.notice :if={@ran[:answer] && @ran.answer.outcome == :already_running}>
+      {@ran.name} has an instance running already, so none was started.
+    </.notice>
+  </div>
 
   <.scope_notice
     :if={@scoped_namespace}
@@ -83,8 +100,18 @@
               >
                 {Format.timestamp(schedule.next_fire)}
               </td>
-              <td class="text-right">
+              <td class="text-right whitespace-nowrap space-x-3">
                 <button
+                  :if={NodeManager.granted?(@operations, "Schedule.run")}
+                  phx-click="run_now"
+                  phx-value-name={schedule.name}
+                  data-testid={"schedule-run-#{schedule.name}"}
+                  class="text-xs text-accent-text hover:text-accent transition-colors"
+                >
+                  Run now
+                </button>
+                <button
+                  :if={NodeManager.granted?(@operations, "Schedule.remove")}
                   phx-click="confirm_remove"
                   phx-value-name={schedule.name}
                   data-testid={"schedule-remove-#{schedule.name}"}

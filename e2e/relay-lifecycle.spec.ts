@@ -5,6 +5,7 @@ import {
   factoryOptions,
   startRelay,
   stopRelay,
+  uniqueId,
   type Page,
 } from './fixtures';
 
@@ -18,13 +19,6 @@ import {
 
 const NAMESPACE = 'default';
 const NAMESPACE_URL = `/namespaces/${NAMESPACE}`;
-
-/** Unique per test, so a leftover from a failed run cannot collide. */
-function uniqueRelayId(prefix = 'pw_test'): string {
-  const ts = Date.now().toString(36).slice(-4);
-  const rand = Math.random().toString(36).slice(2, 5);
-  return `${prefix}_${ts}_${rand}`;
-}
 
 /** The relay ids currently shown in the table. */
 const relayIds = (page: Page) => testIds(page, 'relay-row-');
@@ -64,7 +58,7 @@ test.describe('Relay lifecycle', () => {
     await expect(page.getByTestId('start-modal')).toBeVisible();
 
     await page.getByTestId('input-factory-id').selectOption((await factoryOptions(page))[0]);
-    await page.getByTestId('input-relay-id').fill(uniqueRelayId());
+    await page.getByTestId('input-relay-id').fill(uniqueId('pw_test'));
     await page.getByTestId('input-init-values').fill('not valid json{{{');
 
     await page.getByTestId('start-submit-btn').click();
@@ -76,7 +70,7 @@ test.describe('Relay lifecycle', () => {
   });
 
   test('starts a relay and it appears in the table', async ({ page }) => {
-    const id = uniqueRelayId();
+    const id = uniqueId('pw_test');
     const before = await relayIds(page);
 
     try {
@@ -117,7 +111,7 @@ test.describe('Relay lifecycle', () => {
   });
 
   test('starting an id that is already running says so and links to it', async ({ page }) => {
-    const id = uniqueRelayId('pw_dup');
+    const id = uniqueId('pw_dup');
 
     try {
       await startRelay(page, id);
@@ -139,7 +133,7 @@ test.describe('Relay lifecycle', () => {
   });
 
   test('starts a relay, navigates to its detail page, then stops it', async ({ page, live }) => {
-    const id = uniqueRelayId('pw_nav');
+    const id = uniqueId('pw_nav');
 
     try {
       await startRelay(page, id);
@@ -162,7 +156,7 @@ test.describe('Relay lifecycle', () => {
   });
 
   test('cancelling the stop confirmation leaves the relay running', async ({ page }) => {
-    const id = uniqueRelayId('pw_cancel');
+    const id = uniqueId('pw_cancel');
 
     try {
       await startRelay(page, id);
@@ -179,7 +173,7 @@ test.describe('Relay lifecycle', () => {
   });
 
   test('starts multiple relays and stops them all', async ({ page }) => {
-    const ids = [uniqueRelayId('pw_multi_a'), uniqueRelayId('pw_multi_b')];
+    const ids = [uniqueId('pw_multi_a'), uniqueId('pw_multi_b')];
     const before = await relayIds(page);
 
     try {
@@ -234,7 +228,7 @@ test.describe('Relay lifecycle', () => {
   });
 
   test('starts a steps relay, and the index reports its run as steps', async ({ live, page }) => {
-    const id = uniqueRelayId('pw_steps');
+    const id = uniqueId('pw_steps');
 
     try {
       await startRelay(page, id, { run: 'steps' });
@@ -251,7 +245,7 @@ test.describe('Relay lifecycle', () => {
   });
 
   test('starts a relay with init values JSON', async ({ page }) => {
-    const id = uniqueRelayId('pw_json');
+    const id = uniqueId('pw_json');
 
     try {
       await page.getByTestId('start-relay-btn').click();

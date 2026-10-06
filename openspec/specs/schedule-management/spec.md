@@ -112,3 +112,24 @@ Removing a schedule SHALL retract it from the hub and delete the persisted entry
 - **WHEN** an operator dismisses the removal confirmation
 - **THEN** the schedule remains armed and listed
 
+### Requirement: A schedule is run now on request
+
+Each schedule row SHALL offer a control that fires the schedule once, immediately, through `Flezha.Service.Schedule.run/2`, independent of its cron expression and of whether the schedule hub is up. On `spawned` the UI SHALL name the started relay and link to it; on `already_running` it SHALL say that an instance is already running and that none was started.
+
+#### Scenario: Running a schedule now
+
+- **WHEN** an operator runs a schedule now
+- **THEN** `run/2` is called with the schedule's name
+- **AND** the started relay's id is shown with a link to its detail screen
+
+#### Scenario: An instance is already running
+
+- **WHEN** `run/2` answers `already_running`
+- **THEN** the UI says no new instance was started because one is running
+
+#### Scenario: The run is refused
+
+- **WHEN** the controller refuses the run
+- **THEN** the error is shown with its code and hint
+- **AND** no relay is named as started
+
