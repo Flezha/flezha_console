@@ -285,6 +285,25 @@ defmodule FlezhaUiWeb.CoreComponents do
     """
   end
 
+  @doc """
+  A form's error: its own validation message as written, or what a call
+  answered rendered as `runtime_error/1` does.
+  """
+  attr :error, :any, default: nil, doc: "a validation message, a call's error, or nil"
+  attr :action, :string, default: nil
+  attr :testid, :string, required: true
+
+  def form_error(assigns) do
+    ~H"""
+    <.notice :if={is_binary(@error)} kind={:error} testid={@testid} class="mb-4">
+      {@error}
+    </.notice>
+    <div :if={@error && !is_binary(@error)} data-testid={@testid} class="mb-4">
+      <.runtime_error error={@error} action={@action} />
+    </div>
+    """
+  end
+
   # A missing identity is remedied in settings; every other refusal is a role
   # the operator has to be granted elsewhere.
   defp settings_link?(nil), do: false

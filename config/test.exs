@@ -42,6 +42,7 @@ config :phoenix_live_view,
 # Re-open an ended feed promptly, so a reconnect test does not wait out the
 # production backoff.
 config :flezha_ui, :event_feed_retry_interval_ms, 100
+config :flezha_ui, :event_feed_settle_interval_ms, 50
 
 # Tests start their own feeds against a peer node; a supervised singleton
 # would tail that peer and race the test that owns it.

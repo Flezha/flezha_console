@@ -107,8 +107,10 @@ defmodule FlezhaUiWeb.Live.Target do
   # not register must not stay chosen: the write would be refused naming a
   # factory the operator can no longer see in the picker.
   defp factory(target, factory_id) do
-    if Enum.any?(target.factories, &(&1.id == factory_id)), do: factory_id, else: ""
+    if catalog_entry(target.factories, factory_id), do: factory_id, else: ""
   end
+
+  defp catalog_entry(catalog, factory_id), do: Enum.find(catalog, &(&1.id == factory_id))
 
   @doc """
   True when the controller reported that this namespace registers no factories.
@@ -187,7 +189,7 @@ defmodule FlezhaUiWeb.Live.Target do
   defp unservable(_factory), do: nil
 
   defp factory_hint(catalog, factory_id) do
-    case Enum.find(catalog, &(&1.id == factory_id)) do
+    case catalog_entry(catalog, factory_id) do
       %{runners: []} -> "No runner currently serves this factory."
       %{runners: runners} -> "Served by #{Enum.join(runners, ", ")}."
       nil -> nil
@@ -213,7 +215,7 @@ defmodule FlezhaUiWeb.Live.Target do
   end
 
   defp factory_run_of(catalog, factory_id) do
-    case Enum.find(catalog, &(&1.id == factory_id)) do
+    case catalog_entry(catalog, factory_id) do
       %{run: run} when not is_nil(run) -> to_string(run)
       _unknown -> nil
     end

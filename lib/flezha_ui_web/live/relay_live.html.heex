@@ -88,7 +88,14 @@
             </li>
           </ul>
 
-          <p :if={@tap.recent == [] and is_nil(@tap.error)} class="text-xs text-th-muted">
+          <p :if={@tap.ended?} data-testid="tap-ended" class="text-xs text-th-muted">
+            The tap ended: the relay stopped or the controller let it go.
+          </p>
+
+          <p
+            :if={@tap.recent == [] and is_nil(@tap.error) and not @tap.ended?}
+            class="text-xs text-th-muted"
+          >
             Waiting for a record to pass through.
           </p>
         </div>
@@ -490,12 +497,7 @@
       </button>
     </div>
   <% else %>
-    <.notice :if={is_binary(@attach.error)} kind={:error} testid="attach-error" class="mb-4">
-      {@attach.error}
-    </.notice>
-    <div :if={@attach.error && !is_binary(@attach.error)} data-testid="attach-error" class="mb-4">
-      <.runtime_error error={@attach.error} action="the plugin" />
-    </div>
+    <.form_error error={@attach.error} action="the plugin" testid="attach-error" />
 
     <form phx-submit="attach_plugin" phx-change="attach_change" class="space-y-4">
       <.input

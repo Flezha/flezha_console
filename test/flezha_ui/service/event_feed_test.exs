@@ -32,11 +32,13 @@ defmodule FlezhaUi.Service.EventFeedTest do
 
   defp open_streams(node), do: FakeController.streams(node, @tail)
 
-  defp open_tail!(token \\ nil) do
+  defp open_tail!(token \\ nil, opts \\ []) do
     {:ok, feed} =
       EventFeed.start_link(
-        open: &NodeManager.observability_tail(:flezha_health, token, &1),
-        to: {:send, self(), :tail}
+        [
+          open: &NodeManager.observability_tail(:flezha_health, token, &1),
+          to: {:send, self(), :tail}
+        ] ++ opts
       )
 
     feed
@@ -125,6 +127,22 @@ defmodule FlezhaUi.Service.EventFeedTest do
       assert PeerNode.eventually(fn -> not Process.alive?(feed) end)
     end
 
+    test "stopped under its tag, drops what it already sent", %{node: node} do
+      feed = open_tail!()
+      assert PeerNode.eventually(fn -> length(open_streams(node)) == 1 end)
+
+      send(self(), {:feed_event, :tail, :already_sent})
+      send(self(), {:feed_reconnected, :tail})
+      send(self(), {:feed_event, :other, :kept})
+
+      EventFeed.stop(feed, :tail)
+
+      refute_received {:feed_event, :tail, _}
+      refute_received {:feed_reconnected, :tail}
+      assert_received {:feed_event, :other, :kept}
+      assert PeerNode.eventually(fn -> open_streams(node) == [] end)
+    end
+
     test "delivers events, then the operation's own answer", %{node: node} do
       key = {Flezha.Service.Relay, :listen}
 
@@ -141,6 +159,30 @@ defmodule FlezhaUi.Service.EventFeedTest do
 
       FakeController.end_stream(node, key, {:ok, :done})
       assert_receive {:feed_ended, :listen, {:ok, :done}}
+    end
+  end
+
+  describe "a retrying feed" do
+    test "announces a re-opened stream once it is held", %{node: node} do
+      open_tail!(nil, retry: true)
+      assert PeerNode.eventually(fn -> length(open_streams(node)) == 1 end)
+
+      FakeController.end_stream(node, @tail, {:ok, :window_closed})
+
+      assert_receive {:feed_ended, :tail, {:ok, :window_closed}}
+      assert_receive {:feed_reconnected, :tail}, 1_000
+    end
+
+    test "does not announce a re-open the controller refused", %{node: node} do
+      open_tail!(nil, retry: true)
+      assert PeerNode.eventually(fn -> length(open_streams(node)) == 1 end)
+
+      FakeController.set(node, @tail, FakeController.error("authz.principal_not_bound"))
+      FakeController.end_stream(node, @tail, {:ok, :window_closed})
+
+      assert_receive {:feed_error, :tail, %{class: :denied}}, 1_000
+      assert_receive {:feed_error, :tail, %{class: :denied}}, 1_000
+      refute_received {:feed_reconnected, :tail}
     end
   end
 

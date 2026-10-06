@@ -236,7 +236,7 @@ defmodule FakeController do
   screen actually asked the controller for, not merely what it rendered.
   """
   def answer(key, args, default) do
-    :ets.insert(store(), {{:calls, key}, recorded(key) ++ [args]})
+    record_call(key, args)
 
     case :ets.lookup(store(), key) do
       [{^key, {:per_arg, index, by_arg, fallback}}] ->
@@ -260,7 +260,7 @@ defmodule FakeController do
   `set/3` — a refusal — is answered at once instead.
   """
   def stream(key, args, %{emit: emit}, attached \\ []) when is_pid(emit) do
-    :ets.insert(store(), {{:calls, key}, recorded(key) ++ [args]})
+    record_call(key, args)
 
     case :ets.lookup(store(), key) do
       [{^key, answer}] ->
@@ -280,6 +280,8 @@ defmodule FakeController do
         |> tap(fn _ -> :ets.delete(store(), {:open_stream, key, self()}) end)
     end
   end
+
+  defp record_call(key, args), do: :ets.insert(store(), {{:calls, key}, recorded(key) ++ [args]})
 
   @doc false
   def emit_here(key, event) do
@@ -316,19 +318,6 @@ defmodule FakeController do
     end
   end
 
-  @doc """
-  Drops `pid`'s registrations when it dies, as a real registry does.
-
-  A subscriber that is killed outright runs no cleanup of its own — an exit
-  signal skips `after` blocks — so without this a stand-in would keep reporting
-  a subscription held by a process that no longer exists.
-  """
-  def watch(pid) do
-    store()
-    send(Process.whereis(@owner), {:watch, pid})
-    :ok
-  end
-
   defp create_store do
     parent = self()
 
@@ -343,7 +332,7 @@ defmodule FakeController do
         end
 
       send(parent, {:fake_controller_store, tid})
-      watch_loop()
+      Process.sleep(:infinity)
     end)
 
     receive do
@@ -351,16 +340,6 @@ defmodule FakeController do
     after
       5_000 -> raise "FakeController store did not start"
     end
-  end
-
-  # A registration is any row whose value is the subscriber's pid.
-  defp watch_loop do
-    receive do
-      {:watch, pid} -> Process.monitor(pid)
-      {:DOWN, _ref, :process, pid, _reason} -> :ets.match_delete(@table, {:_, pid})
-    end
-
-    watch_loop()
   end
 
   defp lookup(key, default) do

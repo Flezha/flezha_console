@@ -102,7 +102,7 @@ defmodule FlezhaUiWeb.PluginLive do
   defp disable_error(name, reason) do
     case NodeManager.error(reason) do
       %{code: "plugin.not_found"} -> "The controller does not know a plugin named #{name}."
-      _other -> FlezhaUiWeb.CoreComponents.error_message(reason, "the disable")
+      _other -> error_message(reason, "the disable")
     end
   end
 end

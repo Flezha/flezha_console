@@ -312,13 +312,16 @@ Identity works the way the controller's own CLI does it: a principal comes
 *only* from `Flezha.AuthZ.TokenStore.verify/1`. A name typed into this UI is
 never placed in a caller context, because that context is what the controller's
 audit log records. Verifications are cached briefly — never past the token's
-own expiry, and never for a transient `authz.registry_unavailable` — and a
-refused call evicts the entry, so a revoked token stops working within one call
-rather than one cache lifetime.
+own expiry, and never for a transient `authz.registry_unavailable`. A refused
+call evicts the entry. The controller sees only the principal, never the token,
+so a revoked token stops working when its cached verification expires. A
+verification the token store cannot answer is reported as that failure; the
+call is never made unbound.
 
 Behaviour shared across screens is a `use`-able module rather than a copied
-block: `FlezhaUiWeb.Live.Refresh` (the tick, the forwarded runner events, and
-what a screen says about its own currency), `FlezhaUiWeb.Live.Tail` (a live
+block: `FlezhaUiWeb.Live.Refresh` (the tick, the forwarded runner events —
+ignored by a screen scoped to another namespace — and what a screen says
+about its own currency), `FlezhaUiWeb.Live.Tail` (a live
 tail), `FlezhaUiWeb.Topology` (the pipeline graph and fleet summary),
 `FlezhaUiWeb.Live.Launcher` (starting a relay, rendered by both
 `/namespaces/:ns` and `/relays`), `FlezhaUiWeb.Live.Target` (the namespace and
@@ -337,7 +340,9 @@ which a supervised feed tails and broadcasts on `"flezha:events"`; the audit
 and observability tails, the listen screen and the pipeline graph's payload tap
 each hold a feed linked to the screen. The controller watches the feed's pid,
 so stopping the feed — or closing the screen — releases the subscription. There
-is no second mechanism.
+is no second mechanism. `EventFeed.stop/2` also drops what the feed already
+sent under its tag, so a screen that replaces a feed never hears the old one,
+and a retrying feed reports a reconnect only once its re-opened stream is held.
 
 ## Manual setup (no Docker)
 

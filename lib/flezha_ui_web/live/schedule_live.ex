@@ -229,5 +229,5 @@ defmodule FlezhaUiWeb.ScheduleLive do
   defp schedule_error(message) when is_binary(message), do: message
 
   defp schedule_error(reason),
-    do: FlezhaUiWeb.CoreComponents.error_message(reason, "the schedule")
+    do: error_message(reason, "the schedule")
 end

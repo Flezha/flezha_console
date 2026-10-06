@@ -68,9 +68,12 @@ defmodule FlezhaUiWeb.Live.Tail do
         )
       end
 
-      @doc "Stops the running tail, if there is one. Safe to call unconditionally."
+      @doc """
+      Stops the running tail, if there is one, and drops what it already sent.
+      Safe to call unconditionally.
+      """
       def stop_tail(socket) do
-        FlezhaUi.Service.EventFeed.stop(socket.assigns[:tail_feed])
+        FlezhaUi.Service.EventFeed.stop(socket.assigns[:tail_feed], @tail_tag)
         Phoenix.Component.assign(socket, tailing: nil, tail_feed: nil)
       end
 

@@ -98,7 +98,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
           {:noreply,
            socket
            |> assign(confirm_delete: nil, delete_confirmation: "")
-           |> put_flash(:error, FlezhaUiWeb.CoreComponents.error_message(reason, "the delete"))}
+           |> put_flash(:error, error_message(reason, "the delete"))}
 
         _ok ->
           {:noreply,

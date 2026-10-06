@@ -66,6 +66,16 @@ defmodule FlezhaUiWeb.Live.Refresh do
     if paused, do: socket, else: tick(module, socket)
   end
 
+  @doc false
+  # A screen scoped to one namespace has nothing to reload when a runner of
+  # another comes or goes; a fleet reconnecting would otherwise reload every
+  # open screen once per runner.
+  def concerns?(%{assigns: %{ns: ns}}, {event_ns, _runner})
+      when is_binary(ns) and is_binary(event_ns),
+      do: ns == event_ns
+
+  def concerns?(_socket, _data), do: true
+
   @doc """
   Puts the caller's flezha token on the socket, once.
 
@@ -86,13 +96,15 @@ defmodule FlezhaUiWeb.Live.Refresh do
     forwarded =
       if events != [] do
         quote do
-          def handle_info({:flezha_event, event, _data}, socket)
+          def handle_info({:flezha_event, event, data}, socket)
               when event in @refresh_events do
             # The palette's relay index goes stale on exactly these events,
             # and this is the only place the console hears them.
             socket = FlezhaUiWeb.CommandPalette.invalidate(socket)
 
-            {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket)}
+            if FlezhaUiWeb.Live.Refresh.concerns?(socket, data),
+              do: {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket)},
+              else: {:noreply, socket}
           end
         end
       end

@@ -421,6 +421,19 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       assert PeerNode.eventually(fn -> FakeController.streams(node, key) == [] end)
     end
 
+    test "a tap whose listen ended says so", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, @url)
+      render_click(view, "graph_tap", %{"direction" => "output"})
+
+      key = {Relay, :listen}
+      assert PeerNode.eventually(fn -> FakeController.streams(node, key) != [] end)
+
+      FakeController.end_stream(node, key, {:ok, :relay_ended})
+
+      assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tap-ended") end)
+      refute render(view) =~ "Waiting for a record"
+    end
+
     test "a refused tap states the refusal", %{conn: conn, node: node} do
       FakeController.set(
         node,

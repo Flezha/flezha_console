@@ -133,13 +133,13 @@ defmodule FlezhaUi.Service.DevSetup do
   defp ensure_relays(ns, relays, token) do
     running = ns |> NodeManager.list_relays(token) |> NodeManager.ok_or([]) |> MapSet.new()
 
-    Enum.reduce_while(relays, :ok, fn relay, :ok ->
+    each_ok(relays, fn relay ->
       if MapSet.member?(running, relay.id) do
-        {:cont, :ok}
+        :ok
       else
         case NodeManager.start_relay(ns, relay, token) do
-          {:ok, _started} -> {:cont, :ok}
-          error -> {:halt, {:error, {:start_relay, relay.id, error}}}
+          {:ok, _started} -> :ok
+          error -> {:error, {:start_relay, relay.id, error}}
         end
       end
     end)
@@ -150,7 +150,7 @@ defmodule FlezhaUi.Service.DevSetup do
   # bound to its relay all the same, so a seed whose binding was lost is
   # repaired rather than skipped.
   defp ensure_plugins(ns, plugins, token) do
-    Enum.reduce_while(plugins, :ok, fn plugin, :ok ->
+    each_ok(plugins, fn plugin ->
       fields = %{
         provider: plugin.provider,
         opts: plugin.opts,
@@ -160,8 +160,18 @@ defmodule FlezhaUi.Service.DevSetup do
       }
 
       case NodeManager.enable_plugin(plugin.name, fields, token) do
-        {:ok, _answer} -> {:cont, :ok}
-        error -> {:halt, {:error, {:enable_plugin, plugin.name, error}}}
+        {:ok, _answer} -> :ok
+        error -> {:error, {:enable_plugin, plugin.name, error}}
+      end
+    end)
+  end
+
+  # `fun` over each seed in order, stopping at the first that does not answer `:ok`.
+  defp each_ok(seeds, fun) do
+    Enum.reduce_while(seeds, :ok, fn seed, :ok ->
+      case fun.(seed) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
       end
     end)
   end

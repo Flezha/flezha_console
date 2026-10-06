@@ -72,18 +72,28 @@ The UI SHALL use the signed-in user's own flezha token when they have stored one
 
 ### Requirement: Verification results are cached
 
-Token verification SHALL be cached, keyed by a digest of the token, for a period no longer than the token's own `expires_at`, so a screen does not spend one remote call establishing identity per remote call that does work. A verification failure with an `authz.token_*` code SHALL be cached for the same short period; a transport failure or `authz.registry_unavailable` SHALL NOT be cached. A refusal from any call — `{:error, %Flezha.Error{class: :denied}}` — SHALL evict the cached entry for the token that made it.
+Token verification SHALL be cached, keyed by a digest of the token, for a period no longer than the token's own `expires_at`, so a screen does not spend one remote call establishing identity per remote call that does work. A verification failure with an `authz.token_*` code SHALL be cached for the same short period; a transport failure or `authz.registry_unavailable` SHALL NOT be cached. A refusal from any call — `{:error, %Flezha.Error{class: :denied}}` — SHALL evict the cached entry for the token that made it. A verification that times out or answers `authz.registry_unavailable` SHALL be reported as that failure, and the call SHALL NOT be made with an unbound caller context.
 
 #### Scenario: Repeated calls reuse one verification
 
 - **WHEN** a screen makes several controller calls on one refresh tick
 - **THEN** at most one token verification call is made
 
-#### Scenario: A revoked token stops working promptly
+#### Scenario: A revoked token stops working within the cache period
 
-- **WHEN** a cached token is revoked on the controller and a subsequent call is refused
-- **THEN** the cache entry is evicted
-- **AND** the next call re-verifies and finds the token revoked
+- **WHEN** a cached token is revoked on the controller
+- **THEN** calls keep the cached identity until its entry expires, because the controller sees only the principal
+- **AND** the first call after expiry re-verifies and finds the token revoked
+
+#### Scenario: A refused call evicts the cached verification
+
+- **WHEN** a call made with a cached token is refused, because the principal's binding was removed
+- **THEN** the cache entry is evicted and the next call re-verifies
+
+#### Scenario: The token store cannot answer
+
+- **WHEN** token verification answers `authz.registry_unavailable` or times out
+- **THEN** the call is not made and the screen shows that failure rather than a refusal
 
 #### Scenario: A failure that is not about the token
 

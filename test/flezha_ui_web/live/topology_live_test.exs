@@ -484,6 +484,19 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       assert has_element?(view, ~s([data-testid="summary-runners"]), "0")
     end
+
+    test "a runner event of another namespace does not reload the page", %{
+      conn: conn,
+      node: node
+    } do
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      FakeController.set(node, {Fleet, :runners}, {:ok, []})
+      send(view.pid, {:flezha_event, :runner_disconnected, {"other", "runner-z"}})
+      render(view)
+
+      assert has_element?(view, ~s([data-testid="summary-runners"]), "1")
+    end
   end
 
   describe "fleet summary health" do

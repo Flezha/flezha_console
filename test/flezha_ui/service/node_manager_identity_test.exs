@@ -216,7 +216,23 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
                NodeManager.audit_files(token)
     end
 
-    test "a refusal evicts the token, so a revocation costs one call", %{
+    test "an unanswerable verification is reported rather than called unbound", %{
+      node: node,
+      token: token
+    } do
+      refuse_verify(node, "authz.registry_unavailable")
+
+      assert {:error, %Flezha.Error{code: "authz.registry_unavailable"}} =
+               NodeManager.audit_stats(token)
+
+      assert {:error, %Flezha.Error{code: "authz.registry_unavailable"}} =
+               NodeManager.audit_tail(token, self())
+
+      assert FakeController.calls(node, {Flezha.Service.AuditLog, :stats}) == []
+      assert FakeController.calls(node, {Flezha.Service.AuditLog, :tail}) == []
+    end
+
+    test "a refusal evicts the token, so a removed binding costs one call", %{
       node: node,
       token: token
     } do

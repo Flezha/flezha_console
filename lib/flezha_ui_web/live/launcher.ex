@@ -252,21 +252,7 @@ defmodule FlezhaUiWeb.Live.Launcher do
       </div>
 
       <div :if={is_nil(@launcher.started)}>
-        <.notice
-          :if={is_binary(@launcher.error)}
-          kind={:error}
-          testid="start-error"
-          class="mb-4"
-        >
-          {@launcher.error}
-        </.notice>
-        <div
-          :if={@launcher.error && !is_binary(@launcher.error)}
-          data-testid="start-error"
-          class="mb-4"
-        >
-          <.runtime_error error={@launcher.error} action="the start" />
-        </div>
+        <.form_error error={@launcher.error} action="the start" testid="start-error" />
 
         <form phx-submit="launcher_submit" phx-change="launcher_change" class="space-y-4">
           <%!-- A screen that pinned its namespace does not ask again; the form

@@ -120,21 +120,11 @@
 >
   <:title>Declare Namespace</:title>
 
-  <.notice
-    :if={is_binary(@create_error)}
-    kind={:error}
+  <.form_error
+    error={@create_error}
+    action="the namespace create"
     testid="create-namespace-error"
-    class="mb-4"
-  >
-    {@create_error}
-  </.notice>
-  <div
-    :if={@create_error && !is_binary(@create_error)}
-    data-testid="create-namespace-error"
-    class="mb-4"
-  >
-    <.runtime_error error={@create_error} action="the namespace create" />
-  </div>
+  />
 
   <form phx-submit="create" phx-change="create_change" class="space-y-4">
     <.input

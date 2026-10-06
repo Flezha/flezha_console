@@ -153,4 +153,10 @@ defmodule FlezhaUi.Format do
   end
 
   def json_line(record), do: inspect(record)
+
+  @doc "What an operator is told when `Relay.stop` answered for relay `id`."
+  def relay_stopped(id, %{stopped: :cooperative}),
+    do: "Relay #{id} is stopping: it finishes its in-flight work before it is removed."
+
+  def relay_stopped(id, _answer), do: "Relay #{id} stopped."
 end

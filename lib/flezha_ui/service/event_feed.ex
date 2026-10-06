@@ -21,9 +21,10 @@ defmodule FlezhaUi.Service.EventFeed do
       nothing when `fun` answers `nil`.
 
   With `retry: true` an ended, refused or disconnected stream is opened again
-  after the retry interval, and `{:feed_reconnected, tag}` tells a `:send`
-  destination its stream has a gap. Without it the feed stops once its stream
-  has ended.
+  after the retry interval. Once a re-opened stream is known to be held — it
+  delivered an event, or the settle interval passed without a refusal —
+  `{:feed_reconnected, tag}` tells a `:send` destination its stream has a gap.
+  Without it the feed stops once its stream has ended.
   """
 
   use GenServer
@@ -34,6 +35,10 @@ defmodule FlezhaUi.Service.EventFeed do
   @pubsub FlezhaUi.PubSub
   @topic "flezha:events"
   @default_retry_interval 10_000
+
+  # A refusal is the operation's immediate answer; a re-opened stream that has
+  # not answered within this long is being held.
+  @default_settle_interval 1_000
 
   # The runner session signals core publishes on `:flezha_runner`. The source
   # carries the runner's other events too, which are not broadcast.
@@ -88,15 +93,36 @@ defmodule FlezhaUi.Service.EventFeed do
 
   def runner_event(_signal), do: nil
 
-  @doc "Stops a feed, releasing its stream. Safe on `nil` and on a feed already gone."
-  def stop(feed) when is_pid(feed) do
+  @doc """
+  Stops a feed, releasing its stream. Safe on `nil` and on a feed already gone.
+
+  Called by the owner of a `:send` feed with its `tag`, it also drops what the
+  feed already sent under that tag, so a successor opened under the same tag
+  never hears its predecessor.
+  """
+  def stop(feed, tag \\ nil) do
+    if is_pid(feed), do: halt(feed)
+    if tag != nil, do: flush(tag)
+    :ok
+  end
+
+  defp halt(feed) do
     Process.unlink(feed)
     GenServer.stop(feed, :normal)
   catch
     :exit, _gone -> :ok
   end
 
-  def stop(_feed), do: :ok
+  # Complete once `halt/1` returns: a local send is in the mailbox as soon as
+  # it is made, and a stopped feed sends nothing more.
+  defp flush(tag) do
+    receive do
+      {kind, ^tag, _payload} when kind in [:feed_event, :feed_error, :feed_ended] -> flush(tag)
+      {:feed_reconnected, ^tag} -> flush(tag)
+    after
+      0 -> :ok
+    end
+  end
 
   @impl true
   def init(opts) do
@@ -106,7 +132,8 @@ defmodule FlezhaUi.Service.EventFeed do
       retry?: Keyword.get(opts, :retry, false),
       request: nil,
       retry_ref: nil,
-      opened?: false
+      opened?: false,
+      reopening?: false
     }
 
     {:ok, state, {:continue, :open}}
@@ -119,19 +146,27 @@ defmodule FlezhaUi.Service.EventFeed do
   def handle_info(:retry_open, state), do: open(%{state | retry_ref: nil})
 
   def handle_info({:flezha_emit, event}, state) do
+    state = settle(state)
     deliver(state.to, event)
     {:noreply, state}
   end
+
+  def handle_info({:settled, request_id}, %{request: %{id: request_id}} = state),
+    do: {:noreply, settle(state)}
 
   def handle_info({:nodedown, node}, %{request: %{node: node}} = state) do
     Logger.warning("[EventFeed] Controller node #{node} went down")
     ended(%{state | request: nil}, {:error, :node_not_connected})
   end
 
-  def handle_info(message, %{request: %{} = request} = state) do
+  def handle_info(message, %{request: %{node: node} = request} = state) do
     case NodeManager.stream_result(message, request) do
-      :no_response -> {:noreply, state}
-      {:ended, result} -> ended(%{state | request: nil}, result)
+      :no_response ->
+        {:noreply, state}
+
+      {:ended, result} ->
+        Node.monitor(node, false)
+        ended(%{state | request: nil}, result)
     end
   end
 
@@ -139,19 +174,30 @@ defmodule FlezhaUi.Service.EventFeed do
 
   defp open(state) do
     case state.open.(self()) do
-      {:ok, %{node: node} = request} ->
+      {:ok, %{node: node, id: request_id} = request} ->
         Node.monitor(node, true)
-        if state.opened?, do: notify(state.to, :feed_reconnected)
-        {:noreply, %{state | request: request, opened?: true}}
+
+        if state.opened?,
+          do: Process.send_after(self(), {:settled, request_id}, settle_interval())
+
+        {:noreply, %{state | request: request, opened?: true, reopening?: state.opened?}}
 
       {:error, _reason} = refused ->
         ended(state, refused)
     end
   end
 
+  defp settle(%{reopening?: true} = state) do
+    notify(state.to, :feed_reconnected)
+    %{state | reopening?: false}
+  end
+
+  defp settle(state), do: state
+
   # The stream answered, so it is over: a window ran out, the relay ended, the
   # writer closed, or the controller refused it.
   defp ended(state, result) do
+    state = %{state | reopening?: false}
     report(state.to, result)
     if state.retry?, do: {:noreply, schedule_retry(state)}, else: {:stop, :normal, state}
   end
@@ -190,5 +236,9 @@ defmodule FlezhaUi.Service.EventFeed do
 
   defp retry_interval do
     Application.get_env(:flezha_ui, :event_feed_retry_interval_ms, @default_retry_interval)
+  end
+
+  defp settle_interval do
+    Application.get_env(:flezha_ui, :event_feed_settle_interval_ms, @default_settle_interval)
   end
 end

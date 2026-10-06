@@ -25,7 +25,6 @@ defmodule FlezhaUiWeb.ListenLive do
         relay_id: relay_id,
         direction: "output",
         feed: nil,
-        tag: nil,
         status: :connecting,
         error: nil,
         messages: [],
@@ -66,51 +65,44 @@ defmodule FlezhaUiWeb.ListenLive do
   end
 
   @impl true
-  # Matched on the current listen's tag: a feed stopped by a direction switch
-  # may still have a message in flight.
-  def handle_info({_kind, tag, _payload}, %{assigns: %{tag: current}} = socket)
-      when tag != current,
-      do: {:noreply, socket}
-
-  def handle_info({:feed_event, _tag, :attached}, socket) do
+  def handle_info({:feed_event, :listen, :attached}, socket) do
     {:noreply, assign(socket, status: :connected)}
   end
 
-  def handle_info({:feed_event, _tag, {kind, payload, meta}}, socket)
+  def handle_info({:feed_event, :listen, {kind, payload, meta}}, socket)
       when kind in [:output, :input, :part] do
     {:noreply, add(socket, Map.put(Format.frame(payload, meta), :kind, kind))}
   end
 
-  def handle_info({:feed_event, _tag, {:dead_lettered, error, meta}}, socket) do
+  def handle_info({:feed_event, :listen, {:dead_lettered, error, meta}}, socket) do
     frame = %{Format.frame("", meta) | message: NodeManager.error(error).message}
     {:noreply, add(socket, Map.put(frame, :kind, :dead_lettered))}
   end
 
-  def handle_info({:feed_event, _tag, _other}, socket), do: {:noreply, socket}
+  def handle_info({:feed_event, :listen, _other}, socket), do: {:noreply, socket}
 
-  def handle_info({:feed_error, _tag, error}, socket) do
+  def handle_info({:feed_error, :listen, error}, socket) do
     {:noreply, assign(socket, status: :error, error: error, feed: nil)}
   end
 
   # The listen answered, so the relay ended or the controller let it go.
-  def handle_info({:feed_ended, _tag, _answer}, socket) do
+  def handle_info({:feed_ended, :listen, _answer}, socket) do
     {:noreply, assign(socket, status: :ended, feed: nil)}
   end
 
   defp listen(socket) do
-    EventFeed.stop(socket.assigns.feed)
+    # Stopped under its tag, so nothing the old listen sent reaches the new one.
+    EventFeed.stop(socket.assigns.feed, :listen)
     %{ns: ns, relay_id: id, direction: direction, flezha_token: token} = socket.assigns
     direction = String.to_existing_atom(direction)
-
-    tag = make_ref()
 
     {:ok, feed} =
       EventFeed.start_link(
         open: &NodeManager.listen(ns, id, direction, token, &1),
-        to: {:send, self(), tag}
+        to: {:send, self(), :listen}
       )
 
-    assign(socket, feed: feed, tag: tag, status: :connecting, error: nil)
+    assign(socket, feed: feed, status: :connecting, error: nil)
   end
 
   defp add(socket, frame) do

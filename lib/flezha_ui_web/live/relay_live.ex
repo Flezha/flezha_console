@@ -80,12 +80,11 @@ defmodule FlezhaUiWeb.RelayLive do
       when direction in ~w(input output) do
     socket = close_tap(socket)
     %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
-    tag = make_ref()
 
     {:ok, feed} =
       EventFeed.start_link(
         open: &NodeManager.listen(ns, id, String.to_existing_atom(direction), token, &1),
-        to: {:send, self(), tag}
+        to: {:send, self(), :payload_tap}
       )
 
     {:noreply,
@@ -93,12 +92,12 @@ defmodule FlezhaUiWeb.RelayLive do
        tap: %{
          direction: direction,
          feed: feed,
-         tag: tag,
          started_at: System.monotonic_time(:millisecond),
          count: 0,
          bytes: 0,
          recent: [],
-         error: nil
+         error: nil,
+         ended?: false
        }
      )}
   end
@@ -150,7 +149,7 @@ defmodule FlezhaUiWeb.RelayLive do
           {:noreply,
            socket
            |> assign(rewind_target: nil)
-           |> put_flash(:error, FlezhaUiWeb.CoreComponents.error_message(reason, "the rewind"))}
+           |> put_flash(:error, error_message(reason, "the rewind"))}
 
         _ok ->
           {:noreply,
@@ -182,14 +181,14 @@ defmodule FlezhaUiWeb.RelayLive do
       {:ok, answer} ->
         {:noreply,
          socket
-         |> put_flash(:info, stopped_message(id, answer))
+         |> put_flash(:info, Format.relay_stopped(id, answer))
          |> push_navigate(to: ~p"/namespaces/#{ns}")}
 
       {:error, reason} ->
         {:noreply,
          socket
          |> assign(confirm_stop: false)
-         |> put_flash(:error, FlezhaUiWeb.CoreComponents.error_message(reason, "the stop"))}
+         |> put_flash(:error, error_message(reason, "the stop"))}
     end
   end
 
@@ -299,12 +298,12 @@ defmodule FlezhaUiWeb.RelayLive do
         {:noreply,
          socket
          |> assign(confirm_detach: nil)
-         |> put_flash(:error, FlezhaUiWeb.CoreComponents.error_message(reason, "the disable"))}
+         |> put_flash(:error, error_message(reason, "the disable"))}
     end
   end
 
   @impl true
-  def handle_info({kind, tag, event}, %{assigns: %{tap: %{tag: tag} = tap}} = socket) do
+  def handle_info({kind, :payload_tap, event}, %{assigns: %{tap: %{} = tap}} = socket) do
     {:noreply, assign(socket, tap: tap_event(tap, kind, event))}
   end
 
@@ -322,13 +321,15 @@ defmodule FlezhaUiWeb.RelayLive do
     }
   end
 
-  defp tap_event(tap, :feed_error, reason), do: %{tap | error: reason}
+  # Either way the feed has stopped, so the tap is no longer live.
+  defp tap_event(tap, :feed_error, reason), do: %{tap | error: reason, feed: nil}
+  defp tap_event(tap, :feed_ended, _answer), do: %{tap | ended?: true, feed: nil}
   defp tap_event(tap, _kind, _event), do: tap
 
   defp close_tap(%{assigns: %{tap: nil}} = socket), do: socket
 
   defp close_tap(%{assigns: %{tap: tap}} = socket) do
-    EventFeed.stop(tap.feed)
+    EventFeed.stop(tap.feed, :payload_tap)
     assign(socket, tap: nil)
   end
 
@@ -466,11 +467,6 @@ defmodule FlezhaUiWeb.RelayLive do
         {:error, reason}
     end
   end
-
-  defp stopped_message(id, %{stopped: :cooperative}),
-    do: "Relay #{id} is stopping: it finishes its in-flight work before it is removed."
-
-  defp stopped_message(id, _answer), do: "Relay #{id} stopped."
 
   defp attached_message(name, %{outcome: :already_enabled}),
     do: "Plugin #{name} was already enabled; this relay is bound to it."

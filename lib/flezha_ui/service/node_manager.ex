@@ -190,8 +190,10 @@ defmodule FlezhaUi.Service.NodeManager do
   @doc """
   Drops a token's cached verification, so the next call re-asks the controller.
 
-  Called when a call is refused: a revocation then costs at most one refused
-  call rather than a whole TTL of them.
+  Called when a call is refused, so a principal whose binding was removed is
+  re-verified on its next call. A revoked token is not refused by the
+  controller, which sees only the principal: it stops working when its cached
+  verification expires.
   """
   def evict_token(token) when is_binary(token) do
     cache_delete({:token, token_key(token)})
@@ -210,30 +212,45 @@ defmodule FlezhaUi.Service.NodeManager do
 
   This is the only construction site for a caller context in the UI.
   """
-  def caller_context(token) when is_binary(token) and token != "" do
-    case verify_token(token) do
-      {:ok, %{principal: principal} = identity} when is_binary(principal) ->
-        %{
-          source: :ui,
-          principal: principal,
-          namespace: Map.get(identity, :namespace),
-          role: Map.get(identity, :role)
-        }
-
-      _ ->
-        %{source: :ui}
+  def caller_context(token) do
+    case resolve_context(token) do
+      {:ok, context} -> context
+      {:error, _transient} -> %{source: :ui}
     end
   end
 
-  def caller_context(_token), do: %{source: :ui}
+  # A verification that could not be answered is that failure, not an unbound
+  # caller: calling unbound would show a refusal the token did not earn.
+  defp resolve_context(token) do
+    case verify_token(token) do
+      {:ok, %{principal: principal} = identity} when is_binary(principal) ->
+        {:ok,
+         %{
+           source: :ui,
+           principal: principal,
+           namespace: Map.get(identity, :namespace),
+           role: Map.get(identity, :role)
+         }}
+
+      {:error, :timeout} = failed ->
+        failed
+
+      {:error, %{code: "authz.registry_unavailable"}} = failed ->
+        failed
+
+      _ ->
+        {:ok, %{source: :ui}}
+    end
+  end
 
   # A published function, called with the caller context appended. A refusal
-  # evicts the token's cached verification on the way out, which is what makes
-  # a revoked token stop working within one call rather than one TTL.
+  # evicts the token's cached verification on the way out.
   defp authorized_call(token, module, function, args, timeout \\ @default_timeout) do
-    module
-    |> erpc_call(function, args ++ [caller_context(token)], timeout)
-    |> evicting(token)
+    with {:ok, context} <- resolve_context(token) do
+      module
+      |> erpc_call(function, args ++ [context], timeout)
+      |> evicting(token)
+    end
   end
 
   # As `authorized_call/4`, for a function that answers a collection: anything
@@ -241,10 +258,14 @@ defmodule FlezhaUi.Service.NodeManager do
   defp authorized_list_call(token, module, function, args) do
     case authorized_call(token, module, function, args) do
       {:ok, list} when is_list(list) -> {:ok, list}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:remote_error, other}}
+      other -> unexpected(other)
     end
   end
+
+  # An answer outside the shape a caller expects: an error is handed on, and
+  # anything else is reported as the controller's, rather than matched wrongly.
+  defp unexpected({:error, _reason} = error), do: error
+  defp unexpected(other), do: {:error, {:remote_error, other}}
 
   # A published stream operation, issued without waiting: the controller runs
   # it in an `:erpc` worker and hands each event to `emit_pid` as
@@ -256,9 +277,11 @@ defmodule FlezhaUi.Service.NodeManager do
         {:error, :node_not_connected}
 
       node ->
-        context = token |> caller_context() |> Map.put(:emit, emit_pid)
-        request_id = :erpc.send_request(node, module, function, args ++ [context])
-        {:ok, %{node: node, id: request_id, token: token}}
+        with {:ok, context} <- resolve_context(token) do
+          context = Map.put(context, :emit, emit_pid)
+          request_id = :erpc.send_request(node, module, function, args ++ [context])
+          {:ok, %{node: node, id: request_id, token: token}}
+        end
     end
   end
 
@@ -293,8 +316,7 @@ defmodule FlezhaUi.Service.NodeManager do
     case erpc_call(Flezha.AuthZ, :enforcement_posture, []) do
       posture when posture in [:open, :bootstrap_pending, :enforced] -> posture
       {:error, {:api_missing, _m, _f, _a}} -> :open
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:remote_error, other}}
+      other -> unexpected(other)
     end
   end
 
@@ -554,11 +576,8 @@ defmodule FlezhaUi.Service.NodeManager do
       {:ok, dump} when is_map(dump) or is_list(dump) ->
         {:ok, for({id, entry} <- dump, is_binary(id), into: %{}, do: {id, entry_run(entry)})}
 
-      {:error, reason} ->
-        {:error, reason}
-
       other ->
-        {:error, {:remote_error, other}}
+        unexpected(other)
     end
   end
 
@@ -842,8 +861,7 @@ defmodule FlezhaUi.Service.NodeManager do
   def overwatch_facts(namespace, relay_id, token) do
     case overwatch_state(namespace, relay_id, token) do
       {:ok, state} when is_map(state) -> {:ok, decode_overwatch(state, relay_id)}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:remote_error, other}}
+      other -> unexpected(other)
     end
   end
 
@@ -1141,8 +1159,7 @@ defmodule FlezhaUi.Service.NodeManager do
   def providers(token) do
     case authorized_call(token, Flezha.Service.Fleet, :providers, []) do
       {:ok, %{providers: providers}} -> {:ok, providers}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:remote_error, other}}
+      other -> unexpected(other)
     end
   end
 
@@ -1349,8 +1366,7 @@ defmodule FlezhaUi.Service.NodeManager do
   def controller_monotonic_us(token) do
     case controller_status(token) do
       {:ok, %{monotonic_us: now}} when is_integer(now) -> now
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:remote_error, other}}
+      other -> unexpected(other)
     end
   end
 

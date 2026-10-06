@@ -18,6 +18,11 @@ Runner connect and disconnect events SHALL reach the UI as the runner session si
 - **WHEN** a runner disconnects and the controller publishes its runner-disconnected signal
 - **THEN** subscribed LiveViews reflect the runner's departure
 
+#### Scenario: A runner of another namespace
+
+- **WHEN** a runner signal names a namespace other than the one a screen is scoped to
+- **THEN** that screen does not reload for it
+
 #### Scenario: Other signals on the same source are ignored
 
 - **WHEN** the tailed source carries a signal that is not a runner session signal
@@ -135,7 +140,17 @@ A live tail of an observability source or of the audit log SHALL be carried by `
 
 - **WHEN** a tail's subscription ends while the screen is open, because the controller restarted or the connection dropped
 - **THEN** the tail is re-established by the event feed's recovery path
-- **AND** the screen states that the tail reconnected rather than silently stopping
+- **AND** the screen states that the tail reconnected rather than silently stopping, once the re-opened stream delivers an event or is not refused within the settle interval
+
+#### Scenario: The re-opened tail is refused
+
+- **WHEN** the event feed re-opens a tail and the controller refuses it
+- **THEN** the screen keeps stating the refusal and does not state that the tail reconnected
+
+#### Scenario: A tail is replaced
+
+- **WHEN** a screen stops a feed to open another under the same tag
+- **THEN** nothing the stopped feed already sent reaches the screen
 
 #### Scenario: The pubsub sink is disabled
 

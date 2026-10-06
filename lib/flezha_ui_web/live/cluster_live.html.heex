@@ -58,7 +58,7 @@
         <%= cond do %>
           <% ns.hub_error -> %>
             <span data-testid={"hub-nodes-#{ns.name}"} class="text-warning">
-              {FlezhaUiWeb.CoreComponents.error_message(ns.hub_error, "the hub read")}
+              {error_message(ns.hub_error, "the hub read")}
             </span>
           <% ns.hub_nodes == [] -> %>
             <span data-testid={"hub-nodes-#{ns.name}"} class="text-th-muted">no hub running</span>

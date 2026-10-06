@@ -23,6 +23,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       "runners" => false
     }
 
+  alias FlezhaUi.Format
   alias FlezhaUi.Service.NodeManager
   alias FlezhaUiWeb.Topology
 
@@ -136,7 +137,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         {:noreply,
          socket
          |> assign(rescale: nil)
-         |> put_flash(:error, FlezhaUiWeb.CoreComponents.error_message(reason, "the rescale"))}
+         |> put_flash(:error, error_message(reason, "the rescale"))}
 
       _ok ->
         {:noreply,
@@ -165,13 +166,13 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
          socket
          |> assign(confirm_stop: nil)
          |> refresh()
-         |> put_flash(:info, stopped_message(relay_id, answer))}
+         |> put_flash(:info, Format.relay_stopped(relay_id, answer))}
 
       {:error, reason} ->
         {:noreply,
          socket
          |> assign(confirm_stop: nil)
-         |> put_flash(:error, FlezhaUiWeb.CoreComponents.error_message(reason, "the stop"))}
+         |> put_flash(:error, error_message(reason, "the stop"))}
     end
   end
 
@@ -241,11 +242,6 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       atom -> Map.put(limits, atom, value)
     end
   end
-
-  defp stopped_message(id, %{stopped: :cooperative}),
-    do: "Relay #{id} is stopping: it finishes its in-flight work before it is removed."
-
-  defp stopped_message(id, _answer), do: "Relay #{id} stopped."
 
   # Off the refresh tick and off the mount: the controller reads an overwatch
   # per live relay to answer it, which is seconds on a busy namespace. Loaded
