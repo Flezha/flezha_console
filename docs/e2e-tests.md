@@ -123,8 +123,9 @@ e2e/
                     panels), `toggleTheme()` (the toggle lives in the account
                     menu) and `openPalette()`; the schedule form helpers, and
                     `openSettings()`/`clearStoredToken()` for the token a spec
-                    stores and must leave behind it undone; and `cliCall()`,
-                    which calls the controller as `flz` does
+                    stores and must leave behind it undone; `cliCall()`,
+                    which calls the controller as `flz` does; and
+                    `deleteConsoleUser()` for a user a test registered
   login.spec.ts     the form itself, with no stored session
   account.spec.ts   registration, logging in by the emailed link, logging out,
                     and the settings forms, as a user each test registers
@@ -207,7 +208,8 @@ controller: it shells out to the release launcher, which a controller running
 under `iex -S mix` does not have.
 
 A spec that writes state does it on something it made itself — a relay, a
-plugin, a schedule, a token, a binding, a namespace, a parked entry — and
+plugin, a schedule, a token, a binding, a namespace, a parked entry, a
+registered console user — and
 undoes it in `finally`; the one seeded value a spec changes, a relay class's
 history retention, it sets back. A disabled plugin keeps its bindings, so
 `disablePlugin()` unbinds every relay first.

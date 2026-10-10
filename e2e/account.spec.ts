@@ -1,4 +1,4 @@
-import { test, expect, uniqueId, type Page } from './fixtures';
+import { test, expect, deleteConsoleUser, uniqueId, type Page } from './fixtures';
 import { DEV_EMAIL } from './global-setup';
 
 /**
@@ -8,8 +8,7 @@ import { DEV_EMAIL } from './global-setup';
  * Nothing here runs as the seeded dev user: changing its password or ending
  * its session would log every later spec out. The dev stack's mail goes to the
  * Swoosh mailbox at `/dev/mailbox`, which is where the login link is read
- * from. A registered user stays in the console's own database, never in the
- * controller.
+ * from. Each user a test registers is deleted again when it finishes.
  */
 test.use({ storageState: { cookies: [], origins: [] } });
 
@@ -44,6 +43,8 @@ async function registerAndLogIn(page: Page): Promise<string> {
   await page.goto(await loginLink(page, email));
   await page.getByRole('button', { name: 'Confirm and stay logged in' }).click();
   await expect(page).toHaveURL(/localhost:4000\/$/);
+  // Joined before the test moves on, so the page is not left mid-connect.
+  await expect(page.locator('[data-phx-main]')).not.toHaveClass(/phx-loading/);
   return email;
 }
 
@@ -60,21 +61,33 @@ test.describe('Registration', () => {
   test('a new account logs in by its emailed link, and logging out ends the session', async ({
     page,
   }) => {
-    const email = await registerAndLogIn(page);
+    let email = '';
 
-    await page.getByTestId('account-menu').click();
-    await expect(page.getByTestId('account-identity')).toContainText(email);
-    await page.getByTestId('log-out').click();
-    await expect(page).toHaveURL(/\/users\/log-in$/);
+    try {
+      email = await registerAndLogIn(page);
 
-    await page.goto('/');
-    await expect(page).toHaveURL(/\/users\/log-in$/);
+      await page.getByTestId('account-menu').click();
+      await expect(page.getByTestId('account-identity')).toContainText(email);
+      await page.getByTestId('log-out').click();
+      await expect(page).toHaveURL(/\/users\/log-in$/);
+
+      await page.goto('/');
+      await expect(page).toHaveURL(/\/users\/log-in$/);
+    } finally {
+      if (email) deleteConsoleUser(email);
+    }
   });
 });
 
 test.describe('Account settings', () => {
+  let email = '';
+
+  test.afterEach(() => {
+    if (email) deleteConsoleUser(email);
+  });
+
   test.beforeEach(async ({ page }) => {
-    await registerAndLogIn(page);
+    email = await registerAndLogIn(page);
     await page.goto('/users/settings');
     await expect(page.getByTestId('flezha-token-settings')).toBeVisible();
   });

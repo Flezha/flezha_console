@@ -98,11 +98,14 @@ test.describe('Theme contract', () => {
     await toggleTheme(page);
     await expect(theme(page)).toHaveAttribute('data-theme', 'light');
 
+    // Polled, because the colours transition into the new theme.
     expect(await bg('.flz-sidebar'), 'the chrome flips with the canvas').not.toBe(sidebarDark);
-    expect(await bg('.flz-sidebar')).toBe(await rgb(page, await token(page, '--chrome-pale')));
-    expect(await current.evaluate((el) => getComputedStyle(el).color)).toBe(
-      await rgb(page, await token(page, '--accent-solid')),
-    );
+    await expect
+      .poll(() => bg('.flz-sidebar'))
+      .toBe(await rgb(page, await token(page, '--chrome-pale')));
+    await expect
+      .poll(() => current.evaluate((el) => getComputedStyle(el).color))
+      .toBe(await rgb(page, await token(page, '--accent-solid')));
   });
 
   test('the badger lockup is painted in each theme', async ({ page, live }) => {

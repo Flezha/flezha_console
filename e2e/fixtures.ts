@@ -10,31 +10,53 @@ export function uniqueId(prefix: string): string {
 }
 
 /**
- * Runs the published operation `door` on the dev controller as `flz` sends it
- * (`priv/dev/cli_call.exs` inside `fui_web`), so the controller sees a CLI
- * call, and answers its parsed JSON. Throws with the script's output when the
- * operation fails.
+ * Runs `elixir` inside `fui_web` as a distributed node of the dev stack, so a
+ * script can reach the console and the controller, and answers its output.
+ * Throws with the script's output when it fails.
  */
-export function cliCall(door: string, args: unknown[]): unknown {
-  const argv = [
-    'exec',
-    'fui_web',
-    'elixir',
-    '--sname',
-    uniqueId('pw_cli'),
-    '--cookie',
-    'flezha_dev_cookie',
-    '/flezha_ui/priv/dev/cli_call.exs',
-    door,
-    JSON.stringify(args),
-  ];
+function devElixir(what: string, args: string[]): string {
+  const argv = ['exec', 'fui_web', 'elixir', '--sname', uniqueId('pw_cli'), '--cookie', 'flezha_dev_cookie', ...args];
 
   try {
-    return JSON.parse(execFileSync('docker', argv, { encoding: 'utf8', stdio: 'pipe' }));
+    return execFileSync('docker', argv, { encoding: 'utf8', stdio: 'pipe' });
   } catch (error) {
     const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string };
-    throw new Error(`cliCall ${door} failed:\n${stdout}${stderr}`);
+    throw new Error(`${what} failed:\n${stdout}${stderr}`);
   }
+}
+
+/**
+ * Runs the published operation `door` on the dev controller as `flz` sends it
+ * (`priv/dev/cli_call.exs` inside `fui_web`), so the controller sees a CLI
+ * call, and answers its parsed JSON.
+ */
+export function cliCall(door: string, args: unknown[]): unknown {
+  return JSON.parse(
+    devElixir(`cliCall ${door}`, ['/flezha_ui/priv/dev/cli_call.exs', door, JSON.stringify(args)]),
+  );
+}
+
+// Run inside the console's own node: the email arrives as an argument, never
+// as code.
+const DELETE_USER = `
+{:ok, host} = :inet.gethostname()
+node = :"flezha_ui@#{host}"
+true = Node.connect(node)
+[email] = System.argv()
+
+case :erpc.call(node, FlezhaUi.Accounts, :get_user_by_email, [email]) do
+  nil -> :ok
+  user -> :erpc.call(node, FlezhaUi.Repo, :delete!, [user])
+end
+`;
+
+/**
+ * Deletes a console user a test registered, with its sessions. The console
+ * offers no screen that deletes an account, so a test that made one removes
+ * it here. Safe from `finally`: an email with no user is left alone.
+ */
+export function deleteConsoleUser(email: string): void {
+  devElixir(`deleting ${email}`, ['--hidden', '-e', DELETE_USER, email]);
 }
 
 /**
