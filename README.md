@@ -55,7 +55,7 @@ reading the namespace from the path instead of from a filter control.
 | `/cluster` | Cluster nodes, per-node health rollup, hub recovery and each namespace's recovery detail per node, runner fleet with OS pids; drop a runner and readmit its process |
 | `/observability` | Observability sources and sinks, their enabled state, and a live signal tail |
 | `/controller` | Durability posture, RPO breaches and the shipper's own status, shutdown and boot state, authorization posture, memory hot spots; drain and stop the controller, watching each phase |
-| `/schedules` | Cron schedules with live job status and next fire; run one now |
+| `/schedules` | Cron schedules with their status (Active while a node holds the job, Inactive while none does) and next fire; run one now |
 | `/dlq` | Parked dead-letter entries grouped by tasklet; inspect, replay, drop |
 | `/audit` | Audit file catalog, filtered reads, live tail, rotation |
 

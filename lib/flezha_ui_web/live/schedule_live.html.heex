@@ -77,18 +77,12 @@
               <td class="flz-num text-xs">{schedule.factory_id}</td>
               <td class="text-xs">
                 <span
-                  :if={schedule.armed}
                   data-testid={"schedule-status-#{schedule.name}"}
                   class="flz-badge"
+                  title={status(schedule.armed).title}
                 >
-                  <span class="w-1.5 h-1.5 rounded-full bg-success"></span> Armed
-                </span>
-                <span
-                  :if={!schedule.armed}
-                  data-testid={"schedule-status-#{schedule.name}"}
-                  class="flz-badge"
-                >
-                  <span class="w-1.5 h-1.5 rounded-full bg-th-muted"></span> Not armed
+                  <span class={["w-1.5 h-1.5 rounded-full", status(schedule.armed).dot]}></span>
+                  {status(schedule.armed).label}
                 </span>
               </td>
               <td class="text-xs">

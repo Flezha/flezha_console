@@ -35,7 +35,12 @@ The UI SHALL list schedule entries from `Flezha.Service.Schedule.list/1`, which 
 #### Scenario: An entry has no live job
 
 - **WHEN** the hub holds nothing for a stored entry, so no node fires it
-- **THEN** the entry is listed with an explicit not-armed status rather than a blank status
+- **THEN** the entry is listed with the status "Inactive" rather than a blank status
+
+#### Scenario: An entry a node fires
+
+- **WHEN** the hub holds a live job for a stored entry
+- **THEN** the entry is listed with the status "Active"
 
 #### Scenario: No schedules exist
 
@@ -50,7 +55,7 @@ An operator SHALL be able to create a schedule by supplying a name, cron express
 
 - **WHEN** an operator submits a valid name, cron expression, timezone, and a steps factory as target
 - **THEN** `Service.Schedule.add/2` is called once with those fields
-- **AND** the entry appears in the list with an armed status and its next fire
+- **AND** the entry appears in the list with the status "Active" and its next fire
 
 #### Scenario: Choosing the target namespace
 
@@ -110,7 +115,7 @@ Removing a schedule SHALL retract it from the hub and delete the persisted entry
 #### Scenario: Removal is not confirmed
 
 - **WHEN** an operator dismisses the removal confirmation
-- **THEN** the schedule remains armed and listed
+- **THEN** the schedule remains listed with the status "Active"
 
 ### Requirement: A schedule is run now on request
 

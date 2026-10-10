@@ -41,9 +41,9 @@ test.describe('Schedules', () => {
       await expect(page.getByTestId('schedule-form-modal')).toHaveCount(0);
       await expect(page.getByTestId(`schedule-row-${name}`)).toBeVisible();
 
-      // Persisted *and* armed: an entry the hub never accepted would read
-      // "Not armed", which is the state this screen exists to distinguish.
-      await expect(page.getByTestId(`schedule-status-${name}`)).toContainText('Armed');
+      // Persisted *and* active: an entry the hub never accepted would read
+      // "Inactive", which is the state this screen exists to distinguish.
+      await expect(page.getByTestId(`schedule-status-${name}`)).toHaveText('Active');
 
       // Next fire is computed from the cron, not reported by the hub.
       await expect(page.getByTestId(`schedule-next-fire-${name}`)).toHaveText(
@@ -119,12 +119,13 @@ test.describe('Schedules', () => {
       await page.getByTestId('schedule-form-submit').click();
       await expect(page.getByTestId(`schedule-row-${name}`)).toBeVisible();
 
-      // Dismissing the confirmation must leave the schedule armed.
+      // Dismissing the confirmation must leave the schedule active.
       await page.getByTestId(`schedule-remove-${name}`).click();
       await expect(page.getByTestId('schedule-remove-modal')).toBeVisible();
       await page.getByTestId('schedule-remove-cancel').click();
       await expect(page.getByTestId('schedule-remove-modal')).toHaveCount(0);
       await expect(page.getByTestId(`schedule-row-${name}`)).toBeVisible();
+      await expect(page.getByTestId(`schedule-status-${name}`)).toHaveText('Active');
 
       // Confirming removes it.
       await page.getByTestId(`schedule-remove-${name}`).click();

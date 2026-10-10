@@ -65,13 +65,15 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
       assert html =~ ~s(data-testid="schedule-empty")
     end
 
-    test "an entry a node fires reads as armed, with its next fire", %{conn: conn, node: node} do
+    test "an entry a node fires reads as active, with its next fire", %{conn: conn, node: node} do
       with_entries(node, [entry()])
 
       {:ok, view, html} = live(conn, ~p"/schedules")
 
       assert html =~ ~s(data-testid="schedule-row-nightly")
-      assert view |> element(~s([data-testid="schedule-status-nightly"])) |> render() =~ "Armed"
+      status = view |> element(~s([data-testid="schedule-status-nightly"])) |> render()
+      assert status =~ ~r/>\s*Active\s*</
+      assert status =~ "A node holds this schedule"
       assert html =~ "echo_steps"
 
       assert view |> element(~s([data-testid="schedule-next-fire-nightly"])) |> render() =~
@@ -92,8 +94,9 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/schedules")
 
-      assert view |> element(~s([data-testid="schedule-status-nightly"])) |> render() =~
-               "Not armed"
+      status = view |> element(~s([data-testid="schedule-status-nightly"])) |> render()
+      assert status =~ ~r/>\s*Inactive\s*</
+      assert status =~ "No node holds this schedule right now"
     end
 
     test "the scoped screen lists the namespace's entries and says how it scopes", %{

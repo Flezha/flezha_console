@@ -187,6 +187,23 @@ defmodule FlezhaUiWeb.ScheduleLive do
     }
   end
 
+  # The status badge: `armed` is the controller's word, which the operator
+  # never sees.
+  defp status(true),
+    do: %{
+      label: "Active",
+      dot: "bg-success",
+      title: "A node holds this schedule and fires it on time; the last fire shows how that went."
+    }
+
+  defp status(false),
+    do: %{
+      label: "Inactive",
+      dot: "bg-th-muted",
+      title:
+        "No node holds this schedule right now, so it does not fire: the schedule hub may be down or still taking it."
+    }
+
   defp next_fire(%DateTime{} = dt), do: dt
   defp next_fire({:ok, %DateTime{} = dt}), do: dt
   defp next_fire(_none), do: nil
