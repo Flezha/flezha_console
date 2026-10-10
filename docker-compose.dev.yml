@@ -205,6 +205,9 @@ services:
       # Written by the `bootstrap` service. Read as a file rather than an env
       # var because it is issued after this container starts.
       FLEZHA_TOKEN_FILE: /auth/ui.token
+      # A config or dependency change stops the console, and the restart
+      # policy below brings it back with the new configuration.
+      FLEZHA_UI_RESTART_ON_CONFIG_CHANGE: "true"
     depends_on:
       db:
         condition: service_healthy

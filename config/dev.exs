@@ -86,6 +86,11 @@ config :phoenix_live_view,
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
 
+# Only `fui_web` sets this: there a restart is the container's, while a
+# `mix phx.server` on the host would just stop under the developer.
+config :flezha_ui,
+  restart_on_config_change: System.get_env("FLEZHA_UI_RESTART_ON_CONFIG_CHANGE") == "true"
+
 # Auto-start testnet relays and plugins in dev mode.
 #
 # Factory ids come from the runner at `flezha/test/apps/rust_runner`; provider

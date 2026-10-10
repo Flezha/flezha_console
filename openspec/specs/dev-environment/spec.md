@@ -180,3 +180,28 @@ The dev environment SHALL NOT migrate controller state written under the retired
 - **WHEN** `README.md` is read
 - **THEN** it gives the reset steps and states that they discard all dev controller state
 
+### Requirement: The dev console restarts itself on a configuration change
+
+When the dev console runs in the `fui_web` container and a config file Phoenix's code reloader checks (`Mix.Project.config_files/0` under `config/`), `mix.exs` or `mix.lock` changes, the console SHALL stop its VM so that the container's restart policy starts it again with the new configuration and dependencies. Any other file, including an editor's lock or temporary file beside a config file, SHALL NOT stop it. The behaviour SHALL be enabled only by `FLEZHA_UI_RESTART_ON_CONFIG_CHANGE=true`, which the dev compose file sets on `fui_web`, only in the VM that serves the endpoint, and SHALL NOT be active in any other run.
+
+#### Scenario: A config file changes in the dev stack
+
+- **WHEN** `config/dev.exs` is saved while the dev stack runs
+- **THEN** `fui_web` restarts once
+- **AND** the console serves pages again without the "You must restart your server" error
+
+#### Scenario: Several writes from one save
+
+- **WHEN** an editor writes the same config file several times within half a second
+- **THEN** the console restarts once
+
+#### Scenario: An editor's lock file
+
+- **WHEN** an editor creates `config/.#dev.exs` while the config file is being edited
+- **THEN** the console keeps running
+
+#### Scenario: Outside the container
+
+- **WHEN** `mix phx.server` runs without `FLEZHA_UI_RESTART_ON_CONFIG_CHANGE=true`
+- **THEN** no watcher is started and a config change does not stop the server
+

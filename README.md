@@ -122,6 +122,13 @@ docker compose -f docker-compose.dev.yml up --build
 Without the stylebook, `mix assets.stylebook` stops with a message naming it
 and where it is expected, rather than producing an unstyled build.
 
+Saving `config/config.exs`, `config/dev.exs`, `mix.exs` or `mix.lock` restarts
+the `web` container by itself (`FLEZHA_UI_RESTART_ON_CONFIG_CHANGE` on
+`fui_web`), so the console picks up the change instead of showing Phoenix's "You
+must restart your server" page. Only the VM serving the console watches: an
+`iex -S mix` in the container, or a `mix phx.server` on the host, is never
+stopped this way.
+
 The controller enforces authorization by default, so the stack claims its own
 bootstrap: a one-shot `bootstrap` service waits for the controller node, claims
 the bootstrap, issues a `_system` token and writes it to a shared volume. The
@@ -185,7 +192,7 @@ A cold start then seeds cleanly in the current vocabulary.
 
 | Container | Role |
 | --- | --- |
-| `fui_plugin_packages` | One-shot: builds and places the plugin packages the controller loads at boot |
+| `fui_plugin_packages` | One-shot: builds and places the plugin packages the controller loads at boot. Any `docker compose up`, even of one service, runs it again, and the controller lists the re-placed packages as pending until `docker restart flezha_controller` |
 | `flezha_controller` | The controller, built from `../flezha/docker/dev/Dockerfile.toolchain` |
 | `flezha_rust_runner` | `test/apps/rust_runner`, waits for the control socket then connects |
 | `fui_bootstrap` | One-shot: claims the authorization bootstrap and issues the UI's token |
@@ -198,6 +205,7 @@ Useful commands:
 ```bash
 docker exec fui_web mix compile                      # after editing .ex files
 docker logs fui_web 2>&1 | grep EventFeed            # signal feed status
+docker logs fui_web 2>&1 | grep ConfigWatcher        # why the console restarted itself
 docker attach flezha_controller                      # controller iex (detach: Ctrl+P Ctrl+Q)
 docker exec fui_web elixir --sname cli1 --cookie flezha_dev_cookie \
   /flezha_ui/priv/dev/cli_call.exs Relay.call_channel \

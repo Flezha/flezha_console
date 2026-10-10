@@ -45,7 +45,19 @@ defmodule FlezhaUi.Application do
     end
   end
 
-  defp dev_children do
+  defp dev_children, do: dev_setup_children() ++ config_watcher_children()
+
+  # Only the VM serving the console: an `iex -S mix` in the same container
+  # would otherwise be stopped too.
+  @doc false
+  def config_watcher_children do
+    if Application.get_env(:flezha_ui, :restart_on_config_change, false) and
+         Phoenix.Endpoint.server?(:flezha_ui, FlezhaUiWeb.Endpoint),
+       do: [FlezhaUi.Service.ConfigWatcher],
+       else: []
+  end
+
+  defp dev_setup_children do
     case Application.get_env(:flezha_ui, :dev_setup) do
       %{enabled: true} ->
         [FlezhaUi.Service.DevSetup]
