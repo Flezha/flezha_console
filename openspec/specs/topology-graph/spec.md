@@ -115,7 +115,7 @@ The system SHALL surface channel credit state — a backpressure indicator when 
 
 ### Requirement: Node detail and legend
 
-The system SHALL show a detail panel for a selected node — for the core, its raw monotonic counters, current rates, a rate sparkline retained in memory for the session at most 60 samples, factory, runner, run (`flow` or `steps`, from the relay's builder) and uptime; for the channel, its per-channel counters, credit state and heartbeat figures; for a plugin, its plugin id, provider, hook and position. Selecting another node SHALL replace the panel and dismissing it SHALL clear the selection. The system SHALL render a legend naming every line style and node state used on the graph.
+The system SHALL show a detail panel for a selected node — for the core, its raw monotonic counters, current rates, a rate sparkline retained in memory for the session at most 60 samples, factory, runner, run (`flow` or `steps`, from the relay's builder) and uptime; for the channel, its per-channel counters, credit state and heartbeat figures; for a plugin, its plugin id, provider, hook and position. Selecting another node SHALL replace the panel and dismissing it SHALL clear the selection. The system SHALL render a legend naming every line style and node state used on the graph. Nodes, wires and the legend SHALL be drawn with the stylebook's relay-graph recipe, so a plugin, the relay core, the runner's channel, a degraded wire and a dead or suspended node look as they do on flezha.com. The detail panel SHALL be a stylebook panel.
 
 #### Scenario: Selecting the core
 
@@ -136,6 +136,22 @@ The system SHALL show a detail panel for a selected node — for the core, its r
 
 - **WHEN** the operator closes the detail panel
 - **THEN** the selection clears and no panel renders
+
+#### Scenario: The graph speaks the shared vocabulary
+
+- **WHEN** the graph markup is rendered
+- **THEN** its plugin nodes carry the stylebook's plugin role, the core the tasklet role, the channel the runner role, a degraded edge the failed-wire style and a disconnected node the dead state
+- **AND** the flow animation still carries its `topo-flow-*` speed bucket class
+
+#### Scenario: A dead-letter branch is not a failure
+
+- **WHEN** a relay has a dead-letter branch and nothing is degraded
+- **THEN** the branch is drawn as a dotted amber wire, not in the failed-wire style, and the legend names it apart from a wire with nothing bound at its far end
+
+#### Scenario: The legend names node states
+
+- **WHEN** the graph renders
+- **THEN** its legend shows the plugin, relay-code, runner-channel and record-end roles and the suspended and unbound states, each drawn as the graph draws it
 
 ### Requirement: Fleet summary at fixed cost
 

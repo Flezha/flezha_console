@@ -171,3 +171,49 @@ Every runner listing SHALL show each runner's operating-system process id, from 
 - **WHEN** `runners/2` answers `pid: nil` for a runner
 - **THEN** the row shows a placeholder in the pid column
 
+### Requirement: Recovery can be inspected per hub and per namespace
+
+The cluster screen SHALL let the operator open a namespace's recovery detail. The
+detail SHALL show the hub id from `Flezha.Service.Controller.hub_id/2`, that hub's
+recovery state on the node the console is connected to from
+`Flezha.Service.Controller.recovery_state/2`, and the namespace's recovery state on
+every cluster node from `Flezha.Service.Controller.recovery_per_node/3`. The local
+hub SHALL be read only when the connected node hosts the namespace's hub, and the
+local and per-node reads SHALL fail independently. It SHALL refresh on the tick
+while open.
+
+#### Scenario: Opening a namespace's recovery
+
+- **WHEN** the operator opens the recovery detail of a namespace
+- **THEN** the hub id, the local hub state and one row per cluster node with its
+  recovery state are shown
+
+#### Scenario: A node is unreachable
+
+- **WHEN** `recovery_per_node/3` answers `:unreachable` for one node
+- **THEN** that node's row states it could not be reached and the other rows still
+  show their state
+
+#### Scenario: Recovery finishes while the detail is open
+
+- **WHEN** a node's state changes from recovering to serving
+- **THEN** its row shows serving on the next tick, without a reload
+
+#### Scenario: The connected node hosts no hub for the namespace
+
+- **WHEN** the namespace's hub runs only on other nodes
+- **THEN** the local state reads "no hub on this node", the local hub is not asked,
+  and every node's row still shows
+
+#### Scenario: The per-node read is refused
+
+- **WHEN** `recovery_per_node/3` answers an error
+- **THEN** the hub id and the local state still show, with the per-node error
+  beside them
+
+#### Scenario: The recovery read is refused
+
+- **WHEN** either read answers an error
+- **THEN** the detail shows the error with its code and hint, and the rest of the
+  cluster screen still renders
+

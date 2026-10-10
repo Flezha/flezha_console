@@ -5,7 +5,7 @@ TBD - created by archiving change resync-with-flezha-runtime. Update Purpose aft
 ## Requirements
 ### Requirement: Runner lifecycle events reach LiveViews
 
-Runner connect and disconnect events SHALL reach the UI as the runner session signals core publishes on an observability source, SHALL be forwarded by `EventFeed`, and SHALL be broadcast on the UI's PubSub topic `"flezha:events"` as runner-connected and runner-disconnected messages, so subscribed LiveViews update without a page reload.
+Runner connect, disconnect, drop and readmit events SHALL reach the UI as the runner session signals core publishes on an observability source, SHALL be forwarded by `EventFeed`, and SHALL be broadcast on the UI's PubSub topic `"flezha:events"` as runner-connected, runner-disconnected, runner-dropped and runner-readmitted messages, so subscribed LiveViews update without a page reload. Drop refusals SHALL NOT be broadcast to LiveViews.
 
 #### Scenario: A runner connects
 
@@ -17,6 +17,16 @@ Runner connect and disconnect events SHALL reach the UI as the runner session si
 
 - **WHEN** a runner disconnects and the controller publishes its runner-disconnected signal
 - **THEN** subscribed LiveViews reflect the runner's departure
+
+#### Scenario: A runner is dropped or readmitted
+
+- **WHEN** the controller publishes a runner-dropped or runner-readmitted signal
+- **THEN** `EventFeed` broadcasts the matching message and subscribed LiveViews reload their runners and drop marks
+
+#### Scenario: A dropped process is refused
+
+- **WHEN** the controller publishes a runner-drop-refused signal
+- **THEN** no runner message is broadcast for it
 
 #### Scenario: A runner of another namespace
 
