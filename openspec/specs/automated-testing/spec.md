@@ -85,7 +85,7 @@ The plugin-attach suite SHALL run one test per provider so a provider that break
 
 ### Requirement: Browser tests leave no state behind
 
-Every browser test that creates controller state — a relay, a plugin enabled or bound, a schedule — SHALL remove it before finishing, and SHALL use an identifier unique to the run so a leftover from a failed run cannot collide.
+Every browser test that creates controller state — a relay, a plugin enabled or bound, a schedule, a namespace, a token, a role binding — SHALL remove it before finishing, and SHALL use an identifier unique to the run so a leftover from a failed run cannot collide. A plugin a test enabled and bound SHALL be unbound from its relay before it is disabled, because a disabled plugin keeps its bindings.
 
 #### Scenario: A test that starts a relay
 
@@ -98,10 +98,21 @@ Every browser test that creates controller state — a relay, a plugin enabled o
 - **WHEN** a plugin test finishes
 - **THEN** every plugin it enabled has been disabled and every binding it made has been removed
 
+#### Scenario: A bound plugin is cleaned up
+
+- **WHEN** a test cleans up a plugin it bound to a relay
+- **THEN** the binding is removed from the relay before the plugin is disabled
+- **AND** the relay's binding list is what it was before the test
+
 #### Scenario: A test that creates a schedule
 
 - **WHEN** a schedule test finishes
 - **THEN** the schedule it created has been removed, so no cron job keeps firing against the dev controller
+
+#### Scenario: A test that administers access
+
+- **WHEN** a test issues a token, binds a role or creates a namespace
+- **THEN** the token is revoked, the role binding removed and the namespace deleted before it finishes
 
 ### Requirement: Login is established once per run
 
@@ -284,4 +295,219 @@ Every change that alters which controller functions the console calls SHALL rege
 
 - **WHEN** the recorded console calls are compared with `docs/api/consumers/published.txt`
 - **THEN** each is on the published surface or is `Flezha.AuthZ.TokenStore.verify/1` or `Flezha.AuthZ.enforcement_posture/0`
+
+### Requirement: Every browser test fails on a broken page
+
+The browser suite SHALL arm every test with page-health guards, without the test
+opting in. A test SHALL fail when the page under it raised an uncaught script error
+or logged a console error, when a LiveView on it crashed, errored or lost its
+socket, or when a request it made was answered with a status of 400 or above or
+never answered — regardless of what that test set out to assert. Exemptions SHALL
+be listed individually, each carrying the reason it is exempt; a blanket
+suppression of an error class SHALL NOT be used.
+
+#### Scenario: A screen throws while rendering
+
+- **WHEN** a test drives a screen whose client-side code throws an uncaught error
+- **THEN** that test fails and the run reports the error and the URL it happened on
+- **AND** it fails even if every assertion the test wrote passed
+
+#### Scenario: A LiveView crashes and re-joins
+
+- **WHEN** a LiveView crashes during a test and Phoenix re-joins it
+- **THEN** the test fails and names the crash
+- **AND** the re-joined page rendering correctly at the end of the test does not mask it
+
+#### Scenario: A request fails
+
+- **WHEN** a document, script, stylesheet, image, font, XHR or fetch request made during a test is answered with a status of 400 or above, or never arrives
+- **THEN** the test fails and the run reports the URL and the status or failure
+
+#### Scenario: A message is exempted
+
+- **WHEN** a console message or request failure is exempted
+- **THEN** its exemption entry states why it is benign
+- **AND** an entry without a reason fails the suite
+
+### Requirement: Controller-fed figures are asserted to advance
+
+A figure the console derives from live controller data SHALL be asserted to grow
+between two reads within a bounded window. This covers the listen count, a tap's
+message and byte rates, pipeline flow rates, sparkline samples, the periodic
+refresh, and every live feed the console shows — including the relay lifecycle
+feed and the audit and observability tails. Where a figure counts discrete events,
+the test SHALL cause those events itself through the console's own controls and
+assert the figure grew by them; where a figure is a rate over time, the dev stack's
+seeded traffic SHALL feed it. An assertion that such a figure exists, carries a
+unit or matches a digit pattern SHALL NOT stand alone, because a frozen feed
+satisfies it.
+
+#### Scenario: A feed is dead
+
+- **WHEN** a live figure stays at its initial value while traffic is flowing
+- **THEN** the test asserting that figure fails and names the figure that did not move
+
+#### Scenario: The test causes the traffic
+
+- **WHEN** a test sends to a relay, starts or stops a relay, runs a schedule now, or performs an audited administration action through the console
+- **THEN** it asserts the figure or feed that reports that event grew to include it
+
+#### Scenario: A feed is live
+
+- **WHEN** a live figure grows within the window
+- **THEN** the assertion passes as soon as it grows, without waiting out the window
+
+#### Scenario: Waiting for the figure
+
+- **WHEN** a test waits for a figure to advance
+- **THEN** it polls the condition within a window longer than two seeded traffic intervals, defined in one place
+- **AND** it contains no fixed-duration sleep
+
+#### Scenario: A figure the dev stack cannot move
+
+- **WHEN** a figure cannot be made to advance by a healthy dev stack or by the console's own controls
+- **THEN** the assertion lives in ExUnit against the fake controller
+- **AND** no browser test reports success for a figure it did not observe move
+
+### Requirement: The seeded traffic is a named precondition
+
+The suite SHALL assert, in a test of its own, that the dev stack's seeded source
+traffic is bound to the seeded relays and flowing. That test SHALL fail by name when
+the traffic is absent, so a stack that produces no records is distinguishable from a
+console that does not display them.
+
+#### Scenario: The stack is not producing traffic
+
+- **WHEN** the seeded source plugins are not bound or deliver nothing
+- **THEN** the precondition test fails and names the missing traffic
+- **AND** its failure identifies the stack rather than the console
+
+### Requirement: Every route and every control is driven by a named test
+
+Every route SHALL be reached by at least one test: every route the router serves to
+an authenticated user, plus the login, registration, account settings and logout
+paths. Every interactive control on those screens — button, link, toggle, filter,
+picker, form field, dialog, keyboard shortcut — SHALL be driven by a test that
+asserts the effect of driving it, not merely that it is visible. A control's test
+SHALL name the control, so a broken control fails under its own name.
+
+#### Scenario: A control stops working
+
+- **WHEN** a control no longer has an effect — a button that opens nothing, a filter that does not filter, a link that does not navigate
+- **THEN** a test fails and names that control
+- **AND** the other controls on the screen still pass
+
+#### Scenario: A link is followed
+
+- **WHEN** a test drives a link, breadcrumb, palette entry or row action that navigates
+- **THEN** it asserts the destination route was reached and rendered its own content
+
+#### Scenario: A filter, toggle or picker is driven
+
+- **WHEN** a test drives a control that changes what a screen shows
+- **THEN** it asserts the shown rows or values changed accordingly
+- **AND** asserting only that the control accepted the interaction does not satisfy this
+
+#### Scenario: The pipeline graph on a relay the test started
+
+- **WHEN** a test starts a relay of its own with a run-unique id and opens its detail screen
+- **THEN** it asserts the pipeline graph draws for that relay, before and after a plugin is bound to it
+- **AND** the relay is stopped when the test ends, whatever its outcome
+
+### Requirement: Stopping the controller stops at its confirmation
+
+The browser suite SHALL drive the controller's stop up to its typed confirmation and
+cancel there, asserting the controller is still serving, because a confirmed stop
+ends the dev stack for every other test and session. The confirmed stop SHALL be
+asserted in ExUnit against the fake controller.
+
+#### Scenario: Stopping the controller in the browser
+
+- **WHEN** a browser test opens the controller's stop dialog
+- **THEN** it asserts the confirm control stays disabled until the exact confirmation is typed
+- **AND** it cancels, and asserts the controller is still serving and no shutdown phase is shown
+
+#### Scenario: The confirmed stop
+
+- **WHEN** an ExUnit test confirms the controller stop against the fake controller
+- **THEN** it asserts the call the console made and the progress and shutdown phase the screen shows
+
+### Requirement: Dialogs are driven through both their confirm and cancel paths
+
+Every modal or confirmation dialog SHALL be opened, asserted, and closed by each of
+its paths in a test. The cancel path SHALL assert that what the dialog would have
+changed is unchanged. The confirm path SHALL assert the change took effect on the
+screen behind the dialog.
+
+#### Scenario: A dialog cannot be dismissed
+
+- **WHEN** a dialog's cancel or close control no longer closes it
+- **THEN** a test fails and names that dialog
+
+#### Scenario: Cancelling does not act
+
+- **WHEN** a test cancels out of a destructive confirmation — stopping a relay, unbinding or disabling a plugin, dropping a dead letter, removing a schedule, deleting a namespace, revoking a token
+- **THEN** it asserts the target still exists and its state is unchanged
+
+#### Scenario: Confirming acts
+
+- **WHEN** a test confirms a dialog
+- **THEN** it asserts the resulting change is visible on the screen behind the dialog
+
+### Requirement: Forms are driven with input they must accept and input they must reject
+
+Every form SHALL have a test that submits input it must accept and asserts the
+result, and a test that submits input it must reject and asserts the rejection is
+shown to the operator. Where the controller refuses with an error carrying a hint,
+the test SHALL assert the hint is shown. A form that discards a bad submission
+without saying so SHALL fail its test.
+
+#### Scenario: Valid input
+
+- **WHEN** a test submits a form with input the form must accept
+- **THEN** it asserts the action took effect and the operator was told it did
+
+#### Scenario: Invalid input
+
+- **WHEN** a test submits a form with input the form or the controller must reject
+- **THEN** it asserts an error is shown identifying what was wrong
+- **AND** it asserts no change was made
+
+#### Scenario: A form silently drops a submission
+
+- **WHEN** a form neither acts on a submission nor reports why
+- **THEN** the test for that form fails
+
+### Requirement: Coverage of controls and events is checked against lib at run time
+
+An ExUnit test SHALL read `lib/` each time it runs, collect every test id and every
+LiveView event there, and fail naming each one that no browser spec under `e2e/`
+and no ExUnit test under `test/` drives. Test ids SHALL be read from both
+`data-testid` and component `testid` attributes; an interpolated id SHALL count by
+its literal prefix. Events SHALL be read from literal `handle_event/3` clauses and
+from event lists a module dispatches through a guard. The test SHALL also fail when
+markup binds a literal event name that no clause handles. The set it checks SHALL
+come from `lib/` itself, not from a hand-maintained list. Exemptions SHALL be listed
+individually with a reason, and an exemption without a reason SHALL fail the check.
+
+#### Scenario: New UI arrives untested
+
+- **WHEN** a control or an event is added to `lib/` and no test drives it
+- **THEN** `mix test` fails and names the identifier and the file it is in
+
+#### Scenario: Coverage sits in the other layer
+
+- **WHEN** an event is driven by an ExUnit test rather than a browser spec
+- **THEN** the check counts it as covered
+- **AND** it does not require a browser test that would have to branch on discovered state
+
+#### Scenario: A button that does nothing
+
+- **WHEN** markup binds a `phx-click`, `phx-submit` or `phx-change` to a literal event name that no `handle_event/3` clause or dispatched event list handles
+- **THEN** the check fails and names the binding and its file
+
+#### Scenario: The check needs no running stack
+
+- **WHEN** a developer runs `mix test` with no dev stack up
+- **THEN** the coverage check runs and reports its result
 

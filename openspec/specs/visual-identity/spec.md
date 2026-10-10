@@ -307,3 +307,12 @@ decorative, with an empty `alt`. No data screen SHALL show a mascot.
 - **WHEN** a data screen, including one with an empty listing, is rendered
 - **THEN** it shows no mascot
 
+### Requirement: Flash messages never cover the topbar
+
+Inside the console shell, flash messages SHALL float below the topbar, so a message never covers the controls at the topbar's right end, such as the account menu.
+
+#### Scenario: A flash after logging in
+
+- **WHEN** a flash is shown on a screen inside the shell
+- **THEN** the account menu stays reachable without dismissing it
+

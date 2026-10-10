@@ -270,3 +270,13 @@ The console SHALL read, once per verified token and cached with that verificatio
 - **WHEN** a rendered control's call is refused by the controller
 - **THEN** the refusal is shown as before
 
+### Requirement: A token that does not verify is explained in words
+
+When a stored flezha token does not verify, the settings screen's statement SHALL give the controller's message and error code, and SHALL NOT render a raw error structure.
+
+#### Scenario: Storing a token the controller does not recognise
+
+- **WHEN** an operator saves a token the controller does not recognise
+- **THEN** the statement says the token was stored but did not verify, with the controller's message and its `authz.token_*` code
+- **AND** no raw error structure appears on the page
+

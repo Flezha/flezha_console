@@ -357,3 +357,24 @@ An option the controller marks `transient` SHALL be entered through a password f
 - **WHEN** the console logs a form event carrying a secret option
 - **THEN** the secret's value is logged as filtered
 
+### Requirement: The relay screen lists and unbinds its own bindings
+
+The relay screen's plugins panel SHALL list every binding the controller declares for the relay: the bindings its hook table holds, and the declared bindings it does not hold — a binding whose plugin was disabled or whose provider did not start — read through `Flezha.Service.Relay.relay_plugins/2` and marked as not running. Each binding SHALL offer an unbind control, gated on `PluginManager.unbind`, that calls `Flezha.Service.PluginManager.unbind/3` for this relay alone after an explicit confirmation. The relay screen SHALL NOT disable a plugin: disabling is a namespace-wide action, offered on the plugins screen.
+
+#### Scenario: A running binding is unbound
+
+- **WHEN** an operator confirms unbinding a plugin on the relay screen
+- **THEN** `unbind/3` is called with the plugin's name, the relay's namespace and the relay's id
+- **AND** the plugin stays enabled for the other relays it is bound to
+
+#### Scenario: A binding that is not running
+
+- **WHEN** the controller declares a binding for the relay that its hook table does not hold
+- **THEN** the binding is listed, marked as not running, with an unbind control
+- **AND** confirming the unbind removes it
+
+#### Scenario: Cancelling the unbind
+
+- **WHEN** an operator cancels the unbind confirmation
+- **THEN** no call is made and the binding is still listed
+

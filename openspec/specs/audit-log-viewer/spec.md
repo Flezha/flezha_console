@@ -113,3 +113,22 @@ The audit screen SHALL offer a control that closes the current audit file and st
 - **THEN** the error is shown with its code and hint
 - **AND** the file catalog is left as it was
 
+### Requirement: Catalog files are listed by name, record count and size
+
+The audit file catalog SHALL list each rotated file by its file name, its record count and its size, and SHALL NOT render the controller's raw file record.
+
+#### Scenario: Rotated files are listed
+
+- **WHEN** the catalog holds rotated files
+- **THEN** each is listed by name, record count and size
+
+### Requirement: A refused read is not shown as an empty result
+
+When the controller refuses an audit read, the screen SHALL show the refusal and SHALL NOT also state that no record matches the filter.
+
+#### Scenario: An unknown file is read
+
+- **WHEN** an operator reads a file the audit log does not have
+- **THEN** the controller's `audit.file_not_found` refusal is shown
+- **AND** no "no record matches" statement is shown with it
+

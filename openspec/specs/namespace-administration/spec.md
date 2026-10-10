@@ -145,3 +145,17 @@ The namespace screen SHALL list the principals bound to the namespace, from `Fle
 - **WHEN** an operator opens the unbind confirmation and dismisses it
 - **THEN** no call is made
 
+### Requirement: Quota fields refuse what is not a whole number
+
+The namespace create form and the quota editor SHALL refuse a quota field holding anything other than a whole number of 0 or more, naming the field, and SHALL send nothing. A blank field SHALL be left out, so the controller keeps its own value.
+
+#### Scenario: A negative quota on create
+
+- **WHEN** an operator declares a namespace with a negative or non-numeric quota
+- **THEN** the form names the field and no namespace is created
+
+#### Scenario: A non-numeric limit in the quota editor
+
+- **WHEN** an operator saves the quota editor with a limit that is not a whole number
+- **THEN** the editor stays open, names the limit, and no quota change is sent
+

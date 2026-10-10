@@ -386,3 +386,32 @@ The relay detail screen SHALL offer a Diagnose control that calls `Flezha.Servic
 - **WHEN** the controller answers that the relay is neither live nor retained
 - **THEN** the error is shown with its code and hint instead of a verdict
 
+### Requirement: A listen filter that is not a pattern is said so
+
+The listen screen SHALL state when its filter is not a valid regular expression, naming the reason and position, and SHALL show every record while it is invalid rather than silently ignoring the filter.
+
+#### Scenario: An invalid filter
+
+- **WHEN** an operator types a filter that does not compile as a regular expression
+- **THEN** the screen states it is not a regular expression and that everything is shown
+- **AND** the feed keeps showing every record
+
+#### Scenario: The filter is fixed
+
+- **WHEN** the operator corrects the filter to a valid expression
+- **THEN** the statement goes and the feed is narrowed to the matching records
+
+### Requirement: An empty filtered relays index says the filters matched nothing
+
+When filters leave the relays index with no rows, the index SHALL say that no running relay matches the filters, and SHALL NOT say that no relays are running.
+
+#### Scenario: Filters that match nothing
+
+- **WHEN** an operator chooses filters that no running relay matches
+- **THEN** the index states that no running relay matches these filters
+
+#### Scenario: Nothing runs
+
+- **WHEN** no filter is chosen and no relay runs in any reachable namespace
+- **THEN** the index states that no relays are running
+
