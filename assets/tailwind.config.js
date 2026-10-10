@@ -15,8 +15,8 @@ module.exports = {
     extend: {
       // Every alias resolves to a flezha_stylebook token, so the utility
       // classes already spread across these templates inherit the brand
-      // palette without being rewritten one by one. The stylebook's three ink
-      // levels carry the four this UI names: `tertiary` folds into secondary.
+      // palette without being rewritten one by one. `th-brand` is the brand
+      // ink, `--text-brand`; `brand` is the fill, never a text colour.
       // `font-mono` / `font-sans` land on the self-hosted faces, so the
       // hundred-odd existing utility usages pick up JetBrains Mono and Inter
       // without being rewritten.
@@ -36,17 +36,8 @@ module.exports = {
         th: {
           primary: "var(--text-primary)",
           secondary: "var(--text-secondary)",
-          tertiary: "var(--text-secondary)",
           muted: "var(--text-muted)",
-        },
-        // `accent` here predates the stylebook and means the brand fill, not
-        // the stylebook's gold `--accent-solid`. Gold is `warning` below and
-        // the hover language the component recipes already carry.
-        accent: {
-          DEFAULT: "var(--brand-solid)",
-          hover: "var(--brand-solid-hover)",
-          text: "var(--text-brand)",
-          subtle: "color-mix(in srgb, var(--brand-solid) 15%, transparent)",
+          brand: "var(--text-brand)",
         },
         brd: {
           DEFAULT: "var(--border-default)",
@@ -60,7 +51,6 @@ module.exports = {
           text: "var(--negative)",
         },
         warning: "var(--warning)",
-        code: "var(--text-brand)",
       },
       // Radius stays literal, per the stylebook: 6px controls, 8px cards,
       // 12px large surfaces. Tailwind's own md/lg/xl already are those.
@@ -69,20 +59,6 @@ module.exports = {
         DEFAULT: "var(--shadow-md)",
         md: "var(--shadow-md)",
         lg: "var(--shadow-lg)",
-      },
-      animation: {
-        "fade-in-up": "fade-in-up 400ms ease-out both",
-        "scale-in": "scale-in 200ms ease-out both",
-      },
-      keyframes: {
-        "fade-in-up": {
-          from: { opacity: "0", transform: "translateY(12px)" },
-          to: { opacity: "1", transform: "translateY(0)" },
-        },
-        "scale-in": {
-          from: { opacity: "0", transform: "scale(0.95)" },
-          to: { opacity: "1", transform: "scale(1)" },
-        },
       },
     },
   },

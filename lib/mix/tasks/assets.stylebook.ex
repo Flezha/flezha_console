@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.Assets.Stylebook do
-  @shortdoc "Copies the flezha_stylebook fonts, lockups and favicons into priv/static"
+  @shortdoc "Copies the flezha_stylebook fonts, badger mark, favicons and mascots into priv/static"
 
   @moduledoc """
   Places the `flezha_stylebook` static assets the console serves into
@@ -18,8 +18,15 @@ defmodule Mix.Tasks.Assets.Stylebook do
 
   @package "assets/node_modules/@flezha/stylebook"
   @fonts ~w(Inter-latin.woff2 JetBrainsMono-latin.woff2 SpaceGrotesk-latin.woff2)
-  @favicon "flezha-favicon-purple.svg"
-  @favicon_raster "flezha-favicon-purple-32.png"
+  @images %{
+    "logo/flezha-badger-white.svg" => "flezha-badger-white.svg",
+    "honey-badger/laptop.webp" => "badger-laptop.webp",
+    "honey-badger/not-found.webp" => "badger-not-found.webp"
+  }
+  @favicons %{
+    "logo/flezha-favicon-badger-adaptive.svg" => "favicon.svg",
+    "logo/flezha-favicon-badger.ico" => "favicon.ico"
+  }
 
   @impl Mix.Task
   def run(_args) do
@@ -29,8 +36,8 @@ defmodule Mix.Tasks.Assets.Stylebook do
       Mix.raise("""
       flezha_stylebook is not installed at #{@package}.
 
-      The console's typefaces, brand lockups and favicon all come from the
-      flezha_stylebook repository, which this project depends on as an npm
+      The console's typefaces, badger mark, favicon and mascots all come from
+      the flezha_stylebook repository, which this project depends on as an npm
       `file:` dependency and expects alongside itself at:
 
           #{Path.expand("../flezha_stylebook")}
@@ -39,8 +46,8 @@ defmodule Mix.Tasks.Assets.Stylebook do
       """)
 
     copy_fonts(package)
-    copy_lockups(package)
-    copy_favicons(package)
+    copy(package, @images, "priv/static/images")
+    copy(package, @favicons, "priv/static")
 
     Mix.shell().info("stylebook assets copied into priv/static")
   end
@@ -53,29 +60,11 @@ defmodule Mix.Tasks.Assets.Stylebook do
     end
   end
 
-  defp copy_lockups(package) do
-    File.mkdir_p!("priv/static/images")
+  defp copy(package, files, dir) do
+    File.mkdir_p!(dir)
 
-    for lockup <- Path.wildcard(Path.join([package, "assets", "flezha-ui-*.svg"])) do
-      File.cp!(lockup, Path.join("priv/static/images", Path.basename(lockup)))
+    for {from, to} <- files do
+      File.cp!(Path.join([package, "assets", from]), Path.join(dir, to))
     end
-  end
-
-  defp copy_favicons(package) do
-    File.cp!(Path.join([package, "assets", @favicon]), "priv/static/favicon.svg")
-
-    Path.join([package, "assets", @favicon_raster])
-    |> File.read!()
-    |> ico()
-    |> then(&File.write!("priv/static/favicon.ico", &1))
-  end
-
-  # An ICO container wrapping the stylebook's 32px PNG verbatim — the format
-  # allows a PNG payload, so this is a real .ico rather than a PNG under the
-  # wrong extension. Header is 6 bytes of ICONDIR plus one 16-byte entry, so
-  # the image starts at offset 22.
-  defp ico(png) do
-    <<0::little-16, 1::little-16, 1::little-16, 32, 32, 0, 0, 1::little-16, 32::little-16,
-      byte_size(png)::little-32, 22::little-32>> <> png
   end
 end

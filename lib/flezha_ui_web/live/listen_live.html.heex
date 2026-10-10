@@ -62,7 +62,7 @@
         data-testid="listen-filter"
       />
     </form>
-    <span data-testid="listen-count" class="ml-auto text-xs text-th-tertiary">
+    <span data-testid="listen-count" class="ml-auto text-xs text-th-secondary">
       {@message_count} messages received {if @paused, do: " (paused)"}
     </span>
   </div>
@@ -77,7 +77,7 @@
     <%= case @status do %>
       <% :connecting -> %>
         <div data-testid="listen-connecting" class="p-6 text-center">
-          <div class="inline-flex items-center gap-2 text-th-tertiary">
+          <div class="inline-flex items-center gap-2 text-th-secondary">
             <svg
               class="animate-spin h-4 w-4"
               xmlns="http://www.w3.org/2000/svg"
@@ -127,7 +127,7 @@
               <span class="text-th-muted flex-shrink-0 w-28">
                 {Format.time_of_day(msg.timestamp)}
               </span>
-              <span class="text-code flex-1 break-all whitespace-pre-wrap">
+              <span class="text-th-brand flex-1 break-all whitespace-pre-wrap">
                 {msg.message}
               </span>
               <%= if msg.metadata && msg.metadata != %{} do %>

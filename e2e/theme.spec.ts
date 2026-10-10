@@ -1,82 +1,135 @@
 import { test, expect, toggleTheme } from './fixtures';
+import type { Page } from '@playwright/test';
 
 /**
  * The shared Flezha theme contract: `data-theme` on `<html>`, storage key
- * `flezha-theme`, dark by default, applied before the first paint.
+ * `flezha-theme`. With nothing stored the theme is the device's colour scheme
+ * and keeps following it; a choice that differs from the device is stored, and
+ * toggling back to the device's own scheme forgets it.
  *
- * The pre-paint part is the one that cannot be checked by reading the DOM
- * afterwards — by then the right theme is applied either way. So the stored
- * preference is written before the first navigation and the attribute is read
- * from the document Phoenix sent, before scripts could have corrected it.
+ * The pre-paint part cannot be checked by reading the DOM afterwards — by then
+ * the right theme is applied either way. So the stored preference is written
+ * before the first navigation and the document Phoenix sent is read as text.
  */
-test.describe('Theme contract', () => {
-  test('a first visit with empty storage is dark', async ({ page, live }) => {
-    await page.goto('/');
-    await page.evaluate(() => localStorage.clear());
-    await live('/');
+const theme = (page: Page) => page.locator('html');
+const stored = (page: Page) => page.evaluate(() => localStorage.getItem('flezha-theme'));
+const token = (page: Page, name: string) =>
+  page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name);
+const rgb = (page: Page, value: string) =>
+  page.evaluate((v) => {
+    const probe = document.createElement('span');
+    probe.style.color = v;
+    document.body.append(probe);
+    const out = getComputedStyle(probe).color;
+    probe.remove();
+    return out;
+  }, value);
 
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-    await expect.poll(() => page.evaluate(() => localStorage.getItem('flezha-theme'))).toBeNull();
+async function freshVisit(page: Page, live: (path: string) => Promise<void>, scheme: 'light' | 'dark') {
+  await page.emulateMedia({ colorScheme: scheme });
+  await page.goto('/');
+  await page.evaluate(() => localStorage.clear());
+  await live('/');
+}
+
+test.describe('Theme contract', () => {
+  test('a first visit follows the device, light or dark', async ({ page, live }) => {
+    await freshVisit(page, live, 'light');
+    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
+
+    await freshVisit(page, live, 'dark');
+    await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
+    expect(await stored(page)).toBeNull();
+  });
+
+  test('with nothing stored, a device switch is followed live', async ({ page, live }) => {
+    await freshVisit(page, live, 'light');
+    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
+
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
   });
 
   test('a stored preference is applied before the page paints', async ({ page, live }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
     await page.goto('/');
     await page.evaluate(() => localStorage.setItem('flezha-theme', 'light'));
 
-    // The hydration script runs in <head>, so the attribute is already right
-    // on the very first `document.documentElement` read of the new document.
-    const themeAtFirstScript = await page.evaluate(async () => {
-      const res = await fetch('/');
-      const html = await res.text();
-      return html.match(/<html[^>]*data-theme="(\w+)"/)?.[1];
-    });
-    // The server always renders the dark default; the inlined script corrects it.
-    expect(themeAtFirstScript).toBe('dark');
+    // The server sets no theme at all; the script inlined in <head> does,
+    // before the stylesheet below it is applied.
+    const served = await page.evaluate(async () => (await (await fetch('/')).text()).match(/<html[^>]*>/)?.[0]);
+    expect(served).not.toContain('data-theme');
 
     await live('/');
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
   });
 
-  test('the toggle flips the theme and persists the choice', async ({ page, live }) => {
-    await live('/');
-    await page.evaluate(() => localStorage.setItem('flezha-theme', 'dark'));
-    await live('/');
+  test('a toggle away from the device is stored, a toggle back forgets it', async ({ page, live }) => {
+    await freshVisit(page, live, 'dark');
 
     await toggleTheme(page);
+    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
+    await expect.poll(() => stored(page)).toBe('light');
 
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-    await expect
-      .poll(() => page.evaluate(() => localStorage.getItem('flezha-theme')))
-      .toBe('light');
-
-    // And it is still light after a full reload, not just for this page view.
+    // Still light after a full reload, not just for this page view.
     await live('/');
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
+
+    await toggleTheme(page);
+    await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
+    await expect.poll(() => stored(page)).toBeNull();
   });
 
-  test('chrome stays plum while the canvas flips', async ({ page, live }) => {
-    await live('/');
+  test('the chrome follows the theme and the accent marks where you are', async ({ page, live }) => {
+    await freshVisit(page, live, 'dark');
     const bg = (selector: string) =>
       page.locator(selector).evaluate((el) => getComputedStyle(el).backgroundColor);
+    const current = page.locator('.flz-sidebar-link[aria-current="page"]');
 
     const sidebarDark = await bg('.flz-sidebar');
-    const canvasDark = await bg('.flz-canvas');
+    expect(await current.evaluate((el) => getComputedStyle(el).color)).toBe(
+      await rgb(page, await token(page, '--accent-solid')),
+    );
+    expect(
+      await page.locator('.flz-topbar').evaluate((el) => getComputedStyle(el).backgroundImage),
+      'the topbar wears the chrome band',
+    ).toContain('linear-gradient');
 
     await toggleTheme(page);
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
 
-    expect(await bg('.flz-sidebar'), 'chrome is theme-invariant').toBe(sidebarDark);
-    expect(await bg('.flz-canvas'), 'the canvas flips').not.toBe(canvasDark);
+    expect(await bg('.flz-sidebar'), 'the chrome flips with the canvas').not.toBe(sidebarDark);
+    expect(await bg('.flz-sidebar')).toBe(await rgb(page, await token(page, '--chrome-pale')));
+    expect(await current.evaluate((el) => getComputedStyle(el).color)).toBe(
+      await rgb(page, await token(page, '--accent-solid')),
+    );
+  });
+
+  test('the badger lockup is painted in each theme', async ({ page, live }) => {
+    for (const scheme of ['dark', 'light'] as const) {
+      await freshVisit(page, live, scheme);
+      const logo = page.locator('.flz-sidebar-brand .flz-logo');
+
+      await expect(logo).toBeVisible();
+      expect(await logo.evaluate((el) => getComputedStyle(el).maskImage)).toContain(
+        'flezha-badger-white.svg',
+      );
+      expect((await logo.boundingBox())?.height).toBeGreaterThan(0);
+      await expect(page.locator('.flz-sidebar-brand .flz-brand-name')).toHaveText('Flezha UI');
+      expect(await logo.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
+        await rgb(page, await token(page, '--text-primary')),
+      );
+    }
   });
 
   test('the choice survives live navigation and the toggle still works', async ({ page, live }) => {
-    await live('/');
+    await freshVisit(page, live, 'dark');
     await toggleTheme(page);
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
 
     await page.locator('.flz-sidebar-link[href="/namespaces"]').click();
     await expect(page).toHaveURL(/\/namespaces$/);
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
 
     // The current destination is marked on the rail, server-side.
     await expect(page.locator('.flz-sidebar-link[href="/namespaces"]')).toHaveAttribute(
@@ -85,10 +138,10 @@ test.describe('Theme contract', () => {
     );
 
     await toggleTheme(page);
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
   });
 
-  test('the console serves its own typefaces and the Flezha icon', async ({ page, live }) => {
+  test('the console serves its own typefaces and the badger icons', async ({ page, live }) => {
     const thirdParty: string[] = [];
     page.on('request', (r) => {
       const url = new URL(r.url());
@@ -106,5 +159,14 @@ test.describe('Theme contract', () => {
     expect(thirdParty, 'no font or icon may come from a third party').toEqual([]);
 
     await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg');
+
+    for (const [path, type] of [
+      ['/favicon.svg', 'image/svg+xml'],
+      ['/favicon.ico', 'image/'],
+    ]) {
+      const res = await page.request.get(path);
+      expect(res.status(), path).toBe(200);
+      expect(res.headers()['content-type'], path).toContain(type);
+    }
   });
 });

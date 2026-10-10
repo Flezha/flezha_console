@@ -460,6 +460,34 @@ defmodule Flezha.Service.Fleet do
 
   defstub provider(provider_id, %{source: :ui} = ctx),
     do: {:ok, %{provider: provider_id, help: nil, type: :relay, hooks: []}}
+
+  defstub drop_runner(ns, runner_id, %{source: :ui} = ctx),
+    do:
+      {:ok,
+       %{
+         namespace: ns,
+         stable_id: "stable-#{runner_id}",
+         incarnation: "inc-1",
+         pid: 4242,
+         node: :"flezha@node-a",
+         dropped_at: 1_760_000_000,
+         dropped_by: "ops@#{ns}"
+       }}
+
+  defstub readmit_runner(ns, stable_id, %{source: :ui} = ctx),
+    do:
+      {:ok,
+       %{
+         namespace: ns,
+         stable_id: stable_id,
+         incarnation: "inc-1",
+         pid: 4242,
+         node: :"flezha@node-a",
+         dropped_at: 1_760_000_000,
+         dropped_by: "ops@#{ns}"
+       }}
+
+  defstub dropped_runners(ns, %{source: :ui} = ctx), do: {:ok, []}
 end
 
 defmodule Flezha.Service.Namespace do
@@ -591,6 +619,27 @@ defmodule Flezha.Service.Controller do
   defstub durability_breaches(%{source: :ui} = ctx), do: {:ok, []}
   defstub mem_top(%{source: :ui} = ctx), do: {:ok, %{}}
   defstub liveness_counters(%{source: :ui} = ctx), do: {:ok, %{channels: [], relays: []}}
+
+  defstub shutdown_status(%{source: :ui} = ctx),
+    do:
+      {:ok,
+       %{
+         shutdown_in_progress: false,
+         shutdown_phase: nil,
+         signal_handler_status: :installed,
+         graceful_shutdown_enabled: true,
+         graceful_shutdown_timeout_ms: 60_000
+       }}
+
+  defstub durability_status(%{source: :ui} = ctx), do: {:ok, []}
+  defstub hub_id(ns, %{source: :ui} = ctx), do: {:ok, :"hub_#{ns}"}
+  defstub recovery_state(hub_id, %{source: :ui} = ctx), do: {:ok, :normal}
+
+  defstub recovery_per_node(ns, nodes, %{source: :ui} = ctx),
+    do: {:ok, Map.new(nodes, &{&1, :normal})}
+
+  def stop(opts, %{source: :ui} = ctx),
+    do: FakeController.stream({__MODULE__, :stop}, [opts, ctx], ctx)
 end
 
 defmodule Flezha.Service.PluginManager do

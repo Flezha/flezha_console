@@ -107,7 +107,7 @@ const token = name =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 
 function configureTopbar() {
-  topbar.config({barColors: {0: token("--brand-solid")}, shadowColor: token("--purple-chrome")})
+  topbar.config({barColors: {0: token("--brand-solid")}, shadowColor: token("--brand-solid")})
 }
 configureTopbar()
 document.addEventListener("flz-theme-change", configureTopbar)

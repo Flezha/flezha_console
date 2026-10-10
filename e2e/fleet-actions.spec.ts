@@ -24,7 +24,7 @@ test.describe('Fleet actions', () => {
     await live('/cluster');
 
     const pid = page.locator('[data-testid^="os-pid-"]').first();
-    await expect(pid).toContainText(/pid (\d+|—)/);
+    await expect(pid).toHaveText(/^\s*(\d+|—)\s*$/);
   });
 
   test('a schedule runs now and names the relay it started', async ({ page, live }) => {

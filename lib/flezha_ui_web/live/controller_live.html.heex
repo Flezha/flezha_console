@@ -7,7 +7,7 @@
     class="flz-panel p-5"
   >
     <div class="flex items-center gap-2 mb-4">
-      <.icon name="hero-circle-stack" class="w-4 h-4 text-th-tertiary" />
+      <.icon name="hero-circle-stack" class="w-4 h-4 text-th-secondary" />
       <h2 class="flz-panel-title">Durability</h2>
     </div>
     <.runtime_error error={@status_error} action="the controller status" />
@@ -57,6 +57,65 @@
         </tbody>
       </table>
     </div>
+
+    <%!-- The shipper's own rows: what the remote tier holds and how far behind it is. --%>
+    <div data-testid="shipper-status" class="mt-4">
+      <p class="flz-label mb-2">Shipper</p>
+      <.runtime_error error={@shipper_error} action="the shipper status" />
+      <p
+        :if={(is_nil(@shipper_error) and @status) && @status[:durability_posture] == :local_only}
+        data-testid="shipper-not-applicable"
+        class="text-sm text-th-muted"
+      >
+        Not applicable: nothing is shipped from a local-only controller.
+      </p>
+      <p
+        :if={
+          is_nil(@shipper_error) and @shipper == [] and
+            !(@status && @status[:durability_posture] == :local_only)
+        }
+        data-testid="shipper-empty"
+        class="text-sm text-th-muted"
+      >
+        The shipper holds no references yet.
+      </p>
+      <div :if={@shipper != []} class="table-scroll">
+        <table data-testid="shipper-table" class="flz-table">
+          <thead>
+            <tr>
+              <th>Reference</th>
+              <th>Last shipped</th>
+              <th>Pending since</th>
+              <th>Failures</th>
+              <th>Retry after</th>
+              <th>Superseded by</th>
+              <th>Last error</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @shipper} data-testid="shipper-row">
+              <td class="text-th-primary flz-num text-xs">{inspect(row[:ref])}</td>
+              <td class="flz-num text-xs">
+                {Format.unix_time(row[:last_shipped_ms], :millisecond)}
+              </td>
+              <td class="flz-num text-xs">
+                {Format.unix_time(row[:pending_since_ms], :millisecond)}
+              </td>
+              <td class={["flz-num text-xs", (row[:failures] || 0) > 0 && "text-danger-text"]}>
+                {row[:failures] || 0}
+              </td>
+              <td class="flz-num text-xs">
+                {Format.unix_time(row[:retry_after_ms], :millisecond)}
+              </td>
+              <td class="flz-num text-xs">
+                {(row[:superseded_by] && inspect(row[:superseded_by])) || "—"}
+              </td>
+              <td class="text-xs">{(row[:last_error] && inspect(row[:last_error])) || "—"}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <%!-- Shutdown and boot --%>
@@ -65,32 +124,46 @@
       data-testid="shutdown-panel"
       class="flz-panel p-5"
     >
-      <div class="flex items-center gap-2 mb-4">
-        <.icon name="hero-power" class="w-4 h-4 text-th-tertiary" />
-        <h2 class="flz-panel-title">Shutdown</h2>
+      <div class="flex items-center justify-between gap-2 mb-4">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-power" class="w-4 h-4 text-th-secondary" />
+          <h2 class="flz-panel-title">Shutdown</h2>
+        </div>
+        <.button
+          :if={
+            @status && !@status[:shutdown_in_progress] &&
+              NodeManager.granted?(@operations, "Controller.stop")
+          }
+          variant="danger"
+          size="sm"
+          phx-click="open_stop"
+          data-testid="stop-controller-btn"
+        >
+          Stop controller
+        </.button>
       </div>
       <p :if={is_nil(@status)} data-testid="shutdown-unavailable" class="text-sm text-th-muted">
         Shutdown status is unavailable on this controller.
       </p>
       <dl :if={@status} class="space-y-2 text-sm">
         <div class="flex gap-2">
-          <dt class="text-th-tertiary w-48">In progress</dt>
+          <dt class="text-th-secondary w-48">In progress</dt>
           <dd data-testid="shutdown-in-progress" class="font-mono">
             {if @status.shutdown_in_progress, do: "yes", else: "no"}
           </dd>
         </div>
         <div class="flex gap-2">
-          <dt class="text-th-tertiary w-48">Phase</dt>
+          <dt class="text-th-secondary w-48">Phase</dt>
           <dd data-testid="shutdown-phase" class="font-mono">
             {@status.shutdown_phase || "none"}
           </dd>
         </div>
         <div class="flex gap-2">
-          <dt class="text-th-tertiary w-48">Signal handler</dt>
+          <dt class="text-th-secondary w-48">Signal handler</dt>
           <dd class="font-mono">{inspect(@status.signal_handler_status)}</dd>
         </div>
         <div class="flex gap-2">
-          <dt class="text-th-tertiary w-48">Graceful shutdown</dt>
+          <dt class="text-th-secondary w-48">Graceful shutdown</dt>
           <dd class="font-mono">
             {if @status.graceful_shutdown_enabled, do: "enabled", else: "disabled"}, {Format.duration(
               @status.graceful_shutdown_timeout_ms
@@ -105,7 +178,7 @@
       class="flz-panel p-5"
     >
       <div class="flex items-center gap-2 mb-4">
-        <.icon name="hero-rocket-launch" class="w-4 h-4 text-th-tertiary" />
+        <.icon name="hero-rocket-launch" class="w-4 h-4 text-th-secondary" />
         <h2 class="flz-panel-title">Boot</h2>
       </div>
       <.runtime_error error={@boot_error} action="the boot status" />
@@ -122,7 +195,7 @@
           class="flex gap-3"
         >
           <span class="font-mono text-th-primary w-48">{row.namespace}</span>
-          <span class="font-mono text-th-tertiary">{row.recovery_state}</span>
+          <span class="font-mono text-th-secondary">{row.recovery_state}</span>
         </li>
       </ul>
     </div>
@@ -134,7 +207,7 @@
     class="flz-panel p-5"
   >
     <div class="flex items-center gap-2 mb-4">
-      <.icon name="hero-key" class="w-4 h-4 text-th-tertiary" />
+      <.icon name="hero-key" class="w-4 h-4 text-th-secondary" />
       <h2 class="flz-panel-title">
         Authorization
       </h2>
@@ -158,7 +231,7 @@
   >
     <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-2">
-        <.icon name="hero-chart-pie" class="w-4 h-4 text-th-tertiary" />
+        <.icon name="hero-chart-pie" class="w-4 h-4 text-th-secondary" />
         <h2 class="flz-panel-title">
           Memory hot spots
         </h2>
@@ -207,4 +280,6 @@
       </table>
     </div>
   </div>
+
+  <.stop_dialog :if={@stop} stop={@stop} />
 </div>

@@ -357,16 +357,16 @@ defmodule FlezhaUiWeb.Live.PluginForm do
             phx-click="plugin_form_provider"
             phx-value-provider={provider.id}
             data-testid={"provider-btn-#{provider.id}"}
-            class="group text-left p-4 bg-surface-input hover:bg-surface-hover border border-brd rounded-xl hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
+            class="flz-card flz-card--link group text-left"
           >
             <div class="flex items-center gap-2">
               <.icon
                 name="hero-cube"
-                class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
+                class="w-4 h-4 text-th-secondary group-hover:text-th-brand transition-colors"
               />
               <p class="text-sm font-medium text-th-primary">{Format.humanize(provider.id)}</p>
             </div>
-            <p class="text-xs text-th-tertiary mt-1 font-mono">
+            <p class="text-xs text-th-secondary mt-1 font-mono">
               {provider.id}<span :if={provider[:type]}> · {provider.type}</span>
             </p>
           </button>
@@ -458,10 +458,10 @@ defmodule FlezhaUiWeb.Live.PluginForm do
           <%!-- The provider's own help, when it answers any; the options field
                 renders without it rather than the form failing. --%>
           <details :if={@form.provider.help} data-testid="provider-help" open>
-            <summary class="text-xs text-accent-text cursor-pointer hover:text-accent">
+            <summary class="text-xs text-th-brand cursor-pointer">
               {Format.humanize(@form.provider.id)} options
             </summary>
-            <pre class="flz-code mt-2 max-h-64">{@form.provider.help}</pre>
+            <pre class="flz-code flz-code--wrap mt-2 max-h-64">{@form.provider.help}</pre>
           </details>
 
           <.input

@@ -55,14 +55,20 @@ e2e/
                     stores and must leave behind it undone
   login.spec.ts     the form itself, with no stored session
   dashboard.spec.ts namespaces.spec.ts listen.spec.ts
-  audit.spec.ts cluster.spec.ts dlq.spec.ts schedules.spec.ts
+  audit.spec.ts dlq.spec.ts schedules.spec.ts
   relay-lifecycle.spec.ts plugin-attach.spec.ts topology.spec.ts
   authz.spec.ts              the posture banner and the flezha-token round-trip
   relays-index.spec.ts       the cross-namespace index and its filters
   namespace-health.spec.ts   the health column on a namespace
   namespace-admin.spec.ts    quota meters, create and delete
   steps.spec.ts              the steps panel, task journal, input log, finished relays
-  controller-health.spec.ts  durability posture, shutdown, boot, memory
+  controller-health.spec.ts  durability posture and the shipper, shutdown, boot,
+                             memory; the stop dialog's typed-name gate, cancelled
+  cluster.spec.ts            nodes, hubs, runners and factories; a namespace's
+                             recovery per node; dropping the dev runner, its
+                             process refused until readmitted
+  theme.spec.ts              the theme following the device, a stored choice,
+                             the chrome flipping with it, the badger and icons
   observability.spec.ts      sources, sinks, toggles, the live tail
   relay-state.spec.ts        durable cells and point-in-time reads
   relay-calls.spec.ts        diagnosis, the relay's API, calling `orders`'

@@ -320,8 +320,9 @@ defmodule FlezhaUi.Service.NodeManager do
   # it in an `:erpc` worker and hands each event to `emit_pid` as
   # `{:flezha_emit, event}` until that process exits. Answers the request,
   # which `stream_result/2` recognises the operation's own answer by.
-  defp authorized_stream(token, module, function, args, emit_pid) when is_pid(emit_pid) do
-    case connected_node() do
+  defp authorized_stream(token, module, function, args, emit_pid, target \\ nil)
+       when is_pid(emit_pid) do
+    case stream_node(target) do
       nil ->
         {:error, :node_not_connected}
 
@@ -333,6 +334,11 @@ defmodule FlezhaUi.Service.NodeManager do
         end
     end
   end
+
+  # The node a stream goes to: the one connected, or exactly `target` while it
+  # still is, never another node that took its place.
+  defp stream_node(nil), do: connected_node()
+  defp stream_node(target), do: if(target in Node.list(:connected), do: target)
 
   @doc """
   Whether `message` is the answer of a stream `request`: `:no_response`, or
@@ -751,6 +757,30 @@ defmodule FlezhaUi.Service.NodeManager do
   @doc "The factories registered in `namespace`, each carrying its `run`."
   def factories(namespace, token) do
     authorized_list_call(token, Flezha.Service.Fleet, :factories, [namespace])
+  end
+
+  @doc """
+  Drops a runner: the controller closes its session and refuses that process
+  until a runner reconnects as a different one. Answers the drop mark.
+  """
+  def drop_runner(namespace, runner_id, token) do
+    authorized_call(token, Flezha.Service.Fleet, :drop_runner, [namespace, runner_id])
+  end
+
+  @doc """
+  Lifts the drop mark on a runner's stable id on every controller, so that
+  process is admitted on its next retry. Answers the lifted mark.
+  """
+  def readmit_runner(namespace, stable_id, token) do
+    authorized_call(token, Flezha.Service.Fleet, :readmit_runner, [namespace, stable_id])
+  end
+
+  @doc """
+  The namespace's standing drop marks, as `[%{stable_id:, incarnation:, pid:,
+  node:, dropped_at:, dropped_by:}]`.
+  """
+  def dropped_runners(namespace, token) do
+    authorized_list_call(token, Flezha.Service.Fleet, :dropped_runners, [namespace])
   end
 
   @doc "The runners serving one factory in `namespace`."
@@ -1598,6 +1628,52 @@ defmodule FlezhaUi.Service.NodeManager do
   """
   def boot_status(token) do
     authorized_call(token, Flezha.Service.Controller, :boot_status, [])
+  end
+
+  @doc """
+  Drains the controller `node` and stops it. `opts` takes `timeout_ms` and
+  `force`; each shutdown phase reaches `emit_pid` as it happens. Answers
+  `:node_not_connected` rather than stopping another node when `node` is no
+  longer the one connected. See `authorized_stream/5`.
+  """
+  def stop_controller(node, opts, token, emit_pid) when is_atom(node) and is_list(opts) do
+    authorized_stream(token, Flezha.Service.Controller, :stop, [opts], emit_pid, node)
+  end
+
+  @doc """
+  Where a graceful shutdown has reached: `%{shutdown_in_progress:,
+  shutdown_phase:, signal_handler_status:, graceful_shutdown_enabled:,
+  graceful_shutdown_timeout_ms:}`.
+  """
+  def shutdown_status(token) do
+    authorized_call(token, Flezha.Service.Controller, :shutdown_status, [])
+  end
+
+  @doc """
+  The durability shipper's own status, one entry per shipped reference:
+  `%{ref:, last_shipped_ms:, pending_since_ms:, failures:, retry_after_ms:,
+  superseded_by:, last_error:}`. Empty while no remote tier is configured.
+  """
+  def durability_status(token) do
+    authorized_list_call(token, Flezha.Service.Controller, :durability_status, [])
+  end
+
+  @doc "The hub id the controller composes for `namespace`."
+  def hub_id(namespace, token) do
+    authorized_call(token, Flezha.Service.Controller, :hub_id, [namespace])
+  end
+
+  @doc "One hub's recovery state on the node this UI is connected to."
+  def recovery_state(hub_id, token) when is_atom(hub_id) do
+    authorized_call(token, Flezha.Service.Controller, :recovery_state, [hub_id])
+  end
+
+  @doc """
+  `namespace`'s recovery state on each of `nodes`, as `%{node => state}`; a
+  node that cannot be reached answers `:unreachable`.
+  """
+  def recovery_per_node(namespace, nodes, token) when is_list(nodes) do
+    authorized_call(token, Flezha.Service.Controller, :recovery_per_node, [namespace, nodes])
   end
 
   @doc """

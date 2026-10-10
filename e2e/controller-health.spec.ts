@@ -56,4 +56,33 @@ test.describe('Controller health', () => {
     await expect(captured).toContainText('Captured at');
     await expect(page.getByTestId('memory-top-processes')).toBeVisible();
   });
+
+  test('the shipper is stated as not applicable on a local-only controller', async ({ page }) => {
+    const posture = await page.getByTestId('durability-posture').innerText();
+    test.skip(!posture.includes('local_only'), 'controller is running a remote tier');
+
+    await expect(page.getByTestId('shipper-not-applicable')).toBeVisible();
+  });
+
+  test('stopping asks for the node name, and cancelling stops nothing', async ({ page }) => {
+    await page.getByTestId('stop-controller-btn').click();
+    const modal = page.getByTestId('stop-controller-modal');
+    await expect(modal).toBeVisible();
+
+    const confirm = page.getByTestId('stop-confirm');
+    await expect(confirm).toBeDisabled();
+
+    await page.getByTestId('stop-typed').fill('not-the-node');
+    await expect(confirm).toBeDisabled();
+
+    const label = await modal.locator('label[for], .flz-field-label').filter({ hasText: 'Type ' }).innerText();
+    const node = label.replace(/^Type /, '').replace(/ to confirm$/, '').trim();
+    await page.getByTestId('stop-typed').fill(node);
+    await expect(confirm).toBeEnabled();
+
+    await page.getByTestId('stop-cancel').click();
+    await expect(modal).toHaveCount(0);
+    await expect(page.getByTestId('shutdown-in-progress')).toHaveText('no');
+  });
 });
+

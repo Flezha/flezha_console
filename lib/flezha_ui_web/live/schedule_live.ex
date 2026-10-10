@@ -182,7 +182,7 @@ defmodule FlezhaUiWeb.ScheduleLive do
       factory_id: Map.get(entry, :factory_id) || "—",
       armed: Map.get(entry, :node) != nil,
       node: Map.get(entry, :node),
-      last_fire: Map.get(entry, :last_fire),
+      last_fire: last_fire(Map.get(entry, :last_fire)),
       next_fire: next_fire(Map.get(entry, :next_fire))
     }
   end
@@ -190,6 +190,10 @@ defmodule FlezhaUiWeb.ScheduleLive do
   defp next_fire(%DateTime{} = dt), do: dt
   defp next_fire({:ok, %DateTime{} = dt}), do: dt
   defp next_fire(_none), do: nil
+
+  # The hub reports a fire as the started instance, its outcome and when it ran.
+  defp last_fire(%{at: %DateTime{} = at}), do: at
+  defp last_fire(_none), do: nil
 
   defp aim(socket, namespace) do
     {target, form} = Target.aim(socket.assigns.target, namespace, socket.assigns.form)

@@ -1,7 +1,7 @@
 defmodule FlezhaUiWeb.BrandTest do
   @moduledoc """
   What every page must carry to be recognisably Flezha: the theme contract's
-  pre-paint hydration, the Flezha favicon, and the brand lockup.
+  pre-paint hydration, the badger favicon, and the badger lockup.
 
   These live in the layouts, so no screen asserts them individually — but a
   regression in any of them is invisible until someone loads the console and
@@ -14,10 +14,11 @@ defmodule FlezhaUiWeb.BrandTest do
   import FlezhaUi.AccountsFixtures
 
   describe "the theme contract" do
-    test "the document defaults to dark before any script runs", %{conn: conn} do
+    test "the server sets no theme, leaving it to the device and the visitor", %{conn: conn} do
       html = conn |> get(~p"/users/log-in") |> html_response(200)
 
-      assert html =~ ~s(data-theme="dark")
+      refute html =~ ~s(data-theme=")
+      assert html =~ "prefers-color-scheme: light"
       refute html =~ ~s(id="html-root")
     end
 
@@ -47,31 +48,47 @@ defmodule FlezhaUiWeb.BrandTest do
       assert html =~ ~s(href="/favicon.ico")
     end
 
-    test "the served icons are the Flezha mark, not the framework default" do
-      assert File.read!("priv/static/favicon.svg") =~ "linearGradient"
-      # An ICO container: reserved 0, type 1 (icon), one image.
-      assert <<0, 0, 1, 0, 1, 0, _rest::binary>> = File.read!("priv/static/favicon.ico")
+    test "the served icons are the stylebook's badger, not the framework default" do
+      svg = File.read!("priv/static/favicon.svg")
+      assert svg =~ "prefers-color-scheme"
+      refute svg =~ "linearGradient"
+
+      # An ICO container: reserved 0, type 1 (icon), several sizes.
+      assert <<0, 0, 1, 0, count::little-16, _rest::binary>> =
+               File.read!("priv/static/favicon.ico")
+
+      assert count > 1
     end
   end
 
   describe "the brand lockup" do
-    test "the login screen shows the themed canvas pair", %{conn: conn} do
+    test "the login screen shows the badger mask beside the name, in the brand ink", %{
+      conn: conn
+    } do
       html = conn |> get(~p"/users/log-in") |> html_response(200)
 
-      assert html =~ "/images/flezha-ui-purple-on-dark.svg"
-      assert html =~ "/images/flezha-ui-purple-on-light.svg"
-      assert html =~ ~s(alt="Flezha UI")
-
-      # The hand-set wordmark it replaced.
-      refute html =~ ~s(>flezha</span>)
+      assert html =~ ~s(class="flz-brand text-th-brand")
+      assert html =~ "mask-image: url(/images/flezha-badger-white.svg)"
+      assert html =~ ~s(<span class="flz-brand-name">Flezha UI</span>)
+      refute html =~ "flezha-ui-purple"
+      refute html =~ "flezha-ui-gold"
     end
 
-    test "the sidebar shows the flat lockup that does not clash with the chrome", %{conn: conn} do
+    test "the sidebar shows the same lockup in the chrome's ink", %{conn: conn} do
       conn = log_in_user(conn, user_fixture())
       {:ok, _live, html} = live(conn, ~p"/")
 
-      assert html =~ "/images/flezha-ui-gold-mono-on-dark.svg"
-      assert html =~ ~s(alt="Flezha UI")
+      assert html =~ ~r/<span class="flz-brand\s*">/
+      assert html =~ "mask-image: url(/images/flezha-badger-white.svg)"
+      assert html =~ "Flezha UI"
+      refute html =~ "flezha-ui-gold"
+    end
+
+    test "the login screen shows the mascot, decorative and hidden on phones", %{conn: conn} do
+      html = conn |> get(~p"/users/log-in") |> html_response(200)
+
+      assert html =~ ~s(src="/images/badger-laptop.webp")
+      assert html =~ ~s(alt="" class="flz-hide-mobile)
     end
   end
 

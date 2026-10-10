@@ -31,7 +31,9 @@ defmodule FlezhaUiWeb.LiveCase do
       use FlezhaUiWeb.ConnCase, async: false
 
       import Phoenix.LiveViewTest
-      import FlezhaUiWeb.LiveCase, only: [open_section: 2]
+
+      import FlezhaUiWeb.LiveCase,
+        only: [open_section: 2, enforce_operations: 3, grant_operations: 3]
 
       alias FlezhaUi.PeerNode
       alias FlezhaUi.Service.NodeManager
@@ -61,5 +63,32 @@ defmodule FlezhaUiWeb.LiveCase do
   """
   def open_section(view, key) do
     Phoenix.LiveViewTest.render_click(view, "section_toggle", %{"key" => key})
+  end
+
+  @doc """
+  Binds `user` to a token that verifies as `identity` under an enforced
+  posture: the only setup in which a screen's controls follow the operations
+  whoami grants (`grant_operations/3`). `identity` is `%{principal:,
+  namespace:, role:}`.
+  """
+  def enforce_operations(node, user, identity) do
+    token = "flzt_#{System.unique_integer([:positive])}"
+    {:ok, _user} = FlezhaUi.Accounts.update_user_flezha_token(user, token)
+    FakeController.set(node, {Flezha.AuthZ, :enforcement_posture}, :enforced)
+
+    FakeController.set(
+      node,
+      {Flezha.AuthZ.TokenStore, :verify},
+      {:ok, Map.put(identity, :expires_at, :never)}
+    )
+  end
+
+  @doc "Makes whoami answer `identity` with exactly `operations` granted."
+  def grant_operations(node, identity, operations) do
+    FakeController.set(
+      node,
+      {Flezha.Service.Namespace, :whoami},
+      {:ok, Map.put(identity, :operations, operations)}
+    )
   end
 end

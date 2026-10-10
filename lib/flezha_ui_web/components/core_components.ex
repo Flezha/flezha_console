@@ -63,7 +63,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   def dialog(assigns) do
     ~H"""
     <div class="flz-modal">
-      <div data-testid={@testid} class={["flz-modal-surface animate-scale-in", width(@size)]}>
+      <div data-testid={@testid} class={["flz-modal-surface", width(@size)]}>
         <div :if={@title != []} class="flz-modal-head">
           <h3 class="flz-modal-title">{render_slot(@title)}</h3>
           <button
@@ -154,39 +154,28 @@ defmodule FlezhaUiWeb.CoreComponents do
   end
 
   @doc """
-  The Flezha UI lockup, in the variant its surface calls for.
+  The Flezha UI lockup: the stylebook's badger, painted as a mask so it takes
+  the ink of whatever it sits on, beside the product name.
 
-  On the plum chrome the flat mono lockup is the one that does not clash —
-  white letters with the gold sub-wordmark and node graph, which is the
-  chrome's own accent. On the content canvas the gradient pair follows the
-  theme, so only one of the two is ever painted.
+  On the chrome both take the chrome's ink; on the content canvas they take the
+  brand ink, so one lockup serves every surface and theme with no image swap.
 
   ## Examples
 
-      <.brand_lockup on={:chrome} class="w-full" />
+      <.brand_lockup on={:chrome} />
   """
   attr :on, :atom, default: :canvas, values: [:chrome, :canvas]
-  attr :class, :string, default: nil
 
   def brand_lockup(assigns) do
     ~H"""
-    <img
-      :if={@on == :chrome}
-      src={~p"/images/flezha-ui-gold-mono-on-dark.svg"}
-      alt="Flezha UI"
-      class={@class}
-    />
-    <span :if={@on == :canvas} class={["inline-block", @class]}>
-      <img
-        src={~p"/images/flezha-ui-purple-on-dark.svg"}
-        alt="Flezha UI"
-        class="show-in-dark w-full"
-      />
-      <img
-        src={~p"/images/flezha-ui-purple-on-light.svg"}
-        alt="Flezha UI"
-        class="show-in-light w-full"
-      />
+    <span class={["flz-brand", @on == :canvas && "text-th-brand"]}>
+      <span
+        class={["flz-logo", @on == :canvas && "h-14"]}
+        style={"mask-image: url(#{~p"/images/flezha-badger-white.svg"})"}
+        aria-hidden="true"
+      >
+      </span>
+      <span class="flz-brand-name">Flezha UI</span>
     </span>
     """
   end
@@ -1383,7 +1372,7 @@ defmodule FlezhaUiWeb.CoreComponents do
             <td :if={@action != []} class="w-14 whitespace-nowrap text-right">
               <span
                 :for={action <- @action}
-                class="ml-4 font-semibold text-accent-text hover:text-accent"
+                class="ml-4"
               >
                 {render_slot(action, @row_item.(row))}
               </span>

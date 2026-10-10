@@ -5,7 +5,7 @@ defmodule FlezhaUiWeb.DashboardLive do
   # ticks at the rate those deltas are worth measuring over.
   use FlezhaUiWeb.Live.Refresh,
     every: 2_000,
-    on_events: [:runner_connected, :runner_disconnected]
+    on_events: [:runner_connected, :runner_disconnected, :runner_dropped, :runner_readmitted]
 
   use FlezhaUiWeb.Topology
 

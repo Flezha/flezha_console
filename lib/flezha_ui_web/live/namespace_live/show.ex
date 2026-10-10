@@ -6,10 +6,11 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   # flip is the one state change worth showing before the next tick.
   use FlezhaUiWeb.Live.Refresh,
     every: 2_000,
-    on_events: [:runner_connected, :runner_disconnected]
+    on_events: [:runner_connected, :runner_disconnected, :runner_dropped, :runner_readmitted]
 
   use FlezhaUiWeb.Topology
   use FlezhaUiWeb.Live.Launcher
+  use FlezhaUiWeb.Live.RunnerActions
 
   # The namespace's own relays are what the screen is for; everything that
   # administers the namespace is folded away until asked for. A breached quota
@@ -35,6 +36,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       |> start_refresh()
       |> Topology.init()
       |> launcher_init(ns)
+      |> runner_actions_init()
       |> sections_init()
       |> assign(
         ns: ns,
@@ -360,7 +362,9 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       runs: ns |> NodeManager.relay_runs(token) |> NodeManager.ok_or(%{}),
       plugin_counts: plugin_counts,
       groups: groups,
-      runners: ns |> NodeManager.runners(token) |> NodeManager.ok_or([]),
+      runners:
+        ns |> NodeManager.runners(token) |> NodeManager.ok_or([]) |> FlezhaUiWeb.Runners.rows(),
+      runner_marks: ns |> NodeManager.dropped_runners(token) |> NodeManager.ok_or([]),
       declared: declared,
       quotas: quotas,
       # A breach is never hidden behind a click, so it outranks the screen's

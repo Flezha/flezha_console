@@ -65,6 +65,33 @@ defmodule FlezhaUi.Service.EventFeedTest do
       refute_receive {:flezha_event, :runner_connected, _}, 100
     end
 
+    test "broadcasts a drop and a readmit by the runner's stable id", %{node: node} do
+      Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventFeed.topic())
+      start_supervised!(runner_feed())
+      assert PeerNode.eventually(fn -> open_streams(node) != [] end)
+
+      for name <- [:runner_dropped, :runner_readmitted] do
+        FakeController.emit(node, @tail, %{
+          kind: :event,
+          source: :flezha_runner,
+          name: name,
+          metadata: %{namespace: "default", stable_id: "stable-a"}
+        })
+
+        assert_receive {:flezha_event, ^name, {"default", "stable-a"}}
+      end
+    end
+
+    test "a dropped process's refused retry is not broadcast", %{node: node} do
+      Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventFeed.topic())
+      start_supervised!(runner_feed())
+      assert PeerNode.eventually(fn -> open_streams(node) != [] end)
+
+      FakeController.emit(node, @tail, runner_signal(:runner_drop_refused))
+
+      refute_receive {:flezha_event, _, _}, 200
+    end
+
     test "broadcasts nothing for another signal on the same source", %{node: node} do
       Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventFeed.topic())
       start_supervised!(runner_feed())

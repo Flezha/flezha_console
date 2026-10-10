@@ -33,12 +33,12 @@
       <div
         :for={provider <- @available_providers}
         data-testid={"provider-#{provider.id}"}
-        class="flz-panel group p-5 flex flex-col gap-3 transition-shadow hover:shadow-md"
+        class="flz-card"
       >
         <div class="flex items-center gap-2">
           <.icon
             name="hero-cube"
-            class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
+            class="w-4 h-4 text-th-secondary"
           />
           <h3 class="text-sm font-semibold text-th-primary">
             {Format.humanize(provider.id)}
@@ -47,15 +47,15 @@
 
         <div class="space-y-1 text-xs">
           <p class="text-th-secondary">
-            <span class="text-th-tertiary">ID:</span>
+            <span class="text-th-secondary">ID:</span>
             <span class="font-mono">{provider.id}</span>
           </p>
           <p class="text-th-secondary">
-            <span class="text-th-tertiary">Module:</span>
+            <span class="text-th-secondary">Module:</span>
             <span class="font-mono">{provider.module}</span>
           </p>
           <p class="text-th-secondary">
-            <span class="text-th-tertiary">Type:</span> {provider.type}
+            <span class="text-th-secondary">Type:</span> {provider.type}
           </p>
         </div>
       </div>
@@ -146,7 +146,7 @@
                 phx-value-provider={provider_id(plugin)}
                 phx-value-namespace={plugin.namespace}
                 data-testid={"plugin-bind-#{plugin.name}"}
-                class="text-xs text-accent-text hover:text-accent transition-colors"
+                class="flz-button flz-button--sm flz-button--ghost"
               >
                 Bind
               </button>
@@ -159,7 +159,7 @@
                 phx-value-namespace={plugin.namespace}
                 phx-value-hooks={Enum.join(plugin[:hooks] || [], ",")}
                 data-testid={"plugin-update-#{plugin.name}"}
-                class="text-xs text-accent-text hover:text-accent transition-colors"
+                class="flz-button flz-button--sm flz-button--ghost"
               >
                 Update
               </button>
@@ -169,7 +169,7 @@
                 phx-value-name={plugin.name}
                 phx-value-namespace={plugin.namespace}
                 data-testid={"plugin-disable-#{plugin.name}"}
-                class="text-xs text-danger-text hover:text-danger transition-colors"
+                class="flz-button flz-button--sm flz-button--ghost"
               >
                 Disable
               </button>
@@ -273,13 +273,7 @@
         <td>
           <span
             data-testid={"installed-status-#{plugin[:id]}"}
-            class={[
-              "inline-flex items-center px-2 py-0.5 rounded-lg text-[11px]",
-              if(plugin[:status] == :loaded,
-                do: "bg-success/10 text-success",
-                else: "bg-surface-input text-th-tertiary"
-              )
-            ]}
+            class={["flz-badge", plugin[:status] == :loaded && "flz-badge--positive"]}
           >
             {plugin[:status]}
           </span>

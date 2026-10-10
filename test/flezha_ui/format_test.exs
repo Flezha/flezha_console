@@ -133,4 +133,17 @@ defmodule FlezhaUi.FormatTest do
       assert "—" = Format.module_name(nil)
     end
   end
+
+  describe "unix_time/2" do
+    test "reads seconds and milliseconds as the same absolute time" do
+      assert Format.unix_time(1_760_000_000, :second) == "2025-10-09 08:53:20 UTC"
+      assert Format.unix_time(1_760_000_000_000, :millisecond) == "2025-10-09 08:53:20 UTC"
+    end
+
+    test "an absent time is a dash, and a token that never expires says so" do
+      assert Format.unix_time(nil, :second) == "—"
+      assert Format.token_expiry(:never) == "never"
+      assert Format.token_expiry(1_760_000_000) == "2025-10-09 08:53:20 UTC"
+    end
+  end
 end

@@ -43,7 +43,7 @@ reading the namespace from the path instead of from a filter control.
 | --- | --- |
 | `/` | Connected controller, counts with a health breakdown, runners, namespace links |
 | `/namespaces` | Declared and running namespaces, their counts, and quota breaches |
-| `/namespaces/:ns` | Relays with health and run; quotas, role bindings (bind, unbind), tokens (issue once, revoke), partition groups, finished relays and runners with their OS pids as sections that fold |
+| `/namespaces/:ns` | Relays with health and run; quotas, role bindings (bind, unbind), tokens (issue once, revoke), partition groups, finished relays and runners with their OS pids as sections that fold; drop a runner and readmit its process |
 | `/namespaces/:ns/relays` | That namespace's relays, its scope fixed rather than filterable |
 | `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
@@ -52,9 +52,9 @@ reading the namespace from the path instead of from a filter control.
 | `/namespaces/:ns/relays/:id/listen` | The relay's live outputs or inputs |
 | `/namespaces/:ns/relays/:id/state` | Durable cells with their WAL/snapshot sequences and durability lag; point-in-time reads, a cell's outbox, replay from a point (flow relays), rotate, delete; history and finished-instance retention, the former settable |
 | `/plugins` | Enabled plugins per namespace, and the packages installed on the controller with their providers and why one was refused |
-| `/cluster` | Cluster nodes, per-node health rollup, hub recovery, runner fleet with OS pids |
+| `/cluster` | Cluster nodes, per-node health rollup, hub recovery and each namespace's recovery detail per node, runner fleet with OS pids; drop a runner and readmit its process |
 | `/observability` | Observability sources and sinks, their enabled state, and a live signal tail |
-| `/controller` | Durability posture and RPO breaches, shutdown and boot state, authorization posture, memory hot spots |
+| `/controller` | Durability posture, RPO breaches and the shipper's own status, shutdown and boot state, authorization posture, memory hot spots; drain and stop the controller, watching each phase |
 | `/schedules` | Cron schedules with live job status and next fire; run one now |
 | `/dlq` | Parked dead-letter entries grouped by tasklet; inspect, replay, drop |
 | `/audit` | Audit file catalog, filtered reads, live tail, rotation |
@@ -243,8 +243,10 @@ the rule for deciding which layer a new assertion belongs to.
 ## How it looks
 
 Everything visual comes from [`flezha_stylebook`](../flezha_stylebook), the
-Flezha group's design system. This repository defines **no colours of its own**
-— `npm run tokens` enforces that.
+Flezha group's design system, and flezha.com is its reference look. This
+repository defines **no colours of its own** — `npm run tokens` fails on an
+undefined or unused token, a contrast pairing below WCAG AA, and any hex,
+`rgb()` or `hsl()` colour written here.
 
 - **Three CSS layers**, imported in order from `assets/css/app.css`:
   `tokens.css`, `base.css`, `components.css`. They land after Tailwind's base
@@ -256,18 +258,26 @@ Flezha group's design system. This repository defines **no colours of its own**
   and shadow utility onto a stylebook token, so existing utility classes
   inherit the palette rather than being rewritten one by one.
 - **Theme contract**: attribute `data-theme="light|dark"` on `<html>`, storage
-  key `flezha-theme`, dark by default, no `prefers-color-scheme` fallback. The
-  stylebook's `theme-hydrate.js` is inlined in `<head>` at compile time, so the
-  attribute is set before the first paint and there is no flash of the wrong
-  theme. The control is `<button data-flz-theme-toggle>` inside the account
-  menu, bound by the stylebook's own `bindThemeToggles()`.
-- **Chrome is theme-invariant.** The sidebar and topbar stay deep plum in both
-  themes with gold marking hover and the current destination; only the content
-  canvas flips.
-- **Fonts and brand assets** are copied out of the stylebook into
-  `priv/static/` by `mix assets.stylebook` (wired into `assets.setup`,
-  `assets.build` and `assets.deploy`) and committed, so the Node-less container
-  serves them with no extra step.
+  key `flezha-theme`. With nothing stored the theme is the device's colour
+  scheme (dark when it states none) and keeps following it; a toggle away from
+  the device is stored, a toggle back forgets it. The stylebook's
+  `theme-hydrate.js` is inlined in `<head>` at compile time, so the attribute
+  is set before the first paint. The control is `<button data-flz-theme-toggle>`
+  inside the account menu, bound by the stylebook's own `bindThemeToggles()`,
+  with the stylebook's `.flz-theme-sun` / `.flz-theme-moon` icons.
+- **The chrome follows the theme.** The sidebar and topbar are pale in light and
+  deep plum in dark, and the topbar wears the chrome band as flezha.com's
+  header does. The accent — plum in light, gold in dark — marks hover and the
+  current destination.
+- **The brand** is the stylebook's white honey badger painted as a mask
+  (`.flz-logo`), so it takes the ink of the surface it sits on, beside
+  "Flezha UI" in `.flz-brand-name`. The favicon is the stylebook's adaptive
+  badger, which follows the browser's scheme. The login screen and the 404 page
+  show a mascot pose; data screens never do.
+- **Fonts, the badger, the favicons and the mascot poses** are copied out of the
+  stylebook into `priv/static/` by `mix assets.stylebook` (wired into
+  `assets.setup`, `assets.build` and `assets.deploy`) and committed, so the
+  Node-less container serves them with no extra step.
 - **Controls come from one vocabulary.** Text inputs, selects, textareas,
   checkboxes and the dropdown trigger are all skinned by the stylebook's
   `base.css`, so they are the same box; labels, hints and errors are
@@ -287,13 +297,19 @@ Flezha group's design system. This repository defines **no colours of its own**
   one answer.
 - **Status colour states an outcome, and is never a brand colour.** Green
   (`--positive`), amber (`--warning`) and red (`--negative`) say healthy,
-  degraded and failed. Gold (`--accent-solid`) marks interaction and magenta
-  (`--brand-solid`) is the brand fill; neither is a status. Every solid fill
-  uses its matched foreground token — never white on amber.
+  degraded and failed. The accent (`--accent-solid`) marks interaction and
+  magenta (`--brand-solid`) is the brand fill; neither is a status. Every solid
+  fill uses its matched foreground token — never white on amber.
+- **Row actions are small ghost buttons**, and a destructive one opens a
+  confirmation whose confirm button is the danger fill. Payloads, schemas and
+  tokens sit in `.flz-code.flz-code--wrap` so long lines wrap; a quota is a
+  `.flz-meter`.
 - **A component another Flezha surface could reuse goes upstream**, into the
   stylebook's `components.css` — not into a local stylesheet. The topology
-  graph's `topo-*` rules stay here because nothing else would use them; they
-  consume stylebook tokens like everything else.
+  graph draws its nodes, wires and legend with the stylebook's relay-graph
+  recipe (`.flz-graph-*`), the same one flezha.com's relay shapes use; only its
+  own behaviour — flow-speed buckets, selection, backpressure, rate labels and
+  the sparkline — stays here as `topo-*` rules.
 
 ## How the UI talks to the controller
 

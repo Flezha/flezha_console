@@ -45,16 +45,11 @@
     <h2 class="flz-panel-title mb-3">
       Statistics
     </h2>
-    <div data-testid="dlq-stats" class="grid grid-cols-3 gap-4">
-      <div :for={stat <- @stats} class="bg-surface-input border border-brd rounded-xl px-4 py-3">
-        <p class="flz-label">
-          {stat[:relay_class]}/{stat[:tasklet_id]}
-        </p>
-        <p class="text-2xl font-bold text-th-primary font-mono mt-1">
-          {stat[:entries] || 0}
-        </p>
-      </div>
-    </div>
+    <dl data-testid="dlq-stats" class="flz-stats">
+      <.stat :for={stat <- @stats} label={"#{stat[:relay_class]}/#{stat[:tasklet_id]}"} boxed>
+        {stat[:entries] || 0}
+      </.stat>
+    </dl>
   </div>
 
   <%!-- Entries --%>
@@ -73,14 +68,14 @@
         data-testid={"dlq-group-#{group.relay_class}-#{group.tasklet_id}"}
         class="border-b border-brd last:border-b-0"
       >
-        <div class="px-5 py-3 flex items-center gap-3 bg-surface-input/40">
-          <.icon name="hero-folder" class="w-3.5 h-3.5 text-th-tertiary" />
+        <div class="px-5 py-3 flex items-center gap-3 bg-surface-input">
+          <.icon name="hero-folder" class="w-3.5 h-3.5 text-th-secondary" />
           <span class="font-mono text-xs text-th-primary">
             {group.relay_class}/{group.tasklet_id}
           </span>
           <span
             data-testid={"dlq-group-count-#{group.relay_class}-#{group.tasklet_id}"}
-            class="text-[11px] text-th-tertiary font-mono"
+            class="text-xs text-th-secondary font-mono"
           >
             {group.parked} parked
           </span>
@@ -121,7 +116,7 @@
                     phx-click="inspect"
                     phx-value-ref={entry.ref}
                     data-testid={"dlq-inspect-#{entry.ref}"}
-                    class="text-xs text-th-secondary hover:text-th-primary transition-colors mr-3"
+                    class="flz-button flz-button--sm flz-button--ghost"
                   >
                     Inspect
                   </button>
@@ -131,7 +126,7 @@
                     phx-value-action="replay"
                     phx-value-ref={entry.ref}
                     data-testid={"dlq-replay-#{entry.ref}"}
-                    class="text-xs text-accent hover:text-accent-hover transition-colors mr-3"
+                    class="flz-button flz-button--sm flz-button--ghost"
                   >
                     Replay
                   </button>
@@ -141,7 +136,7 @@
                     phx-value-action="drop"
                     phx-value-ref={entry.ref}
                     data-testid={"dlq-drop-#{entry.ref}"}
-                    class="text-xs text-danger-text hover:text-danger transition-colors"
+                    class="flz-button flz-button--sm flz-button--ghost"
                   >
                     Drop
                   </button>
@@ -162,19 +157,19 @@
     <button
       phx-click="close_inspect"
       data-testid="dlq-inspect-close"
-      class="text-th-muted hover:text-th-primary transition-colors"
+      class="flz-button flz-button--sm flz-button--ghost"
     >
       <.icon name="hero-x-mark" class="w-5 h-5" />
     </button>
   </div>
 
   <p class="text-xs text-th-muted uppercase tracking-wider mb-2">Metadata</p>
-  <pre class="flz-code mb-4"><%= inspect(@selected.entry, pretty: true) %></pre>
+  <pre class="flz-code flz-code--wrap mb-4"><%= inspect(@selected.entry, pretty: true) %></pre>
 
   <p class="text-xs text-th-muted uppercase tracking-wider mb-2">Payload preview</p>
   <pre
     data-testid="dlq-payload"
-    class="flz-code"
+    class="flz-code flz-code--wrap"
   ><%= Format.printable(@selected.payload, limit: 2_000) %></pre>
 </.dialog>
 

@@ -1,4 +1,8 @@
-<Layouts.auth flash={@flash} current_scope={@current_scope}>
+<Layouts.auth
+  flash={@flash}
+  current_scope={@current_scope}
+  mascot={~p"/images/badger-laptop.webp"}
+>
   <div class="space-y-6">
     <.header>
       Log in
@@ -7,7 +11,7 @@
       </:subtitle>
       <:subtitle :if={!@current_scope}>
         No account?
-        <.link navigate={~p"/users/register"} class="text-accent-text hover:underline">
+        <.link navigate={~p"/users/register"} class="hover:underline">
           Register
         </.link>
       </:subtitle>

@@ -4,19 +4,19 @@
   <.runtime_error error={@stats.error} />
 
   <%!-- Node status card --%>
-  <div class="flz-panel p-5 transition-shadow hover:shadow-md">
-    <h2 class="flz-panel-title mb-3">Node</h2>
+  <div class="flz-panel p-5">
+    <h2 class="flz-panel-title mb-3">Controller node</h2>
     <div class="flex items-center gap-3">
       <%= if @stats.node do %>
         <.status_dot connected?={true} size="h-3 w-3" class="flex-shrink-0" />
         <div data-testid="node-connected">
           <p class="text-th-primary font-medium">{@stats.node}</p>
-          <p class="text-xs text-th-tertiary">Transport: {@stats.transport}</p>
+          <p class="text-xs text-th-secondary">Transport: {@stats.transport}</p>
         </div>
       <% else %>
         <.status_dot connected?={false} size="h-3 w-3" class="flex-shrink-0" />
         <div data-testid="node-disconnected">
-          <p class="text-th-tertiary font-medium">Not connected</p>
+          <p class="text-th-secondary font-medium">Not connected</p>
           <p class="text-xs text-th-muted">Set FLEZHA_NODE environment variable</p>
         </div>
       <% end %>
@@ -40,7 +40,7 @@
       <span
         :if={@stats.scoped_to}
         data-testid="topology-namespace-scope"
-        class="text-[11px] text-th-muted"
+        class="text-xs text-th-muted"
       >
         scoped to {@stats.scoped_to} by your flezha token
       </span>
@@ -49,25 +49,25 @@
 
   <%!-- Stats grid --%>
   <div class="grid grid-cols-3 gap-4">
-    <div class="flz-panel group p-6 animate-fade-in-up transition-shadow hover:shadow-md">
+    <div class="flz-panel p-6">
       <div class="flex items-center gap-2 mb-1">
         <.icon
           name="hero-rectangle-stack"
-          class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
+          class="w-4 h-4 text-th-secondary"
         />
-        <p class="text-sm text-th-tertiary">Namespaces</p>
+        <p class="text-sm text-th-secondary">Namespaces</p>
       </div>
       <p data-testid="stat-namespaces" class="text-3xl font-bold text-th-primary mt-1 font-mono">
         {@stats.namespace_count}
       </p>
     </div>
-    <div class="flz-panel group p-6 animate-fade-in-up animation-delay-100 transition-shadow hover:shadow-md">
+    <div class="flz-panel p-6">
       <div class="flex items-center gap-2 mb-1">
         <.icon
           name="hero-cpu-chip"
-          class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
+          class="w-4 h-4 text-th-secondary"
         />
-        <p class="text-sm text-th-tertiary">Relays</p>
+        <p class="text-sm text-th-secondary">Relays</p>
       </div>
       <p data-testid="stat-relays" class="text-3xl font-bold text-th-primary mt-1 font-mono">
         {@stats.relay_count}
@@ -91,13 +91,13 @@
         {@stats.unplaced_count} unplaced
       </p>
     </div>
-    <div class="flz-panel group p-6 animate-fade-in-up animation-delay-200 transition-shadow hover:shadow-md">
+    <div class="flz-panel p-6">
       <div class="flex items-center gap-2 mb-1">
         <.icon
           name="hero-puzzle-piece"
-          class="w-4 h-4 text-th-tertiary group-hover:text-accent transition-colors"
+          class="w-4 h-4 text-th-secondary"
         />
-        <p class="text-sm text-th-tertiary">Plugins</p>
+        <p class="text-sm text-th-secondary">Plugins</p>
       </div>
       <p data-testid="stat-plugins" class="text-3xl font-bold text-th-primary mt-1 font-mono">
         {@stats.plugin_count}

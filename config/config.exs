@@ -34,6 +34,7 @@ config :flezha_ui, FlezhaUiWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
     formats: [html: FlezhaUiWeb.ErrorHTML, json: FlezhaUiWeb.ErrorJSON],
+    root_layout: [html: {FlezhaUiWeb.Layouts, :root}],
     layout: false
   ],
   pubsub_server: FlezhaUi.PubSub,

@@ -1,7 +1,7 @@
 <div class="space-y-6">
   <.header>
     <span class="flz-num">{@relay_id}</span>
-    <span class="ml-2 text-sm font-normal text-th-tertiary">durable state</span>
+    <span class="ml-2 text-sm font-normal text-th-secondary">durable state</span>
   </.header>
 
   <.relay_tabs ns={@ns} relay_id={@relay_id} current={:state} />
@@ -115,7 +115,7 @@
                 phx-click="select_cell"
                 phx-value-cell={cell.key}
                 data-testid={"select-#{cell.key}"}
-                class="text-sm text-accent-text hover:text-accent transition-colors"
+                class="flz-button flz-button--sm flz-button--ghost"
               >
                 Inspect
               </button>
@@ -125,7 +125,7 @@
                 phx-value-action="rotate"
                 phx-value-cell={cell.key}
                 data-testid={"rotate-#{cell.key}"}
-                class="text-sm text-accent-text hover:text-accent transition-colors"
+                class="flz-button flz-button--sm flz-button--ghost"
               >
                 Rotate
               </button>
@@ -135,7 +135,7 @@
                 phx-value-action="delete"
                 phx-value-cell={cell.key}
                 data-testid={"delete-#{cell.key}"}
-                class="text-sm text-danger-text hover:text-danger transition-colors"
+                class="flz-button flz-button--sm flz-button--ghost"
               >
                 Delete
               </button>
@@ -151,7 +151,7 @@
       class="flz-panel p-5"
     >
       <div class="flex items-center gap-2 mb-1">
-        <.icon name="hero-chart-bar-square" class="w-4 h-4 text-th-tertiary" />
+        <.icon name="hero-chart-bar-square" class="w-4 h-4 text-th-secondary" />
         <h2 class="flz-panel-title">
           Durability lag and WAL-behind-snapshot
         </h2>
@@ -167,7 +167,7 @@
             :for={point <- Enum.reverse(Map.get(@history, cell.key, []))}
             class={[
               "w-1 rounded-sm",
-              if(is_nil(point.lag_ms), do: "bg-transparent", else: "bg-accent")
+              if(is_nil(point.lag_ms), do: "bg-transparent", else: "bg-brand")
             ]}
             style={"height: #{min(48, (point.lag_ms || 0))}px"}
             title={"lag #{point.lag_ms || "—"}ms, wal gap #{point.wal_gap || "—"}"}
@@ -184,7 +184,7 @@
       class="flz-panel p-5"
     >
       <div class="flex items-center gap-2 mb-4">
-        <.icon name="hero-clock" class="w-4 h-4 text-th-tertiary" />
+        <.icon name="hero-clock" class="w-4 h-4 text-th-secondary" />
         <h2 class="flz-panel-title">
           Where history stands — <span class="font-mono normal-case">{@selected}</span>
         </h2>

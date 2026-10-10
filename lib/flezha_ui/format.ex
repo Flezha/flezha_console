@@ -122,15 +122,22 @@ defmodule FlezhaUi.Format do
   atom `:never`.
   """
   def token_expiry(:never), do: "never"
+  def token_expiry(seconds) when is_integer(seconds), do: unix_time(seconds, :second)
+  def token_expiry(_other), do: "—"
 
-  def token_expiry(seconds) when is_integer(seconds) do
-    case DateTime.from_unix(seconds) do
+  @doc """
+  A unix time the controller answers as an integer in `unit` — `:second` for a
+  token or a drop mark, `:millisecond` for a shipment — as an absolute time.
+  """
+  def unix_time(value, unit) when is_integer(value) do
+    case DateTime.from_unix(value, unit) do
       {:ok, dt} -> timestamp(dt)
-      _ -> to_string(seconds)
+      _ -> to_string(value)
     end
   end
 
-  def token_expiry(_other), do: "—"
+  def unix_time(nil, _unit), do: "—"
+  def unix_time(other, _unit), do: inspect(other)
 
   @doc "A snake_case controller id as a human-readable label."
   def humanize(id) do

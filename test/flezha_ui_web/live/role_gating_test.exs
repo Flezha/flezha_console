@@ -15,7 +15,6 @@ defmodule FlezhaUiWeb.RoleGatingTest do
   alias Flezha.Service.Relay
   alias Flezha.Service.Schedule
   alias Flezha.Service.Steps
-  alias FlezhaUi.Accounts
 
   @viewer ~w(AuditLog.list_files AuditLog.read AuditLog.stats AuditLog.tail
              Controller.status Controller.boot_status Controller.cluster_status
@@ -34,17 +33,10 @@ defmodule FlezhaUiWeb.RoleGatingTest do
             Schedule.add Schedule.remove Schedule.run Steps.inbox Steps.outbox Steps.rescale
             Steps.rewind Steps.rotate)
 
+  @identity %{principal: "p@acme", namespace: "default", role: :viewer}
+
   setup %{node: node, user: user} do
-    token = "flzt_gate_#{System.unique_integer([:positive])}"
-    {:ok, _user} = Accounts.update_user_flezha_token(user, token)
-
-    FakeController.set(node, {Flezha.AuthZ, :enforcement_posture}, :enforced)
-
-    FakeController.set(
-      node,
-      {Flezha.AuthZ.TokenStore, :verify},
-      {:ok, %{principal: "p@acme", namespace: "default", role: :viewer, expires_at: :never}}
-    )
+    enforce_operations(node, user, @identity)
 
     FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{builder: %{run: :flow}}})
     FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
@@ -129,13 +121,7 @@ defmodule FlezhaUiWeb.RoleGatingTest do
     :ok
   end
 
-  defp grant(node, operations) do
-    FakeController.set(
-      node,
-      {Namespace, :whoami},
-      {:ok, %{principal: "p@acme", namespace: "default", role: :viewer, operations: operations}}
-    )
-  end
+  defp grant(node, operations), do: grant_operations(node, @identity, operations)
 
   defp screens(conn) do
     {:ok, relay, _html} = live(conn, ~p"/namespaces/default/relays/relay_a")

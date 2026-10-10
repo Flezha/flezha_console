@@ -18,8 +18,9 @@
 @import "tailwindcss/utilities";
 
 /* ---- Topology graph ----
- * The one piece of styling no other Flezha surface would reuse, so it stays
- * here — consuming stylebook tokens for its colours like everything else.
+ * Nodes, wires and the legend wear the stylebook's relay-graph recipe. What
+ * stays here is the console's own behaviour on top of it: flow speed, the
+ * selection, backpressure, rate figures, label geometry and the sparkline.
  *
  * Flow is animated by marching the dash pattern along the edge; the speed
  * bucket the UI derives from a rate picks the period, and an idle edge has no
@@ -32,34 +33,25 @@
   50%      { opacity: 0.5; }
 }
 
-.topo-edge          { fill: none; stroke: var(--border-default); stroke-width: 2; }
-.topo-edge-dlq      { stroke: var(--warning); stroke-width: 1.5; stroke-dasharray: 2 4; }
-.topo-edge-satellite{ stroke: var(--brand-solid); stroke-width: 1.5; stroke-dasharray: 3 4; opacity: 0.6; }
-.topo-edge-degraded { stroke: var(--negative); stroke-width: 2; stroke-dasharray: 5 4; }
-
-.topo-flow-idle    { stroke-dasharray: none; }
 .topo-flow-slow,
 .topo-flow-medium,
-.topo-flow-fast    { stroke: var(--brand-solid); stroke-dasharray: 6 10; }
+.topo-flow-fast    { stroke: var(--brand-solid); stroke-dasharray: 6 10; stroke-opacity: 1; }
 .topo-flow-slow    { animation: topo-flow 1.8s  linear infinite; }
 .topo-flow-medium  { animation: topo-flow 0.9s  linear infinite; stroke-width: 2.5; }
 .topo-flow-fast    { animation: topo-flow 0.35s linear infinite; stroke-width: 3; stroke: var(--positive); }
 
-.topo-node         { fill: var(--surface-sunken); stroke: var(--border-default); stroke-width: 1;
-                     transition: stroke 0.15s ease, fill 0.15s ease; }
-.topo-node:hover        { stroke: var(--brand-solid); }
-.topo-node-ingest,
-.topo-node-output       { fill: var(--surface-raised); }
-.topo-node-core         { fill: color-mix(in srgb, var(--brand-solid) 15%, transparent);
-                          stroke: var(--brand-solid); }
-.topo-node.is-selected  { stroke: var(--brand-solid); stroke-width: 2; }
-.topo-node.is-suspended { stroke: var(--warning); stroke-dasharray: 5 3; }
-.topo-node.is-disconnected { stroke: var(--negative); stroke-dasharray: 5 3; }
+/* A dead-letter branch is structure, not a failure: amber, dotted. */
+.topo-edge-dlq      { stroke: var(--warning); stroke-opacity: 1; }
+
+/* A suspended or unbound node keeps its own outline when selected. */
+:is(a, [phx-click]) > .flz-graph-node:not(.flz-graph-node--dead, .flz-graph-node--recovering):hover rect,
+.flz-graph-node.is-selected:not(.flz-graph-node--dead, .flz-graph-node--recovering) rect { stroke: var(--brand-solid); }
+.flz-graph-node.is-selected rect { stroke-width: 2; }
 
 .topo-backpressure { fill: var(--warning); animation: topo-pulse 2s ease-in-out infinite; }
 
-.topo-label  { fill: var(--text-primary); font-size: 12px; font-family: var(--font-mono); }
-.topo-sub    { fill: var(--text-muted);   font-size: 10px; }
+.topo-label  { font-size: 12px; font-family: var(--font-mono); }
+.flz-graph-node .topo-sub { fill: var(--text-muted); font-size: 10px; }
 .topo-rate   { fill: var(--text-brand);   font-size: 10px; font-family: var(--font-mono); }
 .topo-rate.is-muted { fill: var(--text-muted); opacity: 0.55; }
 
@@ -68,20 +60,4 @@
 
 @media (prefers-reduced-motion: reduce) {
   .topo-flow-slow, .topo-flow-medium, .topo-flow-fast, .topo-backpressure { animation: none; }
-}
-
-/* Theme icon swap — sun in dark mode (switch to light), moon in light mode.
- * Sits after the utilities import so it outranks the heroicon component
- * class's own `display`, without needing !important. */
-.show-in-light { display: none; }
-.show-in-dark  { display: inline-block; }
-[data-theme="light"] .show-in-light { display: inline-block; }
-[data-theme="light"] .show-in-dark  { display: none; }
-
-@layer utilities {
-  .animation-delay-100 { animation-delay: 100ms; }
-  .animation-delay-200 { animation-delay: 200ms; }
-  .animation-delay-300 { animation-delay: 300ms; }
-  .animation-delay-400 { animation-delay: 400ms; }
-  .animation-delay-500 { animation-delay: 500ms; }
 }

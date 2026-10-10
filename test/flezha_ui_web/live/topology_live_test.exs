@@ -164,7 +164,11 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       {:ok, _view, html} = live(conn, @relay)
 
       assert html =~ "unbound"
-      assert html =~ "topo-edge-degraded"
+
+      assert html =~
+               ~r/data-testid="topo-edge-[^"]+"[^>]*class="flz-graph-wire flz-graph-wire--fail"/
+
+      assert html =~ ~r/data-testid="topo-node-channel".*?class="[^"]*flz-graph-node--dead/s
     end
 
     test "rates appear on the counted edges once a baseline exists, keyed by relay id", %{
@@ -292,6 +296,10 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       assert html =~ "4 parked"
       assert has_element?(view, ~s(a[data-testid="topo-node-dead-letter"][href="/dlq"]))
+
+      # A branch that exists by structure is not drawn as a failure.
+      assert html =~ ~r/data-testid="topo-edge-[^"]*dead[^"]*"[^>]*class="[^"]*topo-edge-dlq"/
+      refute html =~ ~r/data-testid="topo-edge-[^"]*dead[^"]*"[^>]*flz-graph-wire--fail/
     end
   end
 

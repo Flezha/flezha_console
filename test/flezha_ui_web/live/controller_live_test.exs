@@ -252,4 +252,229 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       refute html =~ ~s(data-testid="memory-captured-at")
     end
   end
+
+  describe "the durability shipper" do
+    test "a shipping remote tier lists each reference with its figures", %{conn: conn, node: node} do
+      with_status(node, %{durability_backend: :s3, durability_posture: :remote_tier})
+
+      FakeController.set(
+        node,
+        {Controller, :durability_status},
+        {:ok,
+         [
+           %{
+             ref: {:cell, "default", "orders"},
+             last_shipped_ms: 1_760_000_000_000,
+             pending_since_ms: nil,
+             failures: 3,
+             retry_after_ms: nil,
+             superseded_by: nil,
+             last_error: :timeout
+           }
+         ]}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/controller")
+      row = view |> element(~s([data-testid="shipper-row"])) |> render()
+
+      assert row =~ "orders"
+      assert row =~ "2025-10-09"
+      assert row =~ "3"
+      assert row =~ ":timeout"
+    end
+
+    test "a local-only controller states the shipper does not apply", %{conn: conn, node: node} do
+      with_status(node, %{durability_posture: :local_only})
+
+      {:ok, view, _html} = live(conn, ~p"/controller")
+
+      assert has_element?(view, ~s([data-testid="shipper-not-applicable"]))
+      refute has_element?(view, ~s([data-testid="shipper-table"]))
+    end
+
+    test "a failed shipper read is stated and posture and breaches still render", %{
+      conn: conn,
+      node: node
+    } do
+      with_status(node, %{durability_backend: :s3, durability_posture: :remote_tier})
+
+      FakeController.set(
+        node,
+        {Controller, :durability_status},
+        FakeController.error("authz.role_insufficient")
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/controller")
+
+      assert view |> element(~s([data-testid="shipper-status"])) |> render() =~
+               "authz.role_insufficient"
+
+      assert view |> element(~s([data-testid="durability-posture"])) |> render() =~ "remote_tier"
+    end
+  end
+
+  describe "stopping the controller" do
+    @admin %{principal: "admin@_system", namespace: "_system", role: :admin}
+
+    setup %{node: node, user: user}, do: enforce_operations(node, user, @admin)
+
+    defp grant(node, operations), do: grant_operations(node, @admin, operations)
+
+    defp open_stop(conn, node) do
+      grant(node, ["Controller.status", "Controller.stop"])
+      {:ok, view, _html} = live(conn, ~p"/controller")
+      view |> element(~s([data-testid="stop-controller-btn"])) |> render_click()
+      view
+    end
+
+    defp typed(view, text, extra \\ %{}) do
+      view
+      |> form("#stop-controller-form", stop: Map.merge(%{"typed" => text}, extra))
+      |> render_change()
+    end
+
+    test "the control is absent when the role does not grant it", %{conn: conn, node: node} do
+      grant(node, ["Controller.status"])
+      {:ok, view, _html} = live(conn, ~p"/controller")
+
+      refute has_element?(view, ~s([data-testid="stop-controller-btn"]))
+    end
+
+    test "confirm stays disabled until the node name is typed", %{conn: conn, node: node} do
+      view = open_stop(conn, node)
+      node_name = Atom.to_string(node)
+
+      assert has_element?(view, ~s([data-testid="stop-confirm"][disabled]))
+      typed(view, "not-the-node")
+      assert has_element?(view, ~s([data-testid="stop-confirm"][disabled]))
+
+      render_submit(view, "confirm_stop", %{})
+      assert FakeController.calls(node, {Controller, :stop}) == []
+
+      typed(view, node_name)
+      refute has_element?(view, ~s([data-testid="stop-confirm"][disabled]))
+    end
+
+    test "cancelling calls nothing", %{conn: conn, node: node} do
+      view = open_stop(conn, node)
+      view |> element(~s([data-testid="stop-cancel"])) |> render_click()
+
+      refute has_element?(view, ~s([data-testid="stop-controller-modal"]))
+      assert FakeController.calls(node, {Controller, :stop}) == []
+    end
+
+    test "a confirmed stop streams its phases and follows the shutdown status", %{
+      conn: conn,
+      node: node
+    } do
+      view = open_stop(conn, node)
+      typed(view, Atom.to_string(node), %{"timeout_s" => "30"})
+      view |> form("#stop-controller-form") |> render_submit()
+
+      assert PeerNode.eventually(fn ->
+               FakeController.streams(node, {Controller, :stop}) != []
+             end)
+
+      assert [[[timeout_ms: 30_000], _ctx]] = FakeController.calls(node, {Controller, :stop})
+
+      FakeController.emit(
+        node,
+        {Controller, :stop},
+        {:progress, [:flezha, :shutdown, :phase_started], %{}, %{phase: :drain}}
+      )
+
+      assert PeerNode.eventually(fn -> render(view) =~ "phase_started drain" end)
+      assert view |> element(~s([data-testid="stop-phase"])) |> render() =~ "drain"
+
+      FakeController.set(
+        node,
+        {Controller, :shutdown_status},
+        {:ok, %{shutdown_in_progress: true, shutdown_phase: :finalise}}
+      )
+
+      send(view.pid, :refresh)
+      assert view |> element(~s([data-testid="stop-phase"])) |> render() =~ "finalise"
+
+      FakeController.end_stream(node, {Controller, :stop}, {:ok, %{outcome: :clean}})
+
+      assert PeerNode.eventually(fn ->
+               view |> element(~s([data-testid="stop-state"])) |> render() =~ "stopped (clean)"
+             end)
+    end
+
+    test "a forced stop is asked for with force", %{conn: conn, node: node} do
+      view = open_stop(conn, node)
+      typed(view, Atom.to_string(node), %{"force" => "true"})
+      view |> form("#stop-controller-form") |> render_submit()
+
+      assert PeerNode.eventually(fn ->
+               FakeController.streams(node, {Controller, :stop}) != []
+             end)
+
+      assert [[[force: true], _ctx]] = FakeController.calls(node, {Controller, :stop})
+      FakeController.end_stream(node, {Controller, :stop}, {:ok, %{outcome: :forced}})
+    end
+
+    test "a timeout that is not a whole number of seconds keeps confirm disabled", %{
+      conn: conn,
+      node: node
+    } do
+      view = open_stop(conn, node)
+      typed(view, Atom.to_string(node), %{"timeout_s" => "1.5"})
+
+      assert has_element?(view, ~s([data-testid="stop-confirm"][disabled]))
+      render_submit(view, "confirm_stop", %{})
+      assert FakeController.calls(node, {Controller, :stop}) == []
+    end
+
+    test "reopening the dialog during a stop keeps the stop's progress", %{
+      conn: conn,
+      node: node
+    } do
+      view = open_stop(conn, node)
+      typed(view, Atom.to_string(node))
+      view |> form("#stop-controller-form") |> render_submit()
+
+      assert PeerNode.eventually(fn ->
+               FakeController.streams(node, {Controller, :stop}) != []
+             end)
+
+      render_click(view, "open_stop", %{})
+      assert has_element?(view, ~s([data-testid="stop-state"]))
+
+      FakeController.end_stream(node, {Controller, :stop}, {:ok, %{outcome: :clean}})
+
+      assert PeerNode.eventually(fn ->
+               view |> element(~s([data-testid="stop-state"])) |> render() =~ "stopped (clean)"
+             end)
+    end
+
+    test "Stop is not offered while a shutdown is already under way", %{conn: conn, node: node} do
+      with_status(node, %{shutdown_in_progress: true, shutdown_phase: :drain})
+      grant(node, ["Controller.status", "Controller.stop"])
+      {:ok, view, _html} = live(conn, ~p"/controller")
+
+      refute has_element?(view, ~s([data-testid="stop-controller-btn"]))
+    end
+
+    test "a refused stop is shown with its code and the controller keeps running", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Controller, :stop},
+        FakeController.error("authz.role_insufficient")
+      )
+
+      view = open_stop(conn, node)
+      typed(view, Atom.to_string(node))
+      view |> form("#stop-controller-form") |> render_submit()
+
+      assert PeerNode.eventually(fn ->
+               has_element?(view, ~s([data-testid="stop-failed"])) and
+                 render(view) =~ "authz.role_insufficient"
+             end)
+    end
+  end
 end

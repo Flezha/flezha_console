@@ -55,7 +55,10 @@ defmodule Flezha.Error do
     "plugin.package_invalid" => :invalid,
     "schedule.not_found" => :not_found,
     "state.inbox_unreadable" => :unavailable,
-    "audit.writer_unavailable" => :unavailable
+    "audit.writer_unavailable" => :unavailable,
+    "runner.dropped" => :denied,
+    "runner.not_found" => :not_found,
+    "runner.untrackable" => :invalid
   }
 
   @doc "An error for `code`, with the class the catalogue gives it."

@@ -32,13 +32,7 @@
           <td>
             <span
               data-testid={"source-enabled-#{source[:name]}"}
-              class={[
-                "inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px]",
-                if(NodeManager.source_enabled?(source),
-                  do: "bg-success/10 text-success",
-                  else: "bg-surface-input text-th-tertiary"
-                )
-              ]}
+              class={["flz-badge", NodeManager.source_enabled?(source) && "flz-badge--positive"]}
             >
               {if NodeManager.source_enabled?(source), do: "enabled", else: "disabled"}
             </span>
@@ -48,7 +42,7 @@
               phx-click="toggle_source"
               phx-value-source={source[:name]}
               data-testid={"toggle-#{source[:name]}"}
-              class="text-sm text-accent-text hover:text-accent transition-colors"
+              class="flz-button flz-button--sm flz-button--ghost"
             >
               {if NodeManager.source_enabled?(source), do: "Disable", else: "Enable"}
             </button>
@@ -56,7 +50,7 @@
               phx-click="start_tail"
               phx-value-source={source[:name]}
               data-testid={"tail-#{source[:name]}"}
-              class="text-sm text-th-secondary hover:text-th-primary transition-colors"
+              class="flz-button flz-button--sm flz-button--ghost"
             >
               Tail
             </button>
@@ -85,13 +79,7 @@
         <span class="text-th-primary">{sink[:name]}</span>
         <span
           data-testid={"sink-running-#{sink[:name]}"}
-          class={[
-            "inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px]",
-            if(NodeManager.sink_running?(sink),
-              do: "bg-success/10 text-success",
-              else: "bg-surface-input text-th-tertiary"
-            )
-          ]}
+          class={["flz-badge", NodeManager.sink_running?(sink) && "flz-badge--positive"]}
         >
           {if NodeManager.sink_running?(sink), do: "running", else: "not running"}
         </span>
@@ -140,10 +128,10 @@
     </.notice>
 
     <ul :if={@tailing} class="divide-y divide-brd-subtle max-h-96 overflow-auto">
-      <li :for={signal <- @tail_records} class="px-5 py-2 font-mono text-[11px] text-th-secondary">
+      <li :for={signal <- @tail_records} class="px-5 py-2 font-mono text-xs text-th-secondary">
         <span class="text-th-muted">{signal[:ts]}</span>
         <span class="text-th-primary">{signal[:source]}.{signal[:name]}</span>
-        <span class="text-th-tertiary">{inspect(signal[:measurements])}</span>
+        <span class="text-th-secondary">{inspect(signal[:measurements])}</span>
       </li>
       <li :if={@tail_records == []} class="flz-empty">
         Waiting for signals.

@@ -78,6 +78,15 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
                "2031-06-01"
     end
 
+    test "an entry that has fired shows when", %{conn: conn, node: node} do
+      last_fire = %{at: ~U[2031-05-31 03:00:00.057538Z], outcome: :ok, instance_id: "nightly@1"}
+      with_entries(node, [entry(%{last_fire: last_fire})])
+
+      {:ok, _view, html} = live(conn, ~p"/schedules")
+
+      assert html =~ "2031-05-31 03:00:00"
+    end
+
     test "an entry no node fires is distinguished, not left blank", %{conn: conn, node: node} do
       with_entries(node, [entry(%{node: nil, next_fire: :none})])
 

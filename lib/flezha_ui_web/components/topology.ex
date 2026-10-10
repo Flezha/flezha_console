@@ -801,17 +801,22 @@ defmodule FlezhaUiWeb.Topology do
 
   defp legend(assigns) do
     ~H"""
-    <dl
-      data-testid="topology-legend"
-      class="mt-4 pt-3 border-t border-brd-subtle grid grid-cols-2 gap-x-6 gap-y-1 text-[11px]"
-    >
+    <ul data-testid="topology-legend" class="flz-graph-legend mt-4 border-t border-brd-subtle">
+      <li><span class="flz-graph-legend-plugin" aria-hidden="true"></span>A plugin</li>
+      <li><span class="flz-graph-legend-tasklet" aria-hidden="true"></span>The relay's own code</li>
       <.legend_item swatch="topo-flow-medium">Records flowing; speed tracks the rate</.legend_item>
-      <.legend_item swatch="topo-flow-idle">Idle — no records since the last tick</.legend_item>
-      <.legend_item swatch="topo-edge-satellite">Runs off the record path</.legend_item>
-      <.legend_item swatch="topo-edge-dlq">Failures parking into the dead-letter queue</.legend_item>
-      <.legend_item swatch="topo-edge-degraded">Nothing bound at the far end</.legend_item>
       <.legend_item swatch="topo-flow-fast">Busy — over 100 records a second</.legend_item>
-    </dl>
+      <.legend_item swatch="topo-flow-idle">Idle — no records since the last tick</.legend_item>
+      <.legend_item swatch="flz-graph-wire--state">Runs off the record path</.legend_item>
+      <.legend_item swatch="flz-graph-wire--state topo-edge-dlq">
+        Where failures park, in the dead-letter queue
+      </.legend_item>
+      <.legend_item swatch="flz-graph-wire--fail">Nothing bound at the far end</.legend_item>
+      <.legend_node role="runner">The runner's channel</.legend_node>
+      <.legend_node role="state">Where records enter and leave</.legend_node>
+      <.legend_node role="runner flz-graph-node--recovering">Suspended</.legend_node>
+      <.legend_node role="runner flz-graph-node--dead">Unbound — no runner</.legend_node>
+    </ul>
     """
   end
 
@@ -820,12 +825,31 @@ defmodule FlezhaUiWeb.Topology do
 
   defp legend_item(assigns) do
     ~H"""
-    <div class="flex items-center gap-2">
+    <li>
       <svg width="26" height="8" class="shrink-0" aria-hidden="true">
-        <line x1="0" y1="4" x2="26" y2="4" class={["topo-edge", @swatch]} />
+        <line x1="0" y1="4" x2="26" y2="4" class={["flz-graph-wire", @swatch]} />
       </svg>
-      <dd class="text-th-muted">{render_slot(@inner_block)}</dd>
-    </div>
+      {render_slot(@inner_block)}
+    </li>
+    """
+  end
+
+  attr :role, :string,
+    required: true,
+    doc: "the node role and state classes after `flz-graph-node--`"
+
+  slot :inner_block, required: true
+
+  defp legend_node(assigns) do
+    ~H"""
+    <li>
+      <svg width="26" height="14" class="shrink-0" aria-hidden="true">
+        <g class={"flz-graph-node flz-graph-node--#{@role}"}>
+          <rect x="1" y="1" width="24" height="12" rx="3" />
+        </g>
+      </svg>
+      {render_slot(@inner_block)}
+    </li>
     """
   end
 
@@ -863,10 +887,10 @@ defmodule FlezhaUiWeb.Topology do
 
   defp edge_label(_edge), do: nil
 
-  defp edge_class(%{degraded?: true}), do: "topo-edge topo-edge-degraded"
-  defp edge_class(%{kind: :flow} = edge), do: "topo-edge topo-flow-#{edge.bucket}"
-  defp edge_class(%{kind: :dlq}), do: "topo-edge topo-edge-dlq"
-  defp edge_class(%{kind: :satellite}), do: "topo-edge topo-edge-satellite"
+  defp edge_class(%{degraded?: true}), do: "flz-graph-wire flz-graph-wire--fail"
+  defp edge_class(%{kind: :flow} = edge), do: "flz-graph-wire topo-flow-#{edge.bucket}"
+  defp edge_class(%{kind: :dlq}), do: "flz-graph-wire flz-graph-wire--state topo-edge-dlq"
+  defp edge_class(%{kind: :satellite}), do: "flz-graph-wire flz-graph-wire--state"
 
   attr :node, :map, required: true
   attr :selected, :any, required: true
@@ -913,16 +937,11 @@ defmodule FlezhaUiWeb.Topology do
 
   defp node_body(assigns) do
     ~H"""
-    <rect
-      x={@node.x}
-      y={@node.y}
-      width={width_for(@node)}
-      height={node_h()}
-      rx="8"
-      class={node_class(@node, @selected)}
-    />
-    <text x={@node.x + 12} y={@node.y + 21} class="topo-label">{@node.label}</text>
-    <text x={@node.x + 12} y={@node.y + 38} class="topo-sub">{@node.sub}</text>
+    <g class={node_class(@node, @selected)}>
+      <rect x={@node.x} y={@node.y} width={width_for(@node)} height={node_h()} rx="8" />
+      <text x={@node.x + 12} y={@node.y + 21} class="topo-label">{@node.label}</text>
+      <text x={@node.x + 12} y={@node.y + 38} class="topo-sub">{@node.sub}</text>
+    </g>
     """
   end
 
@@ -933,15 +952,23 @@ defmodule FlezhaUiWeb.Topology do
 
   defp node_class(node, selected) do
     [
-      "topo-node",
+      "flz-graph-node",
+      "flz-graph-node--#{graph_role(node.kind)}",
       "topo-node-#{node.kind}",
-      node[:state] == :suspended && "is-suspended",
-      node[:state] == :unbound && "is-disconnected",
+      node[:state] == :suspended && "flz-graph-node--recovering",
+      node[:state] == :unbound && "flz-graph-node--dead",
       selected && selected.id == node.id && "is-selected"
     ]
     |> Enum.filter(&is_binary/1)
     |> Enum.join(" ")
   end
+
+  # The shared relay-graph roles: the relay's own code is a tasklet, the
+  # runner's channel a runner, and the ends of the record path are state.
+  defp graph_role(:plugin), do: "plugin"
+  defp graph_role(:core), do: "tasklet"
+  defp graph_role(:channel), do: "runner"
+  defp graph_role(_kind), do: "state"
 
   # ---- Detail panel ----
 
@@ -951,7 +978,7 @@ defmodule FlezhaUiWeb.Topology do
     ~H"""
     <aside
       data-testid="topology-detail"
-      class="lg:w-80 shrink-0 bg-surface-input border border-brd rounded-xl p-4 space-y-3"
+      class="flz-panel lg:w-80 shrink-0 p-4 space-y-3"
     >
       <div class="flex items-start justify-between gap-2">
         <div>
@@ -962,7 +989,7 @@ defmodule FlezhaUiWeb.Topology do
           type="button"
           phx-click="graph_dismiss"
           data-testid="topology-detail-dismiss"
-          class="text-th-muted hover:text-th-primary transition-colors"
+          class="flz-button flz-button--sm flz-button--ghost"
           aria-label="Close detail"
         >
           <.icon name="hero-x-mark" class="w-4 h-4" />
@@ -977,7 +1004,7 @@ defmodule FlezhaUiWeb.Topology do
         :if={@node[:href]}
         navigate={@node.href}
         data-testid="topology-detail-link"
-        class="inline-flex items-center gap-1 text-xs font-medium text-accent-text hover:text-accent transition-colors"
+        class="flz-button flz-button--sm flz-button--ghost"
       >
         {detail_link_label(@node.kind)}
         <.icon name="hero-arrow-top-right-on-square" class="w-3 h-3" />
@@ -1098,7 +1125,7 @@ defmodule FlezhaUiWeb.Topology do
         <polyline points={@in_points} class="topo-spark-in" />
         <polyline points={@out_points} class="topo-spark-out" />
       </svg>
-      <p class="text-[10px] text-th-muted text-right">peak {@peak}/s</p>
+      <p class="text-xs text-th-muted text-right">peak {@peak}/s</p>
     </div>
     """
   end
@@ -1186,7 +1213,7 @@ defmodule FlezhaUiWeb.Topology do
             >
               <.link
                 navigate={row.href}
-                class="font-mono text-accent-text hover:text-accent transition-colors truncate"
+                class="font-mono truncate hover:underline"
               >
                 {row.id}
               </.link>
@@ -1217,7 +1244,7 @@ defmodule FlezhaUiWeb.Topology do
               <.link
                 navigate={row.href}
                 data-testid={"summary-relay-#{row.id}"}
-                class="font-mono text-accent-text hover:text-accent transition-colors truncate"
+                class="font-mono truncate hover:underline"
               >
                 {row.id}
               </.link>

@@ -4,8 +4,16 @@ defmodule FlezhaUiWeb.ErrorHTMLTest do
   # Bring render_to_string/4 for testing custom views
   import Phoenix.Template
 
-  test "renders 404.html" do
-    assert render_to_string(FlezhaUiWeb.ErrorHTML, "404", "html", []) == "Not Found"
+  test "an unknown route answers the not-found page on the auth layout", %{conn: conn} do
+    html = conn |> get("/no-such-page") |> html_response(404)
+
+    assert html =~ ~s(data-testid="not-found")
+    assert html =~ ~s(class="flz-brand)
+    assert html =~ "Flezha UI"
+    assert html =~ ~s(src="/images/badger-not-found.webp")
+    assert html =~ ~s(alt="")
+    assert html =~ ~s(href="/")
+    assert html =~ "/assets/app.css"
   end
 
   test "renders 500.html" do

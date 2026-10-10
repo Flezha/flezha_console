@@ -34,11 +34,11 @@ test.describe('Cluster and fleet', () => {
   test('lists the runners serving a namespace with their factories', async ({ page }) => {
     const runners = page.getByTestId('runners-default');
     await expect(runners).toBeVisible();
-    await expect(runners.locator('li')).not.toHaveCount(0);
+    await expect(runners.locator('tbody tr')).not.toHaveCount(0);
 
     // A connected runner registers the test factories; an empty factory list
     // would mean the handshake completed but registration did not.
-    await expect(runners.locator('li').first()).toContainText('store_input');
+    await expect(runners.locator('tbody tr').first()).toContainText('store_input');
   });
 
   test("each factory states its run, as its runners announce it", async ({ page }) => {
@@ -75,5 +75,53 @@ test.describe('Cluster and fleet', () => {
     if (await principal.count()) {
       await expect(principal).toContainText('runner@default');
     }
+  });
+
+  test("a namespace's recovery opens per hub and per node, and closes", async ({ page }) => {
+    await page.getByTestId('open-recovery-default').click();
+
+    const modal = page.getByTestId('recovery-modal');
+    await expect(modal).toBeVisible();
+    await expect(page.getByTestId('recovery-hub-id')).toHaveText(/\S/);
+    await expect(page.getByTestId('recovery-local')).toContainText('serving');
+    await expect(
+      page.getByTestId('recovery-per-node').locator('[data-testid^="recovery-node-"]'),
+    ).not.toHaveCount(0);
+
+    await page.getByTestId('recovery-close').click();
+    await expect(modal).toHaveCount(0);
+  });
+
+  test('dropping a runner refuses its process until readmitted', async ({ page }) => {
+    test.setTimeout(120_000);
+    const runners = page.getByTestId('runners-default');
+    const row = runners.locator('tbody tr').first();
+    const runnerId = (await row.getAttribute('data-testid'))!.replace('runner-', '');
+
+    // Cancelling asks the controller nothing.
+    await page.getByTestId(`drop-runner-${runnerId}`).click();
+    await expect(page.getByTestId('drop-runner-modal')).toContainText('refuses this same');
+    await page.getByTestId('drop-runner-cancel').click();
+    await expect(page.getByTestId(`runner-${runnerId}`)).toBeVisible();
+
+    await page.getByTestId(`drop-runner-${runnerId}`).click();
+    await page.getByTestId('drop-runner-confirm').click();
+
+    const marks = page.getByTestId('runner-marks-default');
+    await expect(marks).toBeVisible();
+    await expect(marks).toContainText('dropped');
+    await expect(page.getByTestId(`runner-${runnerId}`)).toHaveCount(0);
+
+    // The same process keeps retrying and keeps being refused.
+    await page.waitForTimeout(5_000);
+    await expect(runners.locator('tbody tr')).toHaveCount(0);
+
+    const readmit = marks.locator('[data-testid^="readmit-runner-"]').first();
+    await readmit.click();
+    await page.getByTestId('readmit-runner-confirm').click();
+    await expect(marks).toHaveCount(0);
+
+    // Readmitted, the same process is admitted on its next retry.
+    await expect(runners.locator('tbody tr')).not.toHaveCount(0, { timeout: 90_000 });
   });
 });

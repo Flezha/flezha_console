@@ -21,7 +21,7 @@
     <:tap>
       <aside
         data-testid="topology-tap"
-        class="lg:w-72 shrink-0 bg-surface-input border border-brd rounded-xl p-4 space-y-3"
+        class="flz-panel lg:w-72 shrink-0 p-4 space-y-3"
       >
         <div class="flex items-center justify-between gap-2">
           <p class="flz-label">Payload tap</p>
@@ -30,7 +30,7 @@
             type="button"
             phx-click="graph_tap_close"
             data-testid="tap-close"
-            class="text-th-muted hover:text-th-primary transition-colors"
+            class="flz-button flz-button--sm flz-button--ghost"
             aria-label="Close tap"
           >
             <.icon name="hero-x-mark" class="w-4 h-4" />
@@ -70,11 +70,11 @@
             <dt class="text-th-muted">Total</dt>
             <dd class="text-th-secondary font-mono text-right">{Format.bytes(@tap.bytes)}</dd>
             <dt class="text-th-muted">Rate</dt>
-            <dd data-testid="tap-msg-rate" class="text-accent-text font-mono text-right">
+            <dd data-testid="tap-msg-rate" class="text-th-brand font-mono text-right">
               {tap_rate(@tap, :count)}/s
             </dd>
             <dt class="text-th-muted">Throughput</dt>
-            <dd data-testid="tap-byte-rate" class="text-accent-text font-mono text-right">
+            <dd data-testid="tap-byte-rate" class="text-th-brand font-mono text-right">
               {Format.bytes(round(tap_rate(@tap, :bytes)))}/s
             </dd>
           </dl>
@@ -82,7 +82,7 @@
           <ul :if={@tap.recent != []} data-testid="tap-recent" class="space-y-1">
             <li
               :for={msg <- @tap.recent}
-              class="text-[10px] font-mono text-th-muted truncate bg-surface rounded px-2 py-1"
+              class="flz-chip block truncate"
             >
               {String.slice(msg.message, 0, 60)}
             </li>
@@ -104,7 +104,7 @@
   </.pipeline_graph>
 
   <%!-- Info Panel --%>
-  <div class="flz-panel p-5 grid grid-cols-3 gap-4 transition-shadow hover:shadow-md">
+  <div class="flz-panel p-5 grid grid-cols-3 gap-4">
     <div>
       <p class="flz-label">Namespace</p>
       <p class="text-th-primary font-mono mt-1">{@ns}</p>
@@ -152,14 +152,14 @@
       <p class="flz-label">Partition</p>
       <p data-testid="relay-partition" class="text-th-primary font-mono mt-1">
         p{@row.partition.index}/{@row.partition.count}
-        <span class="text-th-tertiary">
+        <span class="text-th-secondary">
           keys {elem(@row.partition.range, 0)}–{elem(@row.partition.range, 1)}
         </span>
       </p>
       <.link
         navigate={~p"/namespaces/#{@ns}"}
         data-testid="relay-partition-group"
-        class="text-xs text-accent-text hover:text-accent transition-colors font-mono"
+        class="text-xs font-mono hover:underline"
       >
         group {@row.partition.group}
       </.link>
@@ -280,12 +280,12 @@
               <td class="text-xs">
                 {channel[:description] || "—"}
                 <details :if={channel[:schema]} data-testid={"api-schema-#{channel.channel}"}>
-                  <summary class="text-accent-text cursor-pointer">input schema</summary>
-                  <pre class="flz-code mt-1">{answer_text(channel.schema)}</pre>
+                  <summary class="text-th-brand cursor-pointer">input schema</summary>
+                  <pre class="flz-code flz-code--wrap mt-1">{answer_text(channel.schema)}</pre>
                 </details>
                 <details :if={channel[:answer_schema]}>
-                  <summary class="text-accent-text cursor-pointer">answer schema</summary>
-                  <pre class="flz-code mt-1">{answer_text(channel.answer_schema)}</pre>
+                  <summary class="text-th-brand cursor-pointer">answer schema</summary>
+                  <pre class="flz-code flz-code--wrap mt-1">{answer_text(channel.answer_schema)}</pre>
                 </details>
               </td>
             </tr>
@@ -363,7 +363,7 @@
         Rewind
       </button>
     </:actions>
-    <div class="px-5 py-3 text-xs text-th-tertiary font-mono border-b border-brd-subtle space-y-1">
+    <div class="px-5 py-3 text-xs text-th-secondary font-mono border-b border-brd-subtle space-y-1">
       <p data-testid="task-journal-committed">
         committed iterations: {Enum.join(@committed_iterations, ", ")}
       </p>
@@ -511,7 +511,7 @@
         </p>
         <pre
           data-testid="state-json"
-          class="flz-code"
+          class="flz-code flz-code--wrap"
         ><%= @state_json %></pre>
       <% else %>
         <p :if={is_nil(@state_notice)} class="text-sm text-th-muted">
@@ -572,7 +572,7 @@
                   phx-click="confirm_detach"
                   phx-value-plugin_id={plugin_id}
                   data-testid={"detach-btn-#{plugin_id}"}
-                  class="text-xs text-danger-text hover:text-danger transition-colors"
+                  class="flz-button flz-button--sm flz-button--ghost"
                 >
                   Disable
                 </button>
@@ -671,14 +671,14 @@
         <p class="text-xs text-th-muted">
           Answer on <span class="font-mono">{answer.channel || "—"}</span>
         </p>
-        <pre data-testid="talk-answer" class="flz-code">{answer_text(answer.payload)}</pre>
+        <pre data-testid="talk-answer" class="flz-code flz-code--wrap">{answer_text(answer.payload)}</pre>
       <% {:channel, %{accepted: true}} -> %>
         <.notice icon="hero-check-circle">The relay accepted the input.</.notice>
       <% {:channel, answer} -> %>
         <p class="text-xs text-th-muted">
           Answer, <span class="font-mono">{answer.answer_codec}</span>
         </p>
-        <pre data-testid="talk-answer" class="flz-code">{answer_text(answer.answer)}</pre>
+        <pre data-testid="talk-answer" class="flz-code flz-code--wrap">{answer_text(answer.answer)}</pre>
     <% end %>
   </div>
 

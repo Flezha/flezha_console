@@ -46,8 +46,10 @@ defmodule FlezhaUi.Service.EventFeed do
 
   # The runner session signals core publishes on `:flezha_runner`, and the
   # relay lifecycle signals on `:flezha_relay`. Each source carries other
-  # events too, which are not broadcast.
-  @runner_signals [:runner_connected, :runner_disconnected]
+  # events too, which are not broadcast: a dropped runner's refused retries
+  # among them, which arrive at the runner's reconnect rate and change nothing
+  # a screen shows.
+  @runner_signals [:runner_connected, :runner_disconnected, :runner_dropped, :runner_readmitted]
   @relay_signals [:relay_started, :relay_stopped, :relay_exited]
 
   # One topic per source, so a screen hears only the signals it handles: every
@@ -90,7 +92,9 @@ defmodule FlezhaUi.Service.EventFeed do
   token and re-opened whenever it ends, broadcasting on `topic/1` of its source:
 
     * `:flezha_runner` — `{:flezha_event, :runner_connected |
-      :runner_disconnected, {namespace, runner}}`;
+      :runner_disconnected | :runner_dropped | :runner_readmitted,
+      {namespace, runner}}`, a drop or readmit naming the runner by its stable
+      id;
     * `:flezha_relay` — `{:flezha_event, :relay_started | :relay_stopped |
       :relay_exited, {namespace, entry}}`, the entry as `signal_event/2` maps it,
       and its own refusals, which the relays index states.
@@ -123,7 +127,10 @@ defmodule FlezhaUi.Service.EventFeed do
   """
   def signal_event(:flezha_runner, %{name: name, metadata: metadata})
       when name in @runner_signals,
-      do: {:flezha_event, name, {Map.get(metadata, :namespace), Map.get(metadata, :runner)}}
+      do:
+        {:flezha_event, name,
+         {Map.get(metadata, :namespace),
+          Map.get(metadata, :runner) || Map.get(metadata, :stable_id)}}
 
   def signal_event(:flezha_relay, %{name: name, metadata: metadata})
       when name in @relay_signals do

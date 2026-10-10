@@ -11,7 +11,9 @@ defmodule FlezhaUiWeb.ClusterLive do
 
   use FlezhaUiWeb.Live.Refresh,
     every: 5_000,
-    on_events: [:runner_connected, :runner_disconnected]
+    on_events: [:runner_connected, :runner_disconnected, :runner_dropped, :runner_readmitted]
+
+  use FlezhaUiWeb.Live.RunnerActions
 
   alias FlezhaUi.Service.NodeManager
 
@@ -20,7 +22,8 @@ defmodule FlezhaUiWeb.ClusterLive do
     {:ok,
      socket
      |> start_refresh()
-     |> assign(page_title: "Cluster", selected_factory: nil, factory_runners: nil)
+     |> runner_actions_init()
+     |> assign(page_title: "Cluster", selected_factory: nil, factory_runners: nil, recovery: nil)
      |> refresh()}
   end
 
@@ -43,6 +46,14 @@ defmodule FlezhaUiWeb.ClusterLive do
     {:noreply, assign(socket, selected_factory: nil, factory_runners: nil)}
   end
 
+  def handle_event("open_recovery", %{"namespace" => ns}, socket) do
+    {:noreply, assign(socket, recovery: load_recovery(ns, socket))}
+  end
+
+  def handle_event("close_recovery", _params, socket) do
+    {:noreply, assign(socket, recovery: nil)}
+  end
+
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
     token = socket.assigns.flezha_token
@@ -50,13 +61,68 @@ defmodule FlezhaUiWeb.ClusterLive do
     {names, load_error} = NodeManager.scoped_namespaces(token)
     namespaces = Enum.map(names, &describe_namespace(&1, token))
 
-    assign(socket,
-      load_error: load_error,
-      connected_node: connected,
-      cluster_nodes: cluster_nodes(namespaces, connected),
-      namespaces: namespaces
-    )
+    socket =
+      assign(socket,
+        load_error: load_error,
+        connected_node: connected,
+        cluster_nodes: cluster_nodes(namespaces, connected),
+        namespaces: namespaces
+      )
+
+    case socket.assigns[:recovery] do
+      %{namespace: ns} -> assign(socket, recovery: load_recovery(ns, socket))
+      nil -> socket
+    end
   end
+
+  # One namespace's recovery: its hub id, that hub on the node this UI reached,
+  # and the namespace on every cluster member. Read again on each tick while
+  # the detail is open, so a node that finishes recovering shows it. The local
+  # hub and the per-node rows are separate reads, so one refusal does not
+  # blank the other; a node that hosts no hub for the namespace is not asked.
+  defp load_recovery(ns, socket) do
+    token = socket.assigns.flezha_token
+    nodes = Enum.map(socket.assigns.cluster_nodes, & &1.name)
+
+    case NodeManager.hub_id(ns, token) do
+      {:ok, hub_id} ->
+        {per_node, per_node_error} =
+          NodeManager.ok_or_error(NodeManager.recovery_per_node(ns, nodes, token), %{})
+
+        %{
+          namespace: ns,
+          hub_id: hub_id,
+          local: local_recovery(ns, hub_id, socket),
+          per_node: Enum.sort_by(per_node, &inspect(elem(&1, 0))),
+          per_node_error: per_node_error,
+          error: nil
+        }
+
+      {:error, reason} ->
+        %{namespace: ns, error: reason}
+    end
+  end
+
+  defp local_recovery(ns, hub_id, socket) do
+    hub_nodes =
+      socket.assigns.namespaces |> Enum.find(%{}, &(&1.name == ns)) |> Map.get(:hub_nodes, [])
+
+    if socket.assigns.connected_node in hub_nodes do
+      case NodeManager.recovery_state(hub_id, socket.assigns.flezha_token) do
+        {:ok, state} -> state
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      :not_hosted
+    end
+  end
+
+  @doc "A recovery state as an operator reads it."
+  def recovery_label(:normal), do: "serving"
+  def recovery_label(:not_hosted), do: "no hub on this node"
+  def recovery_label({:error, reason}), do: error_message(reason, "the recovery read")
+  def recovery_label(:unreachable), do: "could not be reached"
+  def recovery_label(state), do: to_string(state)
 
   # The members are the nodes holding a hub for some namespace the caller can
   # see, as the controller answers them. The node this UI reached is always
@@ -100,16 +166,14 @@ defmodule FlezhaUiWeb.ClusterLive do
       ns
       |> NodeManager.runners(token)
       |> NodeManager.ok_or([])
-      |> Enum.map(fn runner ->
-        id = NodeManager.identifier_id(runner)
-        %{id: id, pid: Map.get(runner, :pid), factories: Map.get(factories_by_runner, id, [])}
-      end)
+      |> FlezhaUiWeb.Runners.rows(factories_by_runner)
 
     %{
       name: ns,
       hub_nodes: hub_nodes,
       hub_error: status_error,
       runners: runners,
+      marks: ns |> NodeManager.dropped_runners(token) |> NodeManager.ok_or([]),
       # Namespace-derived and the same for every runner in it — the controller
       # mints it at connect, and it is what the audit log will name.
       runner_principal: NodeManager.runner_principal(ns, token),
