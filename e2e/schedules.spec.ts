@@ -83,6 +83,27 @@ test.describe('Schedules', () => {
     await expect(page.getByTestId(`schedule-row-${name}`)).toHaveCount(0);
   });
 
+  test('passes init values as JSON, and refuses JSON that is not an object', async ({ page }) => {
+    const name = uniqueScheduleName('pwi');
+
+    try {
+      await openScheduleForm(page);
+      await fillScheduleForm(page, name, '*/5 * * * *', 'echo_steps');
+      await page.getByTestId('schedule-input-init-values').fill('not json');
+      await page.getByTestId('schedule-form-submit').click();
+      await expect(page.getByTestId('schedule-form-error')).toBeVisible();
+      await expect(page.getByTestId('schedule-form-modal')).toBeVisible();
+
+      await page.getByTestId('schedule-input-init-values').fill('{"greeting": "hello"}');
+      await page.getByTestId('schedule-form-submit').click();
+      await expect(page.getByTestId('schedule-form-modal')).toHaveCount(0);
+      await expect(page.getByTestId(`schedule-status-${name}`)).toHaveText('Active');
+      await expect(page.getByTestId('schedule-table')).toContainText(name);
+    } finally {
+      await removeSchedule(page, name);
+    }
+  });
+
   test('requires the fields the controller requires', async ({ page }) => {
     await openScheduleForm(page);
     await page.getByTestId('schedule-input-name').fill('');

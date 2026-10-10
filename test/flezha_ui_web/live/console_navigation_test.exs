@@ -49,7 +49,9 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
   end
 
   defp search_palette(view, query) do
-    view |> element("#command-palette form") |> render_change(%{"q" => query})
+    view
+    |> element(~s([data-testid="command-palette-search"]))
+    |> render_change(%{"q" => query})
   end
 
   describe "the rail" do
@@ -474,6 +476,24 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
 
       assert html =~ ~s(data-testid="command-palette-empty")
       refute html =~ ~s(data-testid="command-palette-results")
+    end
+
+    test "more matches than it lists are counted, not dropped silently", %{
+      conn: conn,
+      node: node
+    } do
+      ids = for i <- 1..25, do: "many_#{String.pad_leading(to_string(i), 2, "0")}"
+      with_fleet(node, ["default"], %{"default" => ids})
+      {:ok, view, _html} = live(conn, ~p"/audit")
+
+      open_palette(view)
+      html = search_palette(view, "many_")
+
+      assert view |> element(~s([data-testid="command-palette-truncated"])) |> render() =~
+               "5 more match"
+
+      assert html =~ ~s(data-testid="command-palette-relay-many_20")
+      refute html =~ ~s(data-testid="command-palette-relay-many_21")
     end
 
     test "a relay that has since stopped lands on the not-found state", %{

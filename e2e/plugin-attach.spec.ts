@@ -3,8 +3,13 @@ import {
   expect,
   disablePlugin,
   openSection,
+  startRelay,
+  stopRelay,
   testIds,
   uniqueId,
+  fillPluginForm,
+  optionError,
+  type PluginFields,
   type Page,
 } from './fixtures';
 
@@ -43,31 +48,8 @@ const PROVIDERS: ReadonlyArray<ProviderCase> = [
 /** The plugin ids of the binding rows currently in the table. */
 const bindingIds = (page: Page) => testIds(page, 'binding-row-');
 
-/** Opens the attach modal and selects `providerId`, leaving the form shown. */
-async function openConfigureForm(page: Page, providerId: string) {
-  await page.getByTestId('attach-plugin-btn').click();
-  await expect(page.getByTestId('provider-grid')).toBeVisible();
-  await page.getByTestId(`provider-btn-${providerId}`).click();
-  await expect(page.getByTestId('input-plugin-name')).toBeVisible();
-}
-
-/** Types each option into its own field. */
-async function fillOptions(page: Page, opts: Record<string, string>) {
-  for (const [option, value] of Object.entries(opts)) {
-    await page.getByTestId(`input-option-${option}`).fill(value);
-  }
-}
-
-/** The error shown on an option's field, inside the field's own container. */
-const optionError = (page: Page, option: string) =>
-  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.flz-field-error');
-
-/** Ticks every hook the provider offers, which is what binds it on the record path. */
-async function chooseHooks(page: Page, hooks: ReadonlyArray<string> = ['on_output']) {
-  for (const hook of hooks) {
-    await page.getByTestId(`input-hook-${hook}`).check();
-  }
-}
+/** Fills the plugin form from the relay screen's Attach button. */
+const attachForm = (page: Page, fields: PluginFields) => fillPluginForm(page, 'attach-plugin-btn', fields);
 
 /**
  * Waits for the attach to settle and asserts it succeeded.
@@ -92,13 +74,6 @@ async function expectAttachAccepted(page: Page, providerId: string) {
     .toBe('attached');
 }
 
-/** Disables `name` from the relay screen's bindings panel. */
-async function disableFromRelay(page: Page, name: string) {
-  await page.getByTestId(`detach-btn-${name}`).click();
-  await expect(page.getByTestId('detach-confirm-modal')).toBeVisible();
-  await page.getByTestId('detach-confirm-btn').click();
-  await expect(page.locator('body')).toContainText(`Plugin ${name} disabled`);
-}
 
 test.describe('Plugin attachment', () => {
   test.beforeEach(async ({ page, live }) => {
@@ -133,10 +108,7 @@ test.describe('Plugin attachment', () => {
       const name = uniqueId('pw_plugin');
 
       try {
-        await openConfigureForm(page, id);
-        await page.getByTestId('input-plugin-name').fill(name);
-        await chooseHooks(page, hooks);
-        await fillOptions(page, opts);
+        await attachForm(page, { provider: id, name, hooks, opts });
 
         await page.getByTestId('attach-submit-btn').click();
         await expectAttachAccepted(page, id);
@@ -152,8 +124,45 @@ test.describe('Plugin attachment', () => {
     });
   }
 
+  test('the pipeline graph draws a relay this test started, before and after a bind', async ({
+    page,
+    live,
+  }) => {
+    const relay = uniqueId('pw_graph');
+    const name = uniqueId('pw_gplug');
+
+    await live('/namespaces/default');
+    await startRelay(page, relay);
+
+    try {
+      await live(`/namespaces/default/relays/${relay}`);
+      const graph = page.getByTestId('topology-graph');
+      for (const node of ['ingest', relay, 'channel', 'output']) {
+        await expect(graph.getByTestId(`topo-node-${node}`)).toBeVisible();
+      }
+      await expect(graph.locator(`[data-testid*="${name}"]`)).toHaveCount(0);
+
+      await openSection(page, 'plugins');
+      await attachForm(page, { provider: 'relay_stdout', name, hooks: ['on_output'] });
+      await page.getByTestId('attach-submit-btn').click();
+      await expectAttachAccepted(page, 'relay_stdout');
+
+      // The bound plugin joins the drawing on the next tick, the chain intact.
+      await expect(graph.locator(`[data-testid^="topo-node-"][data-testid*="${name}"]`)).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(graph.locator(`[data-testid^="topo-edge-"][data-testid*="${name}"]`).first()).toBeAttached();
+      await expect(graph.getByTestId(`topo-node-${relay}`)).toBeVisible();
+      await expect(graph.getByTestId('topo-node-output')).toBeVisible();
+    } finally {
+      await disablePlugin(page, name);
+      await live('/namespaces/default');
+      await stopRelay(page, relay);
+    }
+  });
+
   test('only the hooks the provider supports are offered', async ({ page }) => {
-    await openConfigureForm(page, 'relay_stdout');
+    await attachForm(page, { provider: 'relay_stdout' });
 
     // Offered as checkboxes from the provider's own description, so there is
     // no free-text hook field to mistype.
@@ -166,9 +175,11 @@ test.describe('Plugin attachment', () => {
   test('an option outside its bounds is refused on its field', async ({ page }) => {
     const before = await bindingIds(page);
 
-    await openConfigureForm(page, 'relay_http_push');
-    await chooseHooks(page);
-    await fillOptions(page, { url: 'http://fui_web:4000/dev/null', timeout_ms: '0' });
+    await attachForm(page, {
+      provider: 'relay_http_push',
+      hooks: ['on_output'],
+      opts: { url: 'http://fui_web:4000/dev/null', timeout_ms: '0' },
+    });
     await page.getByTestId('attach-submit-btn').click();
 
     await expect(optionError(page, 'timeout_ms')).toContainText('must be at least 1');
@@ -186,10 +197,12 @@ test.describe('Plugin attachment', () => {
     const name = uniqueId('pw_refused');
 
     try {
-      await openConfigureForm(page, 'hook_webhook');
-      await page.getByTestId('input-plugin-name').fill(name);
-      await chooseHooks(page, ['on_relay_started']);
-      await fillOptions(page, { url: 'ftp://fui_web/x' });
+      await attachForm(page, {
+        provider: 'hook_webhook',
+        name,
+        hooks: ['on_relay_started'],
+        opts: { url: 'ftp://fui_web/x' },
+      });
       await page.getByTestId('attach-submit-btn').click();
 
       await expect(optionError(page, 'url')).toContainText('(plugin.url_scheme_unsupported)');
@@ -201,21 +214,35 @@ test.describe('Plugin attachment', () => {
     }
   });
 
-  test('disabling from the relay screen reports it in the flash', async ({ page, live }) => {
-    const name = uniqueId('pw_disable');
+  test('unbinding from the relay screen removes the binding and leaves the plugin enabled', async ({
+    page,
+    live,
+  }) => {
+    const name = uniqueId('pw_unbind');
 
     try {
-      await openConfigureForm(page, 'relay_stdout');
-      await page.getByTestId('input-plugin-name').fill(name);
-      await chooseHooks(page);
+      await attachForm(page, { provider: 'relay_stdout', name, hooks: ['on_output'] });
       await page.getByTestId('attach-submit-btn').click();
       await expectAttachAccepted(page, 'relay_stdout');
 
       await openSection(page, 'plugins');
       await expect(page.getByTestId(`binding-row-${name}`)).toBeVisible();
 
-      await disableFromRelay(page, name);
-      await expect(page.getByTestId('runtime-error')).toHaveCount(0);
+      // Cancelling leaves the binding where it was.
+      await page.getByTestId(`unbind-btn-${name}`).click();
+      await expect(page.getByTestId('unbind-confirm-modal')).toContainText('stays enabled');
+      await page.getByTestId('unbind-cancel-btn').click();
+      await expect(page.getByTestId('unbind-confirm-modal')).toHaveCount(0);
+      await expect(page.getByTestId(`binding-row-${name}`)).toBeVisible();
+
+      await page.getByTestId(`unbind-btn-${name}`).click();
+      await page.getByTestId('unbind-confirm-btn').click();
+      await expect(page.locator('body')).toContainText(`testnet_store_1 unbound from plugin ${name}.`);
+      await expect(page.getByTestId(`binding-row-${name}`)).toHaveCount(0);
+
+      await live('/namespaces/default/plugins');
+      await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
+      await expect(page.getByTestId(`plugin-relays-${name}`)).not.toContainText('testnet_store_1');
     } finally {
       await disablePlugin(page, name);
     }

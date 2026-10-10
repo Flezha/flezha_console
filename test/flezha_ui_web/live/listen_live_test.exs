@@ -135,13 +135,17 @@ defmodule FlezhaUiWeb.ListenLiveTest do
       assert html =~ "2 messages received"
     end
 
-    test "an invalid filter regex does not crash the feed", %{view: view, node: node} do
+    test "an invalid filter regex is reported and shows everything", %{view: view, node: node} do
       FakeController.emit(node, @listen, {:output, "still here", %{}})
       eventually_renders(view, "still here")
 
       html = render_change(view, "set_filter", %{"filter" => "["})
 
-      assert html =~ ~s(data-testid="listen-feed")
+      assert html =~ ~s(data-testid="listen-filter-error")
+      assert html =~ "Not a regular expression"
+      assert html =~ "still here"
+
+      refute render_change(view, "set_filter", %{"filter" => "still"}) =~ "listen-filter-error"
     end
   end
 

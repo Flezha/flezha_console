@@ -133,7 +133,12 @@ defmodule FlezhaUiWeb.CommandPalette do
           phx-click-away="close"
           phx-target={@myself}
         >
-          <form phx-change="search" phx-target={@myself} autocomplete="off">
+          <form
+            phx-change="search"
+            phx-target={@myself}
+            autocomplete="off"
+            data-testid="command-palette-search"
+          >
             <input
               type="text"
               name="q"

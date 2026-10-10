@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, ADVANCE_WINDOW_MS, expectAdvances } from './fixtures';
 
 /**
  * Observability sources and sinks, and the toggle round-trip.
@@ -41,14 +41,23 @@ test.describe('Observability', () => {
     await expect(state).toHaveText(before);
   });
 
-  test('a tail can be started and stopped', async ({ page }) => {
-    await page.getByTestId(`tail-${SOURCE}`).click();
+  test('a tail receives the source’s signals while started and nothing once stopped', async ({
+    page,
+  }) => {
+    // The VM reports its schedulers, ports and processes on every sample, so
+    // a live tail of it fills.
+    await page.getByTestId('tail-beam_vm').click();
 
     const panel = page.getByTestId('tail-panel');
     await expect(panel).toBeVisible();
-    await expect(panel).toContainText(SOURCE);
+    await expect(panel).toContainText('beam_vm');
+
+    const records = page.getByTestId('tail-record');
+    await expect(records.first()).toContainText('beam_vm.', { timeout: ADVANCE_WINDOW_MS });
+    await expectAdvances(() => records.count(), 'the tail');
 
     await page.getByTestId('stop-tail').click();
-    await expect(page.getByTestId('stop-tail')).toHaveCount(0);
+    await expect(page.getByTestId('tail-panel')).toHaveCount(0);
+    await expect(records).toHaveCount(0);
   });
 });

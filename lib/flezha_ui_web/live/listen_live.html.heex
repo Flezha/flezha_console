@@ -61,6 +61,9 @@
         mono
         data-testid="listen-filter"
       />
+      <p :if={@filter_error} data-testid="listen-filter-error" class="flz-field-error mt-1">
+        {@filter_error}
+      </p>
     </form>
     <span data-testid="listen-count" class="ml-auto text-xs text-th-secondary">
       {@message_count} messages received {if @paused, do: " (paused)"}
@@ -112,7 +115,7 @@
           The relay ended, so the listen is over.
         </div>
       <% :connected -> %>
-        <% display_messages = filtered_messages(@messages, @filter) %>
+        <% display_messages = filtered_messages(@messages, @filter_regex) %>
         <%= if display_messages == [] do %>
           <div data-testid="listen-empty" class="p-6 text-th-muted text-center">
             Waiting for the relay's {@direction}s...

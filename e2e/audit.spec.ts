@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, readFigure, ADVANCE_WINDOW_MS } from './fixtures';
 
 /**
  * The audit log screen.
@@ -44,6 +44,57 @@ test.describe('Audit log', () => {
     await page.getByTestId('audit-read-btn').click();
 
     await expect(page.getByTestId('audit-truncated')).toContainText('More records matched');
+  });
+
+  test('the name filter narrows the records to that name', async ({ page }) => {
+    await page.getByTestId('audit-read-btn').click();
+    const first = page.getByTestId('audit-records').locator('> *').first();
+    const name = JSON.parse((await first.innerText()).trim()).name as string;
+
+    await page.getByTestId('audit-filter-name').fill(name);
+    await page.getByTestId('audit-read-btn').click();
+    const records = page.getByTestId('audit-records').locator('> *');
+    await expect(records.filter({ hasNotText: `"name":"${name}"` })).toHaveCount(0);
+    await expect(records).not.toHaveCount(0);
+
+    await page.getByTestId('audit-filter-name').fill('no_such_name');
+    await page.getByTestId('audit-read-btn').click();
+    await expect(page.getByTestId('audit-records-empty')).toContainText('No record matches');
+  });
+
+  test('the file filter reads one closed file, and an unknown file is refused by name', async ({
+    page,
+  }) => {
+    // Rotation closes the current file, so there is always a file to name.
+    await page.getByTestId('audit-rotate-btn').click();
+    await expect(page.locator('body')).toContainText('Audit log rotated');
+    const file = page.getByTestId('audit-file').last();
+    const filename = (await file.locator('span').first().innerText()).trim();
+    const recorded = await readFigure(file.locator('span').nth(1));
+
+    await page.getByTestId('audit-filter-file').fill(filename);
+    await page.getByTestId('audit-filter-limit').fill('1000');
+    await page.getByTestId('audit-read-btn').click();
+    await expect(page.getByTestId('audit-records').locator('> *')).toHaveCount(recorded);
+
+    await page.getByTestId('audit-filter-file').fill('no-such-audit-file.log');
+    await page.getByTestId('audit-read-btn').click();
+    await expect(page.getByTestId('runtime-error')).toContainText('audit.file_not_found');
+    await expect(page.getByTestId('audit-records')).toHaveCount(0);
+    await expect(page.getByTestId('audit-records-empty')).toHaveCount(0);
+  });
+
+  test('the tail shows an administration action as it is audited', async ({ page }) => {
+    await page.getByTestId('audit-tail-toggle').click();
+    await expect(page.getByTestId('audit-tail-toggle')).toContainText('Tailing');
+
+    await page.getByTestId('audit-rotate-btn').click();
+    await expect(page.locator('body')).toContainText('Audit log rotated');
+    await expect(page.getByTestId('audit-tail-records')).toContainText('rotate', {
+      timeout: ADVANCE_WINDOW_MS,
+    });
+
+    await page.getByTestId('audit-tail-toggle').click();
   });
 
   test('starts the tail paused, streams, and stops cleanly', async ({ page }) => {

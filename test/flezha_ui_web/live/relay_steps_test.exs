@@ -452,9 +452,12 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       with_group(node)
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      render_click(view, "open_rescale", %{"group" => "orders"})
+      open_section(view, "partition-groups")
+      view |> element(~s([data-testid="rescale-orders"])) |> render_click()
+      assert has_element?(view, ~s([data-testid="rescale-modal"]))
+      assert has_element?(view, ~s([data-testid="rescale-target"]))
       render_change(view, "select_rescale", %{"rescale" => %{"target" => "4"}})
-      render_click(view, "rescale", %{})
+      view |> element(~s([data-testid="rescale-confirm-btn"])) |> render_click()
 
       assert [["default", "orders", 4, [], %{source: :ui}]] =
                FakeController.calls(node, {Steps, :rescale})
@@ -464,8 +467,9 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       with_group(node)
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      render_click(view, "open_rescale", %{"group" => "orders"})
-      html = render_click(view, "cancel_rescale", %{})
+      open_section(view, "partition-groups")
+      view |> element(~s([data-testid="rescale-orders"])) |> render_click()
+      html = view |> element(~s([data-testid="rescale-cancel-btn"])) |> render_click()
 
       refute html =~ ~s(data-testid="rescale-modal")
       assert FakeController.calls(node, {Steps, :rescale}) == []

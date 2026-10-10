@@ -28,7 +28,7 @@ test.describe('Cluster and fleet', () => {
     await expect(page.getByTestId('cluster-namespace-default')).toBeVisible();
 
     // The hub cell must say something definite rather than render blank.
-    await expect(page.getByTestId('hub-nodes-default')).not.toBeEmpty();
+    await expect(page.getByTestId('hub-nodes-default')).toContainText('flezha@');
   });
 
   test('lists the runners serving a namespace with their factories', async ({ page }) => {
@@ -117,6 +117,12 @@ test.describe('Cluster and fleet', () => {
     await expect(runners.locator('tbody tr')).toHaveCount(0);
 
     const readmit = marks.locator('[data-testid^="readmit-runner-"]').first();
+    await readmit.click();
+    await expect(page.getByTestId('readmit-runner-modal')).toBeVisible();
+    await page.getByTestId('readmit-runner-cancel').click();
+    await expect(page.getByTestId('readmit-runner-modal')).toHaveCount(0);
+    await expect(marks).toContainText('dropped');
+
     await readmit.click();
     await page.getByTestId('readmit-runner-confirm').click();
     await expect(marks).toHaveCount(0);

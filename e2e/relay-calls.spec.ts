@@ -1,4 +1,4 @@
-import { test, expect, openSection } from './fixtures';
+import { test, expect, openSection, uniqueId } from './fixtures';
 
 /**
  * Asking a relay what is wrong with it, reading the API its factory announces,
@@ -16,6 +16,7 @@ test.describe('Talking to a relay', () => {
 
   test('a diagnosis states a verdict and explains each finding', async ({ page }) => {
     await page.getByTestId('diagnose-btn').click();
+    await expect(page.getByTestId('diagnose-panel')).toBeVisible();
 
     await expect(page.getByTestId('diagnose-verdict')).toHaveText(/^\s*(ok|warning|problem)\s*$/);
     const findings = page.locator('[data-testid^="diagnose-finding-diagnose."]');
@@ -34,6 +35,9 @@ test.describe('Talking to a relay', () => {
   test('the API lists the factory’s channels, formats and schemas', async ({ page }) => {
     await openSection(page, 'api');
 
+    await expect(
+      page.getByTestId('api-channels').locator('[data-testid^="api-channel-"]'),
+    ).not.toHaveCount(0);
     const place = page.getByTestId('api-channel-place');
     await expect(place).toContainText('json');
     await expect(place).toContainText('yes, json');
@@ -107,6 +111,36 @@ test.describe('Talking to a relay', () => {
     });
     await expect(page.getByTestId('talk-result')).toHaveCount(2);
     await expect(page.getByTestId('talk-result').nth(1)).toContainText('Delivered to');
+  });
+
+  test('closing the dialog while a call waits stops waiting and keeps no result for it', async ({
+    page,
+  }) => {
+    await page.getByTestId('talk-open-btn').click();
+    await page.getByTestId('talk-mode-raw').click();
+    await expect(page.getByTestId('talk-raw-form')).toBeVisible();
+
+    // `audit` answers nothing, so the call waits out its deadline.
+    await page.getByTestId('talk-payload').fill(uniqueId('waited'));
+    await page.getByTestId('talk-channel').fill('audit');
+    await page.getByTestId('talk-deadline').fill('20000');
+    await page.getByTestId('talk-call-btn').click();
+    await expect(page.getByTestId('talk-waiting')).toBeVisible();
+    await expect(page.getByTestId('talk-call-btn')).toBeDisabled();
+
+    await page.getByTestId('talk-close-btn').click();
+    await expect(page.getByTestId('talk-modal')).toHaveCount(0);
+
+    await page.getByTestId('talk-open-btn').click();
+    await expect(page.getByTestId('talk-waiting')).toHaveCount(0);
+    await expect(page.getByTestId('talk-result')).toHaveCount(0);
+
+    // Back to the channel form, which is where the dialog opens.
+    await page.getByTestId('talk-mode-raw').click();
+    await expect(page.getByTestId('talk-call-btn')).toBeEnabled();
+    await page.getByTestId('talk-mode-channel').click();
+    await expect(page.getByTestId('talk-channel-form')).toBeVisible();
+    await expect(page.getByTestId('talk-raw-form')).toHaveCount(0);
   });
 
   test('closing the dialog leaves the screen working', async ({ page }) => {

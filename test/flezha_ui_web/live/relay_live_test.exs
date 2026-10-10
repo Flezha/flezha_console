@@ -17,10 +17,6 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
   @url "/namespaces/default/relays/relay_a"
 
-  @bound %{
-    subs: %{on_input: [%{plugin_id: "plug_1", provider: Flezha.Plugin.Provider.StdOut}]}
-  }
-
   defp overwatch(node, state) do
     FakeController.set(node, {Relay, :overwatch_state}, {:ok, state})
   end
@@ -193,7 +189,10 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
   describe "plugin bindings" do
     test "lists the hooks bound on the relay", %{conn: conn, node: node} do
-      overwatch(node, %{factory_id: "store_input", extensions: @bound})
+      overwatch(node, %{
+        factory_id: "store_input",
+        extensions: FakeController.hook_table("plug_1")
+      })
 
       {:ok, view, _html} = live(conn, @url)
 
@@ -215,53 +214,101 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       assert html =~ ~s(data-testid="no-plugins-msg")
     end
 
-    test "disabling is confirm-gated and cancelling reaches nothing", %{conn: conn, node: node} do
-      overwatch(node, %{factory_id: "store_input", extensions: @bound})
-
-      {:ok, view, _html} = live(conn, @url)
-
-      html = render_click(view, "confirm_detach", %{"plugin_id" => "plug_1"})
-      assert html =~ ~s(data-testid="detach-confirm-modal")
-
-      html = render_click(view, "cancel_detach", %{})
-      refute html =~ ~s(data-testid="detach-confirm-modal")
-      assert FakeController.calls(node, {PluginManager, :disable}) == []
-    end
-
-    test "confirming disables the plugin by name in the relay's namespace", %{
+    test "a declared binding that is not running is listed and can be unbound", %{
       conn: conn,
       node: node
     } do
-      overwatch(node, %{factory_id: "store_input", extensions: @bound})
-
-      {:ok, view, _html} = live(conn, @url)
-      render_click(view, "confirm_detach", %{"plugin_id" => "plug_1"})
-
-      assert render_click(view, "detach_plugin", %{"plugin_id" => "plug_1"}) =~
-               "Plugin plug_1 disabled."
-
-      assert [["plug_1", [namespace: "default"], %{source: :ui}]] =
-               FakeController.calls(node, {PluginManager, :disable})
-    end
-
-    test "a refused disable is reported rather than shown as success", %{
-      conn: conn,
-      node: node
-    } do
-      overwatch(node, %{factory_id: "store_input", extensions: @bound})
+      overwatch(node, %{
+        factory_id: "store_input",
+        extensions: FakeController.hook_table("plug_1")
+      })
 
       FakeController.set(
         node,
-        {PluginManager, :disable},
+        {Flezha.Service.Relay, :relay_plugins},
+        {:ok,
+         [
+           {"relay_a",
+            [
+              {"plug_1", %{hooks: [on_input: []], provider: Flezha.Plugin.Provider.StdOut}},
+              {"gone_1", %{hooks: [on_output: []], provider: Flezha.Plugin.Provider.StdOut}}
+            ]}
+         ]}
+      )
+
+      {:ok, view, _html} = live(conn, @url)
+      html = open_section(view, "plugins")
+
+      assert html =~ ~s(data-testid="binding-idle-gone_1")
+      refute html =~ ~s(data-testid="binding-idle-plug_1")
+
+      view |> element(~s([data-testid="unbind-btn-gone_1"])) |> render_click()
+      view |> element(~s([data-testid="unbind-confirm-btn"])) |> render_click()
+
+      assert [["gone_1", [namespace: "default", relay_id: "relay_a"], %{source: :ui}]] =
+               FakeController.calls(node, {PluginManager, :unbind})
+    end
+
+    test "unbinding is confirm-gated and cancelling reaches nothing", %{conn: conn, node: node} do
+      overwatch(node, %{
+        factory_id: "store_input",
+        extensions: FakeController.hook_table("plug_1")
+      })
+
+      {:ok, view, _html} = live(conn, @url)
+      open_section(view, "plugins")
+
+      html = view |> element(~s([data-testid="unbind-btn-plug_1"])) |> render_click()
+      assert html =~ ~s(data-testid="unbind-confirm-modal")
+
+      html = view |> element(~s([data-testid="unbind-cancel-btn"])) |> render_click()
+      refute html =~ ~s(data-testid="unbind-confirm-modal")
+      assert FakeController.calls(node, {PluginManager, :unbind}) == []
+    end
+
+    test "confirming unbinds this relay alone and leaves the plugin enabled", %{
+      conn: conn,
+      node: node
+    } do
+      overwatch(node, %{
+        factory_id: "store_input",
+        extensions: FakeController.hook_table("plug_1")
+      })
+
+      {:ok, view, _html} = live(conn, @url)
+      open_section(view, "plugins")
+      view |> element(~s([data-testid="unbind-btn-plug_1"])) |> render_click()
+
+      assert view |> element(~s([data-testid="unbind-confirm-btn"])) |> render_click() =~
+               "relay_a unbound from plugin plug_1."
+
+      assert [["plug_1", [namespace: "default", relay_id: "relay_a"], %{source: :ui}]] =
+               FakeController.calls(node, {PluginManager, :unbind})
+
+      assert FakeController.calls(node, {PluginManager, :disable}) == []
+    end
+
+    test "a refused unbind is reported rather than shown as success", %{
+      conn: conn,
+      node: node
+    } do
+      overwatch(node, %{
+        factory_id: "store_input",
+        extensions: FakeController.hook_table("plug_1")
+      })
+
+      FakeController.set(
+        node,
+        {PluginManager, :unbind},
         FakeController.error("plugin.not_found")
       )
 
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "confirm_detach", %{"plugin_id" => "plug_1"})
+      render_click(view, "confirm_unbind", %{"plugin_id" => "plug_1"})
 
-      html = render_click(view, "detach_plugin", %{"plugin_id" => "plug_1"})
+      html = render_click(view, "unbind_plugin", %{"plugin_id" => "plug_1"})
       assert html =~ "plugin.not_found (test)"
-      refute html =~ "disabled."
+      refute html =~ "unbound from"
     end
   end
 

@@ -59,7 +59,11 @@ defmodule FlezhaUiWeb.AuditLiveTest do
 
   describe "the catalog" do
     test "renders the statistics the controller reports", %{conn: conn, node: node} do
-      FakeController.set(node, {AuditLog, :list_files}, {:ok, ["audit-1.log"]})
+      FakeController.set(
+        node,
+        {AuditLog, :list_files},
+        {:ok, [%{filename: "audit-1.log", record_count: 7, size_bytes: 2048, sha256: "ab"}]}
+      )
 
       FakeController.set(
         node,
@@ -73,6 +77,9 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       assert html =~ "42"
       assert html =~ ~s(data-testid="audit-files")
       assert html =~ "audit-1.log"
+      assert html =~ "7 records"
+      assert html =~ "2.0 KB"
+      refute html =~ "sha256"
     end
 
     test "explains an empty catalog rather than looking broken", %{conn: conn, node: node} do
@@ -193,6 +200,7 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       html = render_click(view, "read", %{})
 
       assert html =~ "authz.role_insufficient"
+      refute html =~ ~s(data-testid="audit-records-empty")
 
       refute view |> element(~s([data-testid="runtime-error"])) |> render() =~
                ~s(href="/users/settings")
@@ -275,7 +283,7 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
       {:ok, view, _html} = live(conn, ~p"/audit")
 
-      closed = %{name: "audit-20261006T120000.jsonl", size_bytes: 512, record_count: 3}
+      closed = %{filename: "audit-20261006T120000.jsonl", size_bytes: 512, record_count: 3}
       FakeController.set(node, {AuditLog, :list_files}, {:ok, [closed]})
 
       html = view |> element(~s([data-testid="audit-rotate-btn"])) |> render_click()

@@ -6,9 +6,9 @@ defmodule FlezhaUi.NamingGate do
   `max_operatives` and `entity_key` are caught while `cooperative` and
   `identity` are not. A path is judged as well as its lines.
 
-  Scope is `git ls-files`: `deps/`, `_build/`, `node_modules/` and
-  `openspec/changes/` (the archive included) are outside it because they are
-  untracked. A living spec is skipped while an open change on disk carries a
+  Scope is `git ls-files` with untracked files that are not ignored:
+  `deps/`, `_build/`, `node_modules/` and `openspec/changes/` (the archive
+  included) are outside it because they are ignored. A living spec is skipped while an open change on disk carries a
   delta for its capability, because archiving that change rewrites it.
 
   The allowlist names each occurrence that stays on purpose, by path prefix and
@@ -163,7 +163,11 @@ defmodule FlezhaUi.NamingGate do
   defp hit(file, line, term, use), do: %{file: file, line: line, term: term, use: use}
 
   defp tracked(root) do
-    {out, 0} = System.cmd("git", ["ls-files", "-z"], cd: root)
+    # Untracked files count too, so a new file is judged before it is staged.
+    {out, 0} =
+      System.cmd("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cd: root
+      )
 
     out
     |> String.split(<<0>>, trim: true)

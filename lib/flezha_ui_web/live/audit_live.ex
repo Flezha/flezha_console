@@ -57,7 +57,7 @@ defmodule FlezhaUiWeb.AuditLive do
          )}
 
       {:error, reason} ->
-        {:noreply, assign(socket, records: [], truncated: false, read_error: reason)}
+        {:noreply, assign(socket, records: nil, truncated: false, read_error: reason)}
     end
   end
 

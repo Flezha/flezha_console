@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, chosen, readFigure, testIds } from './fixtures';
 
 /**
  * The dashboard.
@@ -23,11 +23,49 @@ test.describe('Dashboard', () => {
     await expect(node).toContainText('Transport:');
   });
 
-  test('the stat tiles carry concrete counts', async ({ page }) => {
-    await expect(page.getByTestId('stat-namespaces')).toHaveText(/^\s*\d+\s*$/);
-    await expect(page.getByTestId('stat-relays')).toHaveText(/^\s*\d+\s*$/);
-    await expect(page.getByTestId('stat-plugins')).toHaveText(/^\s*\d+\s*$/);
-    await expect(page.getByTestId('stat-providers')).toContainText(/\d+ providers available/);
+  test('the relay tile breaks its count down by health, and the parts add up', async ({ page }) => {
+    const total = await readFigure(page.getByTestId('stat-relays'));
+    const badges = page.getByTestId('stat-relay-health').getByTestId('health-badge');
+    const counts = await badges.evaluateAll((els) =>
+      els.map((el) => Number(el.querySelector('.flz-num')?.textContent?.trim() ?? 0)),
+    );
+
+    expect(counts.length).toBeGreaterThan(0);
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(total);
+    // A healthy dev stack places every relay.
+    await expect(page.getByTestId('stat-unplaced')).toHaveCount(0);
+  });
+
+  test('the plugin and provider tiles agree with the screens they count', async ({
+    page,
+    live,
+  }) => {
+    const plugins = await readFigure(page.getByTestId('stat-plugins'));
+    const providers = await readFigure(page.getByTestId('stat-providers'));
+
+    await live('/plugins');
+    expect(await testIds(page, 'plugin-row-')).toHaveLength(plugins);
+
+    await page.getByTestId('enable-plugin-btn').click();
+    await expect(page.getByTestId('provider-grid')).toBeVisible();
+    expect(await testIds(page, 'provider-btn-')).toHaveLength(providers);
+    await page.getByTestId('attach-close-btn').click();
+  });
+
+  test('the namespace picker offers the running namespaces and summarises the chosen one', async ({
+    page,
+  }) => {
+    // Switching between two namespaces needs a second running one, which the
+    // dev stack does not have; `topology_live_test.exs` drives the switch.
+    await page.getByTestId('topology-namespace').click();
+    await expect(page.getByTestId('topology-namespace-default')).toBeVisible();
+    await expect(page.getByTestId('topology-namespace-_system')).toHaveCount(0);
+    await page.getByTestId('topology-namespace-default').click();
+
+    await expect(chosen(page, 'topology-namespace')).toHaveValue('default');
+    expect(await readFigure(page.getByTestId('summary-relays'))).toBe(
+      await readFigure(page.getByTestId('stat-relays')),
+    );
   });
 
   test('lists the runner fleet', async ({ page }) => {
@@ -36,7 +74,9 @@ test.describe('Dashboard', () => {
       'at least one runner must be connected — check the runner service',
     ).toHaveCount(0);
 
-    await expect(page.locator('[data-testid^="dashboard-runner-row-"]')).not.toHaveCount(0);
+    await expect(
+      page.getByTestId('dashboard-runners').locator('[data-testid^="dashboard-runner-row-"]'),
+    ).not.toHaveCount(0);
   });
 
   test('its counts agree with the namespace screen', async ({ page, live }) => {
@@ -56,7 +96,10 @@ test.describe('Dashboard', () => {
   });
 
   test('links through to a namespace', async ({ page }) => {
-    await page.getByTestId('dashboard-namespace-default').click();
+    await page
+      .getByTestId('dashboard-namespaces')
+      .getByTestId('dashboard-namespace-default')
+      .click();
     await expect(page).toHaveURL(/\/namespaces\/default$/);
     await expect(page.getByTestId('relays-table')).toBeVisible();
   });

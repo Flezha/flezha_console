@@ -1,4 +1,12 @@
-import { test, expect, disablePlugin, uniqueId, type Page } from './fixtures';
+import {
+  test,
+  expect,
+  disablePlugin,
+  fillPluginForm,
+  optionError,
+  uniqueId,
+  type Page,
+} from './fixtures';
 
 /**
  * The plugin packages the controller holds and the plugin writes made from the
@@ -9,15 +17,12 @@ import { test, expect, disablePlugin, uniqueId, type Page } from './fixtures';
  * (`priv/dev/plugin_packages.sh`): `flezha_http`, which loads, and
  * `flezha_http_tampered`, whose manifest changed after it was checksummed,
  * which the loader refuses. Every plugin a test enables it disables in
- * `finally`.
+ * `finally`. No dev provider declares a transient option, so the password
+ * field it gets is asserted in `test/flezha_ui_web/live/plugin_live_test.exs`.
  */
 const PLUGINS_URL = '/namespaces/default/plugins';
 
-/**
- * Fills the plugin form from the plugins screen: `provider`, `hooks` and each
- * option typed into its own field, a selection chosen by its value. Submits
- * without asserting the outcome.
- */
+/** Fills the plugin form from the plugins screen and submits it. */
 async function fillEnable(
   page: Page,
   name: string,
@@ -26,18 +31,7 @@ async function fillEnable(
   opts: Record<string, string>,
   relay?: string,
 ) {
-  await page.getByTestId('enable-plugin-btn').click();
-  await page.getByTestId(`provider-btn-${provider}`).click();
-  await page.getByTestId('input-plugin-name').fill(name);
-  if (relay) await page.getByTestId('input-plugin-relay').selectOption(relay);
-  for (const hook of hooks) await page.getByTestId(`input-hook-${hook}`).check();
-
-  for (const [option, value] of Object.entries(opts)) {
-    const field = page.getByTestId(`input-option-${option}`);
-    if ((await field.evaluate((el) => el.tagName)) === 'SELECT') await field.selectOption(value);
-    else await field.fill(value);
-  }
-
+  await fillPluginForm(page, 'enable-plugin-btn', { provider, name, relay, hooks, opts });
   await page.getByTestId('attach-submit-btn').click();
 }
 
@@ -53,10 +47,6 @@ async function enable(
   await fillEnable(page, name, provider, hooks, opts, relay);
   await expect(page.getByTestId('attach-modal')).toHaveCount(0);
 }
-
-/** The error shown on an option's field, inside the field's own container. */
-const optionError = (page: Page, option: string) =>
-  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.flz-field-error');
 
 /** The hint shown on an option's field. */
 const optionHint = (page: Page, option: string) =>
@@ -85,6 +75,40 @@ test.describe('Plugin packages', () => {
     );
 
     await expect(page.getByTestId('providers-refused')).toContainText('refused 1 installed package');
+  });
+});
+
+test.describe('Enabled plugins', () => {
+  test.beforeEach(async ({ live }) => {
+    await live(PLUGINS_URL);
+  });
+
+  test('the seeded controller plugin states its hooks and where it runs', async ({ page }) => {
+    const row = page.getByTestId('plugin-row-lifecycle_webhook');
+    await expect(row).toContainText('on_relay_started');
+    await expect(row).toContainText('on_relay_stopped');
+    await expect(page.getByTestId('plugin-relays-lifecycle_webhook')).toHaveText(/^\s*—\s*$/);
+    await expect(page.getByTestId('plugin-controllers-lifecycle_webhook')).toContainText('flezha@');
+    // One controller serves the namespace, so none lags behind it.
+    await expect(page.getByTestId('plugin-lagging-lifecycle_webhook')).toHaveCount(0);
+  });
+
+  test('cancelling a disable leaves the plugin enabled and bound', async ({ page }) => {
+    await page.getByTestId('plugin-disable-ws_store_1').click();
+    await expect(page.getByTestId('plugin-disable-modal')).toContainText('ws_store_1');
+    await page.getByTestId('plugin-disable-cancel').click();
+
+    await expect(page.getByTestId('plugin-disable-modal')).toHaveCount(0);
+    await expect(page.getByTestId('plugin-relays-ws_store_1')).toContainText('testnet_store_1');
+  });
+
+  test('cancelling an unbind leaves the relay bound', async ({ page }) => {
+    await page.getByTestId('plugin-unbind-ws_store_1-testnet_store_1').click();
+    await expect(page.getByTestId('plugin-unbind-modal')).toContainText('stays enabled');
+    await page.getByTestId('plugin-unbind-cancel').click();
+
+    await expect(page.getByTestId('plugin-unbind-modal')).toHaveCount(0);
+    await expect(page.getByTestId('plugin-relays-ws_store_1')).toContainText('testnet_store_1');
   });
 });
 
@@ -223,6 +247,33 @@ test.describe('Plugin writes', () => {
       await expect(page.locator('body')).toContainText(
         `Plugin ${name} updated: applied by restarting its copies.`,
       );
+    } finally {
+      await disablePlugin(page, name);
+    }
+  });
+
+  test('a number past its bound and JSON that does not parse are named on their fields', async ({
+    page,
+  }) => {
+    const name = uniqueId('pw_bounds');
+
+    try {
+      await fillEnable(page, name, 'hook_webhook', ['on_relay_started'], {
+        url: RECEIVER,
+        timeout_ms: '70000',
+        headers: '{not json',
+      });
+
+      await expect(optionError(page, 'timeout_ms')).toContainText('60000');
+      await expect(optionError(page, 'headers')).toBeVisible();
+      await expect(page.getByTestId('attach-modal')).toBeVisible();
+
+      // Fixed, the same form enables the plugin.
+      await page.getByTestId('input-option-timeout_ms').fill('7000');
+      await page.getByTestId('input-option-headers').fill('{"x-test": "1"}');
+      await page.getByTestId('attach-submit-btn').click();
+      await expect(page.getByTestId('attach-modal')).toHaveCount(0);
+      await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
     } finally {
       await disablePlugin(page, name);
     }

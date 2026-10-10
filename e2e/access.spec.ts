@@ -20,15 +20,21 @@ import {
  */
 const NS_URL = '/namespaces/default';
 
+/** Opens the issue dialog, fills it and submits it, without judging the answer. */
+async function submitIssue(page: Page, principal: string, role: string, ttl = '3600') {
+  await page.getByTestId('issue-token-btn').click();
+  await expect(page.getByTestId('issue-token-modal')).toBeVisible();
+  await page.getByTestId('issue-token-principal').fill(principal);
+  await page.getByTestId('issue-token-role').fill(role);
+  await page.getByTestId('issue-token-ttl').fill(ttl);
+  await page.getByTestId('issue-token-label').fill('playwright');
+  await page.getByTestId('issue-token-submit').click();
+}
+
 /** Issues a token from the namespace screen and answers its id and value. */
 async function issueToken(page: Page, principal: string, role: string) {
   await openSection(page, 'tokens');
-  await page.getByTestId('issue-token-btn').click();
-  await page.getByTestId('issue-token-principal').fill(principal);
-  await page.getByTestId('issue-token-role').fill(role);
-  await page.getByTestId('issue-token-ttl').fill('3600');
-  await page.getByTestId('issue-token-label').fill('playwright');
-  await page.getByTestId('issue-token-submit').click();
+  await submitIssue(page, principal, role);
 
   const value = page.getByTestId('issued-token-value');
   await expect(value).toBeVisible();
@@ -89,6 +95,74 @@ test.describe('Tokens', () => {
   });
 });
 
+test.describe('Issuing and revoking', () => {
+  test.beforeEach(async ({ page, live }) => {
+    await live(NS_URL);
+    await openSection(page, 'tokens');
+  });
+
+  test('a lifetime that is not a number of seconds is refused, and nothing is issued', async ({
+    page,
+    live,
+  }) => {
+    const principal = uniqueId('pw_ttl');
+    await submitIssue(page, principal, 'viewer', '-5');
+
+    try {
+      await expect(page.getByTestId('issue-token-error')).toBeVisible();
+      await expect(page.getByTestId('issued-token')).toHaveCount(0);
+    } finally {
+      // Had it been issued after all, it is revoked rather than left active.
+      if (await page.getByTestId('issued-token-id').count()) {
+        const id = (await page.getByTestId('issued-token-id').innerText()).trim();
+        await page.getByTestId('issued-token-done').click();
+        await revokeToken(page, live, id);
+      }
+    }
+
+    await page.getByTestId('issue-token-cancel').click();
+    await expect(page.getByTestId('issue-token-modal')).toHaveCount(0);
+    await expect(page.getByTestId('tokens-panel')).not.toContainText(principal);
+  });
+
+  test('the issue dialog closes from its close control, issuing nothing', async ({ page }) => {
+    await page.getByTestId('issue-token-btn').click();
+    await page.getByTestId('issue-token-principal').fill(uniqueId('pw_closed'));
+    await page.getByTestId('issue-token-close').click();
+    await expect(page.getByTestId('issue-token-modal')).toHaveCount(0);
+  });
+
+  test('the issued value is shown once, and cancelling a revoke keeps the token active', async ({
+    page,
+    live,
+  }) => {
+    const principal = uniqueId('pw_once');
+    let id = '';
+
+    try {
+      await submitIssue(page, principal, 'viewer');
+
+      await expect(page.getByTestId('issued-token')).toContainText('shown once');
+      await expect(page.getByTestId('issued-token-value')).toHaveText(/\S{16,}/);
+      await expect(page.getByTestId('issued-token-copy')).toBeVisible();
+      id = (await page.getByTestId('issued-token-id').innerText()).trim();
+      await page.getByTestId('issued-token-done').click();
+
+      // Reopening the dialog asks again; the value is gone for good.
+      await page.getByTestId('issue-token-btn').click();
+      await expect(page.getByTestId('issued-token')).toHaveCount(0);
+      await page.getByTestId('issue-token-cancel').click();
+
+      await page.getByTestId(`revoke-token-${id}`).click();
+      await page.getByTestId('revoke-token-cancel').click();
+      await expect(page.getByTestId('revoke-token-modal')).toHaveCount(0);
+      await expect(page.getByTestId(`token-status-${id}`)).toHaveText('active');
+    } finally {
+      if (id) await revokeToken(page, live, id);
+    }
+  });
+});
+
 test.describe('Role bindings', () => {
   test('a principal is bound to a role and unbound again', async ({ page, live }) => {
     await live(NS_URL);
@@ -107,6 +181,36 @@ test.describe('Role bindings', () => {
       await expect(page.getByTestId('unbind-role-modal')).toContainText(principal);
       await page.getByTestId('unbind-role-confirm').click();
       await expect(page.getByTestId(`role-${principal}-viewer`)).toHaveCount(0);
+    } finally {
+      await removeBinding(page, live, principal);
+    }
+  });
+
+  test('cancelling a bind or an unbind changes nothing', async ({ page, live }) => {
+    await live(NS_URL);
+    const principal = uniqueId('pw_kept');
+
+    try {
+      await openSection(page, 'role-bindings');
+      await page.getByTestId('bind-role-btn').click();
+      await expect(page.getByTestId('bind-role-modal')).toBeVisible();
+      await page.getByTestId('bind-role-principal').fill(principal);
+      await page.getByTestId('bind-role-cancel').click();
+      await expect(page.getByTestId('bind-role-modal')).toHaveCount(0);
+      await expect(page.getByTestId(`role-binding-${principal}`)).toHaveCount(0);
+
+      await page.getByTestId('bind-role-btn').click();
+      await page.getByTestId('bind-role-principal').fill(principal);
+      await page.getByTestId('bind-role-role').fill('viewer');
+      await page.getByTestId('bind-role-submit').click();
+      await expect(page.getByTestId(`role-${principal}-viewer`)).toBeVisible();
+
+      for (const control of [`unbind-role-${principal}-viewer`, `unbind-binding-${principal}`]) {
+        await page.getByTestId(control).click();
+        await page.getByTestId('unbind-role-cancel').click();
+        await expect(page.getByTestId('unbind-role-modal')).toHaveCount(0);
+        await expect(page.getByTestId(`role-${principal}-viewer`)).toBeVisible();
+      }
     } finally {
       await removeBinding(page, live, principal);
     }
@@ -152,6 +256,25 @@ test.describe('Controls follow the role', () => {
 
       await live('/namespaces/default/plugins');
       await expect(page.getByTestId('enable-plugin-btn')).toHaveCount(0);
+      await expect(page.locator('[data-testid^="plugin-disable-"]')).toHaveCount(0);
+      await expect(page.locator('[data-testid^="plugin-unbind-"]')).toHaveCount(0);
+
+      await live('/namespaces/default/relays/testnet_store_1/state');
+      await expect(page.getByTestId('retention-form')).toHaveCount(0);
+      await expect(page.locator('[data-testid^="rotate-"]')).toHaveCount(0);
+      await expect(page.locator('[data-testid^="delete-"]')).toHaveCount(0);
+
+      await live('/schedules');
+      await expect(page.getByTestId('schedule-new-btn')).toHaveCount(0);
+
+      await live('/audit');
+      await expect(page.getByTestId('audit-rotate-btn')).toHaveCount(0);
+
+      await live('/cluster');
+      await expect(page.locator('[data-testid^="drop-runner-"]')).toHaveCount(0);
+
+      await live('/controller');
+      await expect(page.getByTestId('stop-controller-btn')).toHaveCount(0);
     } finally {
       await clearStoredToken(page);
       if (id) await revokeToken(page, live, id);

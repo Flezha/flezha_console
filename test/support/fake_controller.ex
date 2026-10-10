@@ -134,6 +134,13 @@ defmodule FakeController do
   def error(code, message \\ nil), do: {:error, Flezha.Error.new(code, message)}
 
   @doc """
+  A running relay's hook table holding one `on_input` binding of `plugin_id`,
+  as the `extensions` of `Relay.overwatch_state/2`'s answer.
+  """
+  def hook_table(plugin_id),
+    do: %{subs: %{on_input: [%{plugin_id: plugin_id, provider: Flezha.Plugin.Provider.StdOut}]}}
+
+  @doc """
   A relay row shaped as `Flezha.Service.Relay.relay_rows/2` answers one, with
   `overrides` applied.
 

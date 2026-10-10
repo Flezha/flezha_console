@@ -7,6 +7,7 @@ import {
   uniqueId,
   withStepsRelay,
   type Page,
+  sendToRelay,
 } from './fixtures';
 
 /**
@@ -18,18 +19,6 @@ import {
  * input so it has a cell — never on a seeded relay, whose state other specs
  * read. The retention it changes is put back.
  */
-/** Sends one raw message to the relay whose detail screen is open. */
-async function feed(page: Page, payload: string): Promise<void> {
-  await page.getByTestId('talk-open-btn').click();
-  await page.getByTestId('talk-mode-raw').click();
-  await page.getByTestId('talk-payload').fill(payload);
-  await page.getByTestId('talk-send-btn').click();
-  await expect(page.getByTestId('talk-result').first()).toContainText('Delivered to', {
-    timeout: 20_000,
-  });
-  await page.getByTestId('talk-close-btn').click();
-}
-
 /** The cell row of the relay's one cell, once it has been persisted. */
 function cellRow(page: Page) {
   return page.locator('[data-testid^="cell-"]:not([data-testid^="cell-lagging-"])').first();
@@ -43,7 +32,7 @@ test.describe('Relay state tools', () => {
 
     try {
       await live(`/namespaces/default/relays/${id}`);
-      await feed(page, 'state tools input');
+      await sendToRelay(page, 'state tools input');
 
       await live(`/namespaces/default/relays/${id}/state`);
       const row = cellRow(page);
@@ -53,7 +42,17 @@ test.describe('Relay state tools', () => {
 
       // Selecting it reads its outbox.
       await page.getByTestId(`select-${cell}`).click();
-      await expect(page.getByTestId('outbox-durable-seq')).toContainText(/\d+/);
+      await expect(page.getByTestId('outbox').getByTestId('outbox-durable-seq')).toContainText(/\d+/);
+
+      // Each write asks first; cancelling one does nothing.
+      for (const control of [`rotate-${cell}`, `delete-${cell}`]) {
+        await page.getByTestId(control).click();
+        await expect(page.getByTestId('state-confirm-modal')).toContainText(cell);
+        await page.getByTestId('state-confirm-cancel').click();
+        await expect(page.getByTestId('state-confirm-modal')).toHaveCount(0);
+      }
+      await expect(page.getByTestId(`cell-${cell}`)).toBeVisible();
+      await expect(page.getByText(`Compaction requested for ${cell}.`)).toHaveCount(0);
 
       // Rotation asks first, naming the cell.
       await page.getByTestId(`rotate-${cell}`).click();
@@ -66,6 +65,9 @@ test.describe('Relay state tools', () => {
       await page.getByTestId('travel-value').fill(walSeq);
       await page.getByTestId('replay-open').click();
       await expect(page.getByTestId('state-confirm-modal')).toContainText('run again');
+      await page.getByTestId('state-confirm-cancel').click();
+      await expect(page.getByTestId('replay-result')).toHaveCount(0);
+      await page.getByTestId('replay-open').click();
       await page.getByTestId('state-confirm-btn').click();
       await expect(page.getByTestId('replay-result')).toContainText(cell);
 
@@ -88,6 +90,14 @@ test.describe('Relay state tools', () => {
     const original = (await shown.innerText()).match(/(\d+) hours/)![1];
     const changed = String(Number(original) + 1);
 
+    await expect(page.getByTestId('state-retention')).toContainText('History retention');
+
+    // A negative number of hours is refused on the form and nothing is set.
+    await page.getByTestId('retention-hours').fill('-3');
+    await page.getByTestId('retention-submit').click();
+    await expect(page.getByTestId('retention-error')).toBeVisible();
+    await expect(shown).toContainText(`${original} hours`);
+
     try {
       await page.getByTestId('retention-hours').fill(changed);
       await page.getByTestId('retention-submit').click();
@@ -103,9 +113,13 @@ test.describe('Relay state tools', () => {
   test('a durable steps relay lists its input log records on expanding', async ({ page, live }) => {
     await withStepsRelay(page, async (id) => {
       await live(`/namespaces/default/relays/${id}`);
+      await sendToRelay(page, 'an input to retain');
       await openSection(page, 'input-log');
 
-      await expect(page.getByTestId('inbox-floor')).toContainText('Payloads are not shown.');
+      const records = page.getByTestId('inbox-records');
+      await expect(records.getByTestId('inbox-floor')).toContainText('Payloads are not shown.');
+      // The input just sent is retained, with its size.
+      await expect(records.locator('[data-testid^="inbox-entry-"]').first()).toContainText(/\d+ B/);
     });
   });
 });

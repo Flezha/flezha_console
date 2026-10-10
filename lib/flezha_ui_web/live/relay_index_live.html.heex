@@ -80,10 +80,14 @@
   <div class="flz-panel overflow-hidden">
     <%= if @rows == [] do %>
       <.empty_state icon="hero-cpu-chip" testid="relays-empty">
-        <span :if={@scoped_namespace}>No relays are running in {@scoped_namespace}.</span>
-        <span :if={!@scoped_namespace}>
-          No relays are running in any reachable namespace.
-        </span>
+        <%= cond do %>
+          <% filtered?(@filters, @scoped_namespace) -> %>
+            No running relay matches these filters.
+          <% @scoped_namespace -> %>
+            No relays are running in {@scoped_namespace}.
+          <% true -> %>
+            No relays are running in any reachable namespace.
+        <% end %>
       </.empty_state>
     <% else %>
       <table data-testid="relays-index-table" class="flz-table">

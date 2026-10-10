@@ -169,7 +169,8 @@ defmodule FlezhaUiWeb.UserSettingsController do
         "Flezha token cleared. This UI falls back to its service token."
 
       {:error, reason} ->
-        "Flezha token stored, but it did not verify: #{inspect(reason)}."
+        %{message: message, code: code} = NodeManager.error(reason)
+        "Flezha token stored, but it did not verify: #{message} (#{code})."
     end
   end
 end

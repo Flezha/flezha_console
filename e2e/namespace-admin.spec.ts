@@ -1,4 +1,4 @@
-import { test, expect, openSection } from './fixtures';
+import { test, expect, openSection, withStepsRelay } from './fixtures';
 
 /**
  * Namespaces as declared objects: quota meters against live counters, and the
@@ -46,9 +46,13 @@ test.describe('Namespace administration', () => {
 
     await live('/namespaces');
     await page.getByTestId('create-namespace-btn').click();
-    await page.getByTestId('create-namespace-name').fill(name);
+    await expect(page.getByTestId('create-namespace-modal')).toBeVisible();
+    const form = page.getByTestId('create-namespace-form');
+    await form.getByTestId('create-namespace-name').fill(name);
     await page.getByTestId('create-max-relays').fill('7');
+    await page.getByTestId('create-max-runners').fill('3');
     await page.getByTestId('create-namespace-submit').click();
+    await expect(page.getByTestId('create-namespace-modal')).toHaveCount(0);
 
     const row = page.getByTestId(`namespace-row-${name}`);
     await expect(row).toBeVisible();
@@ -60,13 +64,83 @@ test.describe('Namespace administration', () => {
     await live(`/namespaces/${name}`);
     await openSection(page, 'quotas');
     await expect(page.getByTestId('quota-relays')).toContainText('of 7');
+    await expect(page.getByTestId('quota-runners')).toContainText('of 3');
+
+    // Editing a limit: a value that is not a whole number is refused on the
+    // form, cancelling changes nothing, and saving reaches the meter.
+    await page.getByTestId('edit-quotas-btn').click();
+    await expect(page.getByTestId('quota-modal')).toBeVisible();
+    await page.getByTestId('quota-input-max_relays').fill('-2');
+    await page.getByTestId('quota-save').click();
+    await expect(page.getByTestId('quota-error')).toContainText(
+      'max_relays must be a whole number',
+    );
+    await page.getByTestId('quota-cancel').click();
+    await expect(page.getByTestId('quota-modal')).toHaveCount(0);
+    await expect(page.getByTestId('quota-relays')).toContainText('of 7');
+
+    await page.getByTestId('edit-quotas-btn').click();
+    await page.getByTestId('quota-input-max_relays').fill('9');
+    await page.getByTestId('quota-save').click();
+    await expect(page.getByTestId('quota-modal')).toHaveCount(0);
+    await expect(page.getByTestId('quota-relays')).toContainText('of 9');
 
     await live('/namespaces');
     await page.getByTestId(`namespace-delete-${name}`).click();
+    await expect(page.getByTestId('delete-namespace-modal')).toContainText(name);
     await page.getByTestId('delete-namespace-confirmation').fill(name);
     await page.getByTestId('delete-namespace-confirm').click();
 
     await expect(page.getByTestId(`namespace-row-${name}`)).toHaveCount(0);
+  });
+
+  test('the create form refuses a bad quota and a bad name, and cancelling creates nothing', async ({
+    page,
+    live,
+  }) => {
+    const name = `e2e-bad-${Date.now().toString(36)}`;
+    await live('/namespaces');
+
+    await page.getByTestId('create-namespace-btn').click();
+    await page.getByTestId('create-namespace-name').fill(name);
+    await page.getByTestId('create-max-runners').fill('-1');
+    await page.getByTestId('create-namespace-submit').click();
+    await expect(page.getByTestId('create-namespace-error')).toContainText(
+      'max_runners must be a whole number',
+    );
+
+    await page.getByTestId('create-max-runners').fill('');
+    await page.getByTestId('create-namespace-name').fill('Not A Valid Name!');
+    await page.getByTestId('create-namespace-submit').click();
+    await expect(page.getByTestId('create-namespace-error')).toContainText('namespace.');
+    await expect(page.getByTestId('create-namespace-modal')).toBeVisible();
+
+    await page.getByTestId('create-namespace-cancel').click();
+    await expect(page.getByTestId('create-namespace-modal')).toHaveCount(0);
+    await expect(page.getByTestId(`namespace-row-${name}`)).toHaveCount(0);
+  });
+
+  test('the finished listing reloads on request, and the runners panel lists the runner', async ({
+    page,
+    live,
+  }) => {
+    // A steps relay this test starts and stops is a finished relay it can name.
+    let stopped = '';
+    await withStepsRelay(page, async (id) => {
+      stopped = id;
+    });
+
+    await live('/namespaces/default');
+    await openSection(page, 'finished-relays');
+    await page.getByTestId('reload-finished').click();
+    await expect(page.getByTestId('finished-loading')).toHaveCount(0, { timeout: 20_000 });
+    await expect(page.getByTestId(`finished-row-${stopped}`)).toContainText('cancelled');
+
+    await openSection(page, 'runners');
+    await expect(page.getByTestId('runners-panel')).toContainText('Runners (');
+    await expect(page.getByTestId('runners-default').locator('tbody tr').first()).toContainText(
+      'default_',
+    );
   });
 
   test('delete is refused until the namespace is named exactly', async ({ page, live }) => {

@@ -10,6 +10,8 @@ defmodule FlezhaUiWeb.TopologyTest do
 
   use ExUnit.Case, async: true
 
+  import Phoenix.LiveViewTest
+
   alias FlezhaUiWeb.Topology
 
   defp facts(overrides \\ %{}) do
@@ -209,6 +211,16 @@ defmodule FlezhaUiWeb.TopologyTest do
       graph = Topology.pipeline(pipeline_input(%{selected: "ingest"}))
 
       refute graph.selected
+    end
+
+    test "a selected relay's sparkline draws from a single idle sample" do
+      graph =
+        Topology.pipeline(pipeline_input(%{selected: "relay_a", history: [%{in: 0, out: 0}]}))
+
+      html = render_component(&Topology.pipeline_graph/1, topology: graph)
+
+      assert html =~ ~s(data-testid="topology-sparkline")
+      assert html =~ ~s(points="0.0,39.0")
     end
 
     test "the newest verdict is the one bannered" do

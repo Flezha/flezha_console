@@ -205,6 +205,24 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       assert Keyword.get(opts, :quotas) == %{max_relays: 10}
     end
 
+    test "a quota that is not a whole number is named and nothing is created", %{
+      conn: conn,
+      node: node
+    } do
+      with_catalog(node, running: [])
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces")
+      render_click(view, "open_create", %{})
+
+      html =
+        render_submit(view, "create", %{
+          "create" => %{"name" => "analytics", "max_relays" => "-1", "max_runners" => ""}
+        })
+
+      assert html =~ "max_relays must be a whole number of 0 or more."
+      assert FakeController.calls(node, {Namespace, :create}) == []
+    end
+
     test "a refused create shows the controller's message and creates nothing", %{
       conn: conn,
       node: node
@@ -281,6 +299,23 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
                FakeController.calls(node, {Namespace, :set_quotas})
 
       assert sent == %{record("default").quotas | max_relays: 250}
+    end
+
+    test "a limit that is not a whole number is named and nothing is sent", %{
+      conn: conn,
+      node: node
+    } do
+      with_catalog(node, running: ["default"], get: {:ok, record("default")})
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      render_click(view, "open_quotas", %{})
+      render_change(view, "quota_change", %{"quota" => %{"max_relays" => "lots"}})
+      html = render_click(view, "save_quotas", %{})
+
+      assert html =~ ~s(data-testid="quota-error")
+      assert html =~ "max_relays must be a whole number of 0 or more."
+      assert html =~ ~s(data-testid="quota-modal")
+      assert FakeController.calls(node, {Namespace, :set_quotas}) == []
     end
 
     test "a refused quota change is stated on the form", %{conn: conn, node: node} do

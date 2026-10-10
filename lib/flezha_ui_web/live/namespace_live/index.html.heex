@@ -126,7 +126,12 @@
     testid="create-namespace-error"
   />
 
-  <form phx-submit="create" phx-change="create_change" class="space-y-4">
+  <form
+    phx-submit="create"
+    phx-change="create_change"
+    data-testid="create-namespace-form"
+    class="space-y-4"
+  >
     <.input
       type="text"
       name="create[name]"
@@ -155,7 +160,9 @@
       />
     </div>
     <div class="flex justify-end gap-3 pt-2">
-      <.button variant="ghost" phx-click="close_create">Cancel</.button>
+      <.button variant="ghost" phx-click="close_create" data-testid="create-namespace-cancel">
+        Cancel
+      </.button>
       <.button type="submit" data-testid="create-namespace-submit">Declare</.button>
     </div>
   </form>

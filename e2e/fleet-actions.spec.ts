@@ -8,7 +8,8 @@ import {
   stopRelay,
   uniqueId,
   uniqueScheduleName,
-  visitLive,
+  openPage,
+  type Page,
 } from './fixtures';
 
 /**
@@ -24,7 +25,9 @@ test.describe('Fleet actions', () => {
     await live('/cluster');
 
     const pid = page.locator('[data-testid^="os-pid-"]').first();
-    await expect(pid).toHaveText(/^\s*(\d+|—)\s*$/);
+    // The runner reaches the controller across containers, where the socket
+    // cannot say which process is on the other end.
+    await expect(pid).toHaveText(/^\s*—\s*$/);
   });
 
   test('a schedule runs now and names the relay it started', async ({ page, live }) => {
@@ -38,12 +41,27 @@ test.describe('Fleet actions', () => {
       await page.getByTestId('schedule-form-submit').click();
       await expect(page.getByTestId(`schedule-row-${name}`)).toBeVisible();
 
+      const lastFire = page.getByTestId(`schedule-last-fire-${name}`);
+      const firedBefore = (await lastFire.innerText()).trim();
+
       await page.getByTestId(`schedule-run-${name}`).click();
 
       const link = page.getByTestId('schedule-ran-link');
+      await expect(page.getByTestId('schedule-ran')).toContainText(name);
       await expect(link).toContainText(`${name}@manual-`);
       await expect(link).toHaveAttribute('href', /\/namespaces\/default\/relays\//);
       started = (await link.innerText()).trim();
+
+      // A manual run is not one of the schedule's cron fires, so its last
+      // fire stays where it was.
+      await expect(lastFire).toHaveText(firedBefore);
+
+      // The link names the relay the run started, and reaches it.
+      await link.click();
+      await expect(page).toHaveURL(
+        (url) => decodeURIComponent(url.pathname) === `/namespaces/default/relays/${started}`,
+      );
+      await live('/schedules');
     } finally {
       await removeSchedule(page, name);
       // The instance waits for input like any steps relay, so it is stopped.
@@ -71,22 +89,25 @@ test.describe('Fleet actions', () => {
     await live('/namespaces/default/relays');
     // The feed holds what arrives while the index is open, so the stop is made
     // from a second tab while this one watches.
-    const other = await page.context().newPage();
+    let other: Page | undefined;
 
     try {
       await startRelay(page, id, { run: 'flow', namespace: 'default' });
 
       const feed = page.getByTestId('lifecycle-feed');
-      await expect(feed).toContainText(id, { timeout: 15_000 });
-      await expect(feed).toContainText('started from store_input');
+      await expect(
+        feed.locator('li').filter({ hasText: id }).filter({ hasText: 'started from store_input' }),
+      ).toHaveCount(1, { timeout: 15_000 });
 
-      await visitLive(other, '/namespaces/default');
+      other = await openPage(page, '/namespaces/default');
       await stopRelay(other, id);
 
-      await expect(feed).toContainText('stopped:', { timeout: 15_000 });
+      await expect(
+        feed.locator('li').filter({ hasText: id }).filter({ hasText: 'stopped:' }),
+      ).toHaveCount(1, { timeout: 15_000 });
       await expect(page.getByTestId(`relay-index-row-${id}`)).toHaveCount(0);
     } finally {
-      await other.close();
+      await other?.close();
       await live('/namespaces/default');
       await stopRelay(page, id);
     }

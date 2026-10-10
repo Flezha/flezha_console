@@ -738,6 +738,26 @@ defmodule FlezhaUi.Service.NodeManager do
   end
 
   @doc """
+  The bindings `relay_plugins/2`'s pairs declare for `relay_id`, one row per
+  plugin as `%{plugin_id:, hooks:, provider:}`, the same row
+  `hook_entries/1` makes from a running relay's hook table.
+  """
+  def declared_bindings(pairs, relay_id) when is_list(pairs) do
+    {_relay, plugins} = List.keyfind(pairs, relay_id, 0, {relay_id, []})
+
+    for {plugin_id, plugin} <- plugins do
+      %{
+        plugin_id: to_string(plugin_id),
+        hooks: plugin |> Map.get(:hooks, []) |> Enum.map(&declared_hook/1),
+        provider: FlezhaUi.Format.module_name(Map.get(plugin, :provider))
+      }
+    end
+  end
+
+  defp declared_hook({hook, _opts}), do: to_string(hook)
+  defp declared_hook(hook), do: to_string(hook)
+
+  @doc """
   A catalog inverted to `%{runner_id => [factory_id]}`, each list sorted.
 
   The cluster screen reads a fleet the other way round — "what does this runner
@@ -879,6 +899,23 @@ defmodule FlezhaUi.Service.NodeManager do
 
   defp put_given(fields, _key, value) when value in [nil, "", []], do: fields
   defp put_given(fields, key, value), do: Keyword.put(fields, key, value)
+
+  @doc """
+  The quota limits a form typed, keyed by `keys`, as `{:ok, limits}`. A blank
+  field is left out, so the controller keeps its own value; any other value
+  that is not a whole number of 0 or more refuses the form, naming the field.
+  """
+  def parse_limits(params, keys) do
+    Enum.reduce_while(keys, {:ok, %{}}, fn key, {:ok, limits} ->
+      typed = params |> Map.get(to_string(key)) |> to_string() |> String.trim()
+
+      case Integer.parse(typed) do
+        _blank when typed == "" -> {:cont, {:ok, limits}}
+        {value, ""} when value >= 0 -> {:cont, {:ok, Map.put(limits, key, value)}}
+        _invalid -> {:halt, {:error, "#{key} must be a whole number of 0 or more."}}
+      end
+    end)
+  end
 
   @doc """
   A form's typed init values as the map the controller takes, or the message

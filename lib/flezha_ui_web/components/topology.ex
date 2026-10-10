@@ -1134,8 +1134,8 @@ defmodule FlezhaUiWeb.Topology do
 
   defp sparkline_points(samples, key, peak) do
     count = length(samples)
-    step = if count > 1, do: @sparkline_w / (count - 1), else: 0
-    scale = if peak > 0, do: (@sparkline_h - 2) / peak, else: 0
+    step = if count > 1, do: @sparkline_w / (count - 1), else: 0.0
+    scale = if peak > 0, do: (@sparkline_h - 2) / peak, else: 0.0
 
     samples
     |> Enum.with_index()

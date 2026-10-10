@@ -1,4 +1,4 @@
-import { test, expect, choose } from './fixtures';
+import { test, expect, choose, withStepsRelay, expectAdvances } from './fixtures';
 
 /**
  * A relay's durable state: its cells, their counters, and the point-in-time
@@ -32,8 +32,23 @@ test.describe('Relay durable state', () => {
     await expect(page.getByTestId('finished-retention')).toHaveCount(0);
   });
 
+  test('a steps relay states both its history and its finished-instance retention', async ({
+    page,
+    live,
+  }) => {
+    await withStepsRelay(page, async (id) => {
+      await live(`/namespaces/default/relays/${id}/state`);
+      await expect(page.getByTestId('history-retention')).toContainText(/\d+ hours/);
+      await expect(page.getByTestId('finished-retention')).toContainText(/\d+ hours/);
+    });
+  });
+
   test('the lag chart says the series is sampled by this UI', async ({ page }) => {
     await expect(page.getByTestId('lag-chart')).toBeVisible();
+
+    // Each tick adds a sample to every cell's series.
+    const series = page.locator('[data-testid^="spark-"]').first().locator('span');
+    await expectAdvances(() => series.count(), 'the lag series');
 
     const provenance = page.getByTestId('chart-provenance');
     await expect(provenance).toContainText('Sampled by this UI');

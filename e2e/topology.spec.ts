@@ -1,4 +1,16 @@
-import { test, expect, testIds, chosen, openSection } from './fixtures';
+import {
+  test,
+  expect,
+  testIds,
+  chosen,
+  openSection,
+  expectAdvances,
+  readFigure,
+  sparklineSamples,
+  ADVANCE_WINDOW_MS,
+  openPage,
+  type Page,
+} from './fixtures';
 
 /**
  * The pipeline graph and the fleet summary, against the running dev stack.
@@ -12,6 +24,11 @@ import { test, expect, testIds, chosen, openSection } from './fixtures';
 
 const RELAY = '/namespaces/default/relays/testnet_store_1';
 const FLOW_BUCKETS = /topo-flow-(idle|slow|medium|fast)/;
+
+/** The test ids of the listener bindings on the relay, read on its plugins panel. */
+async function listenerBindings(page: Page): Promise<string[]> {
+  return (await testIds(page, 'binding-row-')).filter((id) => id.startsWith('io_listener_'));
+}
 
 test.describe('Pipeline graph', () => {
   test.beforeEach(async ({ live }) => {
@@ -51,21 +68,37 @@ test.describe('Pipeline graph', () => {
     await expect(legend).toContainText('dead-letter');
   });
 
-  test('every flow edge carries a speed bucket, and rates appear once the tick has a baseline', async ({
+  test('every flow edge carries a speed bucket, and the seeded traffic moves its rate', async ({
     page,
   }) => {
-    // A rate figure can only exist after two snapshots were diffed, so its
-    // arrival is the tick doing its job — not merely the first render.
-    await expect(page.locator('[data-testid^="topo-rate-"]').first()).toBeVisible({
-      timeout: 15_000,
-    });
-
     const classes = await page
       .locator('[data-testid^="topo-edge-flow-"]')
       .evaluateAll((edges) => edges.map((e) => e.getAttribute('class') ?? ''));
 
     expect(classes.length).toBeGreaterThan(0);
     classes.forEach((klass) => expect(klass).toMatch(FLOW_BUCKETS));
+
+    // The seeded source feeds this relay, so the edge it forwards on must read
+    // a rate above zero on some tick, and leave the idle bucket with it.
+    const rate = page.getByTestId('topo-rate-flow-testnet_store_1-channel');
+    const edge = page.getByTestId('topo-edge-flow-testnet_store_1-channel');
+    await expect
+      .poll(
+        async () =>
+          ((await rate.count()) ? await readFigure(rate) : 0) > 0 &&
+          (await edge.getAttribute('class')),
+        { message: 'the forwarding edge never showed a rate', timeout: ADVANCE_WINDOW_MS },
+      )
+      .toMatch(/topo-flow-(slow|medium|fast)/);
+  });
+
+  test('the selected relay’s sparkline gains a sample every tick', async ({ page }) => {
+    await page.getByTestId('topo-node-testnet_store_1').click();
+    await expect(page.getByTestId('topology-sparkline')).toBeVisible({
+      timeout: ADVANCE_WINDOW_MS,
+    });
+
+    await expectAdvances(() => sparklineSamples(page), 'the sparkline');
   });
 
   test('selecting the core shows its counters and links to its listen view', async ({ page }) => {
@@ -105,23 +138,34 @@ test.describe('Payload tap', () => {
     await live(RELAY);
   });
 
-  test('attaches on demand, reports what it measured, and detaches on close', async ({ page }) => {
+  test('attaches on demand, measures the seeded traffic, and detaches on close', async ({
+    page,
+  }) => {
     await expect(page.getByTestId('tap-figures')).toHaveCount(0);
 
-    await page.getByTestId('tap-output').click();
+    // The seeded source writes into this relay's input.
+    await page.getByTestId('topology-tap').getByTestId('tap-input').click();
 
     // Figures come from the payloads the listener delivers, because nothing on
     // the data plane counts bytes.
     const figures = page.getByTestId('tap-figures');
     await expect(figures).toBeVisible();
-    await expect(figures).toContainText('Messages');
-    await expect(page.getByTestId('tap-msg-rate')).toContainText('/s');
-    await expect(page.getByTestId('tap-byte-rate')).toContainText('/s');
+    await expectAdvances(page.getByTestId('tap-msg-rate'), 'the tap message rate');
+    await expect(page.getByTestId('tap-byte-rate')).not.toHaveText(/^\s*0 B\/s\s*$/);
+    await expect(page.getByTestId('tap-recent').locator('li').first()).toBeVisible();
 
     await page.getByTestId('tap-close').click();
 
     await expect(page.getByTestId('tap-figures')).toHaveCount(0);
-    await expect(page.getByTestId('tap-output')).toBeVisible();
+    await expect(page.getByTestId('tap-input')).toBeVisible();
+  });
+
+  test('an output tap reports what the relay forwards', async ({ page }) => {
+    await page.getByTestId('tap-output').click();
+
+    await expect(page.getByTestId('tap-figures')).toBeVisible();
+    await expectAdvances(page.getByTestId('tap-msg-rate'), 'the output tap message rate');
+    await page.getByTestId('tap-close').click();
   });
 
   test('leaves no listener bound to the relay behind it', async ({ page, live }) => {
@@ -143,6 +187,29 @@ test.describe('Payload tap', () => {
       })
       .toEqual(before);
   });
+
+  test('ends its listener when the page loses its socket', async ({ page, pageHealth }) => {
+    pageHealth.allow(/took phx-(client-)?error/, 'the test drops the socket on purpose');
+    const watcher = await openPage(page, RELAY);
+    await openSection(watcher, 'plugins');
+    const before = await listenerBindings(watcher);
+
+    await page.getByTestId('tap-input').click();
+    await expect(page.getByTestId('tap-figures')).toBeVisible();
+    await expect.poll(() => listenerBindings(watcher)).not.toEqual(before);
+
+    await page.evaluate(() =>
+      (window as unknown as { liveSocket: { disconnect(): void } }).liveSocket.disconnect(),
+    );
+
+    await expect
+      .poll(() => listenerBindings(watcher), {
+        message: 'the tap must end with the socket that held it',
+        timeout: ADVANCE_WINDOW_MS,
+      })
+      .toEqual(before);
+    await watcher.close();
+  });
 });
 
 test.describe('Fleet summary', () => {
@@ -150,10 +217,13 @@ test.describe('Fleet summary', () => {
     await live('/');
 
     await expect(page.getByTestId('topology-summary')).toBeVisible();
-    await expect(page.getByTestId('summary-relays')).toHaveText(/^\s*\d+\s*$/);
-    await expect(page.getByTestId('summary-runners')).toHaveText(/^\s*\d+\s*$/);
-    await expect(page.getByTestId('summary-backpressure')).toHaveText(/^\s*\d+\s*$/);
-    await expect(page.getByTestId('summary-parked')).toHaveText(/^\s*\d+\s*$/);
+    // A healthy dev stack: one runner, nothing held back, nothing parked, and
+    // as many relays as the namespace lists.
+    const relays = await readFigure(page.getByTestId('stat-relays'));
+    await expect(page.getByTestId('summary-relays')).toHaveText(new RegExp(`^\\s*${relays}\\s*$`));
+    await expect(page.getByTestId('summary-runners')).toHaveText(/^\s*1\s*$/);
+    await expect(page.getByTestId('summary-backpressure')).toHaveText(/^\s*0\s*$/);
+    await expect(page.getByTestId('summary-parked')).toHaveText(/^\s*0\s*$/);
     await expect(chosen(page, 'topology-namespace')).toHaveValue('default');
   });
 

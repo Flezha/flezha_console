@@ -38,7 +38,12 @@ defmodule FlezhaUiWeb.RoleGatingTest do
   setup %{node: node, user: user} do
     enforce_operations(node, user, @identity)
 
-    FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{builder: %{run: :flow}}})
+    FakeController.set(
+      node,
+      {Relay, :overwatch_state},
+      {:ok, %{builder: %{run: :flow}, extensions: FakeController.hook_table("plug_1")}}
+    )
+
     FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
     FakeController.set_fleet(node, rows: %{"default" => [FakeController.relay_row("relay_a")]})
 
@@ -125,6 +130,7 @@ defmodule FlezhaUiWeb.RoleGatingTest do
 
   defp screens(conn) do
     {:ok, relay, _html} = live(conn, ~p"/namespaces/default/relays/relay_a")
+    open_section(relay, "plugins")
     {:ok, state, _html} = live(conn, ~p"/namespaces/default/relays/relay_a/state")
     render_click(state, "select_cell", %{"cell" => "relay_a/orders/k1"})
     {:ok, namespace, _html} = live(conn, ~p"/namespaces/default")
@@ -143,6 +149,7 @@ defmodule FlezhaUiWeb.RoleGatingTest do
     "talk-open-btn" => :ops,
     "calls-panel" => :ops,
     "attach-plugin-btn" => :ops,
+    "unbind-btn-plug_1" => :ops,
     "replay-open" => :ops,
     "rotate-relay_a/orders/k1" => :ops,
     "delete-relay_a/orders/k1" => :admin,

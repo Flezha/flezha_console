@@ -275,12 +275,23 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/controller")
+      assert has_element?(view, ~s([data-testid="shipper-table"]))
       row = view |> element(~s([data-testid="shipper-row"])) |> render()
 
       assert row =~ "orders"
       assert row =~ "2025-10-09"
       assert row =~ "3"
       assert row =~ ":timeout"
+    end
+
+    test "a remote tier with nothing shipped yet says so", %{conn: conn, node: node} do
+      with_status(node, %{durability_backend: :s3, durability_posture: :remote_tier})
+      FakeController.set(node, {Controller, :durability_status}, {:ok, []})
+
+      {:ok, view, _html} = live(conn, ~p"/controller")
+
+      assert view |> element(~s([data-testid="shipper-empty"])) |> render() =~
+               "holds no references yet"
     end
 
     test "a local-only controller states the shipper does not apply", %{conn: conn, node: node} do
@@ -329,7 +340,9 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
 
     defp typed(view, text, extra \\ %{}) do
       view
-      |> form("#stop-controller-form", stop: Map.merge(%{"typed" => text}, extra))
+      |> form(~s([data-testid="stop-controller-form"]),
+        stop: Map.merge(%{"typed" => text}, extra)
+      )
       |> render_change()
     end
 
@@ -369,7 +382,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
     } do
       view = open_stop(conn, node)
       typed(view, Atom.to_string(node), %{"timeout_s" => "30"})
-      view |> form("#stop-controller-form") |> render_submit()
+      view |> form(~s([data-testid="stop-controller-form"])) |> render_submit()
 
       assert PeerNode.eventually(fn ->
                FakeController.streams(node, {Controller, :stop}) != []
@@ -384,6 +397,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       )
 
       assert PeerNode.eventually(fn -> render(view) =~ "phase_started drain" end)
+      assert view |> element(~s([data-testid="stop-progress"])) |> render() =~ "drain"
       assert view |> element(~s([data-testid="stop-phase"])) |> render() =~ "drain"
 
       FakeController.set(
@@ -400,12 +414,17 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       assert PeerNode.eventually(fn ->
                view |> element(~s([data-testid="stop-state"])) |> render() =~ "stopped (clean)"
              end)
+
+      view |> element(~s([data-testid="stop-done"])) |> render_click()
+      refute has_element?(view, ~s([data-testid="stop-controller-modal"]))
     end
 
     test "a forced stop is asked for with force", %{conn: conn, node: node} do
       view = open_stop(conn, node)
+      assert has_element?(view, ~s([data-testid="stop-timeout"]))
+      assert has_element?(view, ~s([data-testid="stop-force"]))
       typed(view, Atom.to_string(node), %{"force" => "true"})
-      view |> form("#stop-controller-form") |> render_submit()
+      view |> form(~s([data-testid="stop-controller-form"])) |> render_submit()
 
       assert PeerNode.eventually(fn ->
                FakeController.streams(node, {Controller, :stop}) != []
@@ -433,7 +452,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
     } do
       view = open_stop(conn, node)
       typed(view, Atom.to_string(node))
-      view |> form("#stop-controller-form") |> render_submit()
+      view |> form(~s([data-testid="stop-controller-form"])) |> render_submit()
 
       assert PeerNode.eventually(fn ->
                FakeController.streams(node, {Controller, :stop}) != []
@@ -469,7 +488,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
 
       view = open_stop(conn, node)
       typed(view, Atom.to_string(node))
-      view |> form("#stop-controller-form") |> render_submit()
+      view |> form(~s([data-testid="stop-controller-form"])) |> render_submit()
 
       assert PeerNode.eventually(fn ->
                has_element?(view, ~s([data-testid="stop-failed"])) and

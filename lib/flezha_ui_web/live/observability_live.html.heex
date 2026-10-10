@@ -128,7 +128,11 @@
     </.notice>
 
     <ul :if={@tailing} class="divide-y divide-brd-subtle max-h-96 overflow-auto">
-      <li :for={signal <- @tail_records} class="px-5 py-2 font-mono text-xs text-th-secondary">
+      <li
+        :for={signal <- @tail_records}
+        data-testid="tail-record"
+        class="px-5 py-2 font-mono text-xs text-th-secondary"
+      >
         <span class="text-th-muted">{signal[:ts]}</span>
         <span class="text-th-primary">{signal[:source]}.{signal[:name]}</span>
         <span class="text-th-secondary">{inspect(signal[:measurements])}</span>

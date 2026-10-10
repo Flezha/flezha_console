@@ -130,6 +130,7 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
       {:ok, _view, html} = live(conn, ~p"/relays")
 
       assert html =~ ~s(data-testid="relays-empty")
+      assert html =~ "No relays are running in any reachable namespace."
       refute html =~ ~s(data-testid="relays-index-table")
     end
 
@@ -167,6 +168,26 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
 
       assert html =~ ~s(data-testid="relay-index-row-relay_b")
       refute html =~ ~s(data-testid="relay-index-row-relay_a")
+    end
+
+    test "a scoped namespace with no relays says nothing runs there", %{conn: conn, node: node} do
+      with_fleet(node, namespaces: ["default", "staging"], rows: [])
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/staging/relays")
+
+      assert html =~ "No relays are running in staging."
+      refute html =~ "No running relay matches these filters."
+    end
+
+    test "filters that match nothing say so, not that nothing runs", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/relays")
+
+      html =
+        render_change(view, "filter", %{"filters" => %{"health" => "failed", "run" => "flow"}})
+
+      assert html =~ ~s(data-testid="relays-empty")
+      assert html =~ "No running relay matches these filters."
+      refute html =~ "No relays are running"
     end
 
     test "the health filter offers every verdict, recovering and parked included", %{

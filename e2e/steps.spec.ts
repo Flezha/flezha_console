@@ -1,4 +1,13 @@
-import { test, expect, openSection, startRelay, stopRelay, withStepsRelay } from './fixtures';
+import {
+  test,
+  expect,
+  openSection,
+  sendToRelay,
+  startRelay,
+  stopRelay,
+  withStepsRelay,
+  ADVANCE_WINDOW_MS,
+} from './fixtures';
 
 /**
  * The steps panel, task journal and input log, against a durable steps relay
@@ -41,17 +50,39 @@ test.describe('Steps relays', () => {
     });
   });
 
+  test('a committed iteration can be rewound to, after a confirmation', async ({ page, live }) => {
+    await withStepsRelay(page, async (id) => {
+      await live(`/namespaces/default/relays/${id}`);
+      await sendToRelay(page, 'hello');
+      await openSection(page, 'journal');
+
+      const open = page.getByTestId('open-rewind-btn');
+      await expect(open).toBeVisible({ timeout: ADVANCE_WINDOW_MS });
+
+      await open.click();
+      await expect(page.getByTestId('rewind-modal')).toBeVisible();
+      const iteration = await page.getByTestId('rewind-iteration').inputValue();
+      await page.getByTestId('rewind-cancel-btn').click();
+      await expect(page.getByTestId('rewind-modal')).toHaveCount(0);
+      await expect(page.locator('body')).not.toContainText('Rewound to iteration');
+
+      await open.click();
+      await page.getByTestId('rewind-confirm-btn').click();
+      await expect(page.getByTestId('rewind-modal')).toHaveCount(0);
+      await expect(page.locator('body')).toContainText(`Rewound to iteration ${iteration}.`);
+    });
+  });
+
   test('the input log reports its depth and offsets', async ({ page, live }) => {
     await withStepsRelay(page, async (id) => {
       await live(`/namespaces/default/relays/${id}`);
       await openSection(page, 'input-log');
 
       await expect(page.getByTestId('input-log-panel')).toBeVisible();
-      await expect(page.getByTestId('input-log-undelivered')).toHaveText(/^\s*\d+\s*$/);
-      // An empty log is said in words, never as an offset of -1.
-      await expect(page.getByTestId('input-log-last-offset')).toHaveText(
-        /^\s*(\d+|no records)\s*$/,
-      );
+      // A relay nothing was sent to: nothing pending, and an empty log said
+      // in words, never as an offset of -1.
+      await expect(page.getByTestId('input-log-undelivered')).toHaveText(/^\s*0\s*$/);
+      await expect(page.getByTestId('input-log-last-offset')).toHaveText(/^\s*no records\s*$/);
     });
   });
 

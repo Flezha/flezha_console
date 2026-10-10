@@ -155,6 +155,22 @@ defmodule FlezhaUiWeb.DashboardLiveConnectedTest do
     assert html =~ ~s(data-testid="node-connected")
   end
 
+  test "counts relays by health and states the unplaced ones", %{conn: conn, node: node} do
+    FakeController.set_fleet(node,
+      rows: %{
+        "default" => [
+          FakeController.relay_row("relay_a"),
+          FakeController.relay_row("relay_b", %{node: nil, health: :unbound})
+        ]
+      }
+    )
+
+    {:ok, _view, html} = live(conn, ~p"/")
+
+    assert html =~ ~s(data-testid="stat-relay-health")
+    assert stat(html, "stat-unplaced") == "1 unplaced"
+  end
+
   test "explains an empty fleet", %{conn: conn, node: node} do
     FakeController.set_fleet(node, namespaces: ["default"])
 

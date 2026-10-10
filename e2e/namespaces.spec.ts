@@ -16,8 +16,10 @@ test.describe('Namespaces', () => {
     await expect(page.getByTestId('namespaces-table')).toBeVisible();
     await expect(page.getByTestId('namespace-row-default')).toBeVisible();
 
+    // The relay count is checked against the namespace screen below; the dev
+    // stack runs one runner.
     await expect(page.getByTestId('namespace-relays-default')).toHaveText(/^\s*\d+\s*$/);
-    await expect(page.getByTestId('namespace-runners-default')).toHaveText(/^\s*\d+\s*$/);
+    await expect(page.getByTestId('namespace-runners-default')).toHaveText(/^\s*1\s*$/);
   });
 
   test('navigates into a namespace', async ({ page }) => {

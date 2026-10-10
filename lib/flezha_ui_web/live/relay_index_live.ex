@@ -188,6 +188,14 @@ defmodule FlezhaUiWeb.RelayIndexLive do
   defp run_of(%{members: [member | _]}, runs), do: Map.get(runs, to_string(member.id))
   defp run_of(row, runs), do: Map.get(runs, to_string(row.id))
 
+  # A scoped route's namespace comes from the path, so it is not a filter the
+  # operator chose.
+  defp filtered?(filters, scope) do
+    filters
+    |> then(&if(scope, do: Map.delete(&1, "namespace"), else: &1))
+    |> Enum.any?(fn {_key, value} -> value != "" end)
+  end
+
   defp filter(rows, filters) do
     Enum.filter(rows, fn row ->
       matches?(filters["namespace"], to_string(row.namespace)) and

@@ -85,7 +85,7 @@
                   {status(schedule.armed).label}
                 </span>
               </td>
-              <td class="text-xs">
+              <td data-testid={"schedule-last-fire-#{schedule.name}"} class="text-xs">
                 {Format.timestamp(schedule.last_fire)}
               </td>
               <td

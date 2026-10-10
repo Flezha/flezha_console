@@ -6,6 +6,8 @@ import {
   startRelay,
   stopRelay,
   uniqueId,
+  openSection,
+  expectAdvances,
   type Page,
 } from './fixtures';
 
@@ -265,5 +267,68 @@ test.describe('Relay lifecycle', () => {
     } finally {
       await stopRelay(page, id);
     }
+  });
+});
+
+/**
+ * The relay screen's own readouts and its SDK state panel, on the seeded
+ * `testnet_store_1`, whose tasklet keeps every input it is sent.
+ */
+test.describe('Relay screen', () => {
+  const RELAY = `/namespaces/${NAMESPACE}/relays/testnet_store_1`;
+
+  test.beforeEach(async ({ live }) => {
+    await live(RELAY);
+  });
+
+  test('states where and how the relay runs, and for how long', async ({ page }) => {
+    await expect(page.getByTestId('relay-run')).toHaveText('flow');
+    await expect(page.getByTestId('relay-runner')).toContainText(`${NAMESPACE}_`);
+    await expect(page.getByTestId('relay-node')).toContainText('flezha@');
+    await expect(page.getByTestId('relay-health').getByTestId('health-badge')).toHaveAttribute(
+      'data-health',
+      'healthy',
+    );
+
+    // Read to the minute, so it does not move inside a test; the refresh test
+    // in console-navigation.spec.ts proves the screen keeps reading.
+    await expect(page.getByTestId('relay-uptime')).toHaveText(
+      /^\s*(\d+h )?\d+m( \d+s)?\s*$|^\s*\d+(ms|s)\s*$/,
+    );
+  });
+
+  test('fetches the SDK state, narrows it by tasklet, and refuses an unknown one', async ({
+    page,
+  }) => {
+    await openSection(page, 'sdk-state');
+
+    await page.getByTestId('fetch-state-btn').click();
+    await expect(page.getByTestId('state-json')).toContainText('store_input_tasklet');
+    await expect(page.getByTestId('state-seq')).toHaveText(/^\s*\d+\s*$/);
+
+    await page.getByTestId('input-selector-tasklet').fill('store_input_tasklet');
+    await page.getByTestId('input-selector-cell-key').fill('');
+    await page.getByTestId('fetch-state-btn').click();
+    await expect(page.getByTestId('state-json')).toContainText('text_inputs');
+
+    await page.getByTestId('input-selector-tasklet').fill('no_such_tasklet');
+    await page.getByTestId('fetch-state-btn').click();
+    await expect(page.getByTestId('runtime-error')).toContainText('state.tasklet_not_found');
+    await expect(page.getByTestId('state-json')).toHaveCount(0);
+  });
+
+  test('auto-refresh keeps the state current until it is switched off', async ({ page }) => {
+    await openSection(page, 'sdk-state');
+    await page.getByTestId('fetch-state-btn').click();
+    await expect(page.getByTestId('state-seq')).toBeVisible();
+
+    const toggle = page.getByTestId('state-auto-refresh');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    // The seeded source keeps writing into the tasklet's state.
+    await expectAdvances(page.getByTestId('state-seq'), 'the auto-refreshed state sequence');
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   });
 });

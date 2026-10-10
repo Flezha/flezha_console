@@ -49,7 +49,8 @@ defmodule FlezhaUiWeb.RelayLive do
         selector_form: %{"tasklet" => "", "cell_key" => ""},
         auto_refresh_state: false,
         confirm_stop: false,
-        confirm_detach: nil,
+        confirm_unbind: nil,
+        idle_bindings: [],
         rewind_target: nil,
         completion: nil,
         journal: nil,
@@ -213,30 +214,35 @@ defmodule FlezhaUiWeb.RelayLive do
   end
 
   @impl true
-  def handle_event("confirm_detach", %{"plugin_id" => plugin_id}, socket) do
-    {:noreply, assign(socket, confirm_detach: plugin_id)}
+  def handle_event("confirm_unbind", %{"plugin_id" => plugin_id}, socket) do
+    {:noreply, assign(socket, confirm_unbind: plugin_id)}
   end
 
   @impl true
-  def handle_event("cancel_detach", _params, socket) do
-    {:noreply, assign(socket, confirm_detach: nil)}
+  def handle_event("cancel_unbind", _params, socket) do
+    {:noreply, assign(socket, confirm_unbind: nil)}
   end
 
+  # Unbinds this relay alone, which also clears a binding whose plugin was
+  # disabled: a disabled plugin keeps its bindings and can no longer be
+  # disabled again.
   @impl true
-  def handle_event("detach_plugin", %{"plugin_id" => plugin_id}, socket) do
-    case NodeManager.disable_plugin(plugin_id, socket.assigns.ns, socket.assigns.flezha_token) do
+  def handle_event("unbind_plugin", %{"plugin_id" => plugin_id}, socket) do
+    %{ns: ns, relay_id: relay_id, flezha_token: token} = socket.assigns
+
+    case NodeManager.unbind_plugin(plugin_id, ns, relay_id, token) do
       :ok ->
         {:noreply,
          socket
-         |> assign(confirm_detach: nil)
+         |> assign(confirm_unbind: nil)
          |> load_data()
-         |> put_flash(:info, "Plugin #{plugin_id} disabled.")}
+         |> put_flash(:info, "#{relay_id} unbound from plugin #{plugin_id}.")}
 
       {:error, reason} ->
         {:noreply,
          socket
-         |> assign(confirm_detach: nil)
-         |> put_flash(:error, error_message(reason, "the disable"))}
+         |> assign(confirm_unbind: nil)
+         |> put_flash(:error, error_message(reason, "the unbind"))}
     end
   end
 
@@ -367,6 +373,7 @@ defmodule FlezhaUiWeb.RelayLive do
   def section_opened(socket, "api"), do: load_api(socket)
   def section_opened(socket, "input-log"), do: load_inbox(socket)
   def section_opened(socket, "calls"), do: open_calls(socket)
+  def section_opened(socket, "plugins"), do: assign_idle_bindings(socket)
   def section_opened(socket, _key), do: socket
 
   def section_closed(socket, "calls"), do: close_calls(socket)
@@ -568,7 +575,59 @@ defmodule FlezhaUiWeb.RelayLive do
           socket |> assign(load_error: reason) |> assign_facts(NodeManager.overwatch_facts())
       end
 
-    load_durability(socket)
+    socket |> assign_idle_bindings() |> load_durability()
+  end
+
+  # Bindings the controller declares for this relay that its hook table does
+  # not hold: a disabled plugin or a provider that did not start. Listed so
+  # they can be seen and unbound, since no other screen shows them. Read only
+  # while the Plugins section is open, since it is a namespace-wide read, and
+  # never against a hook table that failed to load, which would mark every
+  # binding idle.
+  defp assign_idle_bindings(
+         %{assigns: %{load_error: nil, sections: %{"plugins" => true}}} = socket
+       ) do
+    %{ns: ns, relay_id: relay_id, bindings: bindings, flezha_token: token} = socket.assigns
+    running = MapSet.new(bindings, & &1.plugin_id)
+
+    idle =
+      ns
+      |> NodeManager.relay_plugins(token)
+      |> NodeManager.ok_or([])
+      |> NodeManager.declared_bindings(relay_id)
+      |> Enum.reject(&MapSet.member?(running, &1.plugin_id))
+
+    assign(socket, idle_bindings: Enum.sort_by(idle, & &1.plugin_id))
+  end
+
+  defp assign_idle_bindings(socket), do: assign(socket, idle_bindings: [])
+
+  # One row per plugin, running ones first: a plugin bound on several hooks is
+  # one binding, and is unbound as one.
+  defp binding_rows(bindings, idle) do
+    running =
+      for {plugin_id, hooks} <- Enum.group_by(bindings, & &1.plugin_id) do
+        %{
+          plugin_id: plugin_id,
+          hooks: Enum.map(hooks, & &1.hook),
+          providers: hooks |> Enum.map(& &1.provider) |> Enum.uniq(),
+          positions: hooks |> Enum.map(& &1.position) |> Enum.reject(&is_nil/1),
+          idle?: false
+        }
+      end
+
+    idle =
+      for row <- idle do
+        %{
+          plugin_id: row.plugin_id,
+          hooks: row.hooks,
+          providers: [row.provider],
+          positions: [],
+          idle?: true
+        }
+      end
+
+    running ++ idle
   end
 
   # A relay that has finished is not in the registry at all, so "no row and

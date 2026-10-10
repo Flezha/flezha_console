@@ -4,7 +4,11 @@ import {
   closeSection,
   openPalette,
   openSection,
+  sparklineSamples,
   withStepsRelay,
+  ADVANCE_WINDOW_MS,
+  expectAdvances,
+  openPage,
 } from './fixtures';
 
 /**
@@ -38,6 +42,23 @@ test.describe('The console shell', () => {
     await expect(rail.locator('a[href="/namespaces/default/relays"]')).toBeVisible();
     await expect(rail.locator('a[href="/namespaces/default/plugins"]')).toBeVisible();
     await expect(rail.locator('a[href="/namespaces/default/schedules"]')).toBeVisible();
+  });
+
+  test('every rail entry reaches its own screen and is marked there', async ({ page, live }) => {
+    await live('/namespaces/default');
+    const rail = page.locator('.flz-sidebar-nav');
+    const hrefs = await rail.locator('a.flz-sidebar-link').evaluateAll((links) =>
+      links.map((a) => a.getAttribute('href')!),
+    );
+    expect(hrefs.length).toBeGreaterThan(8);
+
+    for (const href of hrefs) {
+      await rail.locator(`a.flz-sidebar-link[href="${href}"]`).click();
+      await expect(page).toHaveURL((url) => url.pathname === href);
+      await expect(page.locator('[data-phx-main]')).not.toHaveClass(/phx-loading/);
+      await expect(rail.locator(`a.flz-sidebar-link[href="${href}"]`)).toHaveAttribute('aria-current', 'page');
+      await expect(page.locator('h1').first()).not.toBeEmpty();
+    }
   });
 
   test('a scoped route marks its own entry and not the platform twin', async ({ page, live }) => {
@@ -74,8 +95,16 @@ test.describe('The console shell', () => {
     // The current view is the last crumb, marked and not a link.
     await expect(trail.locator('[aria-current="page"]')).toHaveText('State');
 
-    await trail.locator('a[href="/namespaces/default"]').click();
-    await expect(page).toHaveURL(/\/namespaces\/default$/);
+    // Every ancestor is a link to its own screen.
+    const crumbs = await trail.locator('a').evaluateAll((links) => links.map((a) => a.getAttribute('href')!));
+    expect(crumbs).toEqual(
+      expect.arrayContaining(['/namespaces', '/namespaces/default', '/namespaces/default/relays', RELAY]),
+    );
+    for (const href of crumbs) {
+      await live(`${RELAY}/state`);
+      await page.getByTestId('breadcrumb').locator(`a[href="${href}"]`).click();
+      await expect(page).toHaveURL((url) => url.pathname === href);
+    }
 
     // A top-level screen has no trail to render.
     await live('/');
@@ -184,6 +213,7 @@ test.describe('The command palette', () => {
     await openPalette(page);
     await page.getByTestId('command-palette-input').fill('testnet_store_1');
 
+    await expect(page.getByTestId('command-palette-results')).toContainText('testnet_store_1');
     const match = page.getByTestId('command-palette-relay-testnet_store_1');
     await expect(match).toBeVisible();
     await expect(match).toContainText('default');
@@ -205,6 +235,23 @@ test.describe('The command palette', () => {
     await expect(page).toHaveURL(/\/dlq$/);
   });
 
+  test('closes on Escape and on a click outside it, leaving the screen where it was', async ({
+    page,
+    live,
+  }) => {
+    await live('/audit');
+
+    await openPalette(page);
+    await page.getByTestId('command-palette-search').getByTestId('command-palette-input').fill('dead');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('command-palette')).toHaveCount(0);
+
+    await openPalette(page);
+    await page.mouse.click(5, 5);
+    await expect(page.getByTestId('command-palette')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/audit$/);
+  });
+
   test('does not steal the shortcut from a field being typed into', async ({ page, live }) => {
     await live('/dlq');
 
@@ -216,6 +263,35 @@ test.describe('The command palette', () => {
 });
 
 test.describe('A screen that refreshes', () => {
+  test('moves its controller-fed figures on its own, and holds them still while paused', async ({
+    page,
+    live,
+  }) => {
+    const relay = '/namespaces/default/relays/testnet_store_1';
+
+    await live(relay);
+    await page.getByTestId('topo-node-testnet_store_1').click();
+    await expect(page.getByTestId('topology-sparkline')).toBeVisible({ timeout: ADVANCE_WINDOW_MS });
+    await expectAdvances(() => sparklineSamples(page), 'the refreshing sparkline');
+
+    await page.getByTestId('liveness-toggle').click();
+    await expect(page.getByTestId('liveness-state')).toContainText('Paused');
+    const held = await sparklineSamples(page);
+
+    // A second copy of the screen keeps refreshing; once it has ticked twice,
+    // the paused one has missed at least one tick it would have taken.
+    const other = await openPage(page, relay);
+    await other.getByTestId('topo-node-testnet_store_1').click();
+    await expect(other.getByTestId('topology-sparkline')).toBeVisible({ timeout: ADVANCE_WINDOW_MS });
+    await expectAdvances(() => sparklineSamples(other), 'the other copy, once');
+    await expectAdvances(() => sparklineSamples(other), 'the other copy, twice');
+    await other.close();
+
+    expect(await sparklineSamples(page)).toBe(held);
+    await page.getByTestId('liveness-toggle').click();
+    await expectAdvances(() => sparklineSamples(page), 'the resumed sparkline');
+  });
+
   test('states its liveness and can be held still', async ({ page, live }) => {
     await live('/relays');
 

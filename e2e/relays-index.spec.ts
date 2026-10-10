@@ -11,6 +11,8 @@ import {
   withStepsRelay,
   HEALTH_VERDICTS,
   uniqueId,
+  visitLive,
+  openPage,
 } from './fixtures';
 
 /**
@@ -73,6 +75,43 @@ test.describe('Relays index', () => {
     // badges are not counted from the unfiltered list.
     await expect(page).toHaveURL(/health=healthy/);
     await expectHealthBadges(page, 'relay-index-row-', 'healthy');
+  });
+
+  test('filters combine, and a combination nothing matches says so', async ({ page }) => {
+    await choose(page, 'filter-namespace', 'default');
+    await expect(page).toHaveURL(/namespace=default/);
+    await expect(page.getByTestId('relay-index-row-testnet_store_1')).toBeVisible();
+
+    // No seeded flow relay is parked, so these two together match nothing.
+    await choose(page, 'filter-run', 'flow');
+    await choose(page, 'filter-health', 'parked');
+    await expect(page).toHaveURL(/health=parked/);
+    await expect(page.getByTestId('relays-empty')).toContainText(
+      'No running relay matches these filters.',
+    );
+    await expect(page.locator('[data-testid^="relay-index-row-"]')).toHaveCount(0);
+  });
+
+  test('a relay started elsewhere appears here as its lifecycle entry arrives', async ({
+    page,
+  }) => {
+    const id = uniqueId('pw_live');
+    const other = await openPage(page, '/namespaces/default');
+
+    try {
+      await startRelay(other, id);
+
+      await expect(
+        page.getByTestId('lifecycle-feed').locator('li').filter({ hasText: id }),
+      ).toHaveCount(1, {
+        timeout: 15_000,
+      });
+      await expect(page.getByTestId(`relay-index-row-${id}`)).toBeVisible();
+    } finally {
+      await visitLive(other, '/namespaces/default');
+      await stopRelay(other, id);
+      await other.close();
+    }
   });
 
   test('the health filter offers every verdict, recovering and parked included', async ({

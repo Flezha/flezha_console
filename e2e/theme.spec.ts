@@ -170,3 +170,36 @@ test.describe('Theme contract', () => {
     }
   });
 });
+
+/**
+ * The brand on the screens outside the shell: the login screen, in each
+ * theme, and the 404 page's mascot. The page-health guards fail any
+ * logo, mascot or favicon that does not load.
+ */
+test.describe('Brand outside the shell', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test('the login screen paints the badger lockup and its mascot in each theme', async ({ page }) => {
+    for (const scheme of ['dark', 'light'] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto('/users/log-in');
+      await expect(theme(page)).toHaveAttribute('data-theme', scheme);
+
+      const logo = page.locator('.flz-brand .flz-logo').first();
+      await expect(logo).toBeVisible();
+      expect(await logo.evaluate((el) => getComputedStyle(el).maskImage)).toContain('flezha-badger');
+
+      const mascot = page.locator('img[src*="badger-laptop"]');
+      await expect(mascot).toBeVisible();
+      expect(await mascot.evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    }
+  });
+
+  test('the 404 page’s mascot is served', async ({ page }) => {
+    // The dev server answers an unknown route with Phoenix's debug page, so
+    // the 404 page itself is asserted in `error_html_test.exs`.
+    const res = await page.request.get('/images/badger-not-found.webp');
+    expect(res.status()).toBe(200);
+    expect(res.headers()['content-type']).toContain('image/webp');
+  });
+});

@@ -48,8 +48,14 @@
         </.empty_state>
       <% else %>
         <ul data-testid="audit-files" class="divide-y divide-brd-subtle">
-          <li :for={file <- @files} class="px-5 py-3 text-xs font-mono text-th-secondary">
-            {inspect(file)}
+          <li
+            :for={file <- @files}
+            data-testid="audit-file"
+            class="px-5 py-3 text-xs flex gap-4 text-th-secondary"
+          >
+            <span class="flz-num text-th-primary flex-1">{file[:filename]}</span>
+            <span class="flz-num">{file[:record_count]} records</span>
+            <span class="flz-num">{Format.bytes(file[:size_bytes])}</span>
           </li>
         </ul>
       <% end %>
@@ -110,6 +116,7 @@
         </.notice>
 
         <%= cond do %>
+          <% @read_error -> %>
           <% is_nil(@records) -> %>
             <p class="text-sm text-th-muted">Click "Read" to load audit records.</p>
           <% @records == [] -> %>

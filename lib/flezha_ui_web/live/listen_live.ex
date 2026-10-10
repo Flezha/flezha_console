@@ -30,6 +30,8 @@ defmodule FlezhaUiWeb.ListenLive do
         messages: [],
         paused: false,
         filter: "",
+        filter_regex: nil,
+        filter_error: nil,
         page_title: "Listen: #{relay_id}",
         message_count: 0
       )
@@ -61,7 +63,7 @@ defmodule FlezhaUiWeb.ListenLive do
 
   @impl true
   def handle_event("set_filter", %{"filter" => filter}, socket) do
-    {:noreply, assign(socket, filter: filter)}
+    {:noreply, assign(socket, [filter: filter] ++ compile_filter(filter))}
   end
 
   @impl true
@@ -109,12 +111,25 @@ defmodule FlezhaUiWeb.ListenLive do
     end
   end
 
-  defp filtered_messages(messages, ""), do: messages
+  # Compiled once per change, so an invalid pattern is reported once and a
+  # valid one is not recompiled for every record that arrives.
+  defp compile_filter(""), do: [filter_regex: nil, filter_error: nil]
 
-  defp filtered_messages(messages, filter) do
+  defp compile_filter(filter) do
     case Regex.compile(filter) do
-      {:ok, regex} -> Enum.filter(messages, &Regex.match?(regex, &1.message))
-      _ -> messages
+      {:ok, regex} ->
+        [filter_regex: regex, filter_error: nil]
+
+      {:error, {reason, at}} ->
+        [
+          filter_regex: nil,
+          filter_error: "Not a regular expression: #{reason} at #{at}. Showing everything."
+        ]
     end
   end
+
+  defp filtered_messages(messages, nil), do: messages
+
+  defp filtered_messages(messages, regex),
+    do: Enum.filter(messages, &Regex.match?(regex, &1.message))
 end

@@ -48,7 +48,7 @@ reading the namespace from the path instead of from a filter control.
 | `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update, with a typed field for each option the provider declares |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
 | `/relays` | **Fleet** — every relay across every reachable namespace, filterable by namespace, health and run; starts one into any of them; the relay lifecycle feed as it happens |
-| `/namespaces/:ns/relays/:id` | Factory, runner, run, uptime, health, node, pipeline graph, steps panel, diagnosis on request; the relay's API, the calls made to it from anywhere (source, payload, answer or failure, duration) as they happen, task journal, input log and its records, cell state and plugins as sections that fold; send to the relay, call it, or call an entry channel from a form built from its schema, keeping this visit's results |
+| `/namespaces/:ns/relays/:id` | Factory, runner, run, uptime, health, node, pipeline graph, steps panel, diagnosis on request; the relay's API, the calls made to it from anywhere (source, payload, answer or failure, duration) as they happen, task journal, input log and its records, cell state, and its plugin bindings — running or not, each unbindable from this relay — as sections that fold; send to the relay, call it, or call an entry channel from a form built from its schema, keeping this visit's results |
 | `/namespaces/:ns/relays/:id/listen` | The relay's live outputs or inputs |
 | `/namespaces/:ns/relays/:id/state` | Durable cells with their WAL/snapshot sequences and durability lag; point-in-time reads, a cell's outbox, replay from a point (flow relays), rotate, delete; history and finished-instance retention, the former settable |
 | `/plugins` | Enabled plugins per namespace, and the packages installed on the controller with their providers and why one was refused |
@@ -248,8 +248,15 @@ enter —
 a populated dead-letter queue, audit switched off, a disconnected or
 version-skewed controller — get covered at all.
 
-See [docs/e2e-tests.md](docs/e2e-tests.md) for the browser suite's layout and
-the rule for deciding which layer a new assertion belongs to.
+Every browser test also fails on a broken page, whatever it asserted: a script
+or console error, a LiveView that crashed, or a request answered 400 or above.
+A figure the controller feeds is asserted to move, not merely to be there. And
+`mix test` fails when a test id or event in `lib/` is driven by no test at all
+(`test/flezha_ui/coverage_ledger_test.exs`).
+
+See [docs/e2e-tests.md](docs/e2e-tests.md) for the browser suite's layout, the
+guards and their exemptions, the coverage ledger, and the rule for deciding
+which layer a new assertion belongs to.
 
 ## How it looks
 

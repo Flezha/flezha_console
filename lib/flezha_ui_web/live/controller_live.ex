@@ -255,6 +255,7 @@ defmodule FlezhaUiWeb.ControllerLive do
       <form
         :if={@stop.step == :confirm}
         id="stop-controller-form"
+        data-testid="stop-controller-form"
         phx-change="stop_change"
         phx-submit="confirm_stop"
         class="space-y-4"

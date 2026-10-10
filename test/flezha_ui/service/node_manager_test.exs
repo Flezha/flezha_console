@@ -167,6 +167,36 @@ defmodule FlezhaUi.Service.NodeManagerTest do
     end
   end
 
+  describe "declared_bindings/2" do
+    test "lists one relay's declared plugins with their hooks and provider" do
+      pairs = [
+        {"relay_a",
+         [
+           {"ws_1", %{hooks: [on_terminate: []], provider: Flezha.Plugin.Provider.Websocket}},
+           {"out_1", %{hooks: [:on_output], provider: Flezha.Plugin.Provider.StdOut}}
+         ]},
+        {"relay_b", [{"other", %{hooks: [], provider: nil}}]}
+      ]
+
+      assert [
+               %{
+                 plugin_id: "ws_1",
+                 hooks: ["on_terminate"],
+                 provider: "Flezha.Plugin.Provider.Websocket"
+               },
+               %{
+                 plugin_id: "out_1",
+                 hooks: ["on_output"],
+                 provider: "Flezha.Plugin.Provider.StdOut"
+               }
+             ] = NodeManager.declared_bindings(pairs, "relay_a")
+    end
+
+    test "a relay with nothing declared has no rows" do
+      assert NodeManager.declared_bindings([{"relay_b", []}], "relay_a") == []
+    end
+  end
+
   describe "overwatch_facts/0" do
     test "is the decoded shape with nothing in it, a flow relay with no plugins" do
       assert %{run: :flow, durable_steps: false, bindings: [], relay_class: nil} =

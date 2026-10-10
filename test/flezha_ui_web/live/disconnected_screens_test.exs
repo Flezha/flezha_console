@@ -40,6 +40,12 @@ defmodule FlezhaUiWeb.DisconnectedScreensTest do
     end
   end
 
+  test "the cluster screen says it knows of no node", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/cluster")
+
+    assert has_element?(view, ~s([data-testid="cluster-nodes-empty"]))
+  end
+
   test "the start form still opens, asking for no run", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/relays")
 

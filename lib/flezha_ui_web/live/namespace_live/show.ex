@@ -216,18 +216,14 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
   @impl true
   def handle_event("save_quotas", _params, socket) do
-    limits = quota_limits(socket.assigns.quota_form, socket.assigns.declared)
+    # The controller replaces a namespace's overrides whole, so every limit the
+    # record holds is sent, with the ones the operator typed written over it. A
+    # field left blank keeps the limit it had.
+    held = (socket.assigns.declared && socket.assigns.declared.quotas) || %{}
 
-    case NodeManager.set_namespace_quotas(socket.assigns.ns, limits, socket.assigns.flezha_token) do
-      {:error, reason} ->
-        {:noreply, assign(socket, quota_error: reason)}
-
-      _ok ->
-        {:noreply,
-         socket
-         |> assign(quota_form: nil, quota_error: nil)
-         |> refresh()
-         |> put_flash(:info, "Quotas updated.")}
+    case NodeManager.parse_limits(socket.assigns.quota_form, Map.keys(held)) do
+      {:ok, typed} -> {:noreply, save_quotas(socket, Map.merge(held, typed))}
+      {:error, message} -> {:noreply, assign(socket, quota_error: message)}
     end
   end
 
@@ -402,24 +398,16 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     Enum.map(groups, &Map.put(&1, :health, Map.get(health, to_string(&1.id), :unknown)))
   end
 
-  # The controller replaces a namespace's overrides whole, so every limit the
-  # record holds is sent, with the ones the operator typed written over it. A
-  # field left blank keeps the limit it had.
-  defp quota_limits(form, declared) do
-    held = (declared && declared.quotas) || %{}
+  defp save_quotas(socket, limits) do
+    case NodeManager.set_namespace_quotas(socket.assigns.ns, limits, socket.assigns.flezha_token) do
+      {:error, reason} ->
+        assign(socket, quota_error: reason)
 
-    Enum.reduce(form, held, fn {key, typed}, acc ->
-      case Integer.parse(String.trim(typed || "")) do
-        {value, ""} when value >= 0 -> put_limit(acc, key, value)
-        _blank_or_invalid -> acc
-      end
-    end)
-  end
-
-  defp put_limit(limits, key, value) do
-    case Enum.find(Map.keys(limits), &(to_string(&1) == key)) do
-      nil -> limits
-      atom -> Map.put(limits, atom, value)
+      _ok ->
+        socket
+        |> assign(quota_form: nil, quota_error: nil)
+        |> refresh()
+        |> put_flash(:info, "Quotas updated.")
     end
   end
 

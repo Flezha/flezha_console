@@ -17,10 +17,12 @@ npx playwright show-report                    # last run's HTML report
 An assertion lives at the layer that can **produce** the state it asserts.
 
 Put it in **ExUnit** (`test/flezha_ui_web/live/`) when the state is one a
-healthy dev stack refuses to enter: an empty or populated dead-letter queue on
-demand, audit logging switched off, a controller that is disconnected, timing
-out, or version-skewed. `test/support/fake_controller.ex` produces all of those
-in milliseconds.
+healthy dev stack refuses to enter: audit logging switched off, a controller
+that is disconnected, timing out, version-skewed or shutting down, a partition
+group to rescale, a second running namespace. `test/support/fake_controller.ex`
+produces all of those in milliseconds. A dead letter is not one of them: the dev
+runner's `poison_probe` factory parks the input `poison`, so `dlq.spec.ts`
+parks its own.
 
 Put it in **Playwright** when only a real browser can observe it: a `phx-click`
 actually binding, a modal being visible and clickable, a JS hook running,
@@ -39,13 +41,79 @@ The exception is cleanup: `stopRelay` and `removeSchedule` tolerate an
 already-gone target so they are safe to call from `finally`. They skip no
 assertion.
 
+## Page-health guards
+
+The `test` exported from `fixtures.ts` arms every test with three guards, with
+no opt-in. Each collects while the test runs and fails it at teardown, naming
+the problem and the URL:
+
+- **Script errors**: an uncaught error on the page, or a console message of type
+  `error`.
+- **LiveView health**: a `phx_error` frame or an error reply on a LiveView topic,
+  and a LiveView container taking `phx-error`, `phx-client-error` or
+  `phx-server-error`. A crashed LiveView re-joins the same container, so only the
+  frame or the class arriving records that it crashed. A join answered with a
+  redirect is navigation, not an error.
+- **Transport**: a document, script, stylesheet, image, font, XHR or fetch
+  answered 400 or above, and any request that got no answer.
+
+Noise that is benign everywhere goes in `PAGE_HEALTH_EXEMPTIONS` in
+`fixtures.ts`, one matcher per entry with the reason it is benign; an entry
+without a reason fails the run. A test that causes a problem on purpose — the
+socket-drop test in `topology.spec.ts` — allows it itself with
+`pageHealth.allow(match, reason)`. There is no way to switch a guard off.
+
+## Live figures
+
+A figure the controller feeds is asserted to move, never only to exist or to
+carry a unit. `expectAdvances(figure, name, cause?)` takes a locator showing a
+number, or a function reading one such as a count of rows. It reads the figure, runs
+`cause` when the test makes the traffic itself, and polls for a strictly larger
+read within `ADVANCE_WINDOW_MS`, which is more than two intervals of the seeded
+sources in `config/dev.exs`. `readFigure` reads a number, scaling `KB`/`MB`.
+
+Counts of discrete events are fed by the console's own controls: a send from
+the relay screen (`sendToRelay()`), a call to `orders`, a relay started and
+stopped, an administration action the audit tail must show. Rates and samples
+— tap rates, flow rates, the sparkline, the periodic refresh — are fed by the
+seeded sources. The first test in `listen.spec.ts` checks that precondition by
+name: the seeded sources are bound to their relays and deliver, so a silent
+stack fails there and not as a timeout in every liveness assertion.
+
+## The coverage ledger
+
+`test/flezha_ui/coverage_ledger_test.exs` runs with `mix test` and needs no
+stack. It reads `lib/` through `FlezhaUi.NamingGate.all_files/1` and fails
+naming each test id that no spec or ExUnit test names, each `handle_event`
+event that no test drives or binds to a named test id, and each markup binding
+to an event no clause handles. Its module doc states the matching rules.
+
+When it fails on new UI, add the test that drives the control. When a control
+can truly never be driven, add it to `@exempt` in the ledger with the reason;
+an exemption without one, or one that no longer excuses anything, fails.
+
+## Controls that stop the stack
+
+Stopping the controller ends the dev stack for every other session, so
+`controller-health.spec.ts` drives the stop dialog to its typed confirmation
+and cancels. The confirmed stop, its progress and the shutdown phase are
+asserted in `controller_live_test.exs`. Dropping the dev runner is driven in
+full, because readmitting it restores the stack.
+
 ## Layout
 
 ```
 e2e/
   global-setup.ts   logs in once, saves the session to e2e/.auth/user.json
   fixtures.ts       `test` extended with `live()` — navigate + wait for the
-                    LiveView — plus `startRelay()`/`stopRelay()`, since
+                    LiveView — and the page-health guards (`pageHealth`);
+                    `expectAdvances()`/`readFigure()` for live figures,
+                    `sendToRelay()` for traffic the test makes, `openPage()`
+                    for a second page beside the one under test,
+                    `fillPluginForm()`/`optionError()` for the plugin form
+                    both plugin specs drive, and `confirmEach()` for cleanup
+                    that confirms one row action at a time; plus
+                    `startRelay()`/`stopRelay()`, since
                     one launcher serves two screens and driving it twice would
                     stop catching the drift it exists to prevent; and the shell
                     helpers `openSection()`/`closeSection()` (a screen's folded
@@ -55,8 +123,11 @@ e2e/
                     stores and must leave behind it undone; and `cliCall()`,
                     which calls the controller as `flz` does
   login.spec.ts     the form itself, with no stored session
-  dashboard.spec.ts namespaces.spec.ts listen.spec.ts
-  audit.spec.ts dlq.spec.ts schedules.spec.ts
+  account.spec.ts   registration, logging in by the emailed link, logging out,
+                    and the settings forms, as a user each test registers
+  listen.spec.ts    the seeded-traffic precondition, then the listen screen
+  dlq.spec.ts       entries parked by a `poison_probe` relay of its own
+  dashboard.spec.ts namespaces.spec.ts audit.spec.ts schedules.spec.ts
   relay-lifecycle.spec.ts plugin-attach.spec.ts topology.spec.ts
   authz.spec.ts              the posture banner and the flezha-token round-trip
   relays-index.spec.ts       the cross-namespace index and its filters
@@ -91,7 +162,8 @@ e2e/
 playwright.config.ts
 ```
 
-Every spec except `login.spec.ts` starts authenticated from the stored session.
+Every spec starts authenticated from the stored session except `login.spec.ts`,
+`account.spec.ts` and the brand tests outside the shell in `theme.spec.ts`.
 `e2e/.auth/` is gitignored — it holds a live dev session cookie.
 
 ## Single worker, on purpose
@@ -132,8 +204,10 @@ controller: it shells out to the release launcher, which a controller running
 under `iex -S mix` does not have.
 
 A spec that writes state does it on something it made itself — a relay, a
-plugin, a schedule, a token, a binding — and undoes it in `finally`; the one
-seeded value a spec changes, a relay class's history retention, it sets back.
+plugin, a schedule, a token, a binding, a namespace, a parked entry — and
+undoes it in `finally`; the one seeded value a spec changes, a relay class's
+history retention, it sets back. A disabled plugin keeps its bindings, so
+`disablePlugin()` unbinds every relay first.
 A revoked token stays listed as revoked: the controller has no way to delete
 one.
 
@@ -162,5 +236,5 @@ A plugin runs **on the controller**, inside the compose network, so options
 that name a service point at it there — Kafka at `fui_kafka:9092`, Postgres at
 `flezha_ui_db:5432`, HTTP at `http://fui_web:4000` — never at `localhost`.
 
-Every plugin a test enables is disabled before it finishes, so the plugin
-listing and the relay's bindings are what they were before the test.
+Every plugin a test enables is unbound and disabled before it finishes, so the
+plugin listing and the relay's bindings are what they were before the test.

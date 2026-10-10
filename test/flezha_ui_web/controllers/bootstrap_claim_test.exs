@@ -44,6 +44,7 @@ defmodule FlezhaUiWeb.BootstrapClaimTest do
     html = conn |> get(~p"/users/settings") |> html_response(200)
 
     assert html =~ ~s(data-testid="bootstrap-claim")
+    assert html =~ ~s(data-testid="bootstrap-claim-btn")
   end
 
   test "the claim is not offered once enforced or open", %{conn: conn, node: node, user: user} do

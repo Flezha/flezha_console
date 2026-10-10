@@ -50,24 +50,16 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
   def handle_event("create", %{"create" => params}, socket) do
     name = String.trim(params["name"] || "")
 
-    if name == "" do
-      {:noreply, assign(socket, create_error: "A namespace name is required.")}
+    with :ok <- if(name == "", do: {:error, "A namespace name is required."}, else: :ok),
+         {:ok, limits} <- NodeManager.parse_limits(params, ~w(max_relays max_runners)a),
+         {:ok, _entry} <- NodeManager.create_namespace(name, limits, socket.assigns.flezha_token) do
+      {:noreply,
+       socket
+       |> assign(show_create: false, create_error: nil)
+       |> refresh()
+       |> put_flash(:info, "Namespace #{name} declared.")}
     else
-      case NodeManager.create_namespace(
-             name,
-             quota_overrides(params),
-             socket.assigns.flezha_token
-           ) do
-        {:ok, _entry} ->
-          {:noreply,
-           socket
-           |> assign(show_create: false, create_error: nil)
-           |> refresh()
-           |> put_flash(:info, "Namespace #{name} declared.")}
-
-        {:error, reason} ->
-          {:noreply, assign(socket, create_error: reason)}
-      end
+      {:error, reason} -> {:noreply, assign(socket, create_error: reason)}
     end
   end
 
@@ -166,14 +158,4 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
   end
 
   defp count(result), do: result |> NodeManager.ok_or([]) |> length()
-
-  defp quota_overrides(params) do
-    ~w(max_relays max_runners)a
-    |> Enum.reduce(%{}, fn key, acc ->
-      case Integer.parse(String.trim(params[to_string(key)] || "")) do
-        {value, ""} -> Map.put(acc, key, value)
-        _ -> acc
-      end
-    end)
-  end
 end

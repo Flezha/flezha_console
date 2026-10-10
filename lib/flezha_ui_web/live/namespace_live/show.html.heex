@@ -545,9 +545,7 @@
 <.dialog :if={@quota_form} testid="quota-modal" size="form" on_close="close_quotas">
   <:title>Edit quotas</:title>
 
-  <div :if={@quota_error} data-testid="quota-error" class="mb-4">
-    <.runtime_error error={@quota_error} action="the quota change" />
-  </div>
+  <.form_error error={@quota_error} action="the quota change" testid="quota-error" />
 
   <form phx-change="quota_change" class="space-y-3">
     <.input
@@ -560,7 +558,7 @@
     />
   </form>
   <div class="flex justify-end gap-3 pt-4">
-    <.button variant="ghost" phx-click="close_quotas">Cancel</.button>
+    <.button variant="ghost" phx-click="close_quotas" data-testid="quota-cancel">Cancel</.button>
     <.button phx-click="save_quotas" data-testid="quota-save">Save</.button>
   </div>
 </.dialog>
