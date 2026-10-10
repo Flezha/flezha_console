@@ -7,7 +7,7 @@ reports rather than typed from memory.
 ## Requirements
 ### Requirement: One field component
 
-Every labelled form control on the operator screens SHALL be rendered by a single field component in `FlezhaUiWeb.CoreComponents`. The control's styling SHALL exist only in that component, so a size, a focus ring, or a border is one decision rather than one per template. The component SHALL support text, number, textarea, and select controls, and SHALL carry a caller-supplied `data-testid` through to the rendered control unchanged.
+Every labelled form control on the operator screens SHALL be rendered by a single field component in `FlezhaUiWeb.CoreComponents`. The control's styling SHALL exist only in that component, so a size, a focus ring, or a border is one decision rather than one per template. The component SHALL support text, number, password, textarea, and select controls, SHALL carry a caller-supplied `data-testid` through to the rendered control unchanged, and SHALL render a field's own errors with the field.
 
 #### Scenario: A form is authored
 
@@ -29,6 +29,11 @@ Every labelled form control on the operator screens SHALL be rendered by a singl
 
 - **WHEN** a field has a constraint or an optional meaning worth stating
 - **THEN** the component renders that hint with the field rather than beside it
+
+#### Scenario: A field has an error
+
+- **WHEN** a field is given an error
+- **THEN** the component renders the error with that field, not elsewhere on the form
 
 ### Requirement: Dialog size is a role, not a class
 
@@ -86,4 +91,30 @@ Where the controller can report the set a field's value must come from — a nam
 - **WHEN** a form depends on a value the controller fixes, such as whether a factory runs as `flow` or `steps`
 - **THEN** the form states that value next to the choice it follows from
 - **AND** no control lets the operator set it
+
+### Requirement: Generated fields are typed and checked by one core
+
+Fields the console generates from a type description, the options a plugin provider lists and the properties of a relay entry channel's schema, SHALL be cast and checked by one shared module, `FlezhaUiWeb.Live.TypedFields`, built on Ecto schemaless changesets, and rendered by the field component. The core SHALL report every failing field at once, each on its own field, and SHALL answer only the fields that were given. It SHALL NOT turn a field name supplied by the controller into an atom. No screen SHALL parse generated fields by hand beside it.
+
+#### Scenario: Two forms share the core
+
+- **WHEN** the codebase is inspected
+- **THEN** the plugin form's option fields and the relay call dialog's channel fields are both checked through `TypedFields`
+- **AND** neither screen carries its own parser for typed field values
+
+#### Scenario: Several fields fail at once
+
+- **WHEN** an operator submits a generated form with two fields in error
+- **THEN** both fields show their error
+- **AND** nothing is sent
+
+#### Scenario: A blank field
+
+- **WHEN** an optional generated field is left blank
+- **THEN** it is absent from the value the core answers
+
+#### Scenario: Field names from the controller
+
+- **WHEN** the core checks fields whose names the controller supplied
+- **THEN** no atom is created from those names
 

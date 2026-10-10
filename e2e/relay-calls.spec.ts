@@ -65,7 +65,9 @@ test.describe('Talking to a relay', () => {
     await page.getByTestId('talk-field-pair').fill('BTC-EUR');
     await page.getByTestId('talk-channel-submit').click();
 
-    await expect(page.getByTestId('talk-error')).toContainText('amount is required.');
+    // The field's container holds its label, control, hint and error.
+    const amount = page.getByTestId('talk-field-amount').locator('xpath=..');
+    await expect(amount.locator('.flz-field-error')).toContainText('is required');
     await expect(page.getByTestId('talk-result')).toHaveCount(0);
   });
 

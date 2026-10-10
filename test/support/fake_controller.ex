@@ -156,6 +156,18 @@ defmodule FakeController do
   end
 
   @doc """
+  One option row as `Flezha.Service.Fleet.provider/2` answers it in `options`,
+  with `overrides` applied.
+
+  A row always holds `name`, `type`, `required` and `doc`; core leaves out
+  `default`, `values`, `min`, `max`, `live` and `transient` when the provider
+  does not declare them, so they appear here only when `overrides` give them.
+  """
+  def option_row(name, overrides \\ %{}) do
+    Map.merge(%{name: to_string(name), type: :any, required: false, doc: nil}, overrides)
+  end
+
+  @doc """
   A registry entry for a relay whose builder carries `run`, as
   `Flezha.Service.Relay.registry/2` answers one under the relay's id.
   """
@@ -459,7 +471,7 @@ defmodule Flezha.Service.Fleet do
   defstub providers(%{source: :ui} = ctx), do: {:ok, %{providers: [], refused: 0}}
 
   defstub provider(provider_id, %{source: :ui} = ctx),
-    do: {:ok, %{provider: provider_id, help: nil, type: :relay, hooks: []}}
+    do: {:ok, %{provider: provider_id, help: nil, type: :relay, hooks: [], options: []}}
 
   defstub drop_runner(ns, runner_id, %{source: :ui} = ctx),
     do:

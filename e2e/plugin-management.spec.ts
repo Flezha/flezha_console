@@ -13,13 +13,17 @@ import { test, expect, disablePlugin, uniqueId, type Page } from './fixtures';
  */
 const PLUGINS_URL = '/namespaces/default/plugins';
 
-/** Enables `name` from the plugins screen with `provider`, `hooks` and `opts`. */
-async function enable(
+/**
+ * Fills the plugin form from the plugins screen: `provider`, `hooks` and each
+ * option typed into its own field, a selection chosen by its value. Submits
+ * without asserting the outcome.
+ */
+async function fillEnable(
   page: Page,
   name: string,
   provider: string,
   hooks: string[],
-  opts: Record<string, unknown>,
+  opts: Record<string, string>,
   relay?: string,
 ) {
   await page.getByTestId('enable-plugin-btn').click();
@@ -27,10 +31,38 @@ async function enable(
   await page.getByTestId('input-plugin-name').fill(name);
   if (relay) await page.getByTestId('input-plugin-relay').selectOption(relay);
   for (const hook of hooks) await page.getByTestId(`input-hook-${hook}`).check();
-  await page.getByTestId('input-plugin-opts').fill(JSON.stringify(opts));
+
+  for (const [option, value] of Object.entries(opts)) {
+    const field = page.getByTestId(`input-option-${option}`);
+    if ((await field.evaluate((el) => el.tagName)) === 'SELECT') await field.selectOption(value);
+    else await field.fill(value);
+  }
+
   await page.getByTestId('attach-submit-btn').click();
+}
+
+/** Enables `name` as `fillEnable` does, and asserts the dialog closed on success. */
+async function enable(
+  page: Page,
+  name: string,
+  provider: string,
+  hooks: string[],
+  opts: Record<string, string>,
+  relay?: string,
+) {
+  await fillEnable(page, name, provider, hooks, opts, relay);
   await expect(page.getByTestId('attach-modal')).toHaveCount(0);
 }
+
+/** The error shown on an option's field, inside the field's own container. */
+const optionError = (page: Page, option: string) =>
+  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.flz-field-error');
+
+/** The hint shown on an option's field. */
+const optionHint = (page: Page, option: string) =>
+  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.flz-field-hint');
+
+const RECEIVER = 'http://fui_web:4000/dev/null';
 
 test.describe('Plugin packages', () => {
   test.beforeEach(async ({ live }) => {
@@ -77,7 +109,7 @@ test.describe('Plugin writes', () => {
 
       await page.getByTestId('input-plugin-name').fill(name);
       await page.getByTestId('input-hook-on_relay_started').check();
-      await page.getByTestId('input-plugin-opts').fill('{"url": "http://fui_web:4000/dev/null"}');
+      await page.getByTestId('input-option-url').fill(RECEIVER);
       await page.getByTestId('attach-submit-btn').click();
 
       // One controller holds the namespace, so none lacks the provider.
@@ -118,13 +150,97 @@ test.describe('Plugin writes', () => {
       await expect(page.getByTestId(`plugin-relays-${name}`)).not.toContainText('testnet_store_2');
       await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
 
-      // Update
+      // Update, with nothing filled in
       await page.getByTestId(`plugin-update-${name}`).click();
-      await page.getByTestId('input-plugin-opts').fill('{}');
+      await expect(page.getByTestId('plugin-no-options')).toBeVisible();
       await page.getByTestId('attach-submit-btn').click();
       await expect(page.locator('body')).toContainText(
         new RegExp(`Plugin ${name} updated: (applied live|applied by restarting its copies|nothing changed)\\.`),
       );
+    } finally {
+      await disablePlugin(page, name);
+    }
+  });
+
+  test('relay_http_push is enabled with typed options', async ({ page }) => {
+    const name = uniqueId('pw_push');
+
+    try {
+      await enable(
+        page,
+        name,
+        'relay_http_push',
+        ['on_output'],
+        {
+          url: RECEIVER,
+          method: 'PUT',
+          headers: '{"x-test": "1"}',
+          channel: 'a, b',
+          timeout_ms: '2000',
+        },
+        'testnet_store_1',
+      );
+
+      await expect(page.locator('body')).toContainText(`Plugin ${name} enabled and bound to testnet_store_1.`);
+      await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
+    } finally {
+      await disablePlugin(page, name);
+    }
+  });
+
+  test('relay_io_filter is enabled with a true/false option', async ({ page }) => {
+    const name = uniqueId('pw_filter');
+
+    try {
+      // Inverted, a pattern nothing matches skips nothing on the shared relay.
+      await enable(
+        page,
+        name,
+        'relay_io_filter',
+        ['on_output'],
+        { regex_pattern: '^pw-never-matches$', inverted: 'true' },
+        'testnet_store_1',
+      );
+
+      await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
+    } finally {
+      await disablePlugin(page, name);
+    }
+  });
+
+  test('hook_webhook is updated with one option, which restarts its copies', async ({ page }) => {
+    const name = uniqueId('pw_webhook');
+
+    try {
+      await enable(page, name, 'hook_webhook', ['on_relay_started'], { url: RECEIVER });
+      await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
+
+      await page.getByTestId(`plugin-update-${name}`).click();
+      await expect(optionHint(page, 'timeout_ms')).toContainText('a change restarts the plugin');
+      await page.getByTestId('input-option-timeout_ms').fill('7000');
+      await page.getByTestId('attach-submit-btn').click();
+
+      await expect(page.locator('body')).toContainText(
+        `Plugin ${name} updated: applied by restarting its copies.`,
+      );
+    } finally {
+      await disablePlugin(page, name);
+    }
+  });
+
+  test('a required option left empty is named on its field and nothing is enabled', async ({
+    page,
+  }) => {
+    const name = uniqueId('pw_unsent');
+
+    try {
+      await fillEnable(page, name, 'hook_webhook', ['on_relay_started'], {});
+
+      await expect(optionError(page, 'url')).toContainText('is required');
+      await expect(page.getByTestId('attach-modal')).toBeVisible();
+      await page.getByTestId('attach-cancel-btn').click();
+
+      await expect(page.getByTestId(`plugin-row-${name}`)).toHaveCount(0);
     } finally {
       await disablePlugin(page, name);
     }

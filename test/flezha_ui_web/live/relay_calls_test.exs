@@ -76,6 +76,8 @@ defmodule FlezhaUiWeb.RelayCallsTest do
     FakeController.set(node, {Relay, :api}, {:ok, [entry]})
   end
 
+  defp field_error(name), do: ~s([data-testid="talk-field-#{name}"] ~ .flz-field-error)
+
   defp talk(view), do: view |> element(~s([data-testid="talk-open-btn"])) |> render_click()
 
   defp raw(view, fields, action) do
@@ -293,9 +295,44 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       {:ok, view, _html} = live(conn, @url)
       talk(view)
 
-      html = render_submit(view, "talk_submit", %{"talk" => %{"value" => %{"pair" => "BTC-EUR"}}})
+      render_submit(view, "talk_submit", %{"talk" => %{"value" => %{"pair" => "BTC-EUR"}}})
 
-      assert html =~ "amount is required."
+      assert has_element?(view, field_error("amount"), "is required")
+      refute has_element?(view, field_error("pair"))
+      refute has_element?(view, ~s([data-testid="talk-error"]))
+      assert FakeController.calls(node, {Relay, :call_channel}) == []
+    end
+
+    test "a schema with more properties than the form can hold is entered as JSON", %{
+      conn: conn,
+      node: node
+    } do
+      properties = Map.new(1..129, &{"p#{&1}", %{"type" => "string"}})
+      api(node, [%{@place | schema: %{"type" => "object", "properties" => properties}}])
+      {:ok, view, _html} = live(conn, @url)
+
+      html = talk(view)
+      assert html =~ ~s(data-testid="talk-json")
+      refute html =~ ~s(data-testid="talk-field-p1")
+    end
+
+    test "every failing property is named on its own field", %{conn: conn, node: node} do
+      schema = %{
+        "type" => "object",
+        "properties" => %{"lots" => %{"type" => "integer"}, "price" => %{"type" => "number"}},
+        "required" => ["lots"]
+      }
+
+      api(node, [%{@place | schema: schema}])
+      {:ok, view, _html} = live(conn, @url)
+      talk(view)
+
+      render_submit(view, "talk_submit", %{
+        "talk" => %{"value" => %{"lots" => "1.5", "price" => "cheap"}}
+      })
+
+      assert has_element?(view, field_error("lots"), "must be a whole number")
+      assert has_element?(view, field_error("price"), "must be a number")
       assert FakeController.calls(node, {Relay, :call_channel}) == []
     end
 

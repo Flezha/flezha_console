@@ -25,12 +25,18 @@ defmodule FlezhaUiWeb.Live.PluginForm do
   controllers rather than on a relay, so it is asked for controller hooks and
   `single` and never for a relay; a relay plugin is asked for a relay and its
   relay hooks. The hooks offered are the ones the provider says it supports.
+
+  The provider's `options` decide how its options are asked for: one typed
+  field per option, checked by `FlezhaUiWeb.Live.TypedFields` before anything
+  is sent, with a refusal that names an option put on its field. A controller
+  that does not list them gets one JSON object field instead.
   """
 
   use FlezhaUiWeb, :html
 
   alias FlezhaUi.Service.NodeManager
   alias FlezhaUiWeb.Live.Target
+  alias FlezhaUiWeb.Live.TypedFields
 
   # Named exactly and namespaced, so a host's own events are never swallowed.
   @events ~w(plugin_form_open plugin_form_close plugin_form_provider plugin_form_change
@@ -69,18 +75,21 @@ defmodule FlezhaUiWeb.Live.PluginForm do
       providers: [],
       providers_error: nil,
       provider: nil,
+      options: nil,
       relays: [],
       relays_error: nil,
       fields: %{
         "name" => params["name"] || generated_name(),
         "namespace" => namespace || "",
         "opts" => "",
+        "secret" => %{},
         "hooks" => split(params["hooks"]),
         "relay_id" => "",
         "channel" => "",
         "single" => "false"
       },
-      error: nil
+      error: nil,
+      option_errors: []
     }
 
     form =
@@ -102,9 +111,11 @@ defmodule FlezhaUiWeb.Live.PluginForm do
     update(socket, :plugin_form, &choose(&1, id, socket.assigns.flezha_token))
   end
 
-  def handle_event(_module, "plugin_form_change", %{"plugin" => params}, socket) do
+  # A form with no field of its own to post, such as an update of a relay
+  # plugin that takes no options, arrives without `plugin`.
+  def handle_event(_module, "plugin_form_change", params, socket) do
     form = socket.assigns.plugin_form
-    fields = merge(form.fields, params)
+    fields = merge(form.fields, Map.get(params, "plugin", %{}))
 
     form =
       if fields["namespace"] != form.fields["namespace"],
@@ -114,9 +125,9 @@ defmodule FlezhaUiWeb.Live.PluginForm do
     assign(socket, plugin_form: form)
   end
 
-  def handle_event(module, "plugin_form_submit", %{"plugin" => params}, socket) do
+  def handle_event(module, "plugin_form_submit", params, socket) do
     form = socket.assigns.plugin_form
-    form = %{form | fields: merge(form.fields, params)}
+    form = %{form | fields: merge(form.fields, Map.get(params, "plugin", %{}))}
 
     case submit(form, socket.assigns.flezha_token) do
       {:ok, message} ->
@@ -125,8 +136,11 @@ defmodule FlezhaUiWeb.Live.PluginForm do
         |> Phoenix.LiveView.put_flash(:info, message)
         |> then(&module.refresh/1)
 
+      {:error, {:fields, errors}} ->
+        assign(socket, plugin_form: %{form | error: nil, option_errors: errors})
+
       {:error, error} ->
-        assign(socket, plugin_form: %{form | error: error})
+        assign(socket, plugin_form: %{form | error: error, option_errors: []})
     end
   end
 
@@ -140,7 +154,9 @@ defmodule FlezhaUiWeb.Live.PluginForm do
   defp mode(_enable), do: :enable
 
   # A checkbox group posts nothing when every box is cleared, so the hidden
-  # empty entry is what tells a cleared group from an untouched one.
+  # empty entry is what tells a cleared group from an untouched one. Typed
+  # options and secrets arrive as maps keyed by option name and are folded in
+  # key by key.
   defp merge(fields, params) do
     params
     |> Map.update(
@@ -148,8 +164,17 @@ defmodule FlezhaUiWeb.Live.PluginForm do
       fields["hooks"],
       &Enum.reject(List.wrap(&1), fn hook -> hook == "" end)
     )
-    |> then(&Map.merge(fields, &1))
+    |> Enum.reduce(fields, fn
+      {key, %{} = given}, acc when key in ~w(opts secret) ->
+        Map.update(acc, key, given, &Map.merge(map_or_empty(&1), given))
+
+      {key, value}, acc ->
+        Map.put(acc, key, value)
+    end)
   end
+
+  defp map_or_empty(%{} = map), do: map
+  defp map_or_empty(_text), do: %{}
 
   # ---- Providers and relays ----
 
@@ -162,9 +187,10 @@ defmodule FlezhaUiWeb.Live.PluginForm do
     end
   end
 
-  # The provider's own description — its help, its type and the hooks it
-  # supports — read once on selection rather than on every keystroke. One whose
-  # help cannot be read still renders the form, as a relay plugin.
+  # The provider's own description — its help, its type, the hooks it
+  # supports and its options — read once on selection rather than on every
+  # keystroke. One whose help cannot be read still renders the form, as a relay
+  # plugin with the JSON options field.
   defp choose(form, id, token) do
     provider =
       case NodeManager.provider(id, token) do
@@ -172,8 +198,65 @@ defmodule FlezhaUiWeb.Live.PluginForm do
         {:error, _reason} -> %{id: id, help: nil, type: nil, hooks: []}
       end
 
-    load_relays(%{form | provider: provider, error: nil}, token)
+    form = %{form | provider: provider, options: options(provider, form.mode), error: nil}
+    load_relays(form, token)
   end
+
+  # How the options are asked for: `{:fields, specs}`, `:none` for a provider
+  # that lists none, or `:json` for a controller that does not list them.
+  defp options(%{options: [_ | _] = rows}, mode) do
+    case option_specs(rows, mode) do
+      [] -> :none
+      specs -> if TypedFields.fits?(specs), do: {:fields, specs}, else: :json
+    end
+  end
+
+  defp options(%{options: []}, _mode), do: :none
+  defp options(_described, _mode), do: :json
+
+  @doc false
+  # The controller's option rows as typed-field specs. Names and types are read
+  # as text whether they arrive as strings or atoms, so no atom is made.
+  def option_specs(rows, mode) do
+    for row <- rows, kind = option_kind(row), kind != nil do
+      %{
+        name: to_string(row.name),
+        kind: kind,
+        required: mode == :enable and Map.get(row, :required) == true,
+        default: Map.get(row, :default),
+        min: Map.get(row, :min),
+        max: Map.get(row, :max),
+        values: Map.get(row, :values),
+        doc: option_doc(row, mode)
+      }
+    end
+  end
+
+  # No operator can type a process, so a `pid` option is not offered.
+  defp option_kind(row) do
+    type = row |> Map.get(:type, :any) |> to_string()
+
+    cond do
+      type == "pid" -> nil
+      Map.get(row, :transient) == true -> :secret
+      type == "int" -> :int
+      type == "bool" -> :bool
+      type == "enum" and is_list(Map.get(row, :values)) -> :enum
+      type == "string" -> :string
+      type in ~w(names list) -> :list
+      type == "map" -> :object
+      true -> :json
+    end
+  end
+
+  defp option_doc(row, :update) do
+    said =
+      if Map.get(row, :live) == true, do: "changed in place", else: "a change restarts the plugin"
+
+    Enum.join(Enum.reject([Map.get(row, :doc), said], &(&1 in [nil, ""])), " — ")
+  end
+
+  defp option_doc(row, _mode), do: Map.get(row, :doc)
 
   # The relay picker is read only when the form asks for a relay at all.
   defp load_relays(%{relay: relay} = form, _token) when is_binary(relay), do: form
@@ -207,7 +290,7 @@ defmodule FlezhaUiWeb.Live.PluginForm do
 
     with :ok <- required(name, "A plugin name is required."),
          :ok <- required(namespace(form), "A namespace is required."),
-         {:ok, opts} <- parse_opts(form.fields["opts"]) do
+         {:ok, opts} <- options_value(form, required?: true) do
       fields = %{
         provider: form.provider.id,
         opts: opts,
@@ -217,8 +300,10 @@ defmodule FlezhaUiWeb.Live.PluginForm do
         single: controller?(form) and form.fields["single"] == "true"
       }
 
-      with {:ok, answer} <- NodeManager.enable_plugin(name, fields, token),
-           do: {:ok, enabled_message(name, fields.relay_id, answer)}
+      case NodeManager.enable_plugin(name, fields, token) do
+        {:ok, answer} -> {:ok, enabled_message(name, fields.relay_id, answer)}
+        {:error, reason} -> refusal(form, reason)
+      end
     end
   end
 
@@ -242,15 +327,17 @@ defmodule FlezhaUiWeb.Live.PluginForm do
   defp submit(%{mode: :update} = form, token) do
     name = form.fields["name"]
 
-    with {:ok, opts} <- parse_opts(form.fields["opts"]) do
+    with {:ok, opts} <- options_value(form, required?: false) do
       fields = %{
         namespace: namespace(form),
         opts: opts,
         hooks: if(controller?(form), do: form.fields["hooks"])
       }
 
-      with {:ok, answer} <- NodeManager.update_plugin(name, fields, token),
-           do: {:ok, updated_message(name, answer)}
+      case NodeManager.update_plugin(name, fields, token) do
+        {:ok, answer} -> {:ok, updated_message(name, answer)}
+        {:error, reason} -> refusal(form, reason)
+      end
     end
   end
 
@@ -260,9 +347,61 @@ defmodule FlezhaUiWeb.Live.PluginForm do
   defp required("", message), do: {:error, message}
   defp required(_value, _message), do: :ok
 
-  # The provider describes its options only in its help text, so they are
-  # taken as one JSON object, keyed by text: the controller turns only names
-  # the provider declares into atoms.
+  # Only the options given are sent, each in its type and keyed by its name as
+  # text, so the controller applies its own defaults to the rest. Secrets are
+  # read from their own params, which are never rendered back.
+  defp options_value(%{options: {:fields, specs}, fields: fields}, required?: required?) do
+    {secrets, typed} = Enum.split_with(specs, &(&1.kind == :secret))
+
+    params =
+      Map.merge(
+        Map.take(map_or_empty(fields["opts"]), Enum.map(typed, & &1.name)),
+        Map.take(map_or_empty(fields["secret"]), Enum.map(secrets, & &1.name))
+      )
+
+    case specs |> TypedFields.changeset(params, required?: required?) |> TypedFields.values() do
+      {:ok, opts} -> {:ok, opts}
+      {:error, errors} -> {:error, {:fields, errors}}
+    end
+  end
+
+  defp options_value(%{options: :none}, _required), do: {:ok, %{}}
+  defp options_value(form, _required), do: parse_opts(form.fields["opts"])
+
+  # A refusal that names options the form offers is put on their fields, so the
+  # operator sees which one to change; any other stays on the form. A secret's
+  # field gets the code alone, because the controller's message may carry the
+  # value.
+  defp refusal(%{options: {:fields, specs}}, reason) do
+    %{code: code, message: message, details: details} = NodeManager.error(reason)
+    named = named_options(details)
+
+    case Enum.filter(specs, &(&1.name in named)) do
+      [] ->
+        {:error, reason}
+
+      offered ->
+        {:error, {:fields, Enum.map(offered, &{&1.name, refused(&1, code, message)})}}
+    end
+  end
+
+  defp refusal(_form, reason), do: {:error, reason}
+
+  defp named_options(details) do
+    for key <- ~w(option options required other),
+        name <- List.wrap(Map.get(details, key)),
+        is_binary(name) or (is_atom(name) and not is_nil(name)),
+        do: to_string(name)
+  end
+
+  defp refused(%{kind: :secret}, code, _message),
+    do: {"The controller refused this value (%{code}).", code: code}
+
+  defp refused(_spec, code, message), do: {"%{message} (%{code})", message: message, code: code}
+
+  # A controller that does not list its options gets them as one JSON object,
+  # keyed by text: the controller turns only names the provider declares into
+  # atoms.
   defp parse_opts(raw) do
     case String.trim(raw || "") do
       "" ->
@@ -374,7 +513,14 @@ defmodule FlezhaUiWeb.Live.PluginForm do
       <% else %>
         <.form_error error={@form.error} action="the plugin" testid="attach-error" />
 
-        <form phx-submit="plugin_form_submit" phx-change="plugin_form_change" class="space-y-4">
+        <%!-- The browser's own checks would stop a bounded number before the
+              form's, which say on the field what is wrong. --%>
+        <form
+          phx-submit="plugin_form_submit"
+          phx-change="plugin_form_change"
+          novalidate
+          class="space-y-4"
+        >
           <.input
             :if={@form.mode == :enable}
             type="text"
@@ -456,29 +602,54 @@ defmodule FlezhaUiWeb.Live.PluginForm do
           />
 
           <%!-- The provider's own help, when it answers any; the options field
-                renders without it rather than the form failing. --%>
-          <details :if={@form.provider.help} data-testid="provider-help" open>
+                renders without it rather than the form failing. Open when it is
+                the only description of the options. --%>
+          <details
+            :if={@form.provider.help}
+            data-testid="provider-help"
+            open={@form.options == :json}
+          >
             <summary class="text-xs text-th-brand cursor-pointer">
               {Format.humanize(@form.provider.id)} options
             </summary>
             <pre class="flz-code flz-code--wrap mt-2 max-h-64">{@form.provider.help}</pre>
           </details>
 
-          <.input
-            :if={@form.mode != :bind}
-            type="textarea"
-            name="plugin[opts]"
-            label="Options"
-            hint={
-              if @form.mode == :update,
-                do: "JSON object — merged into the options the plugin has",
-                else: "JSON object, optional"
-            }
-            value={@form.fields["opts"]}
-            placeholder="{}"
-            mono
-            data-testid="input-plugin-opts"
-          />
+          <%= if @form.mode != :bind do %>
+            <%= case @form.options do %>
+              <% {:fields, specs} -> %>
+                <TypedFields.typed_inputs
+                  specs={specs}
+                  form={
+                    to_form(map_or_empty(@form.fields["opts"]),
+                      as: "plugin[opts]",
+                      errors: @form.option_errors
+                    )
+                  }
+                  secret_name="plugin[secret]"
+                  testid="input-option-"
+                />
+              <% :none -> %>
+                <p class="text-xs text-th-muted" data-testid="plugin-no-options">
+                  This provider takes no options.
+                </p>
+              <% :json -> %>
+                <.input
+                  type="textarea"
+                  name="plugin[opts]"
+                  label="Options"
+                  hint={
+                    if @form.mode == :update,
+                      do: "JSON object — merged into the options the plugin has",
+                      else: "JSON object, optional"
+                  }
+                  value={@form.fields["opts"]}
+                  placeholder="{}"
+                  mono
+                  data-testid="input-plugin-opts"
+                />
+            <% end %>
+          <% end %>
 
           <div class="flex justify-between pt-2">
             <.button variant="ghost" phx-click="plugin_form_close" data-testid="attach-cancel-btn">

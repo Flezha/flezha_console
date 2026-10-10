@@ -750,17 +750,11 @@
                                                                                                                          "; does not answer."}
     </p>
     <%= case channel_form(@talk.channel) do %>
-      <% {:fields, fields} -> %>
-        <.input
-          :for={field <- fields}
-          type={field_input(field)}
-          step={(field.type == :integer && "1") || (field.type == :number && "any")}
-          name={"talk[value][#{field.name}]"}
-          label={field.name <> if(field.required, do: " *", else: "")}
-          value={@talk.fields["value"][field.name]}
-          prompt={field_options(field) && ""}
-          options={field_options(field)}
-          data-testid={"talk-field-#{field.name}"}
+      <% {:fields, specs} -> %>
+        <TypedFields.typed_inputs
+          specs={specs}
+          form={to_form(@talk.fields["value"], as: "talk[value]", errors: @talk.field_errors)}
+          testid="talk-field-"
         />
       <% :json -> %>
         <.input

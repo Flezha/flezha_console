@@ -27,6 +27,7 @@ defmodule FlezhaUiWeb.RelayLive do
   alias FlezhaUi.Format
   alias FlezhaUi.Service.EventFeed
   alias FlezhaUi.Service.NodeManager
+  alias FlezhaUiWeb.Live.TypedFields
   alias FlezhaUiWeb.Topology
 
   @impl true
@@ -277,6 +278,7 @@ defmodule FlezhaUiWeb.RelayLive do
         "value" => %{}
       },
       error: nil,
+      field_errors: [],
       waiting: nil
     }
 
@@ -308,7 +310,7 @@ defmodule FlezhaUiWeb.RelayLive do
         %{"talk" => params},
         %{assigns: %{talk: %{waiting: nil}}} = socket
       ) do
-    talk = talk_change(socket.assigns.talk, params, socket.assigns.api)
+    talk = %{talk_change(socket.assigns.talk, params, socket.assigns.api) | field_errors: []}
     %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
 
     case talk_request(talk, params["action"], {ns, id, token}) do
@@ -317,6 +319,9 @@ defmodule FlezhaUiWeb.RelayLive do
          socket
          |> assign(talk: %{talk | waiting: kind, error: nil})
          |> start_async(:talk, fn -> {kind, call.()} end)}
+
+      {:error, {:fields, errors}} ->
+        {:noreply, assign(socket, talk: %{talk | field_errors: errors})}
 
       {:error, message} ->
         {:noreply, assign(socket, talk: %{talk | error: message})}
@@ -705,8 +710,9 @@ defmodule FlezhaUiWeb.RelayLive do
   end
 
   # What a submit asks for, as its kind and the controller call to wait on, or
-  # the message naming the field that stops it. A call that cannot be made is
-  # refused here, before anything is sent.
+  # what stops it: a message, or `{:fields, errors}` for the generated fields
+  # that fail. A call that cannot be made is refused here, before anything is
+  # sent.
   defp talk_request(%{mode: :channel, channel: nil}, _action, _relay),
     do: {:error, "The relay's API announces no channel to call."}
 
@@ -763,9 +769,10 @@ defmodule FlezhaUiWeb.RelayLive do
   defp trimmed(value), do: String.trim(value || "")
 
   @doc """
-  How a channel's value is entered: `{:fields, fields}` generated from a flat
-  object schema, `:json` for any other JSON value, or `:text` for a channel
-  whose format is not JSON (text as typed, base64 for the binary formats).
+  How a channel's value is entered: `{:fields, specs}` generated from a flat
+  object schema as `FlezhaUiWeb.Live.TypedFields` specs, `:json` for any other
+  JSON value, or `:text` for a channel whose format is not JSON (text as typed,
+  base64 for the binary formats).
   """
   def channel_form(%{codec: "json", schema: schema}), do: schema_fields(schema)
   def channel_form(_channel), do: :text
@@ -780,7 +787,7 @@ defmodule FlezhaUiWeb.RelayLive do
       for {name, property} <- Enum.sort(properties),
           do: schema_field(name, property, name in required)
 
-    if Enum.all?(fields), do: {:fields, fields}, else: :json
+    if Enum.all?(fields) and TypedFields.fits?(fields), do: {:fields, fields}, else: :json
   end
 
   defp schema_fields(_schema), do: :json
@@ -788,61 +795,37 @@ defmodule FlezhaUiWeb.RelayLive do
   # An enum is chosen by its text and sent as the value the schema lists, so a
   # numeric or boolean enum keeps its type.
   defp schema_field(name, %{"enum" => values}, required) when is_list(values),
-    do: %{name: name, type: :enum, values: values, required: required}
+    do: %{name: name, kind: :enum, values: values, required: required}
 
   defp schema_field(name, %{"type" => type}, required)
        when type in ~w(string number integer boolean),
-       do: %{name: name, type: String.to_existing_atom(type), required: required}
+       do: %{name: name, kind: schema_kind(type), required: required}
 
   defp schema_field(_name, _property, _required), do: nil
 
+  defp schema_kind("string"), do: :string
+  defp schema_kind("number"), do: :number
+  defp schema_kind("integer"), do: :int
+  defp schema_kind("boolean"), do: :bool
+
   defp channel_value(channel, fields) do
     case channel_form(channel) do
-      {:fields, specs} -> object_value(specs, fields["value"] || %{})
-      :json -> json_value(fields["json"])
-      :text -> {:ok, fields["json"] || ""}
+      {:fields, specs} ->
+        specs
+        |> TypedFields.changeset(fields["value"] || %{}, required?: true)
+        |> TypedFields.values()
+        |> case do
+          {:ok, value} -> {:ok, value}
+          {:error, errors} -> {:error, {:fields, errors}}
+        end
+
+      :json ->
+        json_value(fields["json"])
+
+      :text ->
+        {:ok, fields["json"] || ""}
     end
   end
-
-  defp object_value(specs, typed) do
-    Enum.reduce_while(specs, {:ok, %{}}, fn spec, {:ok, acc} ->
-      case field_value(spec, trimmed(typed[spec.name])) do
-        :skip -> {:cont, {:ok, acc}}
-        {:ok, value} -> {:cont, {:ok, Map.put(acc, spec.name, value)}}
-        {:error, message} -> {:halt, {:error, message}}
-      end
-    end)
-  end
-
-  defp field_value(%{required: true, name: name}, ""), do: {:error, "#{name} is required."}
-  defp field_value(_spec, ""), do: :skip
-  defp field_value(%{type: :boolean}, raw), do: {:ok, raw == "true"}
-
-  defp field_value(%{type: :enum, values: values, name: name}, raw) do
-    case Enum.find(values, &(to_string(&1) == raw)) do
-      nil -> {:error, "#{name} must be one of #{Enum.map_join(values, ", ", &to_string/1)}."}
-      value -> {:ok, value}
-    end
-  end
-
-  defp field_value(%{type: :integer, name: name}, raw) do
-    case Integer.parse(raw) do
-      {int, ""} -> {:ok, int}
-      _invalid -> {:error, "#{name} must be a whole number."}
-    end
-  end
-
-  defp field_value(%{type: :number, name: name}, raw) do
-    case Float.parse(raw) do
-      {number, ""} ->
-        {:ok, if(String.contains?(raw, [".", "e", "E"]), do: number, else: trunc(number))}
-
-      _invalid ->
-        {:error, "#{name} must be a number."}
-    end
-  end
-
-  defp field_value(_text, raw), do: {:ok, raw}
 
   defp json_value(raw) do
     case Jason.decode(trimmed(raw)) do
@@ -854,15 +837,6 @@ defmodule FlezhaUiWeb.RelayLive do
   @doc "An answer as text: JSON for a decoded value, the payload as it came otherwise."
   def answer_text(value) when is_binary(value), do: Format.printable(value)
   def answer_text(value), do: Jason.encode!(value, pretty: true)
-
-  # The field a generated property is entered through.
-  defp field_input(%{type: :string}), do: "text"
-  defp field_input(%{type: type}) when type in [:number, :integer], do: "number"
-  defp field_input(_choice), do: "select"
-
-  defp field_options(%{type: :boolean}), do: ~w(true false)
-  defp field_options(%{type: :enum, values: values}), do: Enum.map(values, &to_string/1)
-  defp field_options(_typed), do: nil
 
   defp verdict_tone(:ok), do: "flz-badge flz-badge--positive"
   defp verdict_tone(:warning), do: "flz-badge flz-badge--warning"

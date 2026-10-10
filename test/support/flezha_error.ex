@@ -36,6 +36,12 @@ defmodule Flezha.Error do
     "plugin.id_taken" => :conflict,
     "plugin.unknown_options" => :invalid,
     "plugin.init_after_start" => :invalid,
+    "plugin.option_invalid" => :invalid,
+    "plugin.option_above_maximum" => :invalid,
+    "plugin.option_below_minimum" => :invalid,
+    "plugin.options_required" => :invalid,
+    "plugin.url_scheme_unsupported" => :invalid,
+    "plugin.option_requires" => :invalid,
     "schedule.invalid_timezone" => :invalid,
     "schedule.already_exists" => :conflict,
     "observability.disabled" => :unavailable,
@@ -64,9 +70,19 @@ defmodule Flezha.Error do
     "runner.untrackable" => :invalid
   }
 
-  @doc "An error for `code`, with the class the catalogue gives it."
-  def new(code, message \\ nil, hint \\ nil) do
+  @doc """
+  An error for `code`, with the class the catalogue gives it and its `details`
+  keyed by text, as core keeps them.
+  """
+  def new(code, message \\ nil, hint \\ nil, details \\ %{}) do
     class = Map.fetch!(@classes, code)
-    %__MODULE__{code: code, class: class, message: message || "#{code} (test)", hint: hint}
+
+    %__MODULE__{
+      code: code,
+      class: class,
+      message: message || "#{code} (test)",
+      hint: hint,
+      details: details
+    }
   end
 end

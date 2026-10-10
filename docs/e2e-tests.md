@@ -143,10 +143,20 @@ one.
 `relay_websocket`), so a broken provider fails under its own name.
 
 A plugin is enabled by name and bound to the relay in one call. The form offers
-the hooks the provider itself reports through `Fleet.provider/2`, and takes the
-provider's options as one JSON object beside the provider's own help text;
-option keys travel as text and the controller turns only the ones the provider
-declares into atoms.
+the hooks the provider itself reports through `Fleet.provider/2`, and one field
+per option the provider lists there, each of the control its type needs, with
+the option's description as its hint and its default as its placeholder. Only
+filled options are sent, in their types and keyed by text; the controller turns
+only the names the provider declares into atoms. The single JSON object field
+remains only for a controller that lists no options, which the dev stack never
+is, so that fallback is covered by ExUnit.
+
+The specs drive `relay_http_push` (a text, a selection, a JSON, a
+comma-separated and a bounded number field), `relay_io_filter` (a true/false
+selection) and `hook_webhook` through typed fields: a number outside its bounds
+is stated on its field before anything is sent, the controller's
+`plugin.url_scheme_unsupported` lands on the `url` field, and an update fills
+one option and says it restarts the plugin's copies.
 
 A plugin runs **on the controller**, inside the compose network, so options
 that name a service point at it there — Kafka at `fui_kafka:9092`, Postgres at

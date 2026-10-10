@@ -21,8 +21,8 @@ const RELAY_URL = '/namespaces/default/relays/testnet_store_1';
 
 interface ProviderCase {
   id: string;
-  /** The provider's options, as the JSON object the form takes. */
-  opts: Record<string, unknown>;
+  /** The provider's options, by name, as typed into each option's field. */
+  opts: Record<string, string>;
   /**
    * The hooks to bind on, of those the provider offers. A source binds
    * `on_terminate` only to tear down; `on_interval` would need an interval.
@@ -50,6 +50,17 @@ async function openConfigureForm(page: Page, providerId: string) {
   await page.getByTestId(`provider-btn-${providerId}`).click();
   await expect(page.getByTestId('input-plugin-name')).toBeVisible();
 }
+
+/** Types each option into its own field. */
+async function fillOptions(page: Page, opts: Record<string, string>) {
+  for (const [option, value] of Object.entries(opts)) {
+    await page.getByTestId(`input-option-${option}`).fill(value);
+  }
+}
+
+/** The error shown on an option's field, inside the field's own container. */
+const optionError = (page: Page, option: string) =>
+  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.flz-field-error');
 
 /** Ticks every hook the provider offers, which is what binds it on the record path. */
 async function chooseHooks(page: Page, hooks: ReadonlyArray<string> = ['on_output']) {
@@ -125,7 +136,7 @@ test.describe('Plugin attachment', () => {
         await openConfigureForm(page, id);
         await page.getByTestId('input-plugin-name').fill(name);
         await chooseHooks(page, hooks);
-        await page.getByTestId('input-plugin-opts').fill(JSON.stringify(opts));
+        await fillOptions(page, opts);
 
         await page.getByTestId('attach-submit-btn').click();
         await expectAttachAccepted(page, id);
@@ -152,31 +163,36 @@ test.describe('Plugin attachment', () => {
     await page.getByTestId('attach-cancel-btn').click();
   });
 
-  test('options that are not a JSON object are refused on the form', async ({ page }) => {
+  test('an option outside its bounds is refused on its field', async ({ page }) => {
     const before = await bindingIds(page);
 
-    await openConfigureForm(page, 'relay_stdout');
-    await page.getByTestId('input-plugin-opts').fill('[1, 2]');
+    await openConfigureForm(page, 'relay_http_push');
+    await chooseHooks(page);
+    await fillOptions(page, { url: 'http://fui_web:4000/dev/null', timeout_ms: '0' });
     await page.getByTestId('attach-submit-btn').click();
 
-    await expect(page.getByTestId('attach-error')).toContainText('JSON object');
+    await expect(optionError(page, 'timeout_ms')).toContainText('must be at least 1');
+    await expect(page.getByTestId('attach-error')).toHaveCount(0);
     await expect(page.getByTestId('attach-modal')).toBeVisible();
 
     await page.getByTestId('attach-cancel-btn').click();
     expect(await bindingIds(page)).toEqual(before);
   });
 
-  test("the controller's refusal is shown on the form with its code", async ({ page, live }) => {
+  test("the controller's refusal of an option is shown on its field with its code", async ({
+    page,
+    live,
+  }) => {
     const name = uniqueId('pw_refused');
 
     try {
-      await openConfigureForm(page, 'relay_stdout');
+      await openConfigureForm(page, 'hook_webhook');
       await page.getByTestId('input-plugin-name').fill(name);
-      await chooseHooks(page);
-      await page.getByTestId('input-plugin-opts').fill('{"no_such_option": 1}');
+      await chooseHooks(page, ['on_relay_started']);
+      await fillOptions(page, { url: 'ftp://fui_web/x' });
       await page.getByTestId('attach-submit-btn').click();
 
-      await expect(page.getByTestId('attach-error')).toContainText('plugin.');
+      await expect(optionError(page, 'url')).toContainText('(plugin.url_scheme_unsupported)');
       await expect(page.getByTestId('attach-modal')).toBeVisible();
 
       await page.getByTestId('attach-cancel-btn').click();

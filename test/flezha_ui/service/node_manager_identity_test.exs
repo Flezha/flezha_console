@@ -51,8 +51,19 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
                  code: "authz.role_insufficient",
                  class: :denied,
                  message: "no",
-                 hint: "ask for ops"
+                 hint: "ask for ops",
+                 details: %{}
                }
+    end
+
+    test "keeps the details a controller error carries, keyed by text" do
+      error =
+        Flezha.Error.new("plugin.option_invalid", "bad", nil, %{"option" => "url", "value" => 1})
+
+      assert %{code: "plugin.option_invalid", details: %{"option" => "url", "value" => 1}} =
+               NodeManager.error({:error, error})
+
+      assert %{details: %{}} = NodeManager.error(:node_not_connected)
     end
 
     test "gives the transport conditions the same shape" do

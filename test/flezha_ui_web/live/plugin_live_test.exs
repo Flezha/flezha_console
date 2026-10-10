@@ -604,6 +604,502 @@ defmodule FlezhaUiWeb.PluginLiveTest do
     end
   end
 
+  describe "option_specs/2" do
+    alias FlezhaUiWeb.Live.PluginForm
+
+    defp kind_of(type, extra \\ %{}) do
+      case PluginForm.option_specs(
+             [FakeController.option_row("o", Map.put(extra, :type, type))],
+             :enable
+           ) do
+        [%{kind: kind}] -> kind
+        [] -> nil
+      end
+    end
+
+    test "maps each option type to its field kind" do
+      assert kind_of(:int) == :int
+      assert kind_of(:bool) == :bool
+      assert kind_of(:enum, %{values: [:a, :b]}) == :enum
+      assert kind_of(:string) == :string
+      assert kind_of(:names) == :list
+      assert kind_of(:list) == :list
+      assert kind_of(:map) == :object
+      assert kind_of(:json) == :json
+      assert kind_of(:any) == :json
+      assert kind_of(:int, %{transient: true}) == :secret
+      assert kind_of(:pid) == nil
+    end
+
+    test "a type the console does not know is a JSON field, read without an atom" do
+      assert kind_of("duration") == :json
+      assert kind_of(:keyword) == :json
+    end
+
+    test "keeps the controller's order and reads names and declared keys as given" do
+      rows = [
+        FakeController.option_row(:timeout_ms, %{
+          type: :int,
+          required: true,
+          default: 5000,
+          min: 1,
+          max: 60_000,
+          doc: "Budget"
+        }),
+        FakeController.option_row("method", %{type: :enum, values: [:get, :put]})
+      ]
+
+      assert [
+               %{
+                 name: "timeout_ms",
+                 kind: :int,
+                 required: true,
+                 default: 5000,
+                 min: 1,
+                 max: 60_000,
+                 doc: "Budget"
+               },
+               %{name: "method", kind: :enum, values: [:get, :put], required: false, default: nil}
+             ] = PluginForm.option_specs(rows, :enable)
+    end
+
+    test "on update nothing is required and each hint says how a change is applied" do
+      rows = [
+        FakeController.option_row("timeout_ms", %{
+          type: :int,
+          required: true,
+          live: true,
+          doc: "Budget"
+        }),
+        FakeController.option_row("url", %{type: :string, required: true})
+      ]
+
+      assert [
+               %{name: "timeout_ms", required: false, doc: "Budget — changed in place"},
+               %{name: "url", required: false, doc: "a change restarts the plugin"}
+             ] = PluginForm.option_specs(rows, :update)
+    end
+  end
+
+  describe "typed options" do
+    @rows [
+      FakeController.option_row("url", %{type: :string, required: true, doc: "Where to send"}),
+      FakeController.option_row("method", %{
+        type: :enum,
+        values: [:get, :post, :put],
+        default: :post
+      }),
+      FakeController.option_row("timeout_ms", %{
+        type: :int,
+        min: 1,
+        max: 60_000,
+        default: 5000,
+        live: true,
+        doc: "Budget for one request"
+      }),
+      FakeController.option_row("retries", %{type: :int}),
+      FakeController.option_row("inverted", %{type: :bool, default: false}),
+      FakeController.option_row("channel", %{type: :names, default: ["a", "b"]}),
+      FakeController.option_row("channel_out", %{type: :list, doc: "Names, comma-separated"}),
+      FakeController.option_row("headers", %{type: :map, default: %{"x" => "1"}}),
+      FakeController.option_row("body", %{type: :json}),
+      FakeController.option_row("owner", %{type: :pid}),
+      FakeController.option_row("extra", %{type: :any})
+    ]
+
+    setup %{node: node} do
+      with_namespaces(node, %{
+        "default" => {:ok, [plugin("out_1", %{provider_id: "hook_webhook"})]}
+      })
+
+      providers(node, [provider("hook_webhook", :controller)], 0)
+      describe_provider(node, "hook_webhook", :controller, [:on_relay_started], @rows)
+      :ok
+    end
+
+    defp choose_webhook(conn) do
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
+      open_enable(view)
+      render_click(view, "plugin_form_provider", %{"provider" => "hook_webhook"})
+      view
+    end
+
+    defp option(name), do: ~s([data-testid="input-option-#{name}"])
+    defp option_error(name), do: option(name) <> " ~ .flz-field-error"
+
+    defp enable(view, opts, extra \\ %{}) do
+      render_submit(view, "plugin_form_submit", %{
+        "plugin" => Map.merge(%{"name" => "hooks_1", "opts" => opts}, extra)
+      })
+    end
+
+    test "each option is a field of the control its type needs", %{conn: conn} do
+      view = choose_webhook(conn)
+      html = render(view)
+
+      assert has_element?(view, option("url") <> ~s([type="text"]))
+      assert html =~ "url *"
+      assert has_element?(view, option("url") <> " ~ .flz-field-hint", "Where to send")
+
+      assert has_element?(
+               view,
+               option("timeout_ms") <>
+                 ~s([type="number"][step="1"][min="1"][max="60000"][placeholder="5000"])
+             )
+
+      assert has_element?(
+               view,
+               option("timeout_ms") <> " ~ .flz-field-hint",
+               "Budget for one request"
+             )
+
+      assert has_element?(view, ~s(select#{option("method")} option[value="put"]))
+      assert has_element?(view, ~s(select#{option("method")} option[value=""]), "default: post")
+      assert has_element?(view, ~s(select#{option("inverted")} option[value="true"]))
+
+      assert has_element?(
+               view,
+               ~s(select#{option("inverted")} option[value=""]),
+               "default: false"
+             )
+
+      assert has_element?(view, option("channel") <> ~s([type="text"][placeholder="a, b"]))
+      assert has_element?(view, option("channel") <> " ~ .flz-field-hint", "comma-separated")
+
+      assert has_element?(
+               view,
+               option("channel_out") <> " ~ .flz-field-hint",
+               ~r/^\s*Names, comma-separated\s*$/
+             )
+
+      assert has_element?(view, ~s(textarea#{option("headers")}[placeholder='{"x":"1"}']))
+      assert has_element?(view, ~s(textarea#{option("body")}))
+      assert has_element?(view, ~s(textarea#{option("extra")}))
+
+      refute has_element?(view, option("owner"))
+      refute has_element?(view, ~s([data-testid="input-plugin-opts"]))
+      assert has_element?(view, ~s(details[data-testid="provider-help"]))
+      refute has_element?(view, ~s(details[data-testid="provider-help"][open]))
+    end
+
+    test "enable sends exactly the filled options, typed and keyed by text", %{
+      conn: conn,
+      node: node
+    } do
+      view = choose_webhook(conn)
+
+      html =
+        enable(view, %{
+          "url" => "http://hooks.test",
+          "method" => "put",
+          "timeout_ms" => "2000",
+          "retries" => "",
+          "inverted" => "true",
+          "channel" => "a, b",
+          "headers" => "",
+          "body" => ~s({"k": [1]}),
+          "extra" => " "
+        })
+
+      assert html =~ "Plugin hooks_1 enabled."
+      assert [["hooks_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
+
+      assert fields[:opts] == %{
+               "url" => "http://hooks.test",
+               "method" => :put,
+               "timeout_ms" => 2000,
+               "inverted" => true,
+               "channel" => ["a", "b"],
+               "body" => %{"k" => [1]}
+             }
+    end
+
+    test "every check that fails is stated on its field and nothing is sent", %{
+      conn: conn,
+      node: node
+    } do
+      view = choose_webhook(conn)
+
+      enable(view, %{
+        "timeout_ms" => "0",
+        "retries" => "1.5",
+        "headers" => "[1, 2]",
+        "body" => "{"
+      })
+
+      assert has_element?(view, option_error("url"), "is required")
+      assert has_element?(view, option_error("timeout_ms"), "must be at least 1")
+      assert has_element?(view, option_error("retries"), "must be a whole number")
+      assert has_element?(view, option_error("headers"), "must be a JSON object")
+      assert has_element?(view, option_error("body"), "is not valid JSON")
+      refute has_element?(view, ~s([data-testid="attach-error"]))
+
+      enable(view, %{"url" => "http://hooks.test", "timeout_ms" => "60001"})
+      assert has_element?(view, option_error("timeout_ms"), "must be at most 60000")
+      refute has_element?(view, option_error("url"))
+
+      assert FakeController.calls(node, {PluginManager, :enable}) == []
+    end
+
+    test "a refusal naming an option is stated on its field", %{conn: conn, node: node} do
+      refuse(node, :enable, "plugin.url_scheme_unsupported", %{
+        "provider" => "hook_webhook",
+        "option" => "url",
+        "url" => "ftp://x"
+      })
+
+      view = choose_webhook(conn)
+      enable(view, %{"url" => "ftp://x"})
+
+      assert has_element?(
+               view,
+               option_error("url"),
+               "plugin.url_scheme_unsupported (test) (plugin.url_scheme_unsupported)"
+             )
+
+      refute has_element?(view, ~s([data-testid="attach-error"]))
+      assert has_element?(view, ~s([data-testid="attach-modal"]))
+    end
+
+    test "a refusal naming several options is stated on each", %{conn: conn, node: node} do
+      refuse(node, :enable, "plugin.options_required", %{
+        "provider" => "hook_webhook",
+        "options" => [:url, "headers"]
+      })
+
+      view = choose_webhook(conn)
+      enable(view, %{"url" => "http://hooks.test"})
+
+      assert has_element?(view, option_error("url"), "(plugin.options_required)")
+      assert has_element?(view, option_error("headers"), "(plugin.options_required)")
+      refute has_element?(view, option_error("body"))
+    end
+
+    test "a refusal naming no offered option stays on the form", %{conn: conn, node: node} do
+      refuse(node, :enable, "plugin.unknown_options", %{"options" => ["nope"]})
+
+      view = choose_webhook(conn)
+      enable(view, %{"url" => "http://hooks.test"})
+
+      assert has_element?(view, ~s([data-testid="attach-error"]), "plugin.unknown_options")
+      refute has_element?(view, ".flz-field-error")
+
+      FakeController.set(node, {PluginManager, :enable}, FakeController.error("plugin.id_taken"))
+      enable(view, %{"url" => "http://hooks.test"})
+      assert has_element?(view, ~s([data-testid="attach-error"]), "plugin.id_taken")
+    end
+
+    test "update offers every option, says how each applies and sends only what is filled", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {PluginManager, :update}, {:ok, %{applied: :live, relays: []}})
+      {:ok, view, _html} = live(conn, ~p"/plugins")
+      html = view |> element(~s([data-testid="plugin-update-out_1"])) |> render_click()
+
+      refute html =~ "url *"
+
+      assert has_element?(
+               view,
+               option("url") <> " ~ .flz-field-hint",
+               "a change restarts the plugin"
+             )
+
+      assert has_element?(view, option("timeout_ms") <> " ~ .flz-field-hint", "changed in place")
+      assert has_element?(view, option("headers"))
+
+      html =
+        render_submit(view, "plugin_form_submit", %{
+          "plugin" => %{"opts" => %{"timeout_ms" => "7000", "url" => ""}}
+        })
+
+      assert html =~ "Plugin out_1 updated: applied live."
+      assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :update})
+      assert fields[:opts] == %{"timeout_ms" => 7000}
+    end
+
+    test "a provider that lists no options is said to take none", %{conn: conn, node: node} do
+      describe_provider(node, "hook_webhook", :controller, [], [])
+      view = choose_webhook(conn)
+
+      assert has_element?(view, ~s([data-testid="plugin-no-options"]), "takes no options")
+      refute has_element?(view, ~s([data-testid="input-plugin-opts"]))
+
+      enable(view, %{})
+      assert [["hooks_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
+      assert fields[:opts] == %{}
+    end
+
+    test "an update of a provider that takes no options posts nothing and sends none", %{
+      conn: conn,
+      node: node
+    } do
+      describe_provider(node, "hook_webhook", :controller, [], [])
+
+      FakeController.set(
+        node,
+        {PluginManager, :update},
+        {:ok, %{applied: :unchanged, relays: []}}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/plugins")
+      view |> element(~s([data-testid="plugin-update-out_1"])) |> render_click()
+
+      assert render_submit(view, "plugin_form_submit", %{}) =~
+               "Plugin out_1 updated: nothing changed."
+
+      assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :update})
+      assert fields[:opts] == %{}
+    end
+
+    test "a controller that lists no options gets the JSON box, which takes an object", %{
+      conn: conn,
+      node: node
+    } do
+      describe_provider(node, "hook_webhook", :controller, [])
+      view = choose_webhook(conn)
+
+      assert has_element?(view, ~s([data-testid="input-plugin-opts"]))
+      assert has_element?(view, ~s(details[data-testid="provider-help"][open]))
+      refute has_element?(view, option("url"))
+
+      html = enable(view, "[1, 2]")
+      assert html =~ "Options must be a JSON object."
+      assert FakeController.calls(node, {PluginManager, :enable}) == []
+
+      refuse(node, :enable, "plugin.option_invalid", %{"option" => "url"})
+      enable(view, ~s({"url": 1}))
+      assert has_element?(view, ~s([data-testid="attach-error"]), "plugin.option_invalid")
+    end
+
+    test "more options than the form can hold fall back to the JSON box", %{
+      conn: conn,
+      node: node
+    } do
+      rows = for i <- 1..129, do: FakeController.option_row("o#{i}", %{type: :string})
+      describe_provider(node, "hook_webhook", :controller, [], rows)
+      view = choose_webhook(conn)
+
+      assert has_element?(view, ~s([data-testid="input-plugin-opts"]))
+      refute has_element?(view, option("o1"))
+    end
+  end
+
+  describe "secret options" do
+    @secret "s3cr3t-never-shown"
+
+    setup %{node: node} do
+      with_namespaces(node, %{
+        "default" => {:ok, [plugin("out_1", %{provider_id: "hook_webhook"})]}
+      })
+
+      providers(node, [provider("hook_webhook", :controller)], 0)
+
+      describe_provider(node, "hook_webhook", :controller, [], [
+        FakeController.option_row("url", %{type: :string, required: true}),
+        FakeController.option_row("api_key", %{type: :string, transient: true, doc: "The key"})
+      ])
+
+      :ok
+    end
+
+    defp secret_form(conn) do
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
+      open_enable(view)
+      render_click(view, "plugin_form_provider", %{"provider" => "hook_webhook"})
+      view
+    end
+
+    test "is a password field posted apart from the options", %{conn: conn} do
+      view = secret_form(conn)
+
+      assert has_element?(
+               view,
+               ~s(input[data-testid="input-option-api_key"][type="password"]) <>
+                 ~s([autocomplete="new-password"][name="plugin[secret][api_key]"])
+             )
+
+      refute has_element?(view, ~s(input[data-testid="input-option-api_key"][placeholder]))
+    end
+
+    test "is never rendered back: not after a change, a failed check or a refusal naming it", %{
+      conn: conn,
+      node: node
+    } do
+      refuse(
+        node,
+        :enable,
+        "plugin.option_invalid",
+        %{"option" => "api_key", "value" => @secret},
+        "option 'api_key' does not accept the value #{@secret}"
+      )
+
+      view = secret_form(conn)
+      secret = %{"api_key" => @secret}
+
+      html = render_change(view, "plugin_form_change", %{"plugin" => %{"secret" => secret}})
+      refute html =~ @secret
+
+      html = render_submit(view, "plugin_form_submit", %{"plugin" => %{"secret" => secret}})
+
+      assert has_element?(
+               view,
+               ~s([data-testid="input-option-url"] ~ .flz-field-error),
+               "is required"
+             )
+
+      refute html =~ @secret
+      assert FakeController.calls(node, {PluginManager, :enable}) == []
+
+      html =
+        render_submit(view, "plugin_form_submit", %{
+          "plugin" => %{
+            "name" => "hooks_1",
+            "opts" => %{"url" => "http://h.test"},
+            "secret" => secret
+          }
+        })
+
+      refute html =~ @secret
+      refute html =~ "does not accept"
+
+      assert has_element?(
+               view,
+               ~s([data-testid="input-option-api_key"] ~ .flz-field-error),
+               "The controller refused this value (plugin.option_invalid)."
+             )
+
+      assert [["hooks_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
+      assert fields[:opts] == %{"url" => "http://h.test", "api_key" => @secret}
+    end
+
+    test "an update sends it when filled and leaves it out when blank", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, ~p"/plugins")
+
+      for {secret, sent} <- [
+            {"", %{"url" => "http://h.test"}},
+            {@secret, %{"api_key" => @secret}}
+          ] do
+        view |> element(~s([data-testid="plugin-update-out_1"])) |> render_click()
+        opts = if secret == "", do: %{"url" => "http://h.test"}, else: %{}
+
+        render_submit(view, "plugin_form_submit", %{
+          "plugin" => %{"opts" => opts, "secret" => %{"api_key" => secret}}
+        })
+
+        assert [["out_1", fields, _ctx] | _] =
+                 node |> FakeController.calls({PluginManager, :update}) |> Enum.reverse()
+
+        assert fields[:opts] == sent
+      end
+    end
+
+    test "is filtered from the request and event logs" do
+      assert Phoenix.Logger.filter_values(%{"plugin" => %{"secret" => %{"api_key" => "x"}}}) ==
+               %{"plugin" => %{"secret" => "[FILTERED]"}}
+    end
+  end
+
   describe "where a plugin runs" do
     test "a single plugin, its controllers and the ones that lag are on its row", %{
       conn: conn,
@@ -649,6 +1145,14 @@ defmodule FlezhaUiWeb.PluginLiveTest do
         Flezha.Error.new("plugin.package_invalid", message, "flz plugin install --force")
       )
 
+  defp refuse(node, function, code, details, message \\ nil),
+    do:
+      FakeController.set(
+        node,
+        {PluginManager, function},
+        {:error, Flezha.Error.new(code, message, nil, details)}
+      )
+
   defp provider(id, type), do: %{id: id, module: "Flezha.Plugin.#{id}", type: type}
 
   defp providers(node, providers, refused),
@@ -659,12 +1163,14 @@ defmodule FlezhaUiWeb.PluginLiveTest do
         {:ok, %{providers: providers, refused: refused}}
       )
 
-  defp describe_provider(node, id, type, hooks) do
-    FakeController.set(
-      node,
-      {Fleet, :provider},
-      {:ok, %{provider: id, help: "#{id} options", type: type, hooks: hooks}}
-    )
+  # `:absent` answers as a controller that predates the option list.
+  defp describe_provider(node, id, type, hooks, options \\ :absent) do
+    described = %{provider: id, help: "#{id} options", type: type, hooks: hooks}
+
+    described =
+      if options == :absent, do: described, else: Map.put(described, :options, options)
+
+    FakeController.set(node, {Fleet, :provider}, {:ok, described})
   end
 
   defp open_enable(view),

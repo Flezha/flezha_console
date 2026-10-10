@@ -107,20 +107,29 @@ defmodule FlezhaUi.Service.NodeManager do
   # ---- Errors ----
 
   @doc """
-  Any error a call can answer, as `%{code:, class:, message:, hint:}`.
+  Any error a call can answer, as `%{code:, class:, message:, hint:, details:}`.
 
   A controller error is read by its fields: this node does not have the
-  `Flezha.Error` module, so it is matched as the map it is on the wire. The
-  transport conditions get the same shape, so a screen renders both one way.
+  `Flezha.Error` module, so it is matched as the map it is on the wire. Its
+  `details` keep the text keys core gives them, such as the option a refusal
+  is about. The transport conditions get the same shape with no details, so a
+  screen renders both one way.
   """
   def error({:error, reason}), do: error(reason)
 
-  def error(%{__struct__: Flezha.Error, code: code, class: class, message: message} = e),
-    do: %{code: code, class: class, message: message, hint: Map.get(e, :hint)}
+  def error(%{__struct__: Flezha.Error, code: code, class: class, message: message} = e) do
+    %{
+      code: code,
+      class: class,
+      message: message,
+      hint: Map.get(e, :hint),
+      details: Map.get(e, :details) || %{}
+    }
+  end
 
   # A diagnosis finding has this shape with a `level` in place of a class.
   def error(%{code: _, message: _} = error),
-    do: error |> Map.put_new(:class, nil) |> Map.put_new(:hint, nil)
+    do: error |> Map.put_new(:class, nil) |> Map.put_new(:hint, nil) |> Map.put_new(:details, %{})
 
   def error(:node_not_connected) do
     ui_error(
@@ -149,7 +158,7 @@ defmodule FlezhaUi.Service.NodeManager do
   def error(reason), do: ui_error("unexpected", :internal, "Error: #{inspect(reason)}")
 
   defp ui_error(code, class, message),
-    do: %{code: "ui." <> code, class: class, message: message, hint: nil}
+    do: %{code: "ui." <> code, class: class, message: message, hint: nil, details: %{}}
 
   @doc "Whether an answer is the controller refusing the caller."
   def denied?(answer), do: match?(%{class: :denied}, error(answer))
@@ -1447,7 +1456,12 @@ defmodule FlezhaUi.Service.NodeManager do
     end
   end
 
-  @doc "One provider's help text, its type and the hooks it supports."
+  @doc """
+  One provider's help text, its type, the hooks it supports and, from a
+  controller that publishes them, its `options`: one row per option an operator
+  can set, each with `name`, `type`, `required` and `doc`, and `default`,
+  `values`, `min`, `max`, `live` and `transient` when the option declares them.
+  """
   def provider(provider_id, token) do
     authorized_call(token, Flezha.Service.Fleet, :provider, [provider_id])
   end
