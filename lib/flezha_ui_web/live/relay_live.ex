@@ -12,11 +12,12 @@ defmodule FlezhaUiWeb.RelayLive do
   use FlezhaUiWeb.Live.PluginForm
 
   # The graph and the relay's own facts are what the screen is for; the API,
-  # the task journal, the input log, the SDK state and the bindings are what an
-  # operator goes looking for, so they start folded away.
+  # the calls, the task journal, the input log, the SDK state and the bindings
+  # are what an operator goes looking for, so they start folded away.
   use FlezhaUiWeb.Live.Sections,
     open: %{
       "api" => false,
+      "calls" => false,
       "journal" => false,
       "input-log" => false,
       "sdk-state" => false,
@@ -60,7 +61,9 @@ defmodule FlezhaUiWeb.RelayLive do
         diagnosis_error: nil,
         api: [],
         api_error: nil,
-        talk: nil
+        calls: nil,
+        talk: nil,
+        talk_results: []
       )
       |> load_data()
       |> load_completion()
@@ -94,19 +97,12 @@ defmodule FlezhaUiWeb.RelayLive do
   def handle_event("graph_tap", %{"direction" => direction}, socket)
       when direction in ~w(input output) do
     socket = close_tap(socket)
-    %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
-
-    {:ok, feed} =
-      EventFeed.start_link(
-        open: &NodeManager.listen(ns, id, String.to_existing_atom(direction), token, &1),
-        to: {:send, self(), :payload_tap}
-      )
 
     {:noreply,
      assign(socket,
        tap: %{
          direction: direction,
-         feed: feed,
+         feed: listen_feed(socket, String.to_existing_atom(direction), :payload_tap),
          started_at: System.monotonic_time(:millisecond),
          count: 0,
          bytes: 0,
@@ -120,6 +116,14 @@ defmodule FlezhaUiWeb.RelayLive do
   @impl true
   def handle_event("graph_tap_close", _params, socket) do
     {:noreply, close_tap(socket)}
+  end
+
+  # Only an open panel listens, whatever the client sends.
+  @impl true
+  def handle_event("calls_reopen", _params, socket) do
+    if socket.assigns.sections["calls"],
+      do: {:noreply, open_calls(socket)},
+      else: {:noreply, socket}
   end
 
   @impl true
@@ -273,8 +277,7 @@ defmodule FlezhaUiWeb.RelayLive do
         "value" => %{}
       },
       error: nil,
-      waiting: nil,
-      result: nil
+      waiting: nil
     }
 
     {:noreply, assign(socket, talk: talk)}
@@ -291,8 +294,7 @@ defmodule FlezhaUiWeb.RelayLive do
 
   @impl true
   def handle_event("talk_mode", %{"mode" => mode}, socket) when mode in ~w(channel raw) do
-    {:noreply,
-     update(socket, :talk, &%{&1 | mode: String.to_existing_atom(mode), error: nil, result: nil})}
+    {:noreply, update(socket, :talk, &%{&1 | mode: String.to_existing_atom(mode), error: nil})}
   end
 
   @impl true
@@ -313,11 +315,11 @@ defmodule FlezhaUiWeb.RelayLive do
       {:ok, kind, call} ->
         {:noreply,
          socket
-         |> assign(talk: %{talk | waiting: kind, error: nil, result: nil})
+         |> assign(talk: %{talk | waiting: kind, error: nil})
          |> start_async(:talk, fn -> {kind, call.()} end)}
 
       {:error, message} ->
-        {:noreply, assign(socket, talk: %{talk | error: message, result: nil})}
+        {:noreply, assign(socket, talk: %{talk | error: message})}
     end
   end
 
@@ -328,25 +330,51 @@ defmodule FlezhaUiWeb.RelayLive do
   def handle_async(:talk, _result, %{assigns: %{talk: nil}} = socket), do: {:noreply, socket}
 
   def handle_async(:talk, {:ok, {kind, {:ok, answer}}}, socket) do
-    {:noreply, update(socket, :talk, &%{&1 | waiting: nil, result: {kind, answer}, error: nil})}
+    {:noreply, talk_result(socket, %{kind: kind, answer: answer})}
   end
 
-  def handle_async(:talk, {:ok, {_kind, {:error, reason}}}, socket) do
-    {:noreply, update(socket, :talk, &%{&1 | waiting: nil, result: nil, error: reason})}
+  def handle_async(:talk, {:ok, {kind, {:error, reason}}}, socket) do
+    {:noreply, talk_result(socket, %{kind: kind, error: reason})}
   end
 
   def handle_async(:talk, {:exit, reason}, socket) do
     {:noreply,
-     update(socket, :talk, &%{&1 | waiting: nil, result: nil, error: {:remote_error, reason}})}
+     talk_result(socket, %{kind: socket.assigns.talk.waiting, error: {:remote_error, reason}})}
   end
+
+  # Kept outside `@talk`, so closing the dialog keeps this session's results.
+  @talk_results_max 10
+
+  defp talk_result(socket, result) do
+    result = Map.put(result, :at, DateTime.utc_now())
+
+    socket
+    |> update(:talk, &%{&1 | waiting: nil})
+    |> update(:talk_results, &Enum.take([result | &1], @talk_results_max))
+  end
+
+  # ---- Calls ----
+  #
+  # A listen on the relay's calls, held by a feed linked to this screen while
+  # the Calls section is open: folding it or leaving the page ends the listen.
+  # Core audits every listen, so none is held while nobody looks.
 
   def section_opened(socket, "api"), do: load_api(socket)
   def section_opened(socket, "input-log"), do: load_inbox(socket)
+  def section_opened(socket, "calls"), do: open_calls(socket)
   def section_opened(socket, _key), do: socket
+
+  def section_closed(socket, "calls"), do: close_calls(socket)
+  def section_closed(socket, _key), do: socket
 
   @impl true
   def handle_info({kind, :payload_tap, event}, %{assigns: %{tap: %{} = tap}} = socket) do
     {:noreply, assign(socket, tap: tap_event(tap, kind, event))}
+  end
+
+  @impl true
+  def handle_info({kind, :call_activity, event}, %{assigns: %{calls: %{} = calls}} = socket) do
+    {:noreply, assign(socket, calls: call_event(calls, kind, event))}
   end
 
   @impl true
@@ -374,6 +402,125 @@ defmodule FlezhaUiWeb.RelayLive do
     EventFeed.stop(tap.feed, :payload_tap)
     assign(socket, tap: nil)
   end
+
+  defp listen_feed(socket, direction, tag) do
+    %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
+    EventFeed.listen(ns, id, direction, token, tag)
+  end
+
+  # The listed calls outlive the listen: reopening goes on listing above them.
+  defp open_calls(socket) do
+    if NodeManager.granted?(socket.assigns.operations, "Relay.listen") do
+      socket = close_calls(socket)
+      feed = listen_feed(socket, :calls, :call_activity)
+      calls = socket.assigns.calls || %{entries: [], seq: 0}
+
+      assign(socket,
+        calls: Map.merge(calls, %{feed: feed, attached?: false, error: nil, ended?: false})
+      )
+    else
+      socket
+    end
+  end
+
+  defp close_calls(%{assigns: %{calls: %{feed: feed} = calls}} = socket) when is_pid(feed) do
+    EventFeed.stop(feed, :call_activity)
+    assign(socket, calls: stopped(calls))
+  end
+
+  defp close_calls(socket), do: socket
+
+  @calls_max 50
+  @call_payload_chars 500
+
+  # The per-panel `seq`, not the call id, names a row: a relay's call retried
+  # by its delivery repeats its id.
+  defp call_event(calls, :feed_event, {:call, payload, meta}) do
+    entry = %{
+      seq: calls.seq + 1,
+      call_id: meta["flz.call_id"],
+      source: meta["flz.call_source"],
+      caller: meta["flz.call_caller"],
+      channel: meta["channel"],
+      payload: call_payload(payload),
+      at: call_at(meta["flz.call_at"]),
+      outcome: nil
+    }
+
+    %{calls | seq: entry.seq, entries: Enum.take([entry | calls.entries], @calls_max)}
+  end
+
+  # An outcome completes the newest waiting call of its id. One whose call is
+  # not listed was taken before the panel opened, or has left the list.
+  defp call_event(calls, :feed_event, {kind, value, meta})
+       when kind in [:answered, :timed_out, :refused] do
+    id = meta["flz.call_id"]
+
+    case Enum.find_index(calls.entries, &(&1.call_id == id and is_nil(&1.outcome))) do
+      nil ->
+        calls
+
+      index ->
+        outcome = call_outcome(kind, value, meta)
+        %{calls | entries: List.update_at(calls.entries, index, &%{&1 | outcome: outcome})}
+    end
+  end
+
+  defp call_event(calls, :feed_event, :attached), do: %{calls | attached?: true}
+  defp call_event(calls, :feed_error, reason), do: %{stopped(calls) | error: reason}
+  defp call_event(calls, :feed_ended, _answer), do: %{stopped(calls) | ended?: true}
+  defp call_event(calls, _kind, _event), do: calls
+
+  # A call still waiting when its listen stops can no longer hear its outcome,
+  # and a later listen may miss it, so it stays unheard.
+  defp stopped(calls) do
+    unheard = %{kind: :not_heard, channel: nil, payload: nil, error: nil, duration_ms: nil}
+    entries = Enum.map(calls.entries, &if(&1.outcome, do: &1, else: %{&1 | outcome: unheard}))
+    %{calls | feed: nil, attached?: false, entries: entries}
+  end
+
+  # An answer carries its payload; a timeout or a refusal, its error.
+  defp call_outcome(kind, value, meta) do
+    %{
+      kind: kind,
+      channel: meta["channel"],
+      payload: if(kind == :answered, do: call_payload(value)),
+      error: if(kind != :answered, do: value),
+      duration_ms: meta["flz.call_duration_ms"]
+    }
+  end
+
+  # Bounded, so a busy relay's large payloads do not grow the screen's memory.
+  defp call_payload(payload),
+    do: %{
+      text: Format.printable(payload, limit: @call_payload_chars),
+      bytes: Format.payload_bytes(payload)
+    }
+
+  defp call_at(ms) when is_integer(ms), do: DateTime.from_unix!(ms, :millisecond)
+  defp call_at(_absent), do: DateTime.utc_now()
+
+  @call_sources %{
+    "ui" => "UI",
+    "cli" => "CLI",
+    "sdk" => "SDK",
+    "http" => "HTTP",
+    "mcp" => "MCP",
+    "plugin" => "plugin",
+    "relay" => "relay",
+    "internal" => "internal"
+  }
+
+  # A source the console does not know reads as sent.
+  defp call_source(source), do: Map.get(@call_sources, source, to_string(source || "unknown"))
+
+  defp call_verdict(%{outcome: nil}), do: {"waiting", "flz-badge"}
+  defp call_verdict(%{outcome: %{kind: :answered}}), do: {"answered", verdict_tone(:ok)}
+  defp call_verdict(%{outcome: %{kind: :timed_out}}), do: {"timed out", verdict_tone(:warning)}
+  defp call_verdict(%{outcome: %{kind: :refused}}), do: {"refused", verdict_tone(:problem)}
+
+  defp call_verdict(%{outcome: %{kind: :not_heard}}),
+    do: {"outcome not heard", verdict_tone(:warning)}
 
   # Read when the screen opens and when the API section opens, never on the
   # tick: the answer changes only when a runner announces again. The dead

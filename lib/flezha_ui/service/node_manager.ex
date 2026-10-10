@@ -1592,11 +1592,15 @@ defmodule FlezhaUi.Service.NodeManager do
   # ---- Listen ----
 
   @doc """
-  Opens a listen on a relay's `:output` or `:input` for `emit_pid`, which
-  receives `:attached` and then each frame. See `authorized_stream/5`.
+  Opens a listen on a relay's `:output`, `:input` or `:calls` for `emit_pid`,
+  which receives `:attached` and then each frame. A `:calls` listen hands on,
+  for each call the relay takes, `{:call, request, md}` and then one of
+  `{:answered, answer, md}`, `{:timed_out, error, md}` or
+  `{:refused, error, md}`, paired by `md["flz.call_id"]`. See
+  `authorized_stream/5`.
   """
   def listen(namespace, relay_id, direction, token, emit_pid)
-      when direction in [:output, :input] do
+      when direction in [:output, :input, :calls] do
     authorized_stream(
       token,
       Flezha.Service.Relay,

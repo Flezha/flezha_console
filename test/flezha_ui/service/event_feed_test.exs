@@ -174,12 +174,7 @@ defmodule FlezhaUi.Service.EventFeedTest do
 
     test "delivers events, then the operation's own answer", %{node: node} do
       key = {Flezha.Service.Relay, :listen}
-
-      {:ok, _feed} =
-        EventFeed.start_link(
-          open: &NodeManager.listen("default", "r1", :output, nil, &1),
-          to: {:send, self(), :listen}
-        )
+      EventFeed.listen("default", "r1", :output, nil, :listen)
 
       assert_receive {:feed_event, :listen, :attached}
 
@@ -188,6 +183,18 @@ defmodule FlezhaUi.Service.EventFeedTest do
 
       FakeController.end_stream(node, key, {:ok, :done})
       assert_receive {:feed_ended, :listen, {:ok, :done}}
+    end
+
+    test "a calls listen asks the controller for the calls direction", %{node: node} do
+      key = {Flezha.Service.Relay, :listen}
+
+      EventFeed.listen("default", "r1", :calls, nil, :listen)
+
+      assert_receive {:feed_event, :listen, :attached}
+      assert [["default", "r1", :calls, [], %{source: :ui}]] = FakeController.calls(node, key)
+
+      FakeController.emit(node, key, {:call, "ping", %{"flz.call_id" => "c1"}})
+      assert_receive {:feed_event, :listen, {:call, "ping", %{"flz.call_id" => "c1"}}}
     end
   end
 

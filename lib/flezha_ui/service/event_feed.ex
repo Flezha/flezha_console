@@ -81,6 +81,21 @@ defmodule FlezhaUi.Service.EventFeed do
     )
   end
 
+  @doc """
+  A feed linked to the caller, holding a listen on `relay_id`'s `direction`
+  (`NodeManager.listen/5`) and sending to the caller under `tag`: leaving
+  the screen that started it ends the listen on the controller.
+  """
+  def listen(namespace, relay_id, direction, token, tag) do
+    {:ok, feed} =
+      start_link(
+        open: &NodeManager.listen(namespace, relay_id, direction, token, &1),
+        to: {:send, self(), tag}
+      )
+
+    feed
+  end
+
   @doc "The PubSub topic runner session events are broadcast on."
   def topic, do: topic(:flezha_runner)
 

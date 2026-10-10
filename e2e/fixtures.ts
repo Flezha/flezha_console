@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { test as base, expect, type Page } from '@playwright/test';
 import { submitLogin } from './global-setup';
 
@@ -6,6 +7,34 @@ export function uniqueId(prefix: string): string {
   const ts = Date.now().toString(36).slice(-4);
   const rand = Math.random().toString(36).slice(2, 5);
   return `${prefix}_${ts}_${rand}`;
+}
+
+/**
+ * Runs the published operation `door` on the dev controller as `flz` sends it
+ * (`priv/dev/cli_call.exs` inside `fui_web`), so the controller sees a CLI
+ * call, and answers its parsed JSON. Throws with the script's output when the
+ * operation fails.
+ */
+export function cliCall(door: string, args: unknown[]): unknown {
+  const argv = [
+    'exec',
+    'fui_web',
+    'elixir',
+    '--sname',
+    uniqueId('pw_cli'),
+    '--cookie',
+    'flezha_dev_cookie',
+    '/flezha_ui/priv/dev/cli_call.exs',
+    door,
+    JSON.stringify(args),
+  ];
+
+  try {
+    return JSON.parse(execFileSync('docker', argv, { encoding: 'utf8', stdio: 'pipe' }));
+  } catch (error) {
+    const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string };
+    throw new Error(`cliCall ${door} failed:\n${stdout}${stderr}`);
+  }
 }
 
 /**

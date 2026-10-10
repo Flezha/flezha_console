@@ -295,6 +295,79 @@
     </div>
   </.panel>
 
+  <%!-- Calls made to the relay from anywhere, as they happen --%>
+  <.panel
+    :if={is_nil(@completion) and NodeManager.granted?(@operations, "Relay.listen")}
+    fold="calls"
+    open={@sections["calls"]}
+    testid="calls-panel"
+    icon="hero-arrows-right-left"
+  >
+    <:title>Calls</:title>
+    <div :if={@calls} class="flz-panel-body space-y-3">
+      <div :if={@calls.error} data-testid="calls-error">
+        <.runtime_error error={@calls.error} action="listening to calls" />
+      </div>
+      <p :if={@calls.ended?} data-testid="calls-ended" class="text-xs text-th-muted">
+        No longer listening: the relay stopped or the controller let the listen go.
+      </p>
+      <button
+        :if={is_nil(@calls.feed)}
+        type="button"
+        phx-click="calls_reopen"
+        data-testid="calls-reopen"
+        class="flz-button flz-button--sm flz-button--ghost"
+      >
+        <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> Listen again
+      </button>
+      <p
+        :if={is_pid(@calls.feed) and not @calls.attached?}
+        data-testid="calls-starting"
+        class="text-sm text-th-muted"
+      >
+        Starting to listen…
+      </p>
+      <p
+        :if={@calls.entries == [] and @calls.attached?}
+        data-testid="calls-listening"
+        class="text-sm text-th-muted"
+      >
+        Listening for calls to this relay from anywhere. Calls made before this panel opened
+        are not shown.
+      </p>
+      <ol :if={@calls.entries != []} class="divide-y divide-brd-subtle">
+        <li
+          :for={{entry, {verdict, tone}} <- Enum.map(@calls.entries, &{&1, call_verdict(&1)})}
+          data-testid={"call-entry-#{entry.seq}"}
+          data-call-id={entry.call_id}
+          class="py-2 space-y-2"
+        >
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span class="flz-num text-th-muted">{Format.time_of_day(entry.at)}</span>
+            <span data-testid={"call-source-#{entry.seq}"} class="flz-badge">
+              {call_source(entry.source)}
+            </span>
+            <span :if={entry.caller} class="flz-num text-th-secondary">{entry.caller}</span>
+            <span class="flz-num">{entry.channel || "—"}</span>
+            <span class="flz-num text-th-muted">{Format.bytes(entry.payload.bytes)}</span>
+            <span data-testid={"call-outcome-#{entry.seq}"} class={tone}>{verdict}</span>
+            <span :if={entry.outcome && entry.outcome.duration_ms} class="flz-num text-th-muted">
+              {Format.duration(entry.outcome.duration_ms)}
+            </span>
+          </div>
+          <pre class="flz-code flz-code--wrap">{entry.payload.text}</pre>
+          <div :if={entry.outcome && entry.outcome.kind == :answered} class="space-y-1">
+            <p class="text-xs text-th-muted">
+              Answer on <span class="font-mono">{entry.outcome.channel || "—"}</span>
+            </p>
+            <pre class="flz-code flz-code--wrap">{entry.outcome.payload.text}</pre>
+          </div>
+          <.runtime_error :if={entry.outcome && entry.outcome.error} error={entry.outcome.error} />
+        </li>
+      </ol>
+    </div>
+  </.panel>
+
   <%!-- Completion record: a finished relay is not in the registry at all --%>
   <.panel :if={@completion} testid="completion-record" icon="hero-flag">
     <:title>Finished relay</:title>
@@ -653,35 +726,6 @@
     act on what was sent.
   </.notice>
 
-  <div :if={@talk.result} data-testid="talk-result" class="mb-4 space-y-2">
-    <%= case @talk.result do %>
-      <% {:send, %{verdict: :delivered} = sent} -> %>
-        <.notice icon="hero-check-circle">Delivered to <.mono>{sent.to}</.mono>.</.notice>
-      <% {:send, %{verdict: :absorbed} = sent} -> %>
-        <.notice>
-          <.mono>{sent.to}</.mono>
-          absorbed it as a duplicate: its input log already holds that message id.
-        </.notice>
-      <% {:send, %{verdict: :suspended} = sent} -> %>
-        <.notice>
-          <.mono>{sent.to}</.mono>
-          is suspended; the message is journaled until the instance wakes.
-        </.notice>
-      <% {:call, answer} -> %>
-        <p class="text-xs text-th-muted">
-          Answer on <span class="font-mono">{answer.channel || "—"}</span>
-        </p>
-        <pre data-testid="talk-answer" class="flz-code flz-code--wrap">{answer_text(answer.payload)}</pre>
-      <% {:channel, %{accepted: true}} -> %>
-        <.notice icon="hero-check-circle">The relay accepted the input.</.notice>
-      <% {:channel, answer} -> %>
-        <p class="text-xs text-th-muted">
-          Answer, <span class="font-mono">{answer.answer_codec}</span>
-        </p>
-        <pre data-testid="talk-answer" class="flz-code flz-code--wrap">{answer_text(answer.answer)}</pre>
-    <% end %>
-  </div>
-
   <form
     :if={@talk.mode == :channel and @talk.channel}
     phx-change="talk_change"
@@ -833,6 +877,46 @@
       </.button>
     </div>
   </form>
+
+  <div :if={@talk_results != []} data-testid="talk-results" class="mt-6 space-y-3">
+    <p class="flz-label">This session</p>
+    <ol class="space-y-3">
+      <li :for={result <- @talk_results} data-testid="talk-result" class="space-y-2">
+        <p class="text-xs text-th-muted font-mono">{Format.time_of_day(result.at)}</p>
+        <%= case result do %>
+          <% %{error: error} -> %>
+            <.runtime_error
+              error={error}
+              action={if result.kind == :send, do: "the send", else: "the call"}
+            />
+          <% %{kind: :send, answer: %{verdict: :delivered} = sent} -> %>
+            <.notice icon="hero-check-circle">Delivered to <.mono>{sent.to}</.mono>.</.notice>
+          <% %{kind: :send, answer: %{verdict: :absorbed} = sent} -> %>
+            <.notice>
+              <.mono>{sent.to}</.mono>
+              absorbed it as a duplicate: its input log already holds that message id.
+            </.notice>
+          <% %{kind: :send, answer: %{verdict: :suspended} = sent} -> %>
+            <.notice>
+              <.mono>{sent.to}</.mono>
+              is suspended; the message is journaled until the instance wakes.
+            </.notice>
+          <% %{kind: :call, answer: answer} -> %>
+            <p class="text-xs text-th-muted">
+              Answer on <span class="font-mono">{answer.channel || "—"}</span>
+            </p>
+            <pre data-testid="talk-answer" class="flz-code flz-code--wrap">{answer_text(answer.payload)}</pre>
+          <% %{kind: :channel, answer: %{accepted: true}} -> %>
+            <.notice icon="hero-check-circle">The relay accepted the input.</.notice>
+          <% %{kind: :channel, answer: answer} -> %>
+            <p class="text-xs text-th-muted">
+              Answer, <span class="font-mono">{answer.answer_codec}</span>
+            </p>
+            <pre data-testid="talk-answer" class="flz-code flz-code--wrap">{answer_text(answer.answer)}</pre>
+        <% end %>
+      </li>
+    </ol>
+  </div>
 </.dialog>
 
 <.dialog :if={@rewind_target} testid="rewind-modal" size="confirm">

@@ -44,8 +44,9 @@ defmodule FlezhaUi.Format do
     }
   end
 
-  defp payload_bytes(payload) when is_binary(payload), do: byte_size(payload)
-  defp payload_bytes(payload), do: payload |> :erlang.term_to_binary() |> byte_size()
+  @doc "A payload's size as it crossed the wire: its bytes, or its external term's."
+  def payload_bytes(payload) when is_binary(payload), do: byte_size(payload)
+  def payload_bytes(payload), do: payload |> :erlang.term_to_binary() |> byte_size()
 
   @doc """
   A duration in milliseconds, to the two largest units that apply.
@@ -110,9 +111,14 @@ defmodule FlezhaUi.Format do
   def timestamp(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S %Z")
   def timestamp(other), do: to_string(other)
 
-  @doc "A wall-clock time, for a live stream where only the time of day matters."
+  @doc "A wall-clock time to the millisecond, for a live stream where only the time of day matters."
   def time_of_day(%DateTime{} = dt) do
-    dt |> Calendar.strftime("%H:%M:%S.%f") |> String.slice(0..-4//1)
+    Calendar.strftime(dt, "%H:%M:%S.") <>
+      (dt.microsecond
+       |> elem(0)
+       |> div(1_000)
+       |> Integer.to_string()
+       |> String.pad_leading(3, "0"))
   end
 
   def time_of_day(_other), do: "—"

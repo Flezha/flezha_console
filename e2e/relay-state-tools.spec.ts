@@ -24,7 +24,9 @@ async function feed(page: Page, payload: string): Promise<void> {
   await page.getByTestId('talk-mode-raw').click();
   await page.getByTestId('talk-payload').fill(payload);
   await page.getByTestId('talk-send-btn').click();
-  await expect(page.getByTestId('talk-result')).toContainText('Delivered to', { timeout: 20_000 });
+  await expect(page.getByTestId('talk-result').first()).toContainText('Delivered to', {
+    timeout: 20_000,
+  });
   await page.getByTestId('talk-close-btn').click();
 }
 

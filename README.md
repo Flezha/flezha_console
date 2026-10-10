@@ -48,7 +48,7 @@ reading the namespace from the path instead of from a filter control.
 | `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
 | `/relays` | **Fleet** — every relay across every reachable namespace, filterable by namespace, health and run; starts one into any of them; the relay lifecycle feed as it happens |
-| `/namespaces/:ns/relays/:id` | Factory, runner, run, uptime, health, node, pipeline graph, steps panel, diagnosis on request; the relay's API, task journal, input log and its records, cell state and plugins as sections that fold; send to the relay, call it, or call an entry channel from a form built from its schema |
+| `/namespaces/:ns/relays/:id` | Factory, runner, run, uptime, health, node, pipeline graph, steps panel, diagnosis on request; the relay's API, the calls made to it from anywhere (source, payload, answer or failure, duration) as they happen, task journal, input log and its records, cell state and plugins as sections that fold; send to the relay, call it, or call an entry channel from a form built from its schema, keeping this visit's results |
 | `/namespaces/:ns/relays/:id/listen` | The relay's live outputs or inputs |
 | `/namespaces/:ns/relays/:id/state` | Durable cells with their WAL/snapshot sequences and durability lag; point-in-time reads, a cell's outbox, replay from a point (flow relays), rotate, delete; history and finished-instance retention, the former settable |
 | `/plugins` | Enabled plugins per namespace, and the packages installed on the controller with their providers and why one was refused |
@@ -199,6 +199,9 @@ Useful commands:
 docker exec fui_web mix compile                      # after editing .ex files
 docker logs fui_web 2>&1 | grep EventFeed            # signal feed status
 docker attach flezha_controller                      # controller iex (detach: Ctrl+P Ctrl+Q)
+docker exec fui_web elixir --sname cli1 --cookie flezha_dev_cookie \
+  /flezha_ui/priv/dev/cli_call.exs Relay.call_channel \
+  '["default","orders","place",{"pair":"BTC-EUR","amount":1},{}]'   # call as flz does
 ```
 
 ## Tests
@@ -373,8 +376,9 @@ Runner connects and disconnects are observability signals on `:flezha_runner`,
 which a supervised feed tails and broadcasts on `"flezha:events"`; relay starts,
 stops and exits on `:flezha_relay` get a supervised feed of their own, on
 `"flezha:relays"`, which only the relays index hears; the audit
-and observability tails, the listen screen and the pipeline graph's payload tap
-each hold a feed linked to the screen. The controller watches the feed's pid,
+and observability tails, the listen screen, the pipeline graph's payload tap
+and the relay screen's Calls section (a `:calls` listen, held only while the
+section is open) each hold a feed linked to the screen. The controller watches the feed's pid,
 so stopping the feed — or closing the screen — releases the subscription. There
 is no second mechanism. `EventFeed.stop/2` also drops what the feed already
 sent under its tag, so a screen that replaces a feed never hears the old one,

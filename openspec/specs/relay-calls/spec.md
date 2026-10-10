@@ -135,3 +135,99 @@ The state screen SHALL let an operator replay a selected cell of a flow relay fr
 - **WHEN** an operator opens the replay confirmation and dismisses it
 - **THEN** no call is made
 
+### Requirement: Calls to a relay are shown as they happen
+
+The relay detail screen SHALL offer a folded Calls panel that, while open, lists the calls made to the relay from any source, as core reports them through `Flezha.Service.Relay.listen/5` with the direction `:calls`. Each call SHALL be shown with:
+- the time it arrived;
+- its source as a badge (UI, CLI, SDK, HTTP, MCP, plugin, relay or internal), and for a call from another relay, that relay;
+- its entry channel and its payload;
+- once its outcome arrives, the outcome (answered with the answer's channel and payload, timed out, or refused with the error's code) and the call's duration.
+
+A call and its outcome SHALL be paired by their call id, an outcome completing the newest listed call of that id still waiting, so a retried call shows one row per attempt. A call whose outcome has not arrived SHALL be shown as waiting. Calls SHALL be listed newest first, and only the most recent fifty SHALL be kept. An outcome whose call is not listed SHALL be ignored. When the listen ends, is refused or the panel folds, a call still waiting SHALL be shown as having no outcome heard, and SHALL stay so when the panel listens again. The panel SHALL say it is listening only once the controller holds the listen. The panel SHALL be offered, and its listen opened, only when the operations the bound role is granted include `Relay.listen`. The panel SHALL NOT be offered for a relay that has finished.
+
+#### Scenario: A call from the terminal
+
+- **WHEN** the Calls panel is open and the relay is called through `flz`
+- **THEN** a row appears with a CLI badge, the entry channel and the payload, shown as waiting
+- **AND** when the relay answers, the row shows answered, the answer and the duration
+
+#### Scenario: A call from the console
+
+- **WHEN** the Calls panel is open and an operator calls the relay from the call dialog
+- **THEN** a row appears with a UI badge
+
+#### Scenario: A call that times out
+
+- **WHEN** a call to the relay reaches its deadline without an answer
+- **THEN** its row shows timed out and the duration
+
+#### Scenario: A refused call
+
+- **WHEN** core reports a call's outcome as refused
+- **THEN** its row shows refused with the error's code
+
+#### Scenario: A call from another relay
+
+- **WHEN** another relay calls the relay
+- **THEN** its row carries a relay badge and names the calling relay
+
+#### Scenario: A retried call
+
+- **WHEN** core reports two calls with the same call id, each followed by its outcome
+- **THEN** two rows are listed, each with its own outcome
+
+#### Scenario: Calls are listed newest first
+
+- **WHEN** two calls arrive one after the other
+- **THEN** the later one is listed above the earlier one
+
+#### Scenario: The list is bounded
+
+- **WHEN** more than fifty calls have arrived while the panel is open
+- **THEN** only the most recent fifty are listed
+
+#### Scenario: An outcome without its call
+
+- **WHEN** an outcome arrives for a call id the panel does not list
+- **THEN** no row is added or changed
+
+#### Scenario: The listen ends with calls waiting
+
+- **WHEN** the listen ends or is refused while a listed call is waiting
+- **THEN** that call is shown as having no outcome heard
+- **AND** the panel states that it is no longer listening and offers to listen again
+
+#### Scenario: A role without listening
+
+- **WHEN** the operations the bound role is granted do not include `Relay.listen`
+- **THEN** no Calls panel is rendered and no listen with `:calls` is opened
+
+### Requirement: The call dialog keeps this session's results
+
+The call dialog SHALL keep the results of the sends, calls and channel calls made from it on the relay screen, each answer or failure as one entry, newest first, the most recent ten. Closing and reopening the dialog SHALL keep them, and leaving the screen SHALL drop them. A message that stops a request before it is sent, such as an invalid deadline or an empty required field, SHALL NOT be kept as a result.
+
+#### Scenario: Two calls in a row
+
+- **WHEN** an operator makes two calls from the dialog
+- **THEN** both results are shown, the latest first
+
+#### Scenario: The dialog is closed and reopened
+
+- **WHEN** an operator closes the dialog after a call and opens it again
+- **THEN** the earlier result is still shown
+
+#### Scenario: A failed call
+
+- **WHEN** a call from the dialog fails, for example by timing out
+- **THEN** the failure is kept as a result with its code
+
+#### Scenario: A request stopped before sending
+
+- **WHEN** a submit is stopped by the dialog's own validation
+- **THEN** the message is shown and no result is added
+
+#### Scenario: The list is bounded
+
+- **WHEN** more than ten results have been made from the dialog
+- **THEN** only the most recent ten are shown
+

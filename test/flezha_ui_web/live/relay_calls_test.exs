@@ -333,7 +333,8 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       render_submit(view, "talk_submit", %{"talk" => %{"json" => "x"}})
       html = render_async(view)
 
-      assert html =~ ~s(data-testid="talk-error")
+      assert html =~ ~s(data-testid="talk-result")
+      refute html =~ ~s(data-testid="talk-error")
       assert html =~ "api.channel_unknown"
       assert html =~ "flz relay api"
     end
@@ -421,6 +422,117 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       end
 
       assert FakeController.calls(node, {Relay, :call}) == []
+    end
+  end
+
+  describe "this session's results" do
+    setup %{node: node} do
+      api(node, [])
+      :ok
+    end
+
+    defp results(html), do: Regex.scan(~r/data-testid="talk-result"/, html) |> length()
+
+    test "two calls are both kept, the latest first", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @url)
+      talk(view)
+
+      raw(view, %{"payload" => "first"}, "call")
+      html = raw(view, %{"payload" => "second"}, "call")
+
+      assert results(html) == 2
+      {second, _} = :binary.match(html, "second")
+      {first, _} = :binary.match(html, "first")
+      assert second < first
+    end
+
+    test "closing and reopening the dialog keeps them", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @url)
+      talk(view)
+      raw(view, %{"payload" => "kept"}, "call")
+
+      refute render_click(view, "talk_close", %{}) =~ ~s(data-testid="talk-results")
+      html = talk(view)
+
+      assert html =~ ~s(data-testid="talk-results")
+      assert html =~ "kept"
+    end
+
+    test "eleven results keep the latest ten", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @url)
+      talk(view)
+
+      html =
+        Enum.reduce(1..11, nil, fn n, _html ->
+          raw(view, %{"payload" => "answer-#{n}"}, "call")
+        end)
+
+      assert results(html) == 10
+      assert html =~ "answer-11"
+      refute html =~ ~r/answer-1\b/
+    end
+
+    test "a failure is kept with its code, a validation message is not", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Relay, :call},
+        {:error, Flezha.Error.new("call.timeout", "no answer in 100ms")}
+      )
+
+      {:ok, view, _html} = live(conn, @url)
+      talk(view)
+
+      html = raw(view, %{"payload" => "ping", "deadline_ms" => "100"}, "call")
+      assert results(html) == 1
+      assert html =~ "no answer in 100ms (call.timeout)"
+
+      html =
+        render_submit(view, "talk_submit", %{
+          "talk" => %{"payload" => "ping", "deadline_ms" => "soon", "action" => "call"}
+        })
+
+      assert html =~ ~s(data-testid="talk-error")
+      assert results(html) == 1
+    end
+
+    test "a refused send is named as the send", %{conn: conn, node: node} do
+      FakeController.set(
+        node,
+        {Relay, :send},
+        FakeController.error("authz.role_insufficient", "no sending here")
+      )
+
+      {:ok, view, _html} = live(conn, @url)
+      talk(view)
+
+      assert raw(view, %{"payload" => "one way"}, "send") =~
+               "The controller refused the send: no sending here"
+    end
+
+    test "a send's verdict is kept beside a call's answer", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @url)
+      talk(view)
+
+      raw(view, %{"payload" => "one way"}, "send")
+      html = raw(view, %{"payload" => "round trip"}, "call")
+
+      assert results(html) == 2
+      assert html =~ "Delivered to"
+      assert html =~ "round trip"
+    end
+
+    test "a request whose task exits is kept as a failure" do
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{__changed__: %{}, talk: %{waiting: :call}, talk_results: []}
+      }
+
+      {:noreply, socket} = FlezhaUiWeb.RelayLive.handle_async(:talk, {:exit, :killed}, socket)
+
+      assert %{talk: %{waiting: nil}, talk_results: [result]} = socket.assigns
+      assert %{kind: :call, error: {:remote_error, :killed}} = result
     end
   end
 

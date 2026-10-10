@@ -54,7 +54,7 @@ test.describe('Talking to a relay', () => {
     await page.getByTestId('talk-field-amount').fill('1.5');
     await page.getByTestId('talk-channel-submit').click();
 
-    const answer = page.getByTestId('talk-answer');
+    const answer = page.getByTestId('talk-answer').first();
     await expect(answer).toContainText('"status": "placed"', { timeout: 20_000 });
     await expect(answer).toContainText('BTC-EUR');
   });
@@ -77,9 +77,10 @@ test.describe('Talking to a relay', () => {
     await page.getByTestId('talk-json').fill('an audit line');
     await page.getByTestId('talk-channel-submit').click();
 
-    await expect(page.getByTestId('talk-result')).toContainText('The relay accepted the input.', {
-      timeout: 20_000,
-    });
+    await expect(page.getByTestId('talk-result').first()).toContainText(
+      'The relay accepted the input.',
+      { timeout: 20_000 },
+    );
   });
 
   test('a raw message is sent and a raw call answered', async ({ page }) => {
@@ -89,7 +90,7 @@ test.describe('Talking to a relay', () => {
     await page.getByTestId('talk-payload').fill('a raw audit line');
     await page.getByTestId('talk-channel').fill('audit');
     await page.getByTestId('talk-send-btn').click();
-    await expect(page.getByTestId('talk-result')).toContainText('Delivered to', {
+    await expect(page.getByTestId('talk-result').first()).toContainText('Delivered to', {
       timeout: 20_000,
     });
 
@@ -98,7 +99,12 @@ test.describe('Talking to a relay', () => {
     await page.getByTestId('talk-deadline').fill('20000');
     await page.getByTestId('talk-call-btn').click();
 
-    await expect(page.getByTestId('talk-answer')).toContainText('ETH-EUR', { timeout: 25_000 });
+    // The dialog keeps both, the call's answer on top.
+    await expect(page.getByTestId('talk-answer').first()).toContainText('ETH-EUR', {
+      timeout: 25_000,
+    });
+    await expect(page.getByTestId('talk-result')).toHaveCount(2);
+    await expect(page.getByTestId('talk-result').nth(1)).toContainText('Delivered to');
   });
 
   test('closing the dialog leaves the screen working', async ({ page }) => {

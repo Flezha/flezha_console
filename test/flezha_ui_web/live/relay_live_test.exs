@@ -182,6 +182,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       assert html =~ ~s(data-testid="completion-record")
       assert html =~ "completed"
       refute html =~ ~s(data-testid="stop-relay-btn")
+      refute html =~ ~s(data-testid="calls-panel")
 
       # Read on each mount, never on a tick.
       calls = FakeController.calls(node, {Flezha.Service.Steps, :completion})

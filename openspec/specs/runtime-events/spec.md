@@ -219,3 +219,40 @@ The console SHALL receive the `relay_started`, `relay_stopped` and `relay_exited
 - **THEN** the feed states why with the error's code and hint
 - **AND** the index keeps refreshing on its timer
 
+### Requirement: A relay's call activity rides the event feed
+
+The relay screen's call activity SHALL be received through `Flezha.Service.Relay.listen/5` with the direction `:calls` and the UI's caller context, held by an `FlezhaUi.Service.EventFeed` linked to the screen, the mechanism that carries the payload tap and the listen screen. A second subscription mechanism SHALL NOT be introduced. Each open Calls panel SHALL hold exactly one such listen. The listen SHALL be opened when the panel opens and SHALL end when the panel folds or the screen closes. A replacement listen SHALL be opened only after the previous one was stopped under its tag, so nothing the previous one sent reaches the screen.
+
+#### Scenario: Opening the panel
+
+- **WHEN** an operator opens the Calls panel on a relay screen
+- **THEN** `EventFeed` opens `Relay.listen/5` for that relay with direction `:calls`
+- **AND** call events arrive on the screen without a page reload
+
+#### Scenario: The panel starts folded
+
+- **WHEN** an operator opens a relay screen without opening the Calls panel
+- **THEN** no listen with direction `:calls` is held for it
+
+#### Scenario: Folding the panel
+
+- **WHEN** an operator folds an open Calls panel
+- **THEN** its listen ends on the controller
+- **AND** the calls already listed stay on screen
+
+#### Scenario: Leaving the screen
+
+- **WHEN** the relay screen closes with the Calls panel open
+- **THEN** its listen ends without the operator doing anything
+
+#### Scenario: Listening again
+
+- **WHEN** the listen has ended or was refused and the operator asks to listen again
+- **THEN** one new listen is held and the previous one sends nothing more to the screen
+
+#### Scenario: The listen is refused
+
+- **WHEN** `listen/5` answers `{:error, %Flezha.Error{}}` for the `:calls` direction
+- **THEN** the panel states the refusal with the error's code and message
+- **AND** the rest of the relay screen renders unaffected
+

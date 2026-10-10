@@ -94,14 +94,7 @@ defmodule FlezhaUiWeb.ListenLive do
     # Stopped under its tag, so nothing the old listen sent reaches the new one.
     EventFeed.stop(socket.assigns.feed, :listen)
     %{ns: ns, relay_id: id, direction: direction, flezha_token: token} = socket.assigns
-    direction = String.to_existing_atom(direction)
-
-    {:ok, feed} =
-      EventFeed.start_link(
-        open: &NodeManager.listen(ns, id, direction, token, &1),
-        to: {:send, self(), :listen}
-      )
-
+    feed = EventFeed.listen(ns, id, String.to_existing_atom(direction), token, :listen)
     assign(socket, feed: feed, status: :connecting, error: nil)
   end
 

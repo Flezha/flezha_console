@@ -141,6 +141,7 @@ defmodule FlezhaUiWeb.RoleGatingTest do
   @controls %{
     "stop-relay-btn" => :ops,
     "talk-open-btn" => :ops,
+    "calls-panel" => :ops,
     "attach-plugin-btn" => :ops,
     "replay-open" => :ops,
     "rotate-relay_a/orders/k1" => :ops,
@@ -193,6 +194,16 @@ defmodule FlezhaUiWeb.RoleGatingTest do
     html = screens(conn)
 
     for {testid, _role} <- @controls, do: assert(rendered?(html, testid), "#{testid} missing")
+  end
+
+  test "a viewer's forged calls toggle holds no listen", %{conn: conn, node: node} do
+    grant(node, @viewer)
+    {:ok, view, _html} = live(conn, ~p"/namespaces/default/relays/relay_a")
+
+    render_click(view, "section_toggle", %{"key" => "calls"})
+    render_click(view, "calls_reopen", %{})
+
+    assert FakeController.calls(node, {Relay, :listen}) == []
   end
 
   test "whoami is read once for a token across refresh ticks", %{conn: conn, node: node} do

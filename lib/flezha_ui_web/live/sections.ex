@@ -15,7 +15,9 @@ defmodule FlezhaUiWeb.Live.Sections do
 
   A section whose content is read only when someone looks at it overrides
   `section_opened/2`, called with the socket and the key each time a section
-  opens — by a click or by the hook restoring it.
+  opens — by a click or by the hook restoring it. A section that holds
+  something while open, such as a live feed, also overrides
+  `section_closed/2`, called the same way each time a section folds.
 
   The state is held here rather than in the browser because LiveView re-renders
   from the server: an attribute the client flipped would be patched back on the
@@ -41,13 +43,16 @@ defmodule FlezhaUiWeb.Live.Sections do
 
         if socket.assigns.sections[key],
           do: {:noreply, section_opened(socket, key)},
-          else: {:noreply, socket}
+          else: {:noreply, section_closed(socket, key)}
       end
 
       @doc false
       def section_opened(socket, _key), do: socket
 
-      defoverridable section_opened: 2
+      @doc false
+      def section_closed(socket, _key), do: socket
+
+      defoverridable section_opened: 2, section_closed: 2
     end
   end
 

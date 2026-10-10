@@ -108,6 +108,16 @@ defmodule FlezhaUi.FormatTest do
       assert Format.time_of_day(dt) =~ "17:40:00."
     end
 
+    test "the time of day is to the millisecond, whatever the time's precision" do
+      assert "05:20:00.042" =
+               Format.time_of_day(DateTime.from_unix!(1_760_073_600_042, :millisecond))
+
+      assert "05:20:00.000" = Format.time_of_day(DateTime.from_unix!(1_760_073_600))
+
+      assert "05:20:00.123" =
+               Format.time_of_day(DateTime.from_unix!(1_760_073_600_123_456, :microsecond))
+    end
+
     test "an absent time renders as a dash" do
       assert "—" = Format.timestamp(nil)
       assert "—" = Format.time_of_day(nil)

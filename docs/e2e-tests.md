@@ -52,7 +52,8 @@ e2e/
                     panels), `toggleTheme()` (the toggle lives in the account
                     menu) and `openPalette()`; the schedule form helpers, and
                     `openSettings()`/`clearStoredToken()` for the token a spec
-                    stores and must leave behind it undone
+                    stores and must leave behind it undone; and `cliCall()`,
+                    which calls the controller as `flz` does
   login.spec.ts     the form itself, with no stored session
   dashboard.spec.ts namespaces.spec.ts listen.spec.ts
   audit.spec.ts dlq.spec.ts schedules.spec.ts
@@ -73,6 +74,9 @@ e2e/
   relay-state.spec.ts        durable cells and point-in-time reads
   relay-calls.spec.ts        diagnosis, the relay's API, calling `orders`'
                              channels from schema fields, raw send and call
+  relay-call-activity.spec.ts the Calls panel: calls from the terminal and the
+                             dialog with their sources and outcomes, a timeout,
+                             a folded panel holding no listen
   relay-state-tools.spec.ts  outbox, rotate, replay, delete and retention on a
                              relay of its own; the input log's records
   plugin-management.spec.ts  the loaded and the refused package, a controller
@@ -120,6 +124,12 @@ Seeds the newer specs rely on:
   built with the controller's toolchain, which loads, and
   `flezha_http_tampered`, whose manifest changed after it was checksummed,
   which the loader refuses with `plugin.package_invalid`.
+
+Calls from outside the console go through `cliCall()`, which runs
+`priv/dev/cli_call.exs` inside `fui_web` and sends the one request `flz` sends,
+so the controller names the caller `cli`. `flz` itself cannot reach this
+controller: it shells out to the release launcher, which a controller running
+under `iex -S mix` does not have.
 
 A spec that writes state does it on something it made itself — a relay, a
 plugin, a schedule, a token, a binding — and undoes it in `finally`; the one
