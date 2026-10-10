@@ -47,8 +47,7 @@ test.describe('Namespace administration', () => {
     await live('/namespaces');
     await page.getByTestId('create-namespace-btn').click();
     await expect(page.getByTestId('create-namespace-modal')).toBeVisible();
-    const form = page.getByTestId('create-namespace-form');
-    await form.getByTestId('create-namespace-name').fill(name);
+    await page.getByTestId('create-namespace-form').getByTestId('create-namespace-name').fill(name);
     await page.getByTestId('create-max-relays').fill('7');
     await page.getByTestId('create-max-runners').fill('3');
     await page.getByTestId('create-namespace-submit').click();

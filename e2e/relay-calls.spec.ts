@@ -121,7 +121,7 @@ test.describe('Talking to a relay', () => {
     await expect(page.getByTestId('talk-raw-form')).toBeVisible();
 
     // `audit` answers nothing, so the call waits out its deadline.
-    await page.getByTestId('talk-payload').fill(uniqueId('waited'));
+    await page.getByTestId('talk-raw-form').getByTestId('talk-payload').fill(uniqueId('waited'));
     await page.getByTestId('talk-channel').fill('audit');
     await page.getByTestId('talk-deadline').fill('20000');
     await page.getByTestId('talk-call-btn').click();
@@ -139,7 +139,10 @@ test.describe('Talking to a relay', () => {
     await page.getByTestId('talk-mode-raw').click();
     await expect(page.getByTestId('talk-call-btn')).toBeEnabled();
     await page.getByTestId('talk-mode-channel').click();
-    await expect(page.getByTestId('talk-channel-form')).toBeVisible();
+    await page
+      .getByTestId('talk-channel-form')
+      .getByTestId('talk-channel-pick')
+      .selectOption('place');
     await expect(page.getByTestId('talk-raw-form')).toHaveCount(0);
   });
 

@@ -501,6 +501,12 @@ individually with a reason, and an exemption without a reason SHALL fail the che
 - **THEN** the check counts it as covered
 - **AND** it does not require a browser test that would have to branch on discovered state
 
+#### Scenario: A control a test only mentions
+
+- **WHEN** a test names a control's test id without acting on it, or only asserts it absent
+- **THEN** the event bound to that control is not counted as driven
+- **AND** the check names it until a test clicks, fills, checks or selects it, or renders it in ExUnit
+
 #### Scenario: A button that does nothing
 
 - **WHEN** markup binds a `phx-click`, `phx-submit` or `phx-change` to a literal event name that no `handle_event/3` clause or dispatched event list handles

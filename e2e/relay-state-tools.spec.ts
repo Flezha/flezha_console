@@ -93,7 +93,7 @@ test.describe('Relay state tools', () => {
     await expect(page.getByTestId('state-retention')).toContainText('History retention');
 
     // A negative number of hours is refused on the form and nothing is set.
-    await page.getByTestId('retention-hours').fill('-3');
+    await page.getByTestId('retention-form').getByTestId('retention-hours').fill('-3');
     await page.getByTestId('retention-submit').click();
     await expect(page.getByTestId('retention-error')).toBeVisible();
     await expect(shown).toContainText(`${original} hours`);

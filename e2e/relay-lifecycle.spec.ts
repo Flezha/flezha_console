@@ -323,12 +323,12 @@ test.describe('Relay screen', () => {
     await expect(page.getByTestId('state-seq')).toBeVisible();
 
     const toggle = page.getByTestId('state-auto-refresh');
-    await toggle.click();
+    await page.getByTestId('state-auto-refresh').click();
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
     // The seeded source keeps writing into the tasklet's state.
     await expectAdvances(page.getByTestId('state-seq'), 'the auto-refreshed state sequence');
 
-    await toggle.click();
+    await page.getByTestId('state-auto-refresh').click();
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   });
 });

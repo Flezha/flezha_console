@@ -26,7 +26,10 @@ defmodule FlezhaUi.CoverageLedgerTest do
   A name equal to an exact id covers it. Any other name covers the longest
   prefix id it starts with, so `relay-row-relay_a` and `` `relay-row-${id}` ``
   both cover `relay-row-*`. An event is covered when a test names it in a
-  `render_*` call, or when markup binds it to a covered test id. Coverage is
+  `render_*` call, or when markup binds it to a test id a test acts on: a
+  browser `click`, `fill`, `check`, `selectOption` or `press` on that id, a
+  fixture helper that drives it, or an ExUnit `render_*` on its element.
+  Naming a control is not driving it. Coverage is
   by name across the tree, not per screen.
 
   An exemption names an id (a prefix as `x-*`) or an event, with the reason it
@@ -44,7 +47,11 @@ defmodule FlezhaUi.CoverageLedgerTest do
   @bindings_floor 100
 
   # {test id or event, reason}
-  @exempt []
+  @exempt [
+    {"close",
+     "the palette's phx-click-away, fired by the browser outside the element: LiveViewTest " <>
+       "cannot send it, and console-navigation.spec.ts clicks outside the palette and asserts it closed"}
+  ]
 
   @own_file Path.relative_to_cwd(__ENV__.file)
 
@@ -128,7 +135,11 @@ defmodule FlezhaUi.CoverageLedgerTest do
     covered = covered_ids(MapSet.new(ids, &elem(&1, 0)), test_names(tests))
 
     driven = driven_events(tests)
-    bound = for {event, id, _f, _attr} <- bindings, id in covered, into: MapSet.new(), do: event
+
+    acted =
+      covered_ids(MapSet.new(ids, &elem(&1, 0)), test_names(Enum.map(tests, &acting_lines/1)))
+
+    bound = for {event, id, _f, _attr} <- bindings, id in acted, into: MapSet.new(), do: event
     handled = MapSet.new(events, &elem(&1, 0))
 
     %{
@@ -248,6 +259,24 @@ defmodule FlezhaUi.CoverageLedgerTest do
 
   defp drop_absence(src) do
     src |> String.split("\n") |> Enum.reject(&Regex.match?(@absence, &1)) |> Enum.join("\n")
+  end
+
+  # A line that acts on a control: a browser action, a fixture helper that
+  # drives its argument, or an ExUnit `render_*`, which may close a pipeline
+  # started a line or two above.
+  @acts ~r/\.(?:click|dblclick|fill|check|uncheck|selectOption|press)\(|\b(?:choose|openSection|closeSection|confirmEach|fillPluginForm)\(|render_(?:click|submit|change|hook|blur|focus|keydown|keyup)\(/
+
+  defp acting_lines(src) do
+    lines = String.split(src, "\n")
+
+    lines
+    |> Enum.with_index()
+    |> Enum.filter(fn {line, i} ->
+      Regex.match?(@acts, line) or
+        (Regex.match?(~r/\b(?:element|form)\(/, line) and
+           lines |> Enum.slice(i + 1, 2) |> Enum.any?(&Regex.match?(~r/render_\w+\(/, &1)))
+    end)
+    |> Enum.map_join("\n", &elem(&1, 0))
   end
 
   defp driven_events(tests) do

@@ -85,8 +85,11 @@ stack fails there and not as a timeout in every liveness assertion.
 `test/flezha_ui/coverage_ledger_test.exs` runs with `mix test` and needs no
 stack. It reads `lib/` through `FlezhaUi.NamingGate.all_files/1` and fails
 naming each test id that no spec or ExUnit test names, each `handle_event`
-event that no test drives or binds to a named test id, and each markup binding
-to an event no clause handles. Its module doc states the matching rules.
+event that no test drives, and each markup binding to an event no clause
+handles. An event counts as driven only when a test acts on the control bound
+to it — clicks, fills, checks or selects it, or renders it in ExUnit — so a
+control a test merely mentions, or asserts absent, stays uncovered. Its module
+doc states the matching rules.
 
 When it fails on new UI, add the test that drives the control. When a control
 can truly never be driven, add it to `@exempt` in the ledger with the reason;
