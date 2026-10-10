@@ -129,13 +129,15 @@ config :flezha_ui, :dev_setup,
     ] ++
       Enum.map(
         [
-          {"ws_store_1", "testnet_store_1", "store_1 ping"},
-          {"ws_store_2", "testnet_store_2", "store_2 ping"},
-          {"ws_store_3", "testnet_store_3", "store_3 ping"},
-          {"ws_filter", "testnet_filter", "filter ping"},
-          {"ws_noop", "testnet_noop", "noop ping"}
+          {"ws_store_1", "testnet_store_1", "BTC/DEMO1", 42000, 2},
+          {"ws_store_2", "testnet_store_2", "ETH/DEMO1", 2500, 2},
+          {"ws_store_3", "testnet_store_3", "EUR/USD", 1.085, 5},
+          {"ws_filter", "testnet_filter", "GBP/USD", 1.34, 5},
+          {"ws_noop", "testnet_noop", "USD/JPY", 149.5, 3}
         ],
-        fn {name, relay_id, message} ->
+        # The testnet's `trade` generator keeps one price walk per pair, so each
+        # source gets its own pair and the relays' inputs stay distinguishable.
+        fn {name, relay_id, pair, base_price, decimals} ->
           %{
             name: name,
             relay_id: relay_id,
@@ -147,7 +149,8 @@ config :flezha_ui, :dev_setup,
                 "payload" => %{
                   "type" => "text",
                   "message" =>
-                    ~s({"event_type":"subscribe","event_data":{"default_message":"#{message}","interval":5000}})
+                    ~s({"event_type":"subscribe","event_data":{"generators":[{"type":"trade","interval":5000,) <>
+                      ~s("config":{"pairs":["#{pair}"],"basePrice":#{base_price},"decimals":#{decimals}}}]}})
                 }
               }
             }

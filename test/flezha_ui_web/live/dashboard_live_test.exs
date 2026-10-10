@@ -105,6 +105,7 @@ defmodule FlezhaUiWeb.DashboardLiveConnectedTest do
 
     {:ok, _view, html} = live(conn, ~p"/")
 
+    assert html =~ "Controller node"
     assert html =~ ~s(data-testid="node-connected")
     assert html =~ to_string(node)
     refute html =~ ~s(data-testid="node-disconnected")
