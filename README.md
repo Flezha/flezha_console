@@ -45,7 +45,7 @@ reading the namespace from the path instead of from a filter control.
 | `/namespaces` | Declared and running namespaces, their counts, and quota breaches |
 | `/namespaces/:ns` | Relays with health and run; quotas, role bindings (bind, unbind), tokens (issue once, revoke), partition groups, finished relays and runners with their OS pids as sections that fold; drop a runner and readmit its process |
 | `/namespaces/:ns/relays` | That namespace's relays, its scope fixed rather than filterable |
-| `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update |
+| `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update, with a typed field for each option the provider declares |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
 | `/relays` | **Fleet** — every relay across every reachable namespace, filterable by namespace, health and run; starts one into any of them; the relay lifecycle feed as it happens |
 | `/namespaces/:ns/relays/:id` | Factory, runner, run, uptime, health, node, pipeline graph, steps panel, diagnosis on request; the relay's API, the calls made to it from anywhere (source, payload, answer or failure, duration) as they happen, task journal, input log and its records, cell state and plugins as sections that fold; send to the relay, call it, or call an entry channel from a form built from its schema, keeping this visit's results |
