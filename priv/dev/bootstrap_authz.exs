@@ -17,7 +17,8 @@
 #   FLEZHA_RUNNER_TOKEN_FILE  optional: where to write a runner credential, so
 #                      the dev runner can prove its namespace to a controller
 #                      that enforces authorization
-#   FLEZHA_RUNNER_NAMESPACE  the namespace that credential is for (default)
+#   FLEZHA_RUNNER_NAMESPACE  the namespace that credential is for (default),
+#                      created when missing
 #
 # `flz` cannot do this here: it shells out to the release launcher, which a
 # controller running under `iex -S mix` does not have. The published
@@ -70,12 +71,30 @@ defmodule BootstrapAuthz do
         :ok
 
       path ->
+        namespace = System.get_env("FLEZHA_RUNNER_NAMESPACE") || "default"
+        ensure_namespace(node, ui_token, namespace)
+
         if match?({:ok, _}, reusable_token(node, path)) do
           say("reusing the runner credential already at #{path}")
         else
-          namespace = System.get_env("FLEZHA_RUNNER_NAMESPACE") || "default"
           write!(path, issue_as(node, ui_token, "runner@#{namespace}", namespace, "runner"))
           say("wrote #{path} for runner@#{namespace}")
+        end
+    end
+  end
+
+  # Under enforcement a runner may join only a namespace that was created.
+  defp ensure_namespace(node, issuer_token, namespace) do
+    case call(node, Flezha.AuthZ.NamespaceStore, :get, [namespace]) do
+      {:ok, _entry} ->
+        :ok
+
+      :error ->
+        context = context_of(node, issuer_token)
+
+        case call(node, Flezha.Service.Namespace, :create, [namespace, [], context]) do
+          {:ok, _entry} -> say("created namespace #{namespace}")
+          other -> die("could not create namespace #{namespace}: #{inspect(other)}")
         end
     end
   end
@@ -219,25 +238,29 @@ defmodule BootstrapAuthz do
   # A token issued with the identity `issuer_token` verifies as, so the
   # controller attributes and authorizes it as that identity.
   defp issue_as(node, issuer_token, principal, namespace, role) do
-    {:ok, issuer} = call(node, Flezha.AuthZ.TokenStore, :verify, [issuer_token])
-
-    context = %{
-      source: :ui,
-      principal: issuer.principal,
-      namespace: issuer.namespace,
-      role: issuer.role
-    }
-
     case call(node, Flezha.Service.Namespace, :issue_token, [
            principal,
            namespace,
            role,
            [ttl: "never", label: principal],
-           context
+           context_of(node, issuer_token)
          ]) do
       {:ok, %{token: raw}} -> raw
       other -> die("could not issue a #{role} token for #{principal}: #{inspect(other)}")
     end
+  end
+
+  # The caller context a verb is authorized and attributed as: the identity
+  # `token` verifies as.
+  defp context_of(node, token) do
+    {:ok, identity} = call(node, Flezha.AuthZ.TokenStore, :verify, [token])
+
+    %{
+      source: :ui,
+      principal: identity.principal,
+      namespace: identity.namespace,
+      role: identity.role
+    }
   end
 
   defp issue_directly(node, principal) do

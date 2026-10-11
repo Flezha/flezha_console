@@ -43,3 +43,6 @@ playwright-report/
 
 # Playwright MCP browser tool output.
 .playwright-mcp/
+
+# Local-only projects, such as the sandbox runner docker-compose.dev.yml mounts.
+/local_dev/

@@ -6,6 +6,16 @@
 # Get a bash shell: docker exec -it flezha_controller bash
 # Restart iex:      docker exec flezha_controller pkill -f iex
 
+# Each runner's credential, named once: its bootstrap step writes the token
+# file for the namespace, and the runner reads that file to prove it.
+x-default-runner-credential: &default-runner-credential
+  FLEZHA_RUNNER_NAMESPACE: ${FLEZHA_DEMO_NAMESPACE:-default}
+  FLEZHA_RUNNER_TOKEN_FILE: /auth/runner.token
+
+x-sandbox-runner-credential: &sandbox-runner-credential
+  FLEZHA_RUNNER_NAMESPACE: sandbox
+  FLEZHA_RUNNER_TOKEN_FILE: /auth/runner.sandbox.token
+
 services:
   controller:
     build:
@@ -112,7 +122,7 @@ services:
     environment:
       FLEZHA_SOCKET_FILES_PATH: /flezha/app_data/sockets/
       FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
-      FLEZHA_DEMO_NAMESPACE: ${FLEZHA_DEMO_NAMESPACE:-default}
+      <<: *default-runner-credential
     working_dir: /flezha/test/apps/rust_runner
     command:
       - sh
@@ -124,9 +134,9 @@ services:
         done
         # `test/apps/rust_runner` links to the crate's real path, and cargo
         # resolves a workspace member only by that one.
-        FLEZHA_NAMESPACE_SECRET="$$(cat /auth/runner.token)"
+        FLEZHA_NAMESPACE_SECRET="$$(cat "$$FLEZHA_RUNNER_TOKEN_FILE")"
         export FLEZHA_NAMESPACE_SECRET
-        exec cargo run --quiet --manifest-path=/flezha/sdk/rust/test_app/Cargo.toml -- "$$FLEZHA_DEMO_NAMESPACE"
+        exec cargo run --quiet --manifest-path=/flezha/sdk/rust/test_app/Cargo.toml -- "$$FLEZHA_RUNNER_NAMESPACE"
     volumes:
       - fui_auth_data:/auth:ro
       - fui_socket_data:/socket_data
@@ -134,6 +144,45 @@ services:
       - fui_flezha_cargo_target:/flezha/target
     networks:
       - fui_network
+
+  # A second runner, in a namespace of its own, running the Elixir project kept
+  # in the git-ignored local_dev/sandbox_runners/elixir_runner. Started only with
+  # `--profile local-runner`. It is the runner above — image, sockets, checkout,
+  # credentials — plus the project and its own build volumes.
+  sandbox_runner:
+    extends:
+      service: runner
+    container_name: fui_sandbox_runner
+    profiles: [local-runner]
+    depends_on:
+      sandbox_bootstrap:
+        condition: service_completed_successfully
+    environment:
+      <<: *sandbox-runner-credential
+      # Outside the mounted project, so a build on the host never shares a
+      # _build or deps with this one.
+      MIX_BUILD_ROOT: /home/flezha/_build
+      MIX_DEPS_PATH: /home/flezha/deps
+    # At the same depth as on the host, so a path dependency on
+    # ../../../../flezha/sdk/elixir resolves in both.
+    working_dir: /flezha_ui/local_dev/sandbox_runners/elixir_runner
+    command:
+      - sh
+      - -c
+      - |
+        until [ -S /flezha/app_data/sockets/runner_control_channel.sock ]; do
+          echo "[sandbox_runner] waiting for controller control socket..."
+          sleep 1
+        done
+        FLEZHA_NAMESPACE_SECRET="$$(cat "$$FLEZHA_RUNNER_TOKEN_FILE")"
+        export FLEZHA_NAMESPACE_SECRET
+        mix deps.get && exec mix run --no-halt -- "$$FLEZHA_RUNNER_NAMESPACE"
+    volumes:
+      - ./local_dev:/flezha_ui/local_dev
+      # Mounted over directories the image gives its build user, so the
+      # volumes are that user's too.
+      - fui_sandbox_build:/home/flezha/_build
+      - fui_sandbox_deps:/home/flezha/deps
 
   # Claims the controller's authorization bootstrap and issues the token the UI
   # presents, once, after the controller is up. It has to be a step rather than
@@ -157,8 +206,7 @@ services:
       FLEZHA_NODE: flezha@flezha_controller
       FLEZHA_TOKEN_FILE: /auth/ui.token
       FLEZHA_UI_PRINCIPAL: flezha-ui
-      FLEZHA_RUNNER_TOKEN_FILE: /auth/runner.token
-      FLEZHA_RUNNER_NAMESPACE: ${FLEZHA_DEMO_NAMESPACE:-default}
+      <<: *default-runner-credential
     volumes:
       - .:/flezha_ui
       - fui_auth_data:/auth
@@ -169,7 +217,21 @@ services:
     command:
       - sh
       - -c
-      - exec elixir --sname fui_bootstrap --cookie "$$ERLANG_COOKIE" /flezha_ui/priv/dev/bootstrap_authz.exs
+      - exec elixir --sname fui_bootstrap --hidden --cookie "$$ERLANG_COOKIE" /flezha_ui/priv/dev/bootstrap_authz.exs
+
+  # The same script for the sandbox runner: it reuses the UI token `bootstrap`
+  # wrote, creates the namespace and issues that runner's credential.
+  sandbox_bootstrap:
+    extends:
+      service: bootstrap
+    container_name: fui_sandbox_bootstrap
+    hostname: fui_sandbox_bootstrap
+    profiles: [local-runner]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    environment:
+      <<: *sandbox-runner-credential
 
   db:
     image: postgres:16
@@ -279,7 +341,7 @@ services:
     image: provectuslabs/kafka-ui:latest
     container_name: fui_kafka_ui
     ports:
-      - "8080:8080"
+      - "8081:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: fui_kafka:9092
@@ -299,6 +361,8 @@ volumes:
   fui_flezha_cargo_target:
   fui_web_deps:
   fui_web_build:
+  fui_sandbox_build:
+  fui_sandbox_deps:
 
 networks:
   fui_network:
