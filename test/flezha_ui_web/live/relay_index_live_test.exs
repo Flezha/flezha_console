@@ -278,6 +278,17 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
       refute html =~ "start[kind]"
     end
 
+    test "the form opens on the namespace in scope, not the first one listed", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/namespaces/staging/relays")
+
+      render_click(view, "launcher_open", %{})
+
+      assert has_element?(
+               view,
+               ~s([data-testid="input-namespace"] option[value="staging"][selected])
+             )
+    end
+
     test "the chosen factory's run is stated, not offered", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/relays")
       render_click(view, "launcher_open", %{})

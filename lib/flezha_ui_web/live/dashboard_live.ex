@@ -25,7 +25,10 @@ defmodule FlezhaUiWeb.DashboardLive do
   # link someone can send to whoever is on call.
   @impl true
   def handle_params(params, _uri, socket) do
-    {:noreply, socket |> assign(ns_param: params["ns"]) |> refresh()}
+    socket = Layouts.keep_namespace(socket, params["ns"])
+
+    {:noreply,
+     socket |> assign(ns_param: params["ns"] || socket.assigns.shell_namespace) |> refresh()}
   end
 
   @impl true

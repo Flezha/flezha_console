@@ -10,7 +10,7 @@ authz =
 live? = is_nil(assigns[:conn])
 
 current_path = assigns[:current_path] || (assigns[:conn] && assigns[:conn].request_path) || "/"
-scope = assigns[:scoped_namespace]
+scope = assigns[:shell_namespace]
 namespaces = assigns[:shell_namespaces] || [] %>
 <div class="flz-app">
   <aside class="flz-sidebar">

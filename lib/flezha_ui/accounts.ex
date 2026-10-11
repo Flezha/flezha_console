@@ -242,6 +242,12 @@ defmodule FlezhaUi.Accounts do
     update_user_flezha_token(user, nil)
   end
 
+  @doc "Records `namespace` as the one this user last worked in."
+  def remember_namespace(%User{id: id}, namespace) when is_binary(namespace) do
+    Repo.update_all(from(u in User, where: u.id == ^id), set: [last_namespace: namespace])
+    :ok
+  end
+
   ## Session
 
   @doc """

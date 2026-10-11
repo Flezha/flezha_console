@@ -105,8 +105,10 @@ defmodule FlezhaUiWeb.Layouts do
 
   `:current_path` marks the current destination, `:breadcrumbs` says where it
   sits, and `:scoped_namespace` is the namespace the route puts in force —
-  read from the address bar every time rather than remembered, so a pasted
-  link opens the scope it names.
+  read from the address bar every time, so a pasted link opens the scope it
+  names. `:shell_namespace` is what the rail and the picker show: that scope,
+  or on a screen whose address names none, the namespace the user last worked
+  in (see `keep_namespace/2`).
 
   Server-side rather than in JavaScript: a client-set `aria-current` loses the
   race with LiveView's first DOM patch on a hard page load, and is dropped.
@@ -124,20 +126,48 @@ defmodule FlezhaUiWeb.Layouts do
         |> elem(0)
         |> Enum.sort()
       end)
+      |> Phoenix.Component.assign_new(:last_namespace, fn ->
+        socket.assigns.current_scope.user.last_namespace
+      end)
 
     {:cont,
      Phoenix.LiveView.attach_hook(socket, :current_path, :handle_params, fn _params,
                                                                             uri,
                                                                             socket ->
        path = URI.parse(uri).path
+       scoped = scoped_namespace(path)
 
        {:cont,
-        Phoenix.Component.assign(socket,
+        socket
+        |> Phoenix.Component.assign(
           current_path: path,
           breadcrumbs: breadcrumbs(path),
-          scoped_namespace: scoped_namespace(path)
-        )}
+          scoped_namespace: scoped
+        )
+        |> keep_namespace(scoped)}
      end)}
+  end
+
+  @doc """
+  Makes `namespace` the one this user last worked in, and the one the shell
+  shows wherever an address names no scope. `nil` keeps the previous one.
+
+  Only a namespace the controller lists is kept or shown: the value comes from
+  the address bar, and the rail must never point at a scope that answers
+  nothing.
+  """
+  def keep_namespace(socket, namespace) do
+    %{last_namespace: last, shell_namespaces: known, scoped_namespace: scoped} = socket.assigns
+
+    if namespace != last and namespace in known,
+      do: FlezhaUi.Accounts.remember_namespace(socket.assigns.current_scope.user, namespace)
+
+    last = if namespace in known, do: namespace, else: last
+
+    Phoenix.Component.assign(socket,
+      last_namespace: last,
+      shell_namespace: scoped || if(last in known, do: last)
+    )
   end
 
   @doc """

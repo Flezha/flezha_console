@@ -115,7 +115,11 @@ defmodule FlezhaUiWeb.Live.Launcher do
       |> Target.new()
       |> Target.put_namespaces(module.launcher_namespaces(socket))
 
-    namespace = socket.assigns.launcher.fixed_namespace || Target.namespace(target)
+    # A screen that asks opens on the namespace the shell has in scope, not on
+    # whichever reachable namespace happens to sort first.
+    namespace =
+      socket.assigns.launcher.fixed_namespace ||
+        Target.namespace(target, socket.assigns[:shell_namespace] || "")
 
     state = %{
       socket.assigns.launcher

@@ -1,6 +1,7 @@
 import {
   test,
   expect,
+  chosen,
   closeSection,
   openPalette,
   openSection,
@@ -26,22 +27,30 @@ const RELAY = '/namespaces/default/relays/testnet_store_1';
 
 test.describe('The console shell', () => {
   test('the rail separates namespace-scoped screens from platform ones', async ({ page, live }) => {
-    await live('/');
+    await live('/namespaces/default');
 
     const rail = page.locator('.flz-sidebar-nav');
     await expect(rail.locator('.flz-sidebar-section')).toHaveCount(2);
-
-    // Nothing is scoped from the dashboard, so the rail says so instead of
-    // offering four destinations with no namespace to point at.
-    await expect(page.getByTestId('no-namespace-scoped')).toBeVisible();
     await expect(rail.locator('a[href="/relays"]')).toContainText('Fleet');
-
-    await live('/namespaces/default');
-
-    await expect(page.getByTestId('no-namespace-scoped')).toHaveCount(0);
     await expect(rail.locator('a[href="/namespaces/default/relays"]')).toBeVisible();
     await expect(rail.locator('a[href="/namespaces/default/plugins"]')).toBeVisible();
     await expect(rail.locator('a[href="/namespaces/default/schedules"]')).toBeVisible();
+  });
+
+  test('a platform screen keeps the namespace last worked in', async ({ page, live }) => {
+    await live('/namespaces/default/relays');
+
+    // The address names no namespace from here on, so only the remembered
+    // scope can keep the rail and the picker on it.
+    await page.locator('.flz-sidebar-nav a[href="/"]').click();
+    await expect(page).toHaveURL(/\/$/);
+
+    await expect(page.getByTestId('namespace-picker')).toContainText('default');
+    await expect(page.getByTestId('no-namespace-scoped')).toHaveCount(0);
+    await expect(
+      page.locator('.flz-sidebar-nav a[href="/namespaces/default/relays"]'),
+    ).toBeVisible();
+    await expect(chosen(page, 'topology-namespace')).toHaveValue('default');
   });
 
   test('every rail entry reaches its own screen and is marked there', async ({ page, live }) => {

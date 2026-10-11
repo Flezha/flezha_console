@@ -16,6 +16,10 @@ defmodule FlezhaUi.Accounts.User do
       redact: true,
       load_in_query: false
 
+    # The namespace this user last worked in, which the shell keeps in scope on
+    # screens whose address names none.
+    field :last_namespace, :string
+
     timestamps(type: :utc_datetime)
   end
 

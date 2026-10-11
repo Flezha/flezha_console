@@ -210,6 +210,51 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
              |> render_click()
              |> follow_redirect(conn, ~p"/namespaces/billing")
     end
+
+    test "a platform screen keeps the namespace last worked in", %{conn: conn} do
+      {:ok, _view, _html} = live(conn, ~p"/namespaces/billing/relays")
+      {:ok, _view, html} = live(conn, ~p"/audit")
+
+      assert html |> within(~s([data-testid="namespace-picker"])) |> LazyHTML.text() =~
+               "billing"
+
+      assert "/namespaces/billing/relays" in (html |> rail() |> hrefs())
+      refute html =~ ~s(data-testid="no-namespace-scoped")
+    end
+
+    test "the namespace is remembered across sessions", %{conn: conn, user: user} do
+      {:ok, _view, _html} = live(conn, ~p"/namespaces/billing")
+
+      assert FlezhaUi.Repo.reload!(user).last_namespace == "billing"
+    end
+
+    test "an address naming a namespace the controller lacks is not remembered", %{
+      conn: conn,
+      user: user
+    } do
+      {:ok, _view, _html} = live(conn, ~p"/namespaces/billing")
+      {:ok, _view, _html} = live(conn, ~p"/namespaces/#{String.duplicate("x", 300)}")
+
+      assert FlezhaUi.Repo.reload!(user).last_namespace == "billing"
+    end
+
+    test "a remembered namespace the controller no longer has is not shown", %{
+      conn: conn,
+      user: user
+    } do
+      FlezhaUi.Accounts.remember_namespace(user, "gone")
+
+      {:ok, _view, html} = live(conn, ~p"/audit")
+
+      assert html =~ ~s(data-testid="no-namespace-scoped")
+    end
+
+    test "the dashboard's data plane opens on the remembered namespace", %{conn: conn} do
+      {:ok, _view, _html} = live(conn, ~p"/namespaces/billing")
+      {:ok, _view, html} = live(conn, ~p"/")
+
+      assert html =~ ~r/id="topology-namespace-value"[^>]*value="billing"/
+    end
   end
 
   describe "the account menu" do
