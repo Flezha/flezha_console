@@ -70,11 +70,11 @@
             <dt class="text-th-muted">Total</dt>
             <dd class="text-th-secondary font-mono text-right">{Format.bytes(@tap.bytes)}</dd>
             <dt class="text-th-muted">Rate</dt>
-            <dd data-testid="tap-msg-rate" class="text-th-brand font-mono text-right">
+            <dd data-testid="tap-msg-rate" class="text-th-primary font-mono text-right">
               {tap_rate(@tap, :count)}/s
             </dd>
             <dt class="text-th-muted">Throughput</dt>
-            <dd data-testid="tap-byte-rate" class="text-th-brand font-mono text-right">
+            <dd data-testid="tap-byte-rate" class="text-th-primary font-mono text-right">
               {Format.bytes(round(tap_rate(@tap, :bytes)))}/s
             </dd>
           </dl>

@@ -386,7 +386,7 @@ defmodule FlezhaUiWeb.Topology do
       id: "plugin-#{entry.plugin_id}",
       kind: :plugin,
       label: entry.plugin_id,
-      sub: "#{entry.hook}#{position_suffix(entry.position)} · #{entry.provider}",
+      sub: "#{entry.hook}#{position_suffix(entry.position)} · #{short_provider(entry.provider)}",
       selectable?: true,
       plugin_id: entry.plugin_id,
       hook: entry.hook,
@@ -397,6 +397,10 @@ defmodule FlezhaUiWeb.Topology do
 
   defp position_suffix(nil), do: ""
   defp position_suffix(position), do: " ##{position}"
+
+  # A provider module's last segment: the full name is far wider than a branch
+  # node, and stays in the node's tooltip and the selected plugin's panel.
+  defp short_provider(provider), do: provider |> to_string() |> String.split(".") |> List.last()
 
   defp core_node(input, facts) do
     %{
@@ -938,9 +942,14 @@ defmodule FlezhaUiWeb.Topology do
   defp node_body(assigns) do
     ~H"""
     <g class={node_class(@node, @selected)}>
+      <title>{@node.label} — {@node.sub}</title>
       <rect x={@node.x} y={@node.y} width={width_for(@node)} height={node_h()} rx="8" />
-      <text x={@node.x + 12} y={@node.y + 21} class="topo-label">{@node.label}</text>
-      <text x={@node.x + 12} y={@node.y + 38} class="topo-sub">{@node.sub}</text>
+      <%!-- SVG text never wraps, so the box clips it rather than letting a long
+           identifier run out past its own edge. --%>
+      <svg x={@node.x} y={@node.y} width={width_for(@node) - 8} height={node_h()} overflow="hidden">
+        <text x="12" y="21" class="topo-label">{@node.label}</text>
+        <text x="12" y="38" class="topo-sub">{@node.sub}</text>
+      </svg>
     </g>
     """
   end

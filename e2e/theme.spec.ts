@@ -92,8 +92,19 @@ test.describe('Theme contract', () => {
     );
     expect(
       await page.locator('.flz-topbar').evaluate((el) => getComputedStyle(el).backgroundImage),
-      'the topbar wears the chrome band',
-    ).toContain('linear-gradient');
+      'the topbar is flat, so it and the rail read as one surface',
+    ).toBe('none');
+    expect(await bg('.flz-topbar')).toBe(sidebarDark);
+    for (const [selector, edge] of [
+      ['.flz-sidebar', 'borderRightWidth'],
+      ['.flz-sidebar-brand', 'borderBottomWidth'],
+      ['.flz-topbar', 'borderBottomWidth'],
+    ] as const) {
+      expect(
+        await page.locator(selector).evaluate((el, e) => getComputedStyle(el)[e], edge),
+        `${selector} draws no seam across the chrome`,
+      ).toBe('0px');
+    }
 
     await toggleTheme(page);
     await expect(theme(page)).toHaveAttribute('data-theme', 'light');
@@ -115,10 +126,26 @@ test.describe('Theme contract', () => {
 
       await expect(logo).toBeVisible();
       expect(await logo.evaluate((el) => getComputedStyle(el).maskImage)).toContain(
-        'flezha-badger-white.svg',
+        'flezha-ui-badger-line-text-white.svg',
       );
-      expect((await logo.boundingBox())?.height).toBeGreaterThan(0);
-      await expect(page.locator('.flz-sidebar-brand .flz-brand-name')).toHaveText('Flezha UI');
+      await expect(logo).toHaveAccessibleName('Flezha UI');
+
+      // The proportions the served file declares, so the check follows a
+      // regenerated lockup instead of a copied number.
+      const svg = await (await page.request.get('/images/flezha-ui-badger-line-text-white.svg')).text();
+      const [, width, height] = svg.match(/viewBox="\S+ \S+ (\S+) (\S+)"/)!;
+      const box = await logo.boundingBox();
+      expect(box?.height).toBeGreaterThan(0);
+      expect(box!.width / box!.height, 'the lockup keeps its own proportions').toBeCloseTo(
+        Number(width) / Number(height),
+        1,
+      );
+
+      const brandRow = await page.locator('.flz-sidebar-brand').boundingBox();
+      const topbar = await page.locator('.flz-topbar').boundingBox();
+      expect(brandRow!.height, 'the brand row and the topbar share one bottom edge').toBe(
+        topbar!.height,
+      );
       expect(await logo.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
         await rgb(page, await token(page, '--text-primary')),
       );
@@ -190,7 +217,9 @@ test.describe('Brand outside the shell', () => {
 
       const logo = page.locator('.flz-brand .flz-logo').first();
       await expect(logo).toBeVisible();
-      expect(await logo.evaluate((el) => getComputedStyle(el).maskImage)).toContain('flezha-badger');
+      expect(await logo.evaluate((el) => getComputedStyle(el).maskImage)).toContain(
+        'flezha-ui-badger-line-text-white.svg',
+      );
 
       const mascot = page.locator('img[src*="badger-laptop"]');
       await expect(mascot).toBeVisible();

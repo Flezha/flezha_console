@@ -62,16 +62,22 @@ defmodule FlezhaUiWeb.BrandTest do
   end
 
   describe "the brand lockup" do
-    test "the login screen shows the badger mask beside the name, in the brand ink", %{
+    test "the login screen shows the Flezha UI lockup mask, in the brand ink", %{
       conn: conn
     } do
       html = conn |> get(~p"/users/log-in") |> html_response(200)
 
       assert html =~ ~s(class="flz-brand text-th-brand")
-      assert html =~ "mask-image: url(/images/flezha-badger-white.svg)"
-      assert html =~ ~s(<span class="flz-brand-name">Flezha UI</span>)
+      assert html =~ "mask-image: url(/images/flezha-ui-badger-line-text-white.svg)"
+      assert html =~ ~s(role="img" aria-label="Flezha UI")
       refute html =~ "flezha-ui-purple"
       refute html =~ "flezha-ui-gold"
+    end
+
+    test "the lockup it masks with is served", %{conn: conn} do
+      svg = conn |> get("/images/flezha-ui-badger-line-text-white.svg") |> response(200)
+
+      assert svg =~ "<title>Flezha UI</title>"
     end
 
     test "the sidebar shows the same lockup in the chrome's ink", %{conn: conn} do
@@ -79,8 +85,8 @@ defmodule FlezhaUiWeb.BrandTest do
       {:ok, _live, html} = live(conn, ~p"/")
 
       assert html =~ ~r/<span class="flz-brand\s*">/
-      assert html =~ "mask-image: url(/images/flezha-badger-white.svg)"
-      assert html =~ "Flezha UI"
+      assert html =~ "mask-image: url(/images/flezha-ui-badger-line-text-white.svg)"
+      assert html =~ ~s(aria-label="Flezha UI")
       refute html =~ "flezha-ui-gold"
     end
 

@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.Assets.Stylebook do
-  @shortdoc "Copies the flezha_stylebook fonts, badger mark, favicons and mascots into priv/static"
+  @shortdoc "Copies the flezha_stylebook fonts, logo, favicons and mascots into priv/static"
 
   @moduledoc """
   Places the `flezha_stylebook` static assets the console serves into
@@ -19,7 +19,7 @@ defmodule Mix.Tasks.Assets.Stylebook do
   @package "assets/node_modules/@flezha/stylebook"
   @fonts ~w(Inter-latin.woff2 JetBrainsMono-latin.woff2 SpaceGrotesk-latin.woff2)
   @images %{
-    "logo/flezha-badger-white.svg" => "flezha-badger-white.svg",
+    "logo/flezha-ui-badger-line-text-white.svg" => "flezha-ui-badger-line-text-white.svg",
     "honey-badger/laptop.webp" => "badger-laptop.webp",
     "honey-badger/not-found.webp" => "badger-not-found.webp"
   }
@@ -36,7 +36,7 @@ defmodule Mix.Tasks.Assets.Stylebook do
       Mix.raise("""
       flezha_stylebook is not installed at #{@package}.
 
-      The console's typefaces, badger mark, favicon and mascots all come from
+      The console's typefaces, logo, favicon and mascots all come from
       the flezha_stylebook repository, which this project depends on as an npm
       `file:` dependency and expects alongside itself at:
 

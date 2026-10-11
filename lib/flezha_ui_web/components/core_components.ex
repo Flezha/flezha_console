@@ -153,11 +153,23 @@ defmodule FlezhaUiWeb.CoreComponents do
     Map.new(values, fn {key, value} -> {"phx-value-#{key}", value} end)
   end
 
-  @doc """
-  The Flezha UI lockup: the stylebook's badger, painted as a mask so it takes
-  the ink of whatever it sits on, beside the product name.
+  @ui_lockup Path.expand(
+               "../../../priv/static/images/flezha-ui-badger-line-text-white.svg",
+               __DIR__
+             )
+  @external_resource @ui_lockup
 
-  On the chrome both take the chrome's ink; on the content canvas they take the
+  # The stylebook's logo rule is square; this lockup is not, so its proportions
+  # are read from its own viewBox rather than copied by hand.
+  @ui_lockup_aspect (case Regex.run(~r/viewBox="\S+ \S+ (\S+) (\S+)"/, File.read!(@ui_lockup)) do
+                       [_, width, height] -> "#{width} / #{height}"
+                     end)
+
+  @doc """
+  The Flezha UI lockup: the stylebook's badger over the FLEZHA name with UI
+  beside it, painted as a mask so it takes the ink of whatever it sits on.
+
+  On the chrome it takes the chrome's ink; on the content canvas it takes the
   brand ink, so one lockup serves every surface and theme with no image swap.
 
   ## Examples
@@ -170,15 +182,17 @@ defmodule FlezhaUiWeb.CoreComponents do
     ~H"""
     <span class={["flz-brand", @on == :canvas && "text-th-brand"]}>
       <span
-        class={["flz-logo", @on == :canvas && "h-14"]}
-        style={"mask-image: url(#{~p"/images/flezha-badger-white.svg"})"}
-        aria-hidden="true"
+        role="img"
+        aria-label="Flezha UI"
+        class={["flz-logo", @on == :canvas && "h-10"]}
+        style={"mask-image: url(#{~p"/images/flezha-ui-badger-line-text-white.svg"}); aspect-ratio: #{ui_lockup_aspect()}"}
       >
       </span>
-      <span class="flz-brand-name">Flezha UI</span>
     </span>
     """
   end
+
+  defp ui_lockup_aspect, do: @ui_lockup_aspect
 
   @doc """
   An identifier rendered the way identifiers are rendered everywhere here.
@@ -553,12 +567,12 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   # The dot takes the badge's own ink, so one variant colours both.
   defp health_variant(:healthy), do: "flz-badge--positive"
-  # Parked at a committed boundary, holding no runner: not running, not broken,
-  # and not the same as a row nobody has looked at yet.
-  defp health_variant(:suspended), do: "flz-badge--brand"
   defp health_variant(:degraded), do: "flz-badge--warning"
   defp health_variant(:unbound), do: "flz-badge--warning"
   defp health_variant(:failed), do: "flz-badge--negative"
+  # Unknown, and suspended — parked at a committed boundary with no runner, so
+  # neither running nor broken — are no outcome: the plain badge, named by its
+  # word.
   defp health_variant(_health), do: nil
 
   @doc """
