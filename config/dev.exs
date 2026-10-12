@@ -98,7 +98,8 @@ config :flezha_ui,
 # and bound to its relay in one call. The websocket provider is a source: it
 # feeds the relay on its own and binds `on_terminate` only to tear down.
 config :flezha_ui, :dev_setup,
-  enabled: true,
+  # Off when the console is attached to another stack's controller.
+  enabled: System.get_env("FLEZHA_UI_DEV_SETUP", "true") == "true",
   namespace: "default",
   # Overrides only: the controller merges these over its own defaults, so a
   # quota left out here keeps whatever the controller ships.
