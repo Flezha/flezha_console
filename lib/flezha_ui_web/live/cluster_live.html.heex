@@ -68,21 +68,32 @@
           </span>
       <% end %>
     </span>
-    <.button
-      variant="secondary"
-      size="sm"
-      phx-click="open_recovery"
-      phx-value-namespace={ns.name}
-      data-testid={"open-recovery-#{ns.name}"}
-    >
-      Recovery
-    </.button>
   </:actions>
+
+  <.notice
+    :for={{node, state} <- hubs_not_serving(ns.per_node)}
+    kind={:info}
+    icon="hero-arrow-path"
+    testid={"hub-not-serving-#{node}"}
+  >
+    The hub on <span class="fui-num">{node}</span>
+    is {String.downcase(state)}: it is replaying its state and serves again once done. Nothing
+    needs doing.
+  </.notice>
 
   <div class="space-y-8">
     <%!-- Per-node relay rollup --%>
     <div data-testid={"node-rollup-#{ns.name}"} class="space-y-2">
-      <h3 class="fui-eyebrow">Relays per node</h3>
+      <h3 class="fui-eyebrow flex items-center gap-1">
+        Relays per node
+        <.help_tip id={"help-rollup-#{ns.name}"} label="What the per-node columns mean">
+          Each row is a cluster node holding relays of this namespace. <b>Hub recovery</b>
+          is the state of the namespace's hub on that node: <i>Serving</i>
+          is normal; <i>Recovering</i>
+          means the hub is rebuilding its state after a restart or a move and serves again when it
+          finishes. Recovery runs by itself — there is nothing to start or stop.
+        </.help_tip>
+      </h3>
       <p :if={ns.per_node == []} class="fui-figures">No relay is placed in this namespace.</p>
       <.grid
         :if={ns.per_node != []}
@@ -185,38 +196,3 @@
 </.section>
 
 <.runner_dialogs drop={@runner_drop} readmit={@runner_readmit} />
-
-<.dialog
-  :if={@recovery}
-  testid="recovery-modal"
-  size="form"
-  on_close="close_recovery"
-  close_testid="recovery-close"
->
-  <:title>Recovery of {@recovery.namespace}</:title>
-  <%= if @recovery.error do %>
-    <div data-testid="recovery-error">
-      <.runtime_error error={@recovery.error} action="the recovery read" />
-    </div>
-  <% else %>
-    <dl class="fui-facts">
-      <.stat label="Hub" testid="recovery-hub-id" mono>{@recovery.hub_id}</.stat>
-      <.stat label="On this node" testid="recovery-local">{recovery(@recovery.local).text}</.stat>
-    </dl>
-    <div :if={@recovery.per_node_error} data-testid="recovery-per-node-error">
-      <.runtime_error error={@recovery.per_node_error} action="the per-node recovery read" />
-    </div>
-    <.grid
-      :if={@recovery.per_node != []}
-      id="recovery-per-node-rows"
-      rows={@recovery.per_node}
-      testid="recovery-per-node"
-      row_testid={fn {node, _state} -> "recovery-node-#{node}" end}
-    >
-      <:col :let={{node, _state}} label="Node"><span class="fui-num">{node}</span></:col>
-      <:col :let={{_node, state}} label="Recovery">
-        <span class={"fui-tone-#{recovery(state).tone}"}>{recovery(state).text}</span>
-      </:col>
-    </.grid>
-  <% end %>
-</.dialog>

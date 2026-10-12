@@ -54,8 +54,10 @@ test.describe('Controller health', () => {
 
     await page.getByTestId('memory-snapshot-btn').click();
 
+    // The answer is brought into view and announced, never left below the fold.
     const captured = page.getByTestId('memory-captured-at');
-    await expect(captured).toBeVisible();
+    await expect(captured).toBeInViewport();
+    await expect(page.locator('.fui-toast').filter({ hasText: 'Memory snapshot taken.' })).toBeVisible();
     await expect(captured).toContainText('Captured at');
     await expect(page.getByTestId('memory-top-processes')).toBeVisible();
   });

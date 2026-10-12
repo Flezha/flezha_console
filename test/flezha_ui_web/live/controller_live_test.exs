@@ -216,8 +216,16 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/controller")
-      html = render_click(view, "memory_snapshot", %{})
+      busy = render_click(view, "memory_snapshot", %{})
 
+      # The scan runs aside: the button says so at once, then the result lands.
+      assert busy =~ "Taking snapshot…"
+      assert busy =~ ~s(data-testid="memory-loading")
+
+      html = render_async(view)
+
+      assert html =~ "Memory snapshot taken."
+      assert_push_event(view, "fui:reveal", %{id: "memory-panel"})
       assert html =~ ~s(data-testid="memory-captured-at")
       assert html =~ "2026-08-24T02:00:00Z"
       assert html =~ ~s(data-testid="memory-top-processes")
@@ -232,6 +240,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/controller")
       render_click(view, "memory_snapshot", %{})
+      render_async(view)
       send(view.pid, :refresh)
       html = render(view)
 
@@ -247,7 +256,8 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/controller")
-      html = render_click(view, "memory_snapshot", %{})
+      render_click(view, "memory_snapshot", %{})
+      html = render_async(view)
 
       assert html =~ "authz.role_insufficient"
       refute html =~ ~s(data-testid="memory-captured-at")

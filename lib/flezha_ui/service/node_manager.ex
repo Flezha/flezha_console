@@ -1713,24 +1713,6 @@ defmodule FlezhaUi.Service.NodeManager do
     authorized_list_call(token, Flezha.Service.Controller, :durability_status, [])
   end
 
-  @doc "The hub id the controller composes for `namespace`."
-  def hub_id(namespace, token) do
-    authorized_call(token, Flezha.Service.Controller, :hub_id, [namespace])
-  end
-
-  @doc "One hub's recovery state on the node this UI is connected to."
-  def recovery_state(hub_id, token) when is_atom(hub_id) do
-    authorized_call(token, Flezha.Service.Controller, :recovery_state, [hub_id])
-  end
-
-  @doc """
-  `namespace`'s recovery state on each of `nodes`, as `%{node => state}`; a
-  node that cannot be reached answers `:unreachable`.
-  """
-  def recovery_per_node(namespace, nodes, token) when is_list(nodes) do
-    authorized_call(token, Flezha.Service.Controller, :recovery_per_node, [namespace, nodes])
-  end
-
   @doc """
   The controller's memory hot spots. Expensive — a process scan — so it is
   only taken when an operator asks, never on a refresh tick.

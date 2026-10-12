@@ -50,6 +50,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   attr :tabs_label, :string, default: "Views"
   attr :headline, :boolean, default: false
   attr :testid, :string, default: "page-header"
+  attr :help, :boolean, default: true, doc: "a ? beside the title opening the screen's help"
   slot :sentence
   slot :figures, doc: "a second line of figures in words"
   slot :actions
@@ -60,7 +61,19 @@ defmodule FlezhaUiWeb.CoreComponents do
       <.crumbs :if={@crumbs != []} trail={@crumbs} />
       <div class="min-w-0 space-y-2">
         <p class="fui-eyebrow" data-testid="page-eyebrow">{@eyebrow}</p>
-        <h1 class="fui-title" data-testid="page-title">{@title}</h1>
+        <div class="flex items-center gap-2">
+          <h1 class="fui-title" data-testid="page-title">{@title}</h1>
+          <button
+            :if={@help}
+            type="button"
+            class="fui-help-tip"
+            data-fui-help-open
+            aria-label="What this screen is for"
+            data-testid="page-help"
+          >
+            <.icon name="hero-question-mark-circle" class="w-6 h-6" />
+          </button>
+        </div>
         <p
           :if={@sentence != []}
           class={["fui-sentence", @headline && "fui-sentence--headline"]}
@@ -152,6 +165,10 @@ defmodule FlezhaUiWeb.CoreComponents do
     default: false,
     doc: "true when the screen opened this itself, over both the default and the stored choice"
 
+  attr :help, :string,
+    default: nil,
+    doc: "what the section is, behind a ? at the right end of the title line"
+
   slot :title, required: true
   slot :actions, doc: "controls at the right of the title line"
   slot :inner_block, required: true
@@ -185,7 +202,12 @@ defmodule FlezhaUiWeb.CoreComponents do
           <.section_title digest={@digest}>{render_slot(@title)}</.section_title>
         </button>
         <.section_title :if={!@fold} digest={@digest}>{render_slot(@title)}</.section_title>
-        <div :if={@actions != []} class="fui-section-actions">{render_slot(@actions)}</div>
+        <div :if={@actions != [] or @help} class="fui-section-actions">
+          {render_slot(@actions)}
+          <.help_tip :if={@help} id={"help-#{@id || @testid || @fold}"} label="What this section is">
+            {@help}
+          </.help_tip>
+        </div>
       </div>
       <%= if @fold do %>
         <div
@@ -1187,6 +1209,36 @@ defmodule FlezhaUiWeb.CoreComponents do
     """
   end
 
+  @doc """
+  A "?" beside a heading or a control that explains it in plain words when
+  clicked, and stays open while it is read.
+
+      <.help_tip id="help-quotas" label="What quotas are">
+        A quota caps how many relays the namespace may run.
+      </.help_tip>
+  """
+  attr :id, :string, required: true
+  attr :label, :string, default: "What is this?"
+  attr :align, :string, default: "start", values: ~w(start end)
+  slot :inner_block, required: true
+
+  def help_tip(assigns) do
+    ~H"""
+    <.popover
+      id={@id}
+      testid={@id}
+      label={@label}
+      role="dialog"
+      align={@align}
+      trigger_class="fui-help-tip"
+      panel_class="fui-help-panel"
+    >
+      <:trigger><.icon name="hero-question-mark-circle" class="w-5 h-5" /></:trigger>
+      {render_slot(@inner_block)}
+    </.popover>
+    """
+  end
+
   # ======================================================================
   # Statements
   # ======================================================================
@@ -1359,12 +1411,26 @@ defmodule FlezhaUiWeb.CoreComponents do
   """
   def error_message(error, action \\ nil)
 
-  def error_message(%{class: :denied, code: code, message: message}, action),
-    do: "The controller refused #{action || "this call"}: #{message} (#{code})"
+  # A condition only this node sees has no code to name, unless it is a refusal.
+  def error_message(%{code: "ui." <> _, class: class} = error, action) when class != :denied,
+    do: error_text(error, action)
 
-  def error_message(%{code: "ui." <> _, message: message}, _action), do: message
-  def error_message(%{code: code, message: message}, _action), do: "#{message} (#{code})"
+  def error_message(%{code: code, message: _} = error, action),
+    do: "#{error_text(error, action)} (#{code})"
+
   def error_message(error, action), do: error_message(NodeManager.error(error), action)
+
+  defp error_text(%{class: :denied, message: message}, action),
+    do: "The controller refused #{action || "this call"}: #{message}"
+
+  defp error_text(%{message: message}, _action), do: message
+
+  @doc """
+  Scrolls the element with `id` into view and marks it briefly, for a result
+  that renders away from the control that asked for it. The `fui:reveal`
+  listener in app.js does the scrolling.
+  """
+  def reveal(socket, id), do: Phoenix.LiveView.push_event(socket, "fui:reveal", %{id: id})
 
   @doc """
   The controller's authorization posture, as a notice. Renders nothing when

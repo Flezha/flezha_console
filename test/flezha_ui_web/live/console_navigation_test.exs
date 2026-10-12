@@ -117,10 +117,22 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
       assert attr(entry, "href") == "/namespaces/default/relays"
     end
 
-    test "the all-namespaces relays mark Fleet", %{conn: conn} do
+    test "every screen's title has a ? that opens its help", %{conn: conn} do
+      for path <- [~p"/namespaces/default", ~p"/cluster", ~p"/observability"] do
+        {:ok, _view, html} = live(conn, path)
+
+        assert html |> within(~s([data-testid="page-help"])) |> attr("data-fui-help-open") == "",
+               "#{path} has no help beside its title"
+      end
+    end
+
+    test "the all-namespaces relays are the Relays screen's switch, not a destination", %{
+      conn: conn
+    } do
       {:ok, _view, html} = live(conn, ~p"/relays")
 
-      assert current_destination(html) =~ "Fleet"
+      assert current_destination(html) == ""
+      assert html |> within(~s([data-testid="scope-all"])) |> attr("aria-current") == "true"
     end
 
     test "dead-letter and observability stay platform-global", %{conn: conn} do

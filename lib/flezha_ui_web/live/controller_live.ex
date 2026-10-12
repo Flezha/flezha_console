@@ -20,18 +20,30 @@ defmodule FlezhaUiWeb.ControllerLive do
     {:ok,
      socket
      |> start_refresh()
-     |> assign(page_title: "Controller", memory: nil, memory_error: nil, stop: nil)
+     |> assign(
+       page_title: "Controller",
+       memory: nil,
+       memory_error: nil,
+       memory_loading: false,
+       stop: nil
+     )
      |> refresh()}
   end
 
   # Deliberately not on the tick: a process scan is far too expensive to run
-  # every few seconds for a screen nobody may be reading.
+  # every few seconds for a screen nobody may be reading. It takes seconds, so
+  # it runs aside while the button says so.
   @impl true
+  def handle_event("memory_snapshot", _params, %{assigns: %{memory_loading: true}} = socket),
+    do: {:noreply, socket}
+
   def handle_event("memory_snapshot", _params, socket) do
-    case NodeManager.mem_top(socket.assigns.flezha_token) do
-      {:ok, snapshot} -> {:noreply, assign(socket, memory: snapshot, memory_error: nil)}
-      {:error, reason} -> {:noreply, assign(socket, memory: nil, memory_error: reason)}
-    end
+    token = socket.assigns.flezha_token
+
+    {:noreply,
+     socket
+     |> assign(memory_loading: true)
+     |> start_async(:memory_snapshot, fn -> NodeManager.mem_top(token) end)}
   end
 
   # A stop under way keeps its dialog: reopening would orphan its answer.
@@ -115,6 +127,25 @@ defmodule FlezhaUiWeb.ControllerLive do
   end
 
   def handle_info({_kind, :controller_stop, _payload}, socket), do: {:noreply, socket}
+
+  # A scan that crashed is a failure like a refused one.
+  @impl true
+  def handle_async(:memory_snapshot, result, socket) do
+    socket = assign(socket, memory_loading: false)
+
+    socket =
+      case with({:ok, answer} <- result, do: answer) do
+        {:ok, snapshot} ->
+          socket
+          |> assign(memory: snapshot, memory_error: nil)
+          |> put_flash(:info, "Memory snapshot taken.")
+
+        {_failed, reason} ->
+          assign(socket, memory: nil, memory_error: reason)
+      end
+
+    {:noreply, reveal(socket, "memory-panel")}
+  end
 
   # One status read answers the durability posture and the shutdown state; a
   # refused or unavailable read is stated on its panel and the rest renders.

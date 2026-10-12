@@ -323,9 +323,8 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
-      assert html =~ ~s(data-testid="recovery-flezha@node-a")
-      assert html =~ "Replaying"
-      refute html =~ "Serving"
+      assert html =~ ~r/data-testid="recovery-flezha@node-a"[^>]*>\s*Replaying/
+      refute html =~ ~r/data-testid="recovery-flezha@node-a"[^>]*>\s*Serving/
     end
 
     test "an unreachable node's recovery is stated, and the rest still renders", %{
@@ -379,123 +378,31 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
     end
   end
 
-  describe "recovery detail" do
-    test "shows the hub id, the local hub and every node's recovery", %{conn: conn, node: node} do
-      one_namespace(node, hub_nodes: [node, :"flezha@node-b"])
-
-      FakeController.set(
-        node,
-        {Controller, :recovery_per_node},
-        {:ok, %{node => :normal, "flezha@node-b": :replaying}}
-      )
-
-      {:ok, view, _html} = live(conn, ~p"/cluster")
-      view |> element(~s([data-testid="open-recovery-default"])) |> render_click()
-
-      assert view |> element(~s([data-testid="recovery-hub-id"])) |> render() =~ "hub_default"
-      assert view |> element(~s([data-testid="recovery-local"])) |> render() =~ "Serving"
-
-      assert view |> element(~s([data-testid="recovery-node-flezha@node-b"])) |> render() =~
-               "Replaying"
-
-      assert [["default", nodes, _ctx]] =
-               FakeController.calls(node, {Controller, :recovery_per_node})
-
-      assert node in nodes and :"flezha@node-b" in nodes
-    end
-
-    test "an unreachable node is stated while the others still show", %{conn: conn, node: node} do
-      one_namespace(node, hub_nodes: [:"flezha@node-b"])
-
-      FakeController.set(
-        node,
-        {Controller, :recovery_per_node},
-        {:ok, %{node => :normal, "flezha@node-b": :unreachable}}
-      )
-
-      {:ok, view, _html} = live(conn, ~p"/cluster")
-      view |> element(~s([data-testid="open-recovery-default"])) |> render_click()
-
-      assert view |> element(~s([data-testid="recovery-node-flezha@node-b"])) |> render() =~
-               "Could not be reached"
-
-      assert view |> element(~s([data-testid="recovery-node-#{node}"])) |> render() =~ "Serving"
-    end
-
-    test "a node that finishes recovering shows it on the next tick", %{conn: conn, node: node} do
-      one_namespace(node, hub_nodes: [:"flezha@node-b"])
-
-      FakeController.set(
-        node,
-        {Controller, :recovery_per_node},
-        {:ok, %{"flezha@node-b": :replaying}}
-      )
-
-      {:ok, view, _html} = live(conn, ~p"/cluster")
-      view |> element(~s([data-testid="open-recovery-default"])) |> render_click()
-
-      FakeController.set(
-        node,
-        {Controller, :recovery_per_node},
-        {:ok, %{"flezha@node-b": :normal}}
-      )
-
-      send(view.pid, :refresh)
-
-      assert view |> element(~s([data-testid="recovery-node-flezha@node-b"])) |> render() =~
-               "Serving"
-    end
-
-    test "a node hosting no hub for the namespace is not asked for one", %{
+  describe "hub recovery" do
+    test "is read from the rollup, with no button that only reads it again", %{
       conn: conn,
       node: node
     } do
-      one_namespace(node, hub_nodes: [:"flezha@node-b"])
+      one_namespace(node, rows: [row("a")], hub_nodes: [:"flezha@node-a"])
 
-      {:ok, view, _html} = live(conn, ~p"/cluster")
-      view |> element(~s([data-testid="open-recovery-default"])) |> render_click()
+      {:ok, _view, html} = live(conn, ~p"/cluster")
 
-      assert view |> element(~s([data-testid="recovery-local"])) |> render() =~
-               "No hub on this node"
-
-      assert FakeController.calls(node, {Controller, :recovery_state}) == []
-      assert has_element?(view, ~s([data-testid="recovery-node-flezha@node-b"]))
+      refute html =~ "open-recovery"
+      refute html =~ ~s(data-testid="hub-not-serving-)
+      assert html =~ ~s(data-testid="help-rollup-default")
     end
 
-    test "a refused per-node read keeps the hub and the local state", %{conn: conn, node: node} do
-      one_namespace(node, hub_nodes: [node])
+    test "a hub mid-recovery is announced, saying nothing needs doing", %{
+      conn: conn,
+      node: node
+    } do
+      one_namespace(node, rows: [row("a")], hub_nodes: [{:"flezha@node-a", :recovering}])
 
-      FakeController.set(
-        node,
-        {Controller, :recovery_per_node},
-        FakeController.error("authz.role_insufficient")
-      )
+      {:ok, _view, html} = live(conn, ~p"/cluster")
 
-      {:ok, view, _html} = live(conn, ~p"/cluster")
-      view |> element(~s([data-testid="open-recovery-default"])) |> render_click()
-
-      assert view |> element(~s([data-testid="recovery-local"])) |> render() =~ "Serving"
-
-      assert view |> element(~s([data-testid="recovery-per-node-error"])) |> render() =~
-               "authz.role_insufficient"
-    end
-
-    test "a refused read is stated and the screen still renders", %{conn: conn, node: node} do
-      one_namespace(node, hub_nodes: [])
-
-      FakeController.set(
-        node,
-        {Controller, :hub_id},
-        FakeController.error("authz.role_insufficient")
-      )
-
-      {:ok, view, _html} = live(conn, ~p"/cluster")
-      view |> element(~s([data-testid="open-recovery-default"])) |> render_click()
-
-      assert view |> element(~s([data-testid="recovery-error"])) |> render() =~
-               "authz.role_insufficient"
-
-      assert has_element?(view, ~s([data-testid="cluster-namespace-default"]))
+      assert html =~ ~s(data-testid="hub-not-serving-flezha@node-a")
+      assert html =~ "recovering"
+      assert html =~ "needs doing"
     end
   end
 end

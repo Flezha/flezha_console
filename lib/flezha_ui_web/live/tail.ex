@@ -74,7 +74,7 @@ defmodule FlezhaUiWeb.Live.Tail do
       """
       def stop_tail(socket) do
         FlezhaUi.Service.EventFeed.stop(socket.assigns[:tail_feed], @tail_tag)
-        Phoenix.Component.assign(socket, tailing: nil, tail_feed: nil)
+        Phoenix.Component.assign(socket, tailing: nil, tail_feed: nil, tail_error: nil)
       end
 
       @impl Phoenix.LiveView

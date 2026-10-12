@@ -11,11 +11,13 @@ defmodule FlezhaUiWeb.Live.RunnerActions do
 
   The host renders `FlezhaUiWeb.Runners.runner_table/1` per namespace and
   `runner_dialogs/1` once, and loads each namespace's marks in its own refresh;
-  the events are injected. A completed drop or readmit reloads the screen, so
-  the runner leaves the list and its mark appears without waiting for the tick.
+  the events are injected. A completed drop or readmit says so and reloads the
+  screen, so the runner leaves the list and its mark appears without waiting
+  for the tick.
   """
 
   import Phoenix.Component, only: [assign: 2]
+  import Phoenix.LiveView, only: [put_flash: 3]
 
   alias FlezhaUi.Service.NodeManager
 
@@ -59,7 +61,7 @@ defmodule FlezhaUiWeb.Live.RunnerActions do
   def handle_event(module, "confirm_drop_runner", %{"namespace" => ns, "runner" => id}, socket) do
     ns
     |> NodeManager.drop_runner(id, socket.assigns.flezha_token)
-    |> settle(module, ns, assign(socket, runner_drop: nil))
+    |> settle(module, ns, "Runner #{id} dropped from #{ns}.", assign(socket, runner_drop: nil))
   end
 
   def handle_event(_module, "readmit_runner", %{"namespace" => ns, "stable_id" => id}, socket),
@@ -76,12 +78,20 @@ defmodule FlezhaUiWeb.Live.RunnerActions do
       ) do
     ns
     |> NodeManager.readmit_runner(id, socket.assigns.flezha_token)
-    |> settle(module, ns, assign(socket, runner_readmit: nil))
+    |> settle(
+      module,
+      ns,
+      "#{id} may connect to #{ns} again.",
+      assign(socket, runner_readmit: nil)
+    )
   end
 
-  defp settle({:error, reason}, _module, ns, socket),
+  defp settle({:error, reason}, _module, ns, _done, socket),
     do: assign(socket, runner_error: {ns, reason})
 
-  defp settle(_ok, module, _ns, socket),
-    do: FlezhaUiWeb.Live.Refresh.tick(module, assign(socket, runner_error: nil))
+  defp settle(_ok, module, _ns, done, socket) do
+    module
+    |> FlezhaUiWeb.Live.Refresh.tick(assign(socket, runner_error: nil))
+    |> put_flash(:info, done)
+  end
 end

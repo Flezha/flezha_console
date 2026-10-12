@@ -184,15 +184,21 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
 
       FakeController.emit(node, @tail, %{
         kind: :event,
-        ts: 42,
+        ts: -576_460_000_000,
         source: :flezha_health,
         name: :stall,
-        measurements: %{},
+        measurements: %{count: 42, ratio: 0.123456},
         metadata: %{}
       })
 
       assert PeerNode.eventually(fn -> render(view) =~ "stall" end)
-      assert render(view) =~ "42"
+      html = render(view)
+      # Measurements as plain pairs; the emitter's monotonic clock means
+      # nothing to a reader and is left out.
+      assert html =~ "count 42  ratio 0.1235"
+      refute html =~ "576460000000"
+      assert html =~ ~s(data-testid="tail-count")
+      assert html =~ "1 signal so far"
     end
 
     # Core sends its `%Flezha.Observability.Signal{}` struct, whose module this

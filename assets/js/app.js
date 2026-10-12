@@ -214,8 +214,10 @@ document.addEventListener("keydown", event => {
 // ---- Toasts on a plain controller page ----
 //
 // A LiveView page clears and times its toasts through `FlzToast`; a
-// controller page has no socket, so its toasts are dismissed here.
+// controller page has no socket, so its toasts are dismissed here. An info
+// toast leaves on its own after TOAST_MS either way; an error stays.
 
+const TOAST_MS = 6000
 const deadToast = el => !el.closest("[data-phx-session]")
 
 document.addEventListener("click", event => {
@@ -224,7 +226,7 @@ document.addEventListener("click", event => {
 })
 
 for (const toast of document.querySelectorAll('.fui-toast[data-kind="info"]')) {
-  if (deadToast(toast)) { setTimeout(() => { toast.hidden = true }, 5000) }
+  if (deadToast(toast)) { setTimeout(() => { toast.hidden = true }, TOAST_MS) }
 }
 
 // ---- Hooks ----
@@ -314,7 +316,7 @@ Hooks.FlzToast = {
   arm() {
     clearTimeout(this.timer)
     if (this.el.dataset.kind !== "info" || this.el.hidden) { return }
-    this.timer = setTimeout(() => this.el.querySelector("[data-toast-dismiss]")?.click(), 5000)
+    this.timer = setTimeout(() => this.el.querySelector("[data-toast-dismiss]")?.click(), TOAST_MS)
   }
 }
 
@@ -570,6 +572,18 @@ document.addEventListener("flz-theme-change", configureTopbar)
 
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
+
+// A result that renders away from the control that asked for it is brought
+// into view and marked for a moment, so a click never seems to do nothing.
+window.addEventListener("phx:fui:reveal", ({detail}) => {
+  const el = document.getElementById(detail.id)
+  if (!el) return
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  el.scrollIntoView({behavior: still ? "auto" : "smooth", block: "nearest"})
+  el.classList.remove("fui-revealed")
+  void el.offsetWidth
+  el.classList.add("fui-revealed")
+})
 
 // connect if there are any LiveViews on the page
 liveSocket.connect()

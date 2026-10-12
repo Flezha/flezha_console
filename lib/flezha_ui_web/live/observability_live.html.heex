@@ -21,7 +21,12 @@
 
 <.runtime_error error={@toggle_error} action="the source toggle" />
 
-<.section :if={not @disabled?} flush testid="sources-panel">
+<.section
+  :if={not @disabled?}
+  flush
+  testid="sources-panel"
+  help="A source is one kind of signal the controller can emit, such as VM memory or relay throughput. Switch it off to stop emitting it; Tail streams it live beside the list."
+>
   <:title>Sources</:title>
   <:actions>
     <form phx-change="filter_sources" class="w-56" data-testid="source-filter-form">
@@ -77,13 +82,15 @@
         </:col>
         <:col :let={source} label="Live">
           <.button
-            variant="ghost"
+            variant="secondary"
             size="sm"
-            phx-click="start_tail"
+            icon={if @tailing == source[:name], do: "hero-signal", else: "hero-play"}
+            phx-click={if @tailing == source[:name], do: "stop_tail", else: "start_tail"}
             phx-value-source={source[:name]}
+            aria-pressed={to_string(@tailing == source[:name])}
             data-testid={"tail-#{source[:name]}"}
           >
-            Tail
+            {if @tailing == source[:name], do: "Stop tail", else: "Tail"}
           </.button>
         </:col>
       </.grid>
@@ -91,7 +98,11 @@
   </div>
 </.section>
 
-<.section :if={not @disabled?} testid="sinks-panel">
+<.section
+  :if={not @disabled?}
+  testid="sinks-panel"
+  help="Where the emitted signals go: pubsub feeds live tails, a ring buffer keeps the recent ones for queries."
+>
   <:title>Sinks</:title>
   <.empty_state :if={@sinks == []} icon="hero-inbox-arrow-down">
     A sink is where the controller ships its signals. This controller reports none.
@@ -108,19 +119,19 @@
   </ul>
 </.section>
 
-<.section :if={@tailing || @tail_error} testid="tail-panel">
-  <:title>Tailing <span class="fui-num">{@tailing}</span></:title>
-  <:actions>
-    <.button
-      :if={@tailing}
-      variant="secondary"
-      size="sm"
-      phx-click="stop_tail"
-      data-testid="stop-tail"
-    >
-      Stop
-    </.button>
-  </:actions>
+<%!-- A drawer, so the tail is in view the moment it starts, wherever the
+      source sat in the listing. Closing it stops the tail. --%>
+<.drawer
+  :if={@tailing || @tail_error}
+  id="tail-panel"
+  testid="tail-panel"
+  eyebrow="Live tail"
+  title={to_string(@tailing || "Tail")}
+  on_close="stop_tail"
+>
+  <p class="fui-figures" data-testid="tail-count">
+    {Words.count(length(@tail_records), "signal")} so far, newest first.
+  </p>
 
   <.notice :if={pubsub_disabled?(@tail_error)} kind={:info} testid="pubsub-sink-disabled">
     Live tailing is unavailable: the controller's pubsub sink is disabled. The query-based views
@@ -136,5 +147,11 @@
     down are not shown.
   </.notice>
 
-  <pre :if={@tailing} class="fui-code"><span :for={signal <- @tail_records} data-testid="tail-record" class="block">{signal[:ts]} {signal[:source]}.{signal[:name]} {inspect(signal[:measurements])}</span><span :if={@tail_records == []} class="fui-muted">Waiting for signals.</span></pre>
-</.section>
+  <pre :if={@tailing} class="fui-code fui-tail"><span :for={signal <- @tail_records} data-testid="tail-record" class="block">{signal[:source]}.{signal[:name]}  {measurements(signal[:measurements])}</span><span :if={@tail_records == []} class="fui-muted">Waiting for signals. A quiet source emits only when its subject does something.</span></pre>
+
+  <:actions>
+    <.button variant="secondary" phx-click="stop_tail" data-testid="stop-tail" icon="hero-stop">
+      Stop tail
+    </.button>
+  </:actions>
+</.drawer>

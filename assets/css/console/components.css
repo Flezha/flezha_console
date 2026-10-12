@@ -400,8 +400,43 @@
   opacity: 0.5;
 }
 
-.phx-submit-loading .fui-btn[type="submit"] {
-  opacity: 0.75;
+/* An action in flight answers at once, whatever it does next: the button
+   dims, stops taking clicks and shows a spinner in place of its icon. */
+.phx-submit-loading .fui-btn[type="submit"],
+.fui-btn.phx-click-loading,
+.fui-iconbtn.phx-click-loading {
+  cursor: progress;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.fui-btn.phx-click-loading::before,
+.phx-submit-loading .fui-btn[type="submit"]::before {
+  animation: fui-spin 0.9s linear infinite;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  border-right-color: transparent;
+  content: "";
+  flex: none;
+  height: 1em;
+  width: 1em;
+}
+
+/* A result just brought into view by `fui:reveal`: its edge glows once in the
+   accent, then fades. */
+.fui-revealed {
+  animation: fui-reveal 1.6s var(--fui-ease);
+}
+
+@keyframes fui-reveal {
+  from { box-shadow: 0 0 0 3px var(--fui-accent); }
+  to { box-shadow: 0 0 0 3px transparent; }
+}
+
+/* The spinner stands in for a button's leading icon, never beside it. */
+.fui-btn.phx-click-loading > [class*="hero-"]:first-child,
+.phx-submit-loading .fui-btn[type="submit"] > [class*="hero-"]:first-child {
+  display: none;
 }
 
 .fui-spin {
@@ -560,6 +595,120 @@
   position: absolute;
   top: 100%;
   z-index: var(--fui-z-popover);
+}
+
+/* A live tail fills the drawer it opens in. */
+.fui-tail {
+  max-height: calc(100vh - 16rem);
+  overflow-y: auto;
+}
+
+/* A review before an action: each fact on its own row, the term on the left,
+   what will happen on the right, with a quieter line explaining it. */
+.fui-review {
+  border: 1px solid var(--fui-line);
+  border-radius: var(--fui-radius-surface);
+  display: grid;
+}
+
+.fui-review-row {
+  display: grid;
+  gap: var(--fui-space-1) var(--fui-space-4);
+  grid-template-columns: minmax(7rem, 9rem) 1fr;
+  padding: var(--fui-space-3) var(--fui-space-4);
+}
+
+.fui-review-row + .fui-review-row {
+  border-top: 1px solid var(--fui-line);
+}
+
+.fui-review-row > dt {
+  color: var(--fui-ink-2);
+  font-weight: 600;
+}
+
+.fui-review-row > dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fui-review-note {
+  color: var(--fui-ink-2);
+  display: block;
+  font-size: var(--fui-text-sm);
+}
+
+.fui-review-values {
+  display: grid;
+  gap: var(--fui-space-1);
+}
+
+.fui-review-values > div {
+  display: flex;
+  gap: var(--fui-space-3);
+}
+
+.fui-review-values dt::after {
+  content: ":";
+}
+
+@media (width <= 599px) {
+  .fui-review-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* A row's own name, linking to its page: underlined so it reads as a link
+   inside a row that also opens an inspector. */
+.fui-row-link {
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--fui-line-strong);
+  text-underline-offset: 3px;
+}
+
+.fui-row-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fui-space-1) var(--fui-space-3);
+  margin-top: var(--fui-space-1);
+}
+
+.fui-row-link:hover {
+  color: var(--fui-accent);
+  text-decoration-color: currentColor;
+}
+
+/* The "?" that explains what sits beside it. Muted until pointed at, so a
+   screen with many of them still reads as its content. */
+.fui-help-tip {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--fui-ink-3);
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 2rem;
+  min-width: 2rem;
+}
+
+.fui-help-tip:hover,
+.fui-help-tip[aria-expanded="true"] {
+  color: var(--fui-accent);
+}
+
+.fui-help-panel {
+  color: var(--fui-ink-2);
+  font-family: var(--fui-font-sans);
+  font-size: var(--fui-text-md);
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: var(--fui-leading-normal);
+  padding: var(--fui-space-3) var(--fui-space-4);
+  text-transform: none;
+  white-space: normal;
+  width: min(24rem, 80vw);
 }
 
 .fui-popover--end {
@@ -1263,8 +1412,10 @@ button.fui-ident[data-copied]::after {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Top right, just under the topbar, where the eye already is after a click
+   in the header or a section's actions. */
 .fui-toasts {
-  bottom: 0;
+  top: var(--fui-topbar-clear);
   display: flex;
   flex-direction: column;
   gap: var(--fui-space-2);

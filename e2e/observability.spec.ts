@@ -47,11 +47,16 @@ test.describe('Observability', () => {
   }) => {
     // The VM reports its schedulers, ports and processes on every sample, so
     // a live tail of it fills.
-    await page.getByTestId('tail-beam_vm').click();
+    const button = page.getByTestId('tail-beam_vm');
+    await button.click();
 
+    // The tail opens beside the listing at once, wherever the source sat, and
+    // its row's button says it is running.
     const panel = page.getByTestId('tail-panel');
-    await expect(panel).toBeVisible();
+    await expect(panel).toBeInViewport();
     await expect(panel).toContainText('beam_vm');
+    await expect(button).toHaveAttribute('aria-pressed', 'true');
+    await expect(button).toContainText('Stop tail');
 
     const records = page.getByTestId('tail-record');
     await expect(records.first()).toContainText('beam_vm.', { timeout: ADVANCE_WINDOW_MS });
@@ -60,5 +65,6 @@ test.describe('Observability', () => {
     await page.getByTestId('stop-tail').click();
     await expect(page.getByTestId('tail-panel')).toHaveCount(0);
     await expect(records).toHaveCount(0);
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
   });
 });

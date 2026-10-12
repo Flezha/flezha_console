@@ -134,6 +134,22 @@ defmodule FlezhaUiWeb.ObservabilityLive do
     end)
   end
 
+  @doc """
+  A signal's measurements as `key value` pairs. Its own timestamp is the
+  emitting node's monotonic clock, which says nothing to a reader, so it is
+  not shown; the newest signal is on top.
+  """
+  def measurements(values) when is_map(values) do
+    values
+    |> Enum.sort()
+    |> Enum.map_join("  ", fn {key, value} -> "#{key} #{figure(value)}" end)
+  end
+
+  def measurements(other), do: inspect(other)
+
+  defp figure(value) when is_float(value), do: value |> Float.round(4) |> to_string()
+  defp figure(value), do: FlezhaUi.Format.printable(value)
+
   @doc "Whether a tail was refused because the controller's pubsub sink is off."
   def pubsub_disabled?(nil), do: false
 

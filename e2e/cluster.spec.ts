@@ -77,19 +77,17 @@ test.describe('Cluster and fleet', () => {
     }
   });
 
-  test("a namespace's recovery opens per hub and per node, and closes", async ({ page }) => {
-    await page.getByTestId('open-recovery-default').click();
+  test('hub recovery is explained behind a ?, with no button that does nothing', async ({
+    page,
+  }) => {
+    await expect(page.getByTestId('open-recovery-default')).toHaveCount(0);
+    // A serving hub raises no notice.
+    await expect(page.locator('[data-testid^="hub-not-serving-"]')).toHaveCount(0);
 
-    const modal = page.getByTestId('recovery-modal');
-    await expect(modal).toBeVisible();
-    await expect(page.getByTestId('recovery-hub-id')).toHaveText(/\S/);
-    await expect(page.getByTestId('recovery-local')).toContainText('Serving');
-    await expect(
-      page.getByTestId('recovery-per-node').locator('[data-testid^="recovery-node-"]'),
-    ).not.toHaveCount(0);
-
-    await page.getByTestId('recovery-close').click();
-    await expect(modal).toHaveCount(0);
+    await page.getByTestId('help-rollup-default').click();
+    await expect(page.locator('#help-rollup-default [role="dialog"]')).toContainText(
+      'Recovery runs by itself',
+    );
   });
 
   test('dropping a runner refuses its process until readmitted', async ({ page }) => {

@@ -60,7 +60,10 @@
 </div>
 
 <%!-- What this console saw happen --%>
-<.section testid="home-river">
+<.section
+  testid="home-river"
+  help="Relays starting and stopping, runners connecting and leaving, and problems appearing or clearing, newest on the right. It starts when this screen opens."
+>
   <:title>What happened</:title>
   <.river events={@river} error={@river_error} />
 </.section>
@@ -72,6 +75,7 @@
   forced={@quota_breached}
   testid="quota-panel"
   digest={limits_digest(@quotas, @declared)}
+  help="Caps on what this namespace may hold, such as how many relays run at once, beside how much of each is used. Reaching a limit refuses new starts until something stops."
 >
   <:title>
     Limits <.state_badge :if={@quota_breached} kind={:quota} value={:breached} />
@@ -126,6 +130,7 @@
   open={@sections["access"]}
   testid="access-panel"
   digest={access_digest(@role_bindings, @tokens)}
+  help="Who may do what here. A principal is an identity; a role bound to it decides what it may do in this namespace; a token is the credential a principal calls with."
 >
   <:title>Access</:title>
   <div class="space-y-8">
@@ -263,6 +268,7 @@
   open={@sections["partition-groups"]}
   testid="partition-groups"
   digest={groups_digest(@groups)}
+  help="Relays that split one stream of keys between them, each owning a range. Coverage says whether every key has exactly one owner."
 >
   <:title>Partition groups</:title>
   <div class="space-y-6">
@@ -331,6 +337,7 @@
   open={@sections["finished-relays"]}
   testid="finished-relays"
   digest={finished_digest(@finished, @finished_loading?)}
+  help="Relays that completed, failed or were cancelled, kept for a while after they end so their outcome can still be read."
 >
   <:title>Finished relays</:title>
   <:actions>
@@ -373,10 +380,12 @@
 
 <%!-- Runners --%>
 <.section
+  id="runners"
   fold="runners"
   open={@sections["runners"]}
   testid="runners-panel"
   digest={runners_digest(@runners, @runner_marks)}
+  help="The SDK processes connected to this namespace that run its relays. Dropping one disconnects it and keeps it out until it is readmitted."
 >
   <:title>Runners</:title>
   <.runner_table

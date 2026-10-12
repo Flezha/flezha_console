@@ -1,5 +1,5 @@
 <Layouts.auth flash={@flash} current_scope={@current_scope}>
-  <.page_header eyebrow="Flezha UI" title={"Welcome, #{@user.email}"}>
+  <.page_header help={false} eyebrow="Flezha UI" title={"Welcome, #{@user.email}"}>
     <:sentence>
       {if @user.confirmed_at,
         do: "Log in with this link.",

@@ -58,7 +58,10 @@
 </.section>
 
 <%!-- Durability --%>
-<.section testid="durability-panel">
+<.section
+  testid="durability-panel"
+  help="How many copies of each relay's durable state exist, and whether a remote tier ships them off this machine. The RPO target is how much recent state you could lose."
+>
   <:title>Durability</:title>
   <.runtime_error error={@status_error} action="the controller status" />
   <dl :if={@status} class="fui-facts">
@@ -180,21 +183,30 @@
 </.section>
 
 <%!-- Memory hot spots, operator-triggered --%>
-<.section testid="memory-panel">
+<.section
+  id="memory-panel"
+  testid="memory-panel"
+  help="A one-off scan of the controller's memory: totals by kind and the processes holding the most. It is expensive, so it runs only when you press the button."
+>
   <:title>Memory hot spots</:title>
   <:actions>
     <.button
       variant="secondary"
       size="sm"
+      icon="hero-camera"
+      loading={@memory_loading}
       phx-click="memory_snapshot"
       data-testid="memory-snapshot-btn"
     >
-      Take snapshot
+      {if @memory_loading, do: "Taking snapshot…", else: "Take snapshot"}
     </.button>
   </:actions>
   <.runtime_error error={@memory_error} action="the memory snapshot" />
-  <p :if={is_nil(@memory) and is_nil(@memory_error)} class="fui-figures">
+  <p :if={is_nil(@memory) and is_nil(@memory_error) and not @memory_loading} class="fui-figures">
     Not taken. A snapshot scans every process and the allocator, so it runs only when asked.
+  </p>
+  <p :if={@memory_loading} class="fui-figures" data-testid="memory-loading">
+    Scanning every process on the controller. This takes a few seconds.
   </p>
   <div :if={@memory} class="space-y-4">
     <p data-testid="memory-captured-at" class="fui-figures">
@@ -213,7 +225,9 @@
       rows={Enum.take(@memory[:top_processes] || [], 10)}
       testid="memory-top-processes"
     >
-      <:col :let={proc} label="Process"><code>{inspect(proc[:name] || proc[:pid])}</code></:col>
+      <:col :let={proc} label="Process">
+        <code>{Format.printable(proc[:name] || proc[:pid])}</code>
+      </:col>
       <:col :let={proc} label="Memory" num>{Format.bytes(proc[:memory])}</:col>
     </.grid>
   </div>

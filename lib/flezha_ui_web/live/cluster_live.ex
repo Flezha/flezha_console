@@ -23,7 +23,7 @@ defmodule FlezhaUiWeb.ClusterLive do
      socket
      |> start_refresh()
      |> runner_actions_init()
-     |> assign(page_title: "Cluster", selected_factory: nil, factory_runners: nil, recovery: nil)
+     |> assign(page_title: "Cluster", selected_factory: nil, factory_runners: nil)
      |> assign(load_error: nil, connected_node: nil, cluster_nodes: [], namespaces: [])
      |> refresh()}
   end
@@ -49,14 +49,6 @@ defmodule FlezhaUiWeb.ClusterLive do
     {:noreply, assign(socket, selected_factory: nil, factory_runners: nil)}
   end
 
-  def handle_event("open_recovery", %{"namespace" => ns}, socket) do
-    {:noreply, assign(socket, recovery: load_recovery(ns, socket))}
-  end
-
-  def handle_event("close_recovery", _params, socket) do
-    {:noreply, assign(socket, recovery: nil)}
-  end
-
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
     token = socket.assigns.flezha_token
@@ -64,67 +56,30 @@ defmodule FlezhaUiWeb.ClusterLive do
     {names, load_error} = NodeManager.scoped_namespaces(token)
     namespaces = Enum.map(names, &describe_namespace(&1, token))
 
-    socket =
-      assign(socket,
-        load_error: load_error,
-        connected_node: connected,
-        cluster_nodes: cluster_nodes(namespaces, connected),
-        namespaces: namespaces
-      )
-
-    case socket.assigns[:recovery] do
-      %{namespace: ns} -> assign(socket, recovery: load_recovery(ns, socket))
-      nil -> socket
-    end
-  end
-
-  # One namespace's recovery: its hub id, that hub on the node this UI reached,
-  # and the namespace on every cluster member. Read again on each tick while
-  # the detail is open, so a node that finishes recovering shows it. The local
-  # hub and the per-node rows are separate reads, so one refusal does not
-  # blank the other; a node that hosts no hub for the namespace is not asked.
-  defp load_recovery(ns, socket) do
-    token = socket.assigns.flezha_token
-    nodes = Enum.map(socket.assigns.cluster_nodes, & &1.name)
-
-    case NodeManager.hub_id(ns, token) do
-      {:ok, hub_id} ->
-        {per_node, per_node_error} =
-          NodeManager.ok_or_error(NodeManager.recovery_per_node(ns, nodes, token), %{})
-
-        %{
-          namespace: ns,
-          hub_id: hub_id,
-          local: local_recovery(ns, hub_id, socket),
-          per_node: Enum.sort_by(per_node, &inspect(elem(&1, 0))),
-          per_node_error: per_node_error,
-          error: nil
-        }
-
-      {:error, reason} ->
-        %{namespace: ns, error: reason}
-    end
-  end
-
-  defp local_recovery(ns, hub_id, socket) do
-    hub_nodes =
-      socket.assigns.namespaces |> Enum.find(%{}, &(&1.name == ns)) |> Map.get(:hub_nodes, [])
-
-    if socket.assigns.connected_node in hub_nodes do
-      case NodeManager.recovery_state(hub_id, socket.assigns.flezha_token) do
-        {:ok, state} -> state
-        {:error, reason} -> {:error, reason}
-      end
-    else
-      :not_hosted
-    end
+    assign(socket,
+      load_error: load_error,
+      connected_node: connected,
+      cluster_nodes: cluster_nodes(namespaces, connected),
+      namespaces: namespaces
+    )
   end
 
   @doc "A recovery state as an operator reads it, in its tone."
-  def recovery({:error, reason}),
-    do: %{text: error_message(reason, "the recovery read"), tone: :negative}
-
   def recovery(state), do: Words.say(:hub_recovery, state)
+
+  # States that say the hub is serving, or that nothing can be said of it.
+  @settled [:normal, :not_hosted, :unreachable, :unavailable, :unknown]
+
+  @doc """
+  The nodes whose copy of a namespace's hub is busy recovering rather than
+  serving, with what it is doing. Empty when every hub serves or none can be
+  read.
+  """
+  def hubs_not_serving(per_node) do
+    for %{recovery: state, node: node} <- per_node,
+        state not in @settled,
+        do: {node, recovery(state).text}
+  end
 
   # The members are the nodes holding a hub for some namespace the caller can
   # see, as the controller answers them. The node this UI reached is always

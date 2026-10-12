@@ -651,11 +651,6 @@ defmodule Flezha.Service.Controller do
        }}
 
   defstub durability_status(%{source: :ui} = ctx), do: {:ok, []}
-  defstub hub_id(ns, %{source: :ui} = ctx), do: {:ok, :"hub_#{ns}"}
-  defstub recovery_state(hub_id, %{source: :ui} = ctx), do: {:ok, :normal}
-
-  defstub recovery_per_node(ns, nodes, %{source: :ui} = ctx),
-    do: {:ok, Map.new(nodes, &{&1, :normal})}
 
   def stop(opts, %{source: :ui} = ctx),
     do: FakeController.stream({__MODULE__, :stop}, [opts, ctx], ctx)
