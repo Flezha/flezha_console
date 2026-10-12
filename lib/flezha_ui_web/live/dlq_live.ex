@@ -124,13 +124,18 @@ defmodule FlezhaUiWeb.DlqLive do
           entries: decorated,
           groups: group_by_tasklet(decorated, socket.assigns.filter, token),
           load_error: nil,
-          stats: NodeManager.ok_or(NodeManager.dlq_stats(token), [])
+          stats:
+            token |> NodeManager.dlq_stats() |> NodeManager.ok_or([]) |> Enum.filter(&parked?/1)
         )
 
       {:error, reason} ->
         assign(socket, entries: [], groups: [], stats: [], load_error: reason)
     end
   end
+
+  # With a durability backend, the controller keeps an emptied tasklet until
+  # the tier has shipped it, and reports it at zero meanwhile.
+  defp parked?(stat), do: (stat[:entries] || 0) > 0
 
   # Grouped the way the controller stores and ships them: one directory per
   # `{relay_class, tasklet_id}` pair. The controller is asked which pairs exist

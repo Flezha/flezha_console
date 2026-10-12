@@ -22,6 +22,10 @@ import {
  */
 const TASKLET = 'poison_probe_tasklet';
 
+function statTerm(page: Page, relay: string) {
+  return page.getByTestId('dlq-stats').getByText(`${relay}/${TASKLET}`, { exact: true });
+}
+
 /** Starts a poison probe relay, parks one entry in it, and runs `body`. */
 async function withParked(
   page: Page,
@@ -65,7 +69,8 @@ test.describe('Dead-letter queue', () => {
       const row = page.getByTestId(`dlq-row-${ref}`);
       await expect(row).toContainText('input');
       await expect(row).toContainText('poison payload');
-      await expect(page.getByTestId('dlq-stats')).toContainText(`${relay}/${TASKLET}`);
+      await expect(statTerm(page, relay)).toHaveCSS('text-transform', 'none');
+      await expect(statTerm(page, relay)).toHaveCSS('overflow-wrap', 'anywhere');
     });
   });
 
@@ -130,6 +135,10 @@ test.describe('Dead-letter queue', () => {
       await expect(page.getByTestId('dlq-empty')).toContainText(
         'No parked entries for that relay class',
       );
+
+      // An emptied tasklet leaves the statistics with its last entry.
+      await page.getByTestId('dlq-filter').fill('');
+      await expect(statTerm(page, relay)).toHaveCount(0);
     });
   });
 });

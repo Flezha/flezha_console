@@ -69,14 +69,35 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       FakeController.set(
         node,
         {Dlq, :stats},
-        {:ok, [%{relay_class: "orders", tasklet_id: "charge", entries: 3, bytes: 120}]}
+        {:ok,
+         [
+           %{relay_class: "orders", tasklet_id: "charge", entries: 3, bytes: 120},
+           %{relay_class: "refunds", tasklet_id: "settle", entries: 0, bytes: 0}
+         ]}
       )
 
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
       stats = view |> element(~s([data-testid="dlq-stats"])) |> render()
-      assert stats =~ "orders/charge"
+      assert stats =~ ~s(<dt class="flz-num">orders/charge</dt>)
       assert stats =~ "3"
+      refute stats =~ "refunds/settle"
+    end
+
+    test "hides the statistics when every set the controller reports is empty", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Dlq, :stats},
+        {:ok, [%{relay_class: "refunds", tasklet_id: "settle", entries: 0, bytes: 0}]}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/dlq")
+
+      refute html =~ ~s(data-testid="dlq-stats")
+      assert html =~ "The dead-letter queue is empty"
     end
 
     test "filtering by relay class narrows what the controller is asked for", %{

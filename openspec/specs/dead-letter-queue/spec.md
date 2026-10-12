@@ -89,10 +89,15 @@ Dropping an entry SHALL require an explicit confirmation step that states the pa
 
 ### Requirement: Queue statistics
 
-The UI SHALL display dead-letter statistics as reported by the controller.
+The UI SHALL display dead-letter statistics as reported by the controller, one figure per tasklet that holds parked entries, labelled with its relay class and tasklet in their own case. A tasklet the controller reports at zero entries SHALL NOT be shown.
 
 #### Scenario: Viewing statistics
 
 - **WHEN** an operator opens the dead-letter queue
 - **THEN** the controller's reported statistics are displayed alongside the entry list
+
+#### Scenario: A tasklet's last entry leaves
+
+- **WHEN** the last parked entry of a tasklet is dropped or replayed cleanly
+- **THEN** that tasklet no longer appears in the statistics, including while a durability backend has yet to ship the emptied set and the controller still reports it at zero
 

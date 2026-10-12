@@ -46,8 +46,13 @@
       Statistics
     </h2>
     <dl data-testid="dlq-stats" class="flz-stats">
-      <.stat :for={stat <- @stats} label={"#{stat[:relay_class]}/#{stat[:tasklet_id]}"} boxed>
-        {stat[:entries] || 0}
+      <.stat
+        :for={stat <- @stats}
+        label={"#{stat[:relay_class]}/#{stat[:tasklet_id]}"}
+        boxed
+        identifier
+      >
+        {stat[:entries]}
       </.stat>
     </dl>
   </div>

@@ -508,12 +508,16 @@ defmodule FlezhaUiWeb.CoreComponents do
     default: false,
     doc: "true for a figure that brings its own tile, in a summary strip"
 
+  attr :identifier, :boolean,
+    default: false,
+    doc: "true when the label is an identifier, shown in its own case"
+
   slot :inner_block, required: true
 
   def stat(assigns) do
     ~H"""
     <div class={["flz-stat", @boxed && "flz-stat--boxed"]}>
-      <dt>{@label}</dt>
+      <dt class={@identifier && "flz-num"}>{@label}</dt>
       <dd data-testid={@testid} class={@tone}>{render_slot(@inner_block)}</dd>
     </div>
     """
