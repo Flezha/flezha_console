@@ -1271,7 +1271,7 @@ defmodule FlezhaUiWeb.CoreComponents do
       class={["fui-note", @kind == :error && "fui-note--error", @class]}
     >
       <.icon name={@resolved_icon} class="fui-note-icon w-5 h-5" />
-      <div class="min-w-0 space-y-1">{render_slot(@inner_block)}</div>
+      <div class="min-w-0 space-y-2">{render_slot(@inner_block)}</div>
     </div>
     """
   end
@@ -1346,25 +1346,36 @@ defmodule FlezhaUiWeb.CoreComponents do
     doc: "what was refused, named in a refusal — \"read the audit log\", \"stop the relay\""
 
   def runtime_error(assigns) do
+    error = assigns.error && NodeManager.error(assigns.error)
+    {text, reason} = if error, do: split_reason(error, assigns.action), else: {nil, nil}
+
     assigns =
-      assigns
-      |> assign(:error, assigns.error && NodeManager.error(assigns.error))
-      |> assign(:settings_link?, settings_link?(assigns.error))
+      assign(assigns,
+        error: error,
+        text: text,
+        reason: reason,
+        settings_link?: settings_link?(assigns.error)
+      )
 
     ~H"""
     <.notice :if={@error} kind={@kind} testid="runtime-error" class={@class}>
-      <p>{error_message(@error, @action)}</p>
-      <p :if={@error.hint} class="text-xs" data-testid="runtime-error-hint">{@error.hint}</p>
-      <a
-        :if={reference_url(@error.code)}
-        href={reference_url(@error.code)}
-        target="_blank"
-        rel="noopener noreferrer"
-        data-testid="runtime-error-reference"
-        class="block text-xs"
-      >
-        What {@error.code} means
-      </a>
+      <p class="fui-note-title">{@text}</p>
+      <.code_block :if={@reason} testid="runtime-error-reason">{@reason}</.code_block>
+      <div :if={@error.hint}>
+        <p class="fui-eyebrow mb-1">Next step</p>
+        <.code_block testid="runtime-error-hint">{@error.hint}</.code_block>
+      </div>
+      <p :if={not String.starts_with?(@error.code, "ui.")} class="fui-note-meta">
+        <code data-testid="runtime-error-code">{@error.code}</code>
+        <a
+          href={reference_url(@error.code)}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="runtime-error-reference"
+        >
+          What {@error.code} means
+        </a>
+      </p>
       <.link :if={@settings_link?} navigate={~p"/users/settings"}>
         Store a flezha token in settings.
       </.link>
@@ -1372,16 +1383,25 @@ defmodule FlezhaUiWeb.CoreComponents do
     """
   end
 
+  # A reason the controller could only inspect (a raw Erlang term) ends the
+  # message; it reads better set apart in mono than run into the sentence.
+  defp split_reason(%{details: %{reason: "" <> reason}} = error, action)
+       when binary_part(reason, 0, 1) in ["{", "[", "%", ":", "#"] do
+    text = error_text(error, action)
+
+    if String.ends_with?(text, ": " <> reason),
+      do: {String.replace_suffix(text, ": " <> reason, "."), reason},
+      else: {text, nil}
+  end
+
+  defp split_reason(error, action), do: {error_text(error, action), nil}
+
   # Core's errors reference has one section per family — the code before its
   # first dot — and no anchor per code, so the family is the deepest link.
-  defp reference_url("ui." <> _), do: nil
-
-  defp reference_url(code) when is_binary(code) do
+  defp reference_url(code) do
     [family | _] = String.split(code, ".", parts: 2)
     "#{Application.fetch_env!(:flezha_ui, :core_docs_url)}/errors.html##{family}"
   end
-
-  defp reference_url(_code), do: nil
 
   @doc """
   A form's error: its own validation message as written, or what a call

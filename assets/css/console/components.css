@@ -1234,6 +1234,22 @@ button.fui-ident[data-copied]::after {
   text-decoration: underline;
 }
 
+.fui-note-title {
+  font-size: var(--fui-text-md);
+}
+
+.fui-note-meta {
+  align-items: baseline;
+  color: var(--fui-ink-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fui-space-1) var(--fui-space-4);
+}
+
+.fui-note-meta code {
+  font-family: var(--fui-font-mono);
+}
+
 .fui-empty {
   border: 1px dashed var(--fui-line-strong);
   border-radius: var(--fui-radius-surface);

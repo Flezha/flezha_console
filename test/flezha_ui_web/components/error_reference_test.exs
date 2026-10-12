@@ -25,7 +25,8 @@ defmodule FlezhaUiWeb.ErrorReferenceTest do
     html =
       render_error(Flezha.Error.new("api.channel_unknown", "no channel x", "flz relay api"))
 
-    assert html =~ "no channel x (api.channel_unknown)"
+    assert html =~ "no channel x"
+    assert html =~ ~s(<code data-testid="runtime-error-code">api.channel_unknown</code>)
     assert html =~ ~s(data-testid="runtime-error-hint")
     assert html =~ "flz relay api"
     assert html =~ ~s(href="https://docs.flezha.com/errors.html#api")
@@ -55,6 +56,7 @@ defmodule FlezhaUiWeb.ErrorReferenceTest do
 
       assert html =~ ~s(data-testid="runtime-error")
       refute html =~ "runtime-error-reference"
+      refute html =~ "runtime-error-code"
     end
   end
 
@@ -69,8 +71,41 @@ defmodule FlezhaUiWeb.ErrorReferenceTest do
 
     html = render_error(finding)
 
-    assert html =~ "no runner serves the factory (diagnose.no_runner)"
+    assert html =~ "no runner serves the factory"
     assert html =~ "flz runner list"
     assert html =~ ~s(href="https://docs.flezha.com/errors.html#diagnose")
+    refute html =~ "runtime-error-reason"
+  end
+
+  test "a raw reason that ends the message is set apart from the sentence" do
+    reason = ~s({:poll_failing, {:failed_connect, [{:inet, [:inet], :nxdomain}]}})
+
+    finding = %{
+      level: :problem,
+      code: "diagnose.plugin_unhealthy",
+      message: "plugin 'p' bound to relay 'r' is unhealthy: " <> reason,
+      details: %{plugin: "p", reason: reason},
+      hint: nil
+    }
+
+    html = render_error(finding)
+
+    assert html =~
+             ~s(<p class="fui-note-title">plugin &#39;p&#39; bound to relay &#39;r&#39; is unhealthy.</p>)
+
+    assert html =~ ~r/data-testid="runtime-error-reason"[^>]*>\{:poll_failing/
+  end
+
+  test "a reason in words stays in the sentence" do
+    finding = %{
+      code: "diagnose.plugin_unhealthy",
+      message: "plugin 'p' is unhealthy: connection refused",
+      details: %{reason: "connection refused"}
+    }
+
+    html = render_error(finding)
+
+    assert html =~ "is unhealthy: connection refused"
+    refute html =~ "runtime-error-reason"
   end
 end

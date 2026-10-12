@@ -287,8 +287,10 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
       html = render(view)
       assert outcome_of(html, 1) == "Answered"
       assert outcome_of(html, 2) == "Timed out"
-      assert html =~ "no answer in 500ms (call.timeout)"
-      assert html =~ "too many callers (call.busy)"
+      assert html =~ "no answer in 500ms"
+      assert html =~ ~s(<code data-testid="runtime-error-code">call.timeout</code>)
+      assert html =~ "too many callers"
+      assert html =~ ~s(<code data-testid="runtime-error-code">call.busy</code>)
       assert html =~ ~r/data-testid="call-outcome-1"[^>]*class="fui-badge fui-badge--positive"/
       assert html =~ ~r/data-testid="call-outcome-2"[^>]*class="fui-badge fui-badge--warning"/
       assert html =~ ~r/data-testid="call-outcome-3"[^>]*class="fui-badge fui-badge--negative"/

@@ -302,7 +302,8 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       assert html =~ ~r/data-testid="installed-providers-http"[^>]*>\s*http_push/
       assert html =~ ~s(data-testid="installed-error-s3")
-      assert html =~ "bad manifest (plugin.package_invalid)"
+      assert html =~ "bad manifest"
+      assert html =~ ~s(<code data-testid="runtime-error-code">plugin.package_invalid</code>)
       assert html =~ "flz plugin install --force"
       assert html =~ ~s(href="https://docs.flezha.com/errors.html#plugin")
     end

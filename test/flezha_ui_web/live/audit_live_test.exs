@@ -189,7 +189,8 @@ defmodule FlezhaUiWeb.AuditLiveTest do
 
       # The controller's own message and code, with the remedy linked.
       assert html =~ "refused this audit read"
-      assert html =~ "the call carries no verifiable identity (authz.principal_not_bound)"
+      assert html =~ "the call carries no verifiable identity"
+      assert html =~ ~s(<code data-testid="runtime-error-code">authz.principal_not_bound</code>)
       assert html =~ ~s(href="/users/settings")
     end
 

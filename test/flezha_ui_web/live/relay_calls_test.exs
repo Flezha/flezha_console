@@ -98,7 +98,8 @@ defmodule FlezhaUiWeb.RelayCallsTest do
 
       assert html =~ ~r/data-testid="diagnose-verdict"[^>]*>\s*Nothing wrong/
       assert html =~ ~s(data-testid="diagnose-finding-diagnose.healthy")
-      assert html =~ "diagnose.healthy said so (diagnose.healthy)"
+      assert html =~ "diagnose.healthy said so"
+      assert html =~ ~s(<code data-testid="runtime-error-code">diagnose.healthy</code>)
       assert html =~ ~s(href="https://docs.flezha.com/errors.html#diagnose")
     end
 
@@ -537,7 +538,8 @@ defmodule FlezhaUiWeb.RelayCallsTest do
 
       html = raw(view, %{"payload" => "ping", "deadline_ms" => "100"}, "call")
       assert results(html) == 1
-      assert html =~ "no answer in 100ms (call.timeout)"
+      assert html =~ "no answer in 100ms"
+      assert html =~ ~s(<code data-testid="runtime-error-code">call.timeout</code>)
 
       html =
         render_submit(view, "talk_submit", %{
