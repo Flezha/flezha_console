@@ -255,6 +255,10 @@ export async function chooseFactory(page: Page, factory: string): Promise<void> 
 export async function reviewAndStart(page: Page): Promise<void> {
   await page.getByTestId('start-next-btn').click();
   await expect(page.getByTestId('start-review')).toBeVisible();
+  // One fact per line: what, where, under which id, served by whom, with what.
+  for (const fact of ['review-factory', 'review-namespace', 'review-id', 'review-init-values']) {
+    await expect(page.getByTestId(fact)).not.toBeEmpty();
+  }
   await page.getByTestId('start-submit-btn').click();
 }
 

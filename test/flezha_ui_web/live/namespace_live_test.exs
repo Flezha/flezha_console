@@ -29,8 +29,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       %{
         "id" => "relay_1",
         "factory_id" => "store_input",
-        "init_values" => "",
-        "snapshot_interval" => ""
+        "init_values" => ""
       },
       overrides
     )
@@ -527,16 +526,16 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       assert starts(node) == []
     end
 
-    test "passes valid init values and a snapshot interval through", %{conn: conn, node: node} do
+    test "passes valid init values through", %{conn: conn, node: node} do
       view = open_launcher(conn)
 
       render_submit(view, "launcher_submit", %{
-        "start" => start_form(%{"init_values" => ~s({"seed":7}), "snapshot_interval" => "25"})
+        "start" => start_form(%{"init_values" => ~s({"seed":7})})
       })
 
       assert [["default", fields, _ctx]] = starts(node)
       assert fields[:init_values] == %{"seed" => 7}
-      assert fields[:opts] == [snapshot_interval: 25]
+      assert fields[:opts] == []
     end
 
     test "surfaces a refusal from the controller with its code", %{conn: conn, node: node} do

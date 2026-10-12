@@ -55,6 +55,17 @@ test.describe('Relays index', () => {
     await expect(page.getByTestId('relay-runner')).toBeVisible();
   });
 
+  test("a relay's name and its Open button go straight to its page", async ({ page, live }) => {
+    await page.getByTestId('relay-link-testnet_store_1').click();
+    await expect(page).toHaveURL(/\/namespaces\/default\/relays\/testnet_store_1$/);
+    await expect(page.getByTestId('inspector-relay')).toHaveCount(0);
+    await expect(page.getByTestId('topology-graph')).toBeVisible();
+
+    await live('/relays');
+    await page.getByTestId('open-relay-testnet_store_1').click();
+    await expect(page).toHaveURL(/\/namespaces\/default\/relays\/testnet_store_1$/);
+  });
+
   test('run comes from the factory: a steps relay reads as steps', async ({ page, live }) => {
     await withStepsRelay(page, async (id) => {
       await live('/relays');

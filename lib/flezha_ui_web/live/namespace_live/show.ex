@@ -373,6 +373,40 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     end
   end
 
+  @doc """
+  The role a principal is bound to or issued, picked from every role there
+  is, each with what it allows.
+  """
+  attr :name, :string, required: true
+  attr :value, :string, default: ""
+  attr :testid, :string, required: true
+
+  def role_field(assigns) do
+    assigns = assign(assigns, :roles, FlezhaUiWeb.Glossary.roles())
+
+    ~H"""
+    <fieldset class="fui-field" data-testid={@testid}>
+      <legend class="fui-label">Role</legend>
+      <div class="fui-choices">
+        <label :for={{role, meaning} <- @roles} class="fui-choice">
+          <input
+            type="radio"
+            name={@name}
+            value={role}
+            checked={@value == role}
+            required
+            data-testid={"#{@testid}-#{role}"}
+          />
+          <span class="grid gap-1">
+            <span class="fui-num font-medium">{role}</span>
+            <span class="fui-quiet text-sm">{meaning}</span>
+          </span>
+        </label>
+      </div>
+    </fieldset>
+    """
+  end
+
   # A lifetime is a positive number of seconds or `never`, as core takes it.
   defp parse_ttl(raw) do
     case String.trim(raw || "") do

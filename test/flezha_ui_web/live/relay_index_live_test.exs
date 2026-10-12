@@ -40,14 +40,53 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
         "namespace" => "default",
         "id" => "relay_new",
         "factory_id" => "store_input",
-        "init_values" => "",
-        "snapshot_interval" => ""
+        "init_values" => ""
       },
       overrides
     )
   end
 
   describe "a row" do
+    test "names its relay as a link to the relay's page, and offers Open", %{
+      conn: conn,
+      node: node
+    } do
+      with_fleet(node, rows: [row("relay_a")])
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default/relays")
+
+      assert view |> element(~s([data-testid="relay-link-relay_a"])) |> render() =~
+               ~s(href="/namespaces/default/relays/relay_a")
+
+      assert view |> element(~s([data-testid="open-relay-relay_a"])) |> render() =~
+               ~s(href="/namespaces/default/relays/relay_a")
+
+      # Following the link leaves for the relay; it does not open the inspector.
+      view |> element(~s([data-testid="relay-link-relay_a"])) |> render_click()
+      assert_redirect(view, ~p"/namespaces/default/relays/relay_a")
+    end
+
+    test "a partition group links each of its members", %{conn: conn, node: node} do
+      group = %{
+        row("demo")
+        | runner: "p0→runner-a, p1→runner-a"
+      }
+
+      group =
+        Map.merge(group, %{
+          partitions: "2/2",
+          members: [row("demo#p0"), row("demo#p1")]
+        })
+
+      with_fleet(node, rows: [group])
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default/relays")
+
+      members = view |> element(~s([data-testid="relay-members-demo"])) |> render()
+      assert members =~ ~s(href="/namespaces/default/relays/demo%23p0")
+      assert members =~ ~s(href="/namespaces/default/relays/demo%23p1")
+      assert has_element?(view, ~s([data-testid="relay-link-demo#p0"]))
+      refute has_element?(view, ~s([data-testid="open-relay-demo"]))
+    end
+
     defp counters(node, received) do
       FakeController.set(
         node,
@@ -371,13 +410,22 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
 
       view |> element(~s([data-testid="factory-choice-store_input"])) |> render_click()
 
-      html = view |> form("#start-details", start: %{id: "relay_new"}) |> render_submit()
+      html =
+        view
+        |> form("#start-details", start: %{id: "relay_new", init_values: ~s({"seed": 7})})
+        |> render_submit()
+
       assert html =~ ~s(data-testid="start-review")
+      assert html =~ ~s(data-testid="start-review-facts")
 
-      sentence =
-        text_of(html, ~s([data-testid="start-review-sentence"]))
-
-      assert sentence =~ ~r/from\s+store_input\s+in\s+default,\s+as\s+relay_new\./
+      # One fact per line, each with what it means.
+      assert text_of(html, ~s([data-testid="review-factory"])) =~ "store_input"
+      assert text_of(html, ~s([data-testid="review-factory"])) =~ "stores its input"
+      assert text_of(html, ~s([data-testid="review-run"])) =~ "passes through"
+      assert text_of(html, ~s([data-testid="review-namespace"])) =~ "default"
+      assert text_of(html, ~s([data-testid="review-id"])) =~ "relay_new"
+      assert text_of(html, ~s([data-testid="review-runners"])) =~ "runner-a"
+      assert text_of(html, ~s([data-testid="review-init-values"])) =~ ~r/seed\s*:?\s*7/
       assert FakeController.calls(node, {Relay, :start}) == []
 
       html = view |> element(~s([data-testid="start-back-btn"])) |> render_click()

@@ -26,7 +26,7 @@ async function submitIssue(page: Page, principal: string, role: string, ttl = '3
   await page.getByTestId('issue-token-btn').click();
   await expect(page.getByTestId('issue-token-modal')).toBeVisible();
   await page.getByTestId('issue-token-principal').fill(principal);
-  await page.getByTestId('issue-token-role').fill(role);
+  await page.getByTestId(`issue-token-role-${role}`).check();
   await page.getByTestId('issue-token-ttl').fill(ttl);
   await page.getByTestId('issue-token-label').fill('playwright');
   await page.getByTestId('issue-token-submit').click();
@@ -172,7 +172,7 @@ test.describe('Role bindings', () => {
       await openSection(page, 'access');
       await page.getByTestId('bind-role-btn').click();
       await page.getByTestId('bind-role-principal').fill(principal);
-      await page.getByTestId('bind-role-role').fill('viewer');
+      await page.getByTestId('bind-role-role-viewer').check();
       await page.getByTestId('bind-role-submit').click();
 
       await expect(page.getByTestId(`role-${principal}-viewer`)).toBeVisible();
@@ -201,7 +201,7 @@ test.describe('Role bindings', () => {
 
       await page.getByTestId('bind-role-btn').click();
       await page.getByTestId('bind-role-principal').fill(principal);
-      await page.getByTestId('bind-role-role').fill('viewer');
+      await page.getByTestId('bind-role-role-viewer').check();
       await page.getByTestId('bind-role-submit').click();
       await expect(page.getByTestId(`role-${principal}-viewer`)).toBeVisible();
 
@@ -216,15 +216,25 @@ test.describe('Role bindings', () => {
     }
   });
 
-  test('an unknown role is refused with the roles there are', async ({ page, live }) => {
+  test('the role is picked from every role there is, each saying what it allows', async ({
+    page,
+    live,
+  }) => {
     await live(NS_URL);
     await openSection(page, 'access');
     await page.getByTestId('bind-role-btn').click();
-    await page.getByTestId('bind-role-principal').fill(uniqueId('pw_nobody'));
-    await page.getByTestId('bind-role-role').fill('overlord');
-    await page.getByTestId('bind-role-submit').click();
 
-    await expect(page.getByTestId('bind-role-error')).toContainText('authz.unknown_role');
+    const roles = page.getByTestId('bind-role-role').locator('input[type="radio"]');
+    await expect(roles).toHaveCount(7);
+    await expect(page.getByTestId('bind-role-role')).toContainText(
+      'Reads everything in the namespace and changes nothing.',
+    );
+
+    // No role picked, nothing sent: the form asks for one.
+    await page.getByTestId('bind-role-principal').fill(uniqueId('pw_nobody'));
+    await page.getByTestId('bind-role-submit').click();
+    await expect(page.getByTestId('bind-role-modal')).toBeVisible();
+    await expect(page.getByTestId('bind-role-error')).toHaveCount(0);
   });
 });
 

@@ -301,46 +301,48 @@
     No plugins are installed on the controller host.
   </.empty_state>
 
-  <table :if={@catalog != []} class="fui-grid mt-3">
-    <thead>
-      <tr>
-        <th>Plugin</th>
-        <th>Version</th>
-        <th>Status</th>
-        <th>Providers</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr
-        :for={plugin <- @catalog}
-        data-testid={"installed-#{plugin[:id]}"}
-      >
-        <td class="fui-strong fui-num text-xs">{plugin[:id]}</td>
-        <td class="fui-num text-xs">
-          {plugin[:version]}
-          <span
-            :if={plugin[:status] == :pending and plugin[:loaded_version]}
-            data-testid={"installed-loaded-#{plugin[:id]}"}
-            class="block fui-muted"
-          >
-            {plugin[:loaded_version]} still loaded until the next boot
-          </span>
-        </td>
-        <td>
-          <span
-            data-testid={"installed-status-#{plugin[:id]}"}
-            class={["fui-badge", plugin[:status] == :loaded && "fui-badge--positive"]}
-          >
-            {Words.humanize(plugin[:status])}
-          </span>
-        </td>
-        <td class="text-xs" data-testid={"installed-providers-#{plugin[:id]}"}>
-          {join_or_dash(plugin[:providers])}
-          <div :if={plugin[:error]} data-testid={"installed-error-#{plugin[:id]}"} class="mt-2">
-            <.runtime_error error={plugin.error} action="the package" />
-          </div>
-        </td>
-      </tr>
-    </tbody>
-  </table>
+  <div :if={@catalog != []} class="fui-grid-wrap mt-3">
+    <table class="fui-grid">
+      <thead>
+        <tr>
+          <th>Plugin</th>
+          <th>Version</th>
+          <th>Status</th>
+          <th>Providers</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          :for={plugin <- @catalog}
+          data-testid={"installed-#{plugin[:id]}"}
+        >
+          <td class="fui-strong fui-num text-xs">{plugin[:id]}</td>
+          <td class="fui-num text-xs">
+            {plugin[:version]}
+            <span
+              :if={plugin[:status] == :pending and plugin[:loaded_version]}
+              data-testid={"installed-loaded-#{plugin[:id]}"}
+              class="block fui-muted"
+            >
+              {plugin[:loaded_version]} still loaded until the next boot
+            </span>
+          </td>
+          <td>
+            <span
+              data-testid={"installed-status-#{plugin[:id]}"}
+              class={["fui-badge", plugin[:status] == :loaded && "fui-badge--positive"]}
+            >
+              {Words.humanize(plugin[:status])}
+            </span>
+          </td>
+          <td class="text-xs" data-testid={"installed-providers-#{plugin[:id]}"}>
+            {join_or_dash(plugin[:providers])}
+            <div :if={plugin[:error]} data-testid={"installed-error-#{plugin[:id]}"} class="mt-2">
+              <.runtime_error error={plugin.error} action="the package" />
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 </.section>

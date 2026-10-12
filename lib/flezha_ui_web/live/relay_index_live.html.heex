@@ -136,8 +136,33 @@
   }
 >
   <:col :let={row} label="Relay">
-    <span class="fui-num">{row.id}</span>
+    <span :if={is_nil(row[:partitions])} phx-click={own_click()}>
+      <.link
+        navigate={~p"/namespaces/#{row.namespace}/relays/#{row.id}"}
+        class="fui-num fui-row-link"
+        data-testid={"relay-link-#{row.id}"}
+      >
+        {row.id}
+      </.link>
+    </span>
+    <span :if={row[:partitions]} class="fui-num">{row.id}</span>
     <span :if={row[:partitions]} class="fui-badge ml-1">group {row.partitions}</span>
+    <%!-- A group's members are relays of their own, each with its own page. --%>
+    <span
+      :if={row[:partitions]}
+      class="fui-row-members"
+      phx-click={own_click()}
+      data-testid={"relay-members-#{row.id}"}
+    >
+      <.link
+        :for={member <- row[:members] || []}
+        navigate={~p"/namespaces/#{row.namespace}/relays/#{member.id}"}
+        class="fui-num fui-row-link"
+        data-testid={"relay-link-#{member.id}"}
+      >
+        {member.id}
+      </.link>
+    </span>
   </:col>
   <:col :let={row} :if={!@scoped_namespace} label="Namespace">
     <span class="fui-num">{row.namespace}</span>
@@ -166,6 +191,20 @@
           rate -> "#{rate.in}/s"
         end}
       </span>
+    </span>
+  </:col>
+  <:col :let={row} label="">
+    <span :if={is_nil(row[:partitions])} phx-click={own_click()}>
+      <.button
+        variant="secondary"
+        size="sm"
+        icon_right="hero-arrow-right"
+        navigate={~p"/namespaces/#{row.namespace}/relays/#{row.id}"}
+        aria-label={"Open #{row.id}: its pipeline graph, calls and state"}
+        data-testid={"open-relay-#{row.id}"}
+      >
+        Open
+      </.button>
     </span>
   </:col>
   <:menu :let={row}>

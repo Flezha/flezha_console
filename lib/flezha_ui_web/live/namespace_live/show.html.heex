@@ -509,20 +509,17 @@
         type="text"
         name="token[principal]"
         label="Principal"
+        hint="Who the token speaks for — a person or a service, such as ops@acme or billing-app."
+        placeholder="ops@acme"
         value={@token_issue.form["principal"]}
         mono
         required
         data-testid="issue-token-principal"
       />
-      <.input
-        type="text"
+      <.role_field
         name="token[role]"
-        label="Role"
-        hint="admin, ops, app, viewer or runner"
         value={@token_issue.form["role"]}
-        mono
-        required
-        data-testid="issue-token-role"
+        testid="issue-token-role"
       />
       <.input
         type="text"
@@ -574,20 +571,17 @@
       type="text"
       name="binding[principal]"
       label="Principal"
+      hint="Who gets the role — the principal a token was issued to, such as ops@acme."
+      placeholder="ops@acme"
       value={@role_bind.form["principal"]}
       mono
       required
       data-testid="bind-role-principal"
     />
-    <.input
-      type="text"
+    <.role_field
       name="binding[role]"
-      label="Role"
-      hint="admin, ops, app or viewer"
       value={@role_bind.form["role"]}
-      mono
-      required
-      data-testid="bind-role-role"
+      testid="bind-role-role"
     />
     <div class="flex justify-end gap-3 pt-2">
       <.button variant="ghost" phx-click="close_bind" data-testid="bind-role-cancel">

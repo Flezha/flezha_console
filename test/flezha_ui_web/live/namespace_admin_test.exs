@@ -403,6 +403,24 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       assert html =~ ~s(data-testid="role-carol-ops")
     end
 
+    test "the role is picked from every role, each saying what it allows", %{
+      conn: conn,
+      node: node
+    } do
+      with_catalog(node, running: ["default"], get: {:ok, record("default")})
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      open_section(view, "access")
+
+      html = view |> element(~s([data-testid="bind-role-btn"])) |> render_click()
+
+      for role <- ~w(viewer app ops admin runner spawner stopper) do
+        assert html =~ ~s(data-testid="bind-role-role-#{role}")
+      end
+
+      assert html =~ "Reads everything in the namespace and changes nothing."
+      assert html =~ ~s(placeholder="ops@acme")
+    end
+
     test "an unknown role is refused with the message naming the roles", %{
       conn: conn,
       node: node
@@ -685,6 +703,10 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
     unless has_element?(view, ~s([data-testid="issue-token-btn"])),
       do: open_section(view, "access")
 
-    view |> element(~s([data-testid="issue-token-btn"])) |> render_click()
+    html = view |> element(~s([data-testid="issue-token-btn"])) |> render_click()
+    # The role is picked from the roles, never typed.
+    assert html =~ ~s(data-testid="issue-token-role")
+    assert html =~ ~s(data-testid="issue-token-role-viewer")
+    html
   end
 end

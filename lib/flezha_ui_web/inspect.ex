@@ -263,6 +263,14 @@ defmodule FlezhaUiWeb.Inspect do
 
       <:actions>
         <.button
+          :if={@it.namespace}
+          navigate={~p"/namespaces/#{@it.namespace}/relays/#{@it.relay}"}
+          icon_right="hero-arrow-right"
+          data-testid="inspector-open"
+        >
+          Open relay
+        </.button>
+        <.button
           :if={@facts && NodeManager.granted?(@operations, "Relay.diagnose")}
           variant="secondary"
           phx-click="inspect_diagnose"
@@ -279,15 +287,6 @@ defmodule FlezhaUiWeb.Inspect do
           data-testid="inspector-stop"
         >
           Stop
-        </.button>
-        <.button
-          :if={@it.namespace}
-          variant="ghost"
-          navigate={~p"/namespaces/#{@it.namespace}/relays/#{@it.relay}"}
-          icon_right="hero-arrow-right"
-          data-testid="inspector-open"
-        >
-          Open
         </.button>
       </:actions>
     </.drawer>

@@ -47,15 +47,15 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
         rendered_to_string(~H"""
         <.input
           type="number"
-          name="start[snapshot_interval]"
-          label="Snapshot interval"
+          name="quota[relays]"
+          label="Relays"
           value=""
-          data-testid="input-snapshot-interval"
+          data-testid="input-quota-relays"
         />
         """)
 
       assert html =~ ~s(type="number")
-      assert html =~ ~s(data-testid="input-snapshot-interval")
+      assert html =~ ~s(data-testid="input-quota-relays")
     end
 
     test "a select offers its options and marks the chosen one" do

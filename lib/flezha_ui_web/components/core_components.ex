@@ -883,7 +883,7 @@ defmodule FlezhaUiWeb.CoreComponents do
             <td :for={col <- @col} class={[col[:num] && "fui-cell-num", col[:class]]}>
               {render_slot(col, @row_item.(row))}
             </td>
-            <td :if={@menu != []} class="fui-cell-menu" phx-click={JS.dispatch("fui:menu")}>
+            <td :if={@menu != []} class="fui-cell-menu" phx-click={own_click()}>
               {render_slot(@menu, @row_item.(row))}
             </td>
           </tr>
@@ -893,6 +893,13 @@ defmodule FlezhaUiWeb.CoreComponents do
     </div>
     """
   end
+
+  @doc """
+  The `phx-click` of an element inside an activatable grid row that handles
+  its own click — a link, a menu — so the row does not activate as well. The
+  event it dispatches has no listener: claiming the click is the whole point.
+  """
+  def own_click, do: JS.dispatch("fui:own-click")
 
   @doc """
   A row's actions, behind one menu control, so a destructive action never sits

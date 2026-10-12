@@ -107,8 +107,7 @@ defmodule FlezhaUiWeb.Live.Launcher do
       "namespace" => namespace || "",
       "id" => "",
       "factory_id" => "",
-      "init_values" => "",
-      "snapshot_interval" => ""
+      "init_values" => ""
     }
   end
 
@@ -231,7 +230,7 @@ defmodule FlezhaUiWeb.Live.Launcher do
          :ok <- require_factories(state.target),
          :ok <- require_factory(factory_id),
          {:ok, init_values} <- NodeManager.parse_init_values(form["init_values"]) do
-      fields = %{id: id, factory_id: factory_id, init_values: init_values, opts: build_opts(form)}
+      fields = %{id: id, factory_id: factory_id, init_values: init_values}
 
       case NodeManager.start_relay(namespace, fields, token) do
         {:ok, %{id: started, outcome: outcome}} ->
@@ -266,13 +265,6 @@ defmodule FlezhaUiWeb.Live.Launcher do
   defp require_factory(""), do: {:error, "A Factory ID is required."}
   defp require_factory(_factory_id), do: :ok
 
-  defp build_opts(form) do
-    case Integer.parse(String.trim(form["snapshot_interval"] || "")) do
-      {interval, ""} -> [snapshot_interval: interval]
-      _not_an_interval -> []
-    end
-  end
-
   # ---- Catalog ----
 
   defp aim(state, namespace) do
@@ -288,17 +280,25 @@ defmodule FlezhaUiWeb.Live.Launcher do
 
   # ---- Rendering ----
 
+  defp run_meaning(run) when run in [:flow, "flow"],
+    do: "Each record passes through its tasklets once, as it arrives."
+
+  defp run_meaning(run) when run in [:steps, "steps"],
+    do: "Durable steps: each committed step is journaled, so the relay resumes where it was."
+
+  defp run_meaning(_run), do: "As the factory's runners announce it."
+
   @doc "The guided start, as a dialog: Factory, then Details, then Review."
   attr :launcher, :map, required: true
 
   def launcher_dialog(assigns) do
+    form = assigns.launcher.form
+
     assigns =
       assign(assigns,
-        factory:
-          Enum.find(
-            assigns.launcher.target.factories,
-            &(&1.id == assigns.launcher.form["factory_id"])
-          )
+        factory: Enum.find(assigns.launcher.target.factories, &(&1.id == form["factory_id"])),
+        relay_id: String.trim(form["id"] || ""),
+        init_values: NodeManager.parse_init_values(form["init_values"])
       )
 
     ~H"""
@@ -414,17 +414,17 @@ defmodule FlezhaUiWeb.Live.Launcher do
           phx-submit="launcher_next"
           class="space-y-4"
         >
-          <p>
-            A relay from <span class="fui-num">{@launcher.form["factory_id"]}</span>{if @factory &&
-                                                                                          @factory.run,
-                                                                                        do:
-                                                                                          ", which runs as #{@factory.run}"}.
+          <p class="fui-figures">
+            A relay from
+            <span class="fui-num">{@launcher.form["factory_id"]}</span><span :if={
+              @factory && @factory.run
+            }>, which runs as {@factory.run}</span>. Both fields are optional.
           </p>
           <.input
             type="text"
             name="start[id]"
             label="Relay id"
-            hint="Optional — the controller generates one when left empty."
+            hint="The name the relay runs under. Left empty, the controller generates one."
             value={@launcher.form["id"]}
             placeholder="my-relay"
             maxlength="32"
@@ -434,38 +434,85 @@ defmodule FlezhaUiWeb.Live.Launcher do
           <.input
             type="textarea"
             name="start[init_values]"
-            label="Init values"
-            hint="JSON, optional: the factory declares no typed fields."
+            label="Initial values"
+            hint={
+              ~s(A JSON object the factory starts the relay with, such as {"symbol": "BTC"}. Left empty, it starts with none.)
+            }
             value={@launcher.form["init_values"]}
             placeholder="{}"
             mono
             data-testid="input-init-values"
           />
-          <.input
-            type="number"
-            name="start[snapshot_interval]"
-            label="Snapshot interval"
-            hint="Optional."
-            value={@launcher.form["snapshot_interval"]}
-            data-testid="input-snapshot-interval"
-          />
         </form>
 
-        <%!-- Review --%>
-        <div :if={@launcher.step == 2} class="space-y-2" data-testid="start-review">
-          <p class="fui-sentence" data-testid="start-review-sentence">
-            Start a {(@factory && @factory.run) || ""} relay from
-            <span class="fui-num">{@launcher.form["factory_id"]}</span>
-            in <span class="fui-num">{@launcher.form["namespace"]}</span>,
-            <%= if String.trim(@launcher.form["id"] || "") == "" do %>
-              under an id the controller generates.
-            <% else %>
-              as <span class="fui-num">{String.trim(@launcher.form["id"])}</span>.
-            <% end %>
-          </p>
-          <p :if={String.trim(@launcher.form["init_values"] || "") != ""} class="fui-figures">
-            With init values <code>{@launcher.form["init_values"]}</code>.
-          </p>
+        <%!-- Review: what will be started, one fact per line --%>
+        <div :if={@launcher.step == 2} class="space-y-4" data-testid="start-review">
+          <p class="fui-figures">Check what will be started, then press Start.</p>
+          <dl class="fui-review" data-testid="start-review-facts">
+            <div class="fui-review-row">
+              <dt>Factory</dt>
+              <dd data-testid="review-factory">
+                <span class="fui-num">{@launcher.form["factory_id"]}</span>
+                <span :if={@factory && @factory[:description]} class="fui-review-note">
+                  {@factory.description}
+                </span>
+                <span :if={is_nil(@factory)} class="fui-review-note">
+                  Not in the catalog this console read; the controller checks it on start.
+                </span>
+              </dd>
+            </div>
+            <div :if={@factory && @factory.run} class="fui-review-row">
+              <dt>Runs as</dt>
+              <dd data-testid="review-run">
+                <span class="fui-num">{@factory.run}</span>
+                <span class="fui-review-note">{run_meaning(@factory.run)}</span>
+              </dd>
+            </div>
+            <div class="fui-review-row">
+              <dt>Namespace</dt>
+              <dd class="fui-num" data-testid="review-namespace">{@launcher.form["namespace"]}</dd>
+            </div>
+            <div class="fui-review-row">
+              <dt>Relay id</dt>
+              <dd data-testid="review-id">
+                <span :if={@relay_id == ""} class="fui-review-note">
+                  Generated by the controller when it starts.
+                </span>
+                <span :if={@relay_id != ""} class="fui-num">{@relay_id}</span>
+              </dd>
+            </div>
+            <div :if={@factory} class="fui-review-row">
+              <dt>Served by</dt>
+              <dd data-testid="review-runners">
+                <%= if (@factory[:runners] || []) == [] do %>
+                  <span class="fui-tone-warning">No runner serves this factory right now.</span>
+                <% else %>
+                  {Words.count(length(@factory.runners), "runner")}:
+                  <span class="fui-num">{Enum.join(@factory.runners, ", ")}</span>
+                <% end %>
+              </dd>
+            </div>
+            <div class="fui-review-row">
+              <dt>Initial values</dt>
+              <dd data-testid="review-init-values">
+                <%= case @init_values do %>
+                  <% {:ok, values} when values == %{} -> %>
+                    <span class="fui-review-note">None.</span>
+                  <% {:ok, values} when is_map(values) -> %>
+                    <dl class="fui-review-values">
+                      <div :for={{key, value} <- Enum.sort(values)}>
+                        <dt class="fui-num">{key}</dt>
+                        <dd class="fui-num">{Jason.encode!(value)}</dd>
+                      </div>
+                    </dl>
+                  <% {:ok, value} -> %>
+                    <code>{Jason.encode!(value)}</code>
+                  <% {:error, message} -> %>
+                    <span class="fui-tone-negative">{message} Go back to Details to fix it.</span>
+                <% end %>
+              </dd>
+            </div>
+          </dl>
         </div>
 
         <:foot>

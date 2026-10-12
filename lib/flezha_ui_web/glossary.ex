@@ -9,6 +9,23 @@ defmodule FlezhaUiWeb.Glossary do
   table and the console cannot come to disagree.
   """
 
+  # Core's role set is closed in v1 and not on its published surface, so the
+  # console names it here, with what each role allows.
+  @roles [
+    {"viewer", "Reads everything in the namespace and changes nothing."},
+    {"app",
+     "An application running its namespace: starts, stops, sends to and listens to relays, and enables plugins. Also connects runners."},
+    {"ops",
+     "An operator: what app may do, plus replays, rewinds, rescales, dead-letters, schedules and dropping runners."},
+    {"admin",
+     "Everything ops may do, plus tokens, role bindings, namespaces and quotas, and stopping the controller."},
+    {"runner", "Connects a runner process, and nothing else."},
+    {"spawner", "Connects a runner that starts relays and sends to them, and nothing else."},
+    {"stopper", "Connects a runner that stops relays, and nothing else."}
+  ]
+
+  @role_names Enum.map(@roles, &elem(&1, 0))
+
   @terms [
     {"namespace", "Namespace",
      "An isolated control-plane scope. Every relay, runner, plugin and schedule lives in one."},
@@ -40,7 +57,8 @@ defmodule FlezhaUiWeb.Glossary do
     {"principal", "Principal",
      "The identity a call is made as. The console's comes only from a verified flezha token."},
     {"role", "Role",
-     "What a principal may do in a namespace: viewer, app, ops, admin, runner, spawner or stopper."},
+     "What a principal may do in a namespace: " <>
+       Enum.join(Enum.drop(@role_names, -1), ", ") <> " or " <> List.last(@role_names) <> "."},
     {"quota", "Quota",
      "A per-namespace limit, such as the number of relays, paired with a live counter."},
     {"partition group", "Partition group",
@@ -63,6 +81,9 @@ defmodule FlezhaUiWeb.Glossary do
 
   @doc "Every term, as `%{key:, name:, definition:}`, in reading order."
   def terms, do: Enum.map(@terms, fn {key, _name, _definition} -> Map.fetch!(@by_key, key) end)
+
+  @doc "Every role a principal can be bound to or issued, as `{role, what it allows}`."
+  def roles, do: @roles
 
   @doc "One term by its key, or `nil`."
   def term(key), do: Map.get(@by_key, String.downcase(key))

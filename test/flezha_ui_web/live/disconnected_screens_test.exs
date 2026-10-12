@@ -76,8 +76,7 @@ defmodule FlezhaUiWeb.DisconnectedScreensTest do
           "namespace" => "",
           "id" => "relay_a",
           "factory_id" => "store_input",
-          "init_values" => "",
-          "snapshot_interval" => ""
+          "init_values" => ""
         }
       })
 

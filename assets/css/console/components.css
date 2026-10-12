@@ -1562,9 +1562,22 @@ dialog.fui-dialog-panel::backdrop {
   border-color: var(--fui-accent);
 }
 
-.fui-choice[aria-pressed="true"] {
+.fui-choice[aria-pressed="true"],
+.fui-choice:has(input:checked) {
   background: var(--fui-accent-subtle);
   border-color: var(--fui-accent);
+}
+
+/* A card holding a radio: the radio beside the text, the whole card the
+   label that picks it. */
+.fui-choice:has(> input[type="radio"]) {
+  cursor: pointer;
+  gap: var(--fui-space-1) var(--fui-space-3);
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.fui-choice > input[type="radio"] {
+  margin-top: 0.15rem;
 }
 
 .fui-choice:disabled {
