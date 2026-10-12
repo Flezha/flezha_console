@@ -158,22 +158,23 @@ A signed-in user may store their own flezha token under **Settings**, which then
 rides their calls so the controller's audit log names the human rather than the
 app. It is encrypted at rest and never rendered back.
 
-After every `docker compose down` — create the database and the dev user:
+The `web` container migrates the database and runs `priv/repo/seeds.exs` each
+time it starts, so even after a `docker compose down` — the `db` service keeps
+its data in the container, so `down` discards it — the next `up` can log in at
+once. Log in at http://localhost:4000 with:
+
+- **Email:** `admin@flezha.com`
+- **Password:** `admin`
+
+The seed runs only in dev. There is no registration page: an operator makes
+every other account with
 
 ```bash
-docker exec fui_web mix ecto.migrate
-docker exec fui_web mix run priv/repo/seeds.exs
+docker exec -it fui_web mix flezha_ui.create_user someone@example.com
 ```
 
-The `db` service keeps its data in the container rather than a named volume, so
-`down` discards it and the next `up` starts on an empty database. A stack that
-was only stopped and started again keeps everything, and these two commands are
-then no-ops.
-
-Then log in at http://localhost:4000 with:
-
-- **Email:** `dev@flezha.local`
-- **Password:** `dev_password_123`
+which asks for a password of 12 to 72 characters (or takes `--password`) and
+creates the account confirmed, ready to log in.
 
 In dev the UI seeds testnet relays — flow and steps, and `orders`, the runner's
 relay API fixture — websocket plugins and a `hook_webhook` controller plugin

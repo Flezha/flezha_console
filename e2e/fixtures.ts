@@ -51,7 +51,25 @@ end
 `;
 
 /**
- * Deletes a console user a test registered, with its sessions. The console
+ * Creates a confirmed console user through `mix flezha_ui.create_user`, the
+ * only way an account is made, so a test that needs one runs the operator's
+ * own command.
+ */
+export function createConsoleUser(email: string, password: string): void {
+  try {
+    execFileSync(
+      'docker',
+      ['exec', 'fui_web', 'mix', 'flezha_ui.create_user', email, '--password', password],
+      { encoding: 'utf8', stdio: 'pipe' },
+    );
+  } catch (error) {
+    const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string };
+    throw new Error(`creating ${email} failed:\n${stdout}${stderr}`);
+  }
+}
+
+/**
+ * Deletes a console user a test made, with its sessions. The console
  * offers no screen that deletes an account, so a test that made one removes
  * it here. Safe from `finally`: an email with no user is left alone.
  */

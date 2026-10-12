@@ -1,47 +1,26 @@
-import { test, expect, deleteConsoleUser, uniqueId, type Page } from './fixtures';
-import { DEV_EMAIL } from './global-setup';
+import { test, expect, createConsoleUser, deleteConsoleUser, uniqueId, type Page } from './fixtures';
+import { submitLogin } from './global-setup';
 
 /**
- * Registration, logging in by the emailed link, logging out, and the account
- * settings forms, as a user each test registers for itself.
+ * Accounts made by the operator's command, logging in and out, and the account
+ * settings forms, as a user each test makes for itself.
  *
  * Nothing here runs as the seeded dev user: changing its password or ending
  * its session would log every later spec out. The dev stack's mail goes to the
- * Swoosh mailbox at `/dev/mailbox`, which is where the login link is read
- * from. Each user a test registers is deleted again when it finishes.
+ * Swoosh mailbox at `/dev/mailbox`. Each user a test makes is deleted again
+ * when it finishes.
  */
 test.use({ storageState: { cookies: [], origins: [] } });
 
-/** The newest login link the dev mailbox holds for `email`. */
-async function loginLink(page: Page, email: string): Promise<string> {
-  let link = '';
-  await expect
-    .poll(
-      async () => {
-        const { data } = await (await page.request.get('/dev/mailbox/json')).json();
-        const mail = (data as { to: string[]; text_body: string }[]).find((m) =>
-          m.to.includes(email),
-        );
-        link = mail?.text_body.match(/https?:\/\/\S+\/users\/log-in\/\S+/)?.[0] ?? '';
-        return link;
-      },
-      { message: `no login mail for ${email}` },
-    )
-    .not.toBe('');
-  return new URL(link).pathname;
-}
+const PASSWORD = 'a long enough password';
 
-/** Registers a fresh user and logs it in through its emailed link. */
-async function registerAndLogIn(page: Page): Promise<string> {
+/** Makes a fresh user with `mix flezha_ui.create_user` and logs it in. */
+async function createAndLogIn(page: Page): Promise<string> {
   const email = `${uniqueId('pw')}@example.com`;
-  await page.goto('/users/register');
-  await page.getByLabel('Email').fill(email);
-  await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page).toHaveURL(/\/users\/log-in$/);
-  await expect(page.locator('body')).toContainText(email);
+  createConsoleUser(email, PASSWORD);
 
-  await page.goto(await loginLink(page, email));
-  await page.getByRole('button', { name: 'Confirm and stay logged in' }).click();
+  await page.goto('/users/log-in');
+  await submitLogin(page, { email, password: PASSWORD });
   // `/` lands on the Home of the namespace last worked in, or on the list.
   await expect(page).toHaveURL(/\/namespaces(\/[^/?#]+)?$/);
   // Joined before the test moves on, so the page is not left mid-connect.
@@ -49,23 +28,24 @@ async function registerAndLogIn(page: Page): Promise<string> {
   return email;
 }
 
-test.describe('Registration', () => {
-  test('a taken email is refused and no account is made', async ({ page }) => {
-    await page.goto('/users/register');
-    await page.getByLabel('Email').fill(DEV_EMAIL);
-    await page.getByRole('button', { name: 'Create account' }).click();
+test.describe('Accounts', () => {
+  test('there is no registration page, and the login says who makes accounts', async ({
+    page,
+  }) => {
+    expect((await page.goto('/users/register'))?.status()).toBe(404);
 
-    await expect(page).toHaveURL(/\/users\/register$/);
-    await expect(page.locator('body')).toContainText('has already been taken');
+    await page.goto('/users/log-in');
+    await expect(page.getByTestId('page-sentence')).toContainText('created by an operator');
+    await expect(page.locator('a[href="/users/register"]')).toHaveCount(0);
   });
 
-  test('a new account logs in by its emailed link, and logging out ends the session', async ({
+  test('an account the command made logs in with its password, and logging out ends the session', async ({
     page,
   }) => {
     let email = '';
 
     try {
-      email = await registerAndLogIn(page);
+      email = await createAndLogIn(page);
 
       await page.getByTestId('account-menu').click();
       await expect(page.getByTestId('account-identity')).toContainText(email);
@@ -88,7 +68,7 @@ test.describe('Account settings', () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    email = await registerAndLogIn(page);
+    email = await createAndLogIn(page);
     await page.goto('/users/settings');
     await expect(page.getByTestId('flezha-token-settings')).toBeVisible();
   });

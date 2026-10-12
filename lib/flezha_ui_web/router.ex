@@ -45,13 +45,6 @@ defmodule FlezhaUiWeb.Router do
   ## Authentication routes (public)
 
   scope "/", FlezhaUiWeb do
-    pipe_through [:browser, :redirect_if_user_is_authenticated]
-
-    get "/users/register", UserRegistrationController, :new
-    post "/users/register", UserRegistrationController, :create
-  end
-
-  scope "/", FlezhaUiWeb do
     pipe_through [:browser]
 
     get "/users/log-in", UserSessionController, :new

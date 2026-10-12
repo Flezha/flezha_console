@@ -1,31 +1,28 @@
-# Script for populating the database. You can run it as:
+# Seeds the dev stack's account: admin@flezha.com / admin. Run on every start
+# of the dev `web` container, so it does nothing when the account exists, and
+# nothing at all outside dev.
 #
-#     mix run priv/repo/seeds.exs
-#
-# Inside the script, you can read and write to any of your
-# repositories directly:
-#
-#     FlezhaUi.Repo.insert!(%FlezhaUi.SomeSchema{})
-#
-# We recommend using the bang functions (`insert!`, `update!`
-# and so on) as they will fail if something goes wrong.
+#     mix run --no-start priv/repo/seeds.exs
 
-# Dev seed user
 alias FlezhaUi.Accounts
+alias FlezhaUi.Accounts.User
 
-dev_email = "dev@flezha.local"
+if Mix.env() == :dev do
+  {:ok, _apps} = Application.ensure_all_started(:ecto_sql)
 
-unless Accounts.get_user_by_email(dev_email) do
-  {:ok, user} = Accounts.register_user(%{email: dev_email})
+  Ecto.Migrator.with_repo(FlezhaUi.Repo, fn repo ->
+    email = "admin@flezha.com"
 
-  user
-  |> Accounts.User.password_changeset(%{password: "dev_password_123"})
-  |> FlezhaUi.Repo.update!()
+    unless Accounts.get_user_by_email(email) do
+      # The dev password is shorter than the 12 characters any real account
+      # must have, so it is hashed here rather than through the changeset.
+      %User{}
+      |> User.email_changeset(%{email: email})
+      |> Ecto.Changeset.change(hashed_password: Bcrypt.hash_pwd_salt("admin"))
+      |> User.confirm_changeset()
+      |> repo.insert!()
 
-  # Confirm the user so magic-link guard doesn't block password login
-  user
-  |> Ecto.Changeset.change(confirmed_at: DateTime.utc_now() |> DateTime.truncate(:second))
-  |> FlezhaUi.Repo.update!()
-
-  IO.puts("Seeded dev user: #{dev_email} / dev_password_123")
+      IO.puts("Seeded the dev account: #{email} / admin")
+    end
+  end)
 end

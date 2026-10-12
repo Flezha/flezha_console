@@ -220,19 +220,6 @@ defmodule FlezhaUiWeb.UserAuth do
     end
   end
 
-  @doc """
-  Plug for routes that require the user to not be authenticated.
-  """
-  def redirect_if_user_is_authenticated(conn, _opts) do
-    if conn.assigns.current_scope do
-      conn
-      |> redirect(to: signed_in_path(conn))
-      |> halt()
-    else
-      conn
-    end
-  end
-
   defp signed_in_path(_conn), do: ~p"/"
 
   @doc """

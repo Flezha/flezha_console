@@ -99,12 +99,16 @@ defmodule FlezhaUiWeb.BrandTest do
       refute html =~ "flezha-ui-gold"
     end
 
-    test "the login screen shows the mascot, decorative and hidden on phones", %{conn: conn} do
+    test "the login screen is one centred form with no mascot and a theme toggle", %{conn: conn} do
       html = conn |> get(~p"/users/log-in") |> html_response(200)
 
-      assert html =~ ~s(src="/images/badger-laptop.webp")
-      # The kit's mascot recipe hides it below 800 px.
-      assert html =~ ~s(alt="" class="fui-auth-mascot")
+      assert html =~ ~s(data-testid="auth-canvas")
+      refute html =~ "badger-laptop"
+      refute html =~ "fui-auth-mascot"
+      # The signed-out canvas has no help overlay for a ? to open.
+      refute html =~ ~s(data-testid="page-help")
+      assert html =~ ~s(data-testid="theme-toggle")
+      assert html =~ "mask-image: url(/images/flezha-ui-badger-line-text-white.svg)"
     end
   end
 

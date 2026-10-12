@@ -3,8 +3,8 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 /** Seeded by `priv/repo/seeds.exs` when the dev stack boots. */
-export const DEV_EMAIL = 'dev@flezha.local';
-export const DEV_PASSWORD = 'dev_password_123';
+export const DEV_EMAIL = 'admin@flezha.com';
+export const DEV_PASSWORD = 'admin';
 
 /**
  * Fills and submits the password login form.

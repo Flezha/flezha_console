@@ -13,9 +13,12 @@ defmodule FlezhaUiWeb.UserSessionControllerTest do
       conn = get(conn, ~p"/users/log-in")
       response = html_response(conn, 200)
       assert response =~ "Log in"
+      # Accounts are made by an operator, never from the web.
+      refute response =~ "/users/register"
+    end
 
-      assert response =~
-               ~r/href="\/users\/register"[^>]*data-testid="register-link"|data-testid="register-link"[^>]*href="\/users\/register"/
+    test "has no registration route", %{conn: conn} do
+      assert conn |> get("/users/register") |> response(404)
     end
 
     test "renders login page with email filled in (sudo mode)", %{conn: conn, user: user} do
@@ -36,7 +39,6 @@ defmodule FlezhaUiWeb.UserSessionControllerTest do
       conn = get(conn, ~p"/users/log-in?mode=password")
       response = html_response(conn, 200)
       assert response =~ "Log in"
-      assert response =~ ~p"/users/register"
     end
   end
 

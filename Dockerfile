@@ -40,5 +40,6 @@ RUN mix local.hex --force && \
 # Expose the port Phoenix will run on
 EXPOSE 4000
 
-# Fetch deps and compile at startup so volume-mounted code changes are picked up automatically
-CMD ["sh", "-c", "mix deps.get && mix compile && elixir --sname flezha_ui --hidden --cookie ${ERLANG_COOKIE:-flezha_dev_cookie} -S mix phx.server"]
+# Fetch deps and compile at startup so volume-mounted code changes are picked up
+# automatically, then migrate and seed, so a fresh database can log in at once.
+CMD ["sh", "-c", "mix deps.get && mix compile && mix ecto.migrate && mix run --no-start priv/repo/seeds.exs && elixir --sname flezha_ui --hidden --cookie ${ERLANG_COOKIE:-flezha_dev_cookie} -S mix phx.server"]

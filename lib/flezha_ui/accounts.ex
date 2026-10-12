@@ -80,6 +80,21 @@ defmodule FlezhaUi.Accounts do
     |> Repo.insert()
   end
 
+  @doc """
+  Creates a confirmed account that can log in with its password at once.
+
+  The console has no registration page: an operator makes accounts, through
+  `mix flezha_ui.create_user`. The password meets the same rules as one set in
+  the settings.
+  """
+  def create_user(attrs) do
+    %User{}
+    |> User.email_changeset(attrs)
+    |> User.password_changeset(attrs)
+    |> User.confirm_changeset()
+    |> Repo.insert()
+  end
+
   ## Settings
 
   @doc """
