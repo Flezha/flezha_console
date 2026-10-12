@@ -2061,17 +2061,17 @@ a.fui-tile:hover {
 }
 
 /* ======================================================================
-   Signed-out pages: the canvas, a form, and the mascot
+   Signed-out pages: one centred column, with the theme toggle in reach
    ====================================================================== */
 
 .fui-auth {
   align-items: center;
   display: grid;
-  gap: var(--fui-space-9);
-  grid-template-columns: minmax(0, 26rem) minmax(0, 22rem);
+  grid-template-columns: minmax(0, 28rem);
   justify-content: center;
   min-height: 100vh;
   padding: var(--fui-space-9) var(--fui-space-6);
+  position: relative;
 }
 
 .fui-auth-form {
@@ -2081,22 +2081,19 @@ a.fui-tile:hover {
 
 .fui-auth-mascot {
   height: auto;
-  max-width: 100%;
+  justify-self: center;
+  max-width: 16rem;
 }
 
-@media (width <= 799px) {
-  .fui-auth {
-    grid-template-columns: minmax(0, 26rem);
-  }
-
-  .fui-auth-mascot {
-    display: none;
-  }
+.fui-auth-toggle {
+  position: absolute;
+  right: var(--fui-space-4);
+  top: var(--fui-space-4);
 }
 
 @media (width <= 599px) {
   .fui-auth {
-    padding: var(--fui-space-7) var(--fui-space-4);
+    padding: var(--fui-space-9) var(--fui-space-4) var(--fui-space-7);
   }
 }
 

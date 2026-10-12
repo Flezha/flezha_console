@@ -46,16 +46,16 @@ scope switch moves between the two forms.
 | `/namespaces/:ns` | **Home** — a headline sentence and the namespace's figures, its open problems (three, then a link), a live map of its sources, runner bands with their relays as lanes, outputs and the dead-letter drain, what happened while the screen was open, and as sections that fold: quotas, access (role bindings and tokens), partition groups, finished relays and runners; drop a runner and readmit its process |
 | `/problems` | **Open problems** in every reachable namespace, worst first, each saying what is wrong, why, and offering the action that fixes it |
 | `/namespaces` | Declared and running namespaces as tiles, with a health strip, counts and quota breaches |
-| `/namespaces/:ns/relays` | That namespace's relays: health, run, node, runner, plugins and the measured rate with its recent history; each opens in an inspector, and its menu opens, inspects or stops it |
+| `/namespaces/:ns/relays` | That namespace's relays: health, run, node, runner, plugins and the measured rate with its recent history; a relay's name and its Open button go to its page, a partition group links each member, a row opens in an inspector, and its menu opens, inspects or stops it |
 | `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update, with a typed field for each option the provider declares |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
-| `/relays` | **Fleet** — every relay across every reachable namespace, filterable by namespace, health, run and runner; starts one into any of them; what happened while the screen was open |
+| `/relays` | The Relays screen's **All namespaces** switch — every relay across every reachable namespace, filterable by namespace, health, run and runner; starts one into any of them; what happened while the screen was open |
 | `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph — records drawn as they pass, a payload tap opened from its IN and OUT ports, and a sentence and timeline of what the relay is doing — and as sections that fold: diagnosis, the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema |
 | `/namespaces/:ns/relays/:id/listen` | **Listen** — the relay's live outputs or inputs |
 | `/namespaces/:ns/relays/:id/state` | **State** — steps facts as sentences, the task journal and input log, SDK state, and durable cells with their sequences and lag; point-in-time reads, a cell's outbox, replay, rotate, delete; retention, the history one settable |
 | `/plugins` | Enabled plugins per namespace, the providers on offer, and the packages installed on the controller with why one was refused |
-| `/cluster` | Cluster nodes, per-node health rollup, hub recovery per node, runners with what they serve, and which runners serve a factory; drop a runner and readmit its process |
-| `/observability` | Observability sources grouped by area with a name filter and an on/off switch each, sinks, and a live signal tail |
+| `/cluster` | Cluster nodes, per-node health rollup, hub recovery per node (a notice only while a hub is recovering), runners with what they serve, and which runners serve a factory; drop a runner and readmit its process |
+| `/observability` | Observability sources grouped by area with a name filter and an on/off switch each, sinks, and a live signal tail that opens beside the listing |
 | `/controller` | Readiness, authorization and durability in one sentence; durability posture, RPO breaches and the shipper, shutdown and boot state, memory hot spots; drain and stop the controller, watching each phase |
 | `/schedules` | Cron schedules with their status and next fire; run one now, after a confirmation |
 | `/dlq` | Parked dead-letter entries grouped by tasklet; inspect an entry's payload in place, replay, drop |
@@ -63,18 +63,25 @@ scope switch moves between the two forms.
 
 Starting a relay is a guided flow: choose a factory (each says what it is, how
 it runs and how many runners serve it), give the details, then read the start
-back as one sentence before it is made.
+back fact by fact — factory, how it runs, namespace, relay id, the runners
+serving it and the initial values — before it is made.
+
+Every action answers where it was asked: a button shows a spinner while its
+call is in flight, a result that renders elsewhere is scrolled into view and
+marked, and the outcome is stated in a toast under the topbar. A `?` beside a
+screen's title opens its help, and one beside a section explains it.
 
 ## Getting around
 
 The shell models the domain it controls: some concerns are scoped to a
 namespace and some are not, and it says which is which.
 
-- **The rail is two labelled sections.** `NAMESPACE` holds Home, Relays,
-  Plugins and Schedules; `PLATFORM` holds Problems, Fleet, Namespaces,
-  Cluster, Controller, Observability, Dead-letter and Audit. A screen is in the
-  first only when the controller call behind it takes a namespace, or the rows
-  it returns each carry one. With nothing in scope the first section says so.
+- **The rail is four labelled sections.** `NAMESPACE` holds Home, Relays,
+  Plugins and Schedules; `ATTENTION` holds Problems and Dead-letter;
+  `PLATFORM` holds Namespaces, Cluster and Controller; `MONITORING` holds
+  Observability and the Audit log. A screen is in the first only when the
+  controller call behind it takes a namespace, or the rows it returns each
+  carry one. With nothing in scope the first section says so.
 - **Problems are counted on the rail.** A per-session pulse reads every
   reachable namespace every ten seconds, with the operator's own token and a
   fixed number of calls per namespace, and the Problems entry shows how many

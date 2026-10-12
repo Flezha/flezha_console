@@ -171,7 +171,10 @@ test.describe('Theme contract', () => {
     await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
   });
 
-  test('the console serves its own typefaces and the badger icons', async ({ page, live }) => {
+  test('the console sets type in flezha.com\'s faces and serves the badger icons', async ({
+    page,
+    live,
+  }) => {
     const thirdParty: string[] = [];
     page.on('request', (r) => {
       const url = new URL(r.url());
@@ -183,16 +186,26 @@ test.describe('Theme contract', () => {
     const faces = await page.evaluate(() =>
       [...document.fonts].map((f) => `${f.family}:${f.status}`),
     );
-    expect(faces).toContain('Bricolage Grotesque:loaded');
-    expect(faces).toContain('IBM Plex Sans:loaded');
-    expect(faces).toContain('IBM Plex Mono:loaded');
+    expect(faces).toContain('Inter:loaded');
+    expect(faces).toContain('Space Grotesk:loaded');
+    expect(faces).toContain('JetBrains Mono:loaded');
     expect(thirdParty, 'no font or icon may come from a third party').toEqual([]);
 
-    await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg');
+    // The badger without a background: a dark mark for a light browser, a
+    // white one for a dark browser, and the SVG that follows either.
+    const icons = await page
+      .locator('link[rel="icon"]')
+      .evaluateAll((links) => links.map((l) => `${l.getAttribute('media') ?? ''} ${l.getAttribute('href')}`));
+    expect(icons).toEqual([
+      '(prefers-color-scheme: light) /images/favicon-mark-dark-32.png',
+      '(prefers-color-scheme: dark) /images/favicon-mark-white-32.png',
+      ' /favicon.svg',
+    ]);
 
     for (const [path, type] of [
       ['/favicon.svg', 'image/svg+xml'],
-      ['/favicon.ico', 'image/'],
+      ['/images/favicon-mark-dark-32.png', 'image/png'],
+      ['/images/favicon-mark-white-32.png', 'image/png'],
     ]) {
       const res = await page.request.get(path);
       expect(res.status(), path).toBe(200);
@@ -209,7 +222,11 @@ test.describe('Theme contract', () => {
 test.describe('Brand outside the shell', () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
-  test('the login screen paints the badger lockup and its mascot in each theme', async ({ page }) => {
+  test('the login screen is one centred form, its lockup in the logo\'s own two colours', async ({
+    page,
+  }) => {
+    const ink = { dark: 'rgb(255, 255, 255)', light: 'rgb(40, 11, 42)' };
+
     for (const scheme of ['dark', 'light'] as const) {
       await page.emulateMedia({ colorScheme: scheme });
       await page.goto('/users/log-in');
@@ -221,10 +238,23 @@ test.describe('Brand outside the shell', () => {
         'flezha-ui-badger-line-text-white.svg',
       );
 
-      const mascot = page.locator('img[src*="badger-laptop"]');
-      await expect(mascot).toBeVisible();
-      expect(await mascot.evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+      expect(await logo.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(ink[scheme]);
+
+      await expect(page.locator('img[src*="badger-laptop"]')).toHaveCount(0);
+      await expect(page.getByTestId('theme-toggle')).toBeVisible();
+
+      // Centred: the form's middle sits on the page's middle.
+      const box = (await page.locator('#login_form_password').boundingBox())!;
+      const width = page.viewportSize()!.width;
+      expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(4);
     }
+  });
+
+  test('the theme toggle on the login screen switches the theme', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.goto('/users/log-in');
+    await page.getByTestId('theme-toggle').click();
+    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
   });
 
   test('the 404 page’s mascot is served', async ({ page }) => {

@@ -1,11 +1,12 @@
 defmodule FlezhaUiWeb.Layouts do
   @moduledoc """
-  The console's shell — the rail of two sections beside a topbar — and the
-  derivation of where the operator is that every screen shares.
+  The console's shell — the rail beside a topbar — and the derivation of where
+  the operator is that every screen shares.
 
-  The rail lists the namespace's own screens and the platform's; the topbar
-  holds the connection, the namespace picker, the screen's liveness, help, the
-  bound identity and the account menu.
+  The rail lists the namespace's own screens, then what needs attention, the
+  platform and its monitoring; the topbar holds the connection, the namespace
+  picker, the screen's liveness, the bound identity, help, the theme toggle
+  and the account menu.
 
   "root" is the document skeleton; "app" wraps every LiveView and the plain
   settings page; "auth" is the signed-out canvas.
@@ -53,21 +54,35 @@ defmodule FlezhaUiWeb.Layouts do
 
   With no namespace in force the scoped group has nothing honest to point at,
   so it comes back empty and the rail says so.
+
+  Every relay across namespaces is the Relays screen's own "All namespaces"
+  switch, not a destination of its own.
   """
   def nav_sections(namespace) do
     [
       %{heading: "Namespace", scope: namespace, entries: scoped_entries(namespace)},
       %{
-        heading: "Platform",
+        heading: "Attention",
         scope: nil,
         entries: [
           entry(~p"/problems", "hero-exclamation-triangle", "Problems", :problems),
-          entry(~p"/relays", "hero-cpu-chip", "Fleet"),
+          entry(~p"/dlq", "hero-inbox-stack", "Dead-letter")
+        ]
+      },
+      %{
+        heading: "Platform",
+        scope: nil,
+        entries: [
           entry(~p"/namespaces", "hero-rectangle-stack", "Namespaces"),
           entry(~p"/cluster", "hero-server-stack", "Cluster"),
-          entry(~p"/controller", "hero-server", "Controller"),
+          entry(~p"/controller", "hero-server", "Controller")
+        ]
+      },
+      %{
+        heading: "Monitoring",
+        scope: nil,
+        entries: [
           entry(~p"/observability", "hero-signal", "Observability"),
-          entry(~p"/dlq", "hero-inbox-stack", "Dead-letter"),
           entry(~p"/audit", "hero-document-text", "Audit log")
         ]
       }
@@ -94,8 +109,7 @@ defmodule FlezhaUiWeb.Layouts do
   An entry owns the subtree below it, measured from its own scope: a
   namespace's Home sits at the root of its scope, so it is an exact match, and
   Relays still owns the relay below it. Entries in different scopes never
-  match, which is what keeps `/namespaces/x/relays` from marking the platform
-  Fleet entry as well as the namespace's own.
+  match, so `/namespaces/x` never marks a platform entry such as `/namespaces`.
   """
   def nav_current?(current, path) do
     case {split_scope(current), split_scope(path)} do
@@ -330,10 +344,11 @@ defmodule FlezhaUiWeb.Layouts do
         relays = base <> "/relays"
         relay_path = relays <> "/" <> relay
 
+        # The path carries ids percent-encoded (`demo%23p0`); a crumb names them.
         trail = [
-          %{label: namespace, path: base},
+          %{label: URI.decode(namespace), path: base},
           %{label: "Relays", path: relays},
-          %{label: relay, path: relay_path}
+          %{label: URI.decode(relay), path: relay_path}
         ]
 
         case view do
@@ -356,6 +371,49 @@ defmodule FlezhaUiWeb.Layouts do
   request for six lines of script.
   """
   def theme_hydrate, do: Phoenix.HTML.raw(@theme_hydrate)
+
+  @doc """
+  The theme toggle, drawn as flezha.com draws it: a sun in dark (switch to
+  light), a moon in light. The stylebook's `bindThemeToggles/0` binds it.
+  """
+  def theme_toggle(assigns) do
+    ~H"""
+    <button
+      type="button"
+      class="flz-chrome-icon-btn"
+      data-flz-theme-toggle
+      aria-label="Toggle color theme"
+      title="Toggle light/dark mode"
+      data-testid="theme-toggle"
+    >
+      <svg
+        class="flz-theme-sun"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4l1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4m11.4-11.4l1.4-1.4">
+        </path>
+      </svg>
+      <svg
+        class="flz-theme-moon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path>
+      </svg>
+    </button>
+    """
+  end
 
   # ---- The pulse ----
   #

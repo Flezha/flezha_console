@@ -332,8 +332,8 @@ export const closeSection = (page: Page, key: string) => foldSection(page, key, 
  * The menu closes on the click, so the page is left as the spec found it.
  */
 export async function toggleTheme(page: Page): Promise<void> {
-  await page.getByTestId('account-menu').click();
-  await page.locator('[data-flz-theme-toggle]').click();
+  // Always in the topbar, never behind a menu.
+  await page.locator('.flz-topbar [data-testid="theme-toggle"]').click();
 }
 
 /** Opens the command palette with the shortcut it is bound to. */

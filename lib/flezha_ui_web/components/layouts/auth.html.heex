@@ -1,6 +1,7 @@
 <main class="fui-auth" data-testid="auth-canvas">
+  <div class="fui-auth-toggle"><.theme_toggle /></div>
   <div class="fui-auth-form">
-    <.link navigate={~p"/"} class="justify-self-start">
+    <.link navigate={~p"/"} class="justify-self-center">
       <.brand_lockup on={:canvas} />
     </.link>
     <%= if assigns[:inner_block] do %>
@@ -9,8 +10,6 @@
       {@inner_content}
     <% end %>
   </div>
-  <%!-- Decorative: a mascot only where nobody is working, and not on a phone. --%>
-  <img :if={assigns[:mascot]} src={@mascot} alt="" class="fui-auth-mascot" />
 </main>
 
 <.flash_group flash={@flash} />

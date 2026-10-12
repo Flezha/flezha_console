@@ -119,17 +119,18 @@ defmodule FlezhaUiWeb.BrandTest do
       assert html |> String.split(~s(aria-current="page")) |> length() == 2
     end
 
-    test "the theme control is the stylebook's toggle, in the topbar's account menu", %{
+    test "the theme control is the stylebook's toggle, always visible in the topbar", %{
       conn: conn
     } do
       conn = log_in_user(conn, user_fixture())
       {:ok, _live, html} = live(conn, ~p"/cluster")
+      doc = LazyHTML.from_document(html)
 
       assert [_toggle] =
-               html
-               |> LazyHTML.from_document()
-               |> LazyHTML.query(~s(.flz-topbar #account-menu [data-flz-theme-toggle]))
-               |> Enum.to_list()
+               doc |> LazyHTML.query(~s(.flz-topbar [data-flz-theme-toggle])) |> Enum.to_list()
+
+      assert [] =
+               doc |> LazyHTML.query(~s(#account-menu [data-flz-theme-toggle])) |> Enum.to_list()
 
       assert html =~ ~s(class="flz-sidebar")
     end

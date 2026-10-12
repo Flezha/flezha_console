@@ -181,6 +181,8 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
           <.icon name="hero-question-mark-circle" class="w-5 h-5" />
         </button>
 
+        <.theme_toggle />
+
         <div id="account-menu" class="relative" data-fui-pop>
           <button
             type="button"
@@ -210,17 +212,6 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
             <.link navigate={~p"/users/settings"} class="flz-menu-item" data-fui-pop-item>
               <.icon name="hero-cog-6-tooth" class="w-4 h-4" /> Settings
             </.link>
-            <button
-              type="button"
-              data-flz-theme-toggle
-              data-fui-pop-item
-              class="flz-menu-item"
-              title="Toggle light/dark mode"
-            >
-              <%!-- Sun in dark mode (switch to light), moon in light mode. --%>
-              <.icon name="hero-sun" class="w-4 h-4 flz-theme-sun" />
-              <.icon name="hero-moon" class="w-4 h-4 flz-theme-moon" /> Toggle theme
-            </button>
             <hr class="flz-menu-sep" />
             <.link
               href={~p"/users/log-out"}

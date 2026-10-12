@@ -66,7 +66,7 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
       :ok
     end
 
-    test "the rail is two labelled groups under the brand", %{conn: conn} do
+    test "the rail is four labelled groups under the brand", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/namespaces/default")
 
       headings =
@@ -75,22 +75,21 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
         |> LazyHTML.query(".flz-sidebar-section")
         |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
 
-      assert [scoped, "Platform"] = headings
+      assert [scoped, "Attention", "Platform", "Monitoring"] = headings
       assert scoped =~ ~r/^Namespace\s*default$/
 
       assert html |> within(~s(.flz-sidebar [data-testid="brand-link"])) |> attr("aria-label") ==
                "Flezha UI"
     end
 
-    test "the namespace group opens on Home, and the platform group on Problems", %{conn: conn} do
+    test "the namespace group opens on Home, and attention on Problems", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/namespaces/default")
 
       assert html |> rail() |> hrefs() ==
                ~w(/namespaces/default /namespaces/default/relays /namespaces/default/plugins /namespaces/default/schedules) ++
-                 ~w(/problems /relays /namespaces /cluster /controller /observability /dlq /audit)
+                 ~w(/problems /dlq /namespaces /cluster /controller /observability /audit)
 
-      assert html |> rail() |> LazyHTML.query(~s(a[href="/relays"])) |> LazyHTML.text() =~
-               "Fleet"
+      refute html |> rail() |> LazyHTML.text() =~ "Fleet"
 
       refute html |> rail() |> LazyHTML.text() =~ "Dashboard"
     end
@@ -102,7 +101,12 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     end
 
     test "marks exactly one destination, on a scoped route as on a flat one", %{conn: conn} do
-      for path <- [~p"/relays", ~p"/namespaces/default", ~p"/audit", ~p"/problems"] do
+      for path <- [
+            ~p"/namespaces/default/relays",
+            ~p"/namespaces/default",
+            ~p"/audit",
+            ~p"/problems"
+          ] do
         {:ok, _view, html} = live(conn, path)
 
         assert Enum.count(current_entries(rail(html))) == 1,
@@ -424,14 +428,17 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
       :ok
     end
 
-    test "holds the identity, settings, theme and log out", %{conn: conn} do
+    test "holds the identity, settings and log out; the theme toggle sits in the topbar", %{
+      conn: conn
+    } do
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
       menu = within(html, ~s(#account-menu))
 
       assert testids(menu, "[data-testid]") |> Enum.member?("account-identity")
       assert "/users/settings" in hrefs(menu)
-      assert menu |> LazyHTML.query("[data-flz-theme-toggle]") |> Enum.count() == 1
+      assert menu |> LazyHTML.query("[data-flz-theme-toggle]") |> Enum.count() == 0
+      assert html |> within(~s(.flz-topbar [data-testid="theme-toggle"])) |> Enum.count() == 1
       assert testids(menu, ~s([data-testid="log-out"])) == ["log-out"]
     end
 
@@ -470,7 +477,7 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
 
       html = render(view)
       assert html =~ "relay_default"
-      assert current_destination(html) =~ "Fleet"
+      refute html |> rail() |> LazyHTML.text() =~ "Fleet"
     end
 
     test "plugins reads the scoped namespace alone", %{conn: conn, node: node} do

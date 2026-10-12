@@ -19,6 +19,11 @@ defmodule FlezhaUi.StylebookSkinTest do
   # The chrome lockup's two classes are the kit's only borrowed skin.
   @kit_allowed ~w(flz-brand flz-logo)
 
+  # The theme toggle is the shell's own chrome, drawn on the signed-out canvas
+  # too, so it lives with the layouts rather than in the shell template.
+  @layouts "lib/flezha_ui_web/components/layouts.ex"
+  @layouts_allowed ~w(flz-chrome-icon-btn flz-theme-sun flz-theme-moon)
+
   # A `data-flz-*` attribute binds a stylebook behaviour, such as the theme
   # toggle; it is not a class.
   @class ~r/(?<![\w-])flz-[a-z][a-z-]*/
@@ -31,6 +36,7 @@ defmodule FlezhaUi.StylebookSkinTest do
           file not in [@shell, @graph],
           class <- Regex.scan(@class, File.read!(file)) |> List.flatten(),
           not (file == @kit and class in @kit_allowed),
+          not (file == @layouts and class in @layouts_allowed),
           uniq: true,
           do: "#{file}: #{class}"
 

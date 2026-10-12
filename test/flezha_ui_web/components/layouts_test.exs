@@ -75,6 +75,11 @@ defmodule FlezhaUiWeb.LayoutsTest do
     test "a namespace spelled like a screen keeps its own name" do
       assert [%{label: "relays"} | _] = Layouts.breadcrumbs("/namespaces/relays/relays/x")
     end
+
+    test "an encoded relay id is named as the relay calls itself" do
+      assert [_ns, _relays, %{label: "demo#p0", path: nil}] =
+               Layouts.breadcrumbs("/namespaces/default/relays/demo%23p0")
+    end
   end
 
   describe "nav_current?/2" do
@@ -106,10 +111,10 @@ defmodule FlezhaUiWeb.LayoutsTest do
       refute Layouts.nav_current?("/namespaces/default/plugins", "/namespaces/other/plugins")
     end
 
-    # The all-namespaces plugins and schedules are reached by a screen's scope
-    # switch, not from the rail.
+    # The all-namespaces relays, plugins and schedules are reached by a
+    # screen's scope switch, not from the rail.
     test "exactly one rail entry is current on every route" do
-      for path <- @routes -- ["/plugins", "/schedules"] do
+      for path <- @routes -- ["/relays", "/plugins", "/schedules"] do
         marked =
           for section <- Layouts.nav_sections("default"),
               entry <- section.entries,
@@ -122,18 +127,22 @@ defmodule FlezhaUiWeb.LayoutsTest do
   end
 
   describe "nav_sections/1" do
-    test "the rail is two labelled groups" do
-      assert [%{heading: "Namespace"}, %{heading: "Platform", scope: nil}] =
-               Layouts.nav_sections("default")
+    test "the rail is the namespace, then attention, the platform and monitoring" do
+      assert [
+               %{heading: "Namespace"},
+               %{heading: "Attention", scope: nil},
+               %{heading: "Platform", scope: nil},
+               %{heading: "Monitoring", scope: nil}
+             ] = Layouts.nav_sections("default")
     end
 
     test "the namespace group is empty until a namespace is in force" do
-      assert [%{heading: "Namespace", scope: nil, entries: []}, _platform] =
+      assert [%{heading: "Namespace", scope: nil, entries: []} | _rest] =
                Layouts.nav_sections(nil)
     end
 
     test "the namespace group opens on Home, then Relays, Plugins and Schedules" do
-      [scoped, _platform] = Layouts.nav_sections("default")
+      [scoped | _rest] = Layouts.nav_sections("default")
 
       assert scoped.scope == "default"
       assert Enum.map(scoped.entries, & &1.label) == ~w(Home Relays Plugins Schedules)
@@ -142,15 +151,21 @@ defmodule FlezhaUiWeb.LayoutsTest do
                ~w(/namespaces/default /namespaces/default/relays /namespaces/default/plugins /namespaces/default/schedules)
     end
 
-    test "the platform group opens on Problems, which alone carries the count" do
-      [_scoped, platform] = Layouts.nav_sections("default")
+    test "attention, platform and monitoring group the platform screens by purpose" do
+      [_scoped, attention, platform, monitoring] = Layouts.nav_sections("default")
 
-      assert Enum.map(platform.entries, & &1.label) ==
-               ["Problems", "Fleet", "Namespaces", "Cluster", "Controller", "Observability"] ++
-                 ["Dead-letter", "Audit log"]
+      assert Enum.map(attention.entries, & &1.label) == ["Problems", "Dead-letter"]
+      assert Enum.map(platform.entries, & &1.label) == ["Namespaces", "Cluster", "Controller"]
+      assert Enum.map(monitoring.entries, & &1.label) == ["Observability", "Audit log"]
+    end
+
+    test "Problems alone carries the count, and every relay is no destination of its own" do
+      entries = for section <- Layouts.nav_sections("default"), e <- section.entries, do: e
 
       assert [%{label: "Problems", path: "/problems"}] =
-               Enum.filter(platform.entries, &(&1.count == :problems))
+               Enum.filter(entries, &(&1.count == :problems))
+
+      refute Enum.any?(entries, &(&1.path == "/relays" or &1.label == "Fleet"))
     end
 
     test "the dashboard is gone" do

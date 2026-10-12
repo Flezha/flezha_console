@@ -12,7 +12,7 @@ import {
 } from './fixtures';
 
 /**
- * The shell, in a browser: the two-section rail, the scope in the route, the
+ * The shell, in a browser: the four-section rail, the scope in the route, the
  * crumb trail, the tabs on a relay, the palette's keyboard, and a section
  * remembering it was folded.
  *
@@ -25,12 +25,21 @@ import {
 const RELAY = '/namespaces/default/relays/testnet_store_1';
 
 test.describe('The console shell', () => {
-  test('the rail separates namespace-scoped screens from platform ones', async ({ page, live }) => {
+  test('the rail groups the namespace, what needs attention, the platform and monitoring', async ({
+    page,
+    live,
+  }) => {
     await live('/namespaces/default');
 
     const rail = page.locator('.flz-sidebar-nav');
-    await expect(rail.locator('.flz-sidebar-section')).toHaveCount(2);
-    await expect(rail.locator('a[href="/relays"]')).toContainText('Fleet');
+    await expect(rail.locator('.flz-sidebar-section')).toHaveText([
+      /Namespace\s*default/,
+      'Attention',
+      'Platform',
+      'Monitoring',
+    ]);
+    // Every relay across namespaces is the Relays screen's own switch.
+    await expect(rail.locator('a[href="/relays"]')).toHaveCount(0);
     await expect(rail.locator('a[href="/namespaces/default/relays"]')).toBeVisible();
     await expect(rail.locator('a[href="/namespaces/default/plugins"]')).toBeVisible();
     await expect(rail.locator('a[href="/namespaces/default/schedules"]')).toBeVisible();
@@ -118,9 +127,13 @@ test.describe('The console shell', () => {
     await expect(page.getByTestId('breadcrumb')).toHaveCount(0);
   });
 
-  test('the account controls are one menu, log out included', async ({ page, live }) => {
+  test('the account controls are one menu, and the theme toggle is always in the topbar', async ({
+    page,
+    live,
+  }) => {
     await live('/cluster');
 
+    await expect(page.locator('.flz-topbar [data-testid="theme-toggle"]')).toBeVisible();
     // Nothing to log out with until the menu is opened.
     await expect(page.getByTestId('log-out')).toBeHidden();
 
@@ -128,7 +141,7 @@ test.describe('The console shell', () => {
 
     await expect(page.getByTestId('account-identity')).toBeVisible();
     await expect(page.getByTestId('log-out')).toBeVisible();
-    await expect(page.locator('[data-flz-theme-toggle]')).toBeVisible();
+    await expect(page.locator('#account-menu [data-flz-theme-toggle]')).toHaveCount(0);
   });
 });
 
@@ -311,7 +324,7 @@ test.describe('A screen that refreshes', () => {
   });
 });
 
-test.describe('Fleet filters', () => {
+test.describe('Relay list filters', () => {
   test('are written to the query string and reversed by the back button', async ({
     page,
     live,
