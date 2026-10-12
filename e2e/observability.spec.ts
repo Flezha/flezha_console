@@ -19,26 +19,27 @@ test.describe('Observability', () => {
     await expect(page.getByTestId('sinks-panel')).toBeVisible();
 
     await expect(page.getByTestId(`source-${SOURCE}`)).toBeVisible();
-    await expect(page.getByTestId(`source-enabled-${SOURCE}`)).toHaveText(/enabled|disabled/);
+    await expect(page.getByTestId(`source-enabled-${SOURCE}`)).toHaveAttribute('data-enabled', /^(true|false)$/);
 
     // A sink carries a pid rather than an enabled flag, so it reports running.
     const sinkStates = page.locator('[data-testid^="sink-running-"]');
-    await expect(sinkStates.first()).toHaveText(/running|not running/);
+    await expect(sinkStates.first()).toHaveText(/^\s*(Running|Not running)\s*$/);
   });
 
   test('a source toggles and the listing reflects it', async ({ page }) => {
     const state = page.getByTestId(`source-enabled-${SOURCE}`);
     const toggle = page.getByTestId(`toggle-${SOURCE}`);
 
-    const before = (await state.innerText()).trim();
-    const opposite = before === 'enabled' ? 'disabled' : 'enabled';
+    const before = (await state.getAttribute('data-enabled'))!;
+    const opposite = before === 'true' ? 'false' : 'true';
 
     await toggle.click();
-    await expect(state).toHaveText(opposite);
+    await expect(state).toHaveAttribute('data-enabled', opposite);
+    await expect(toggle).toHaveAttribute('aria-checked', opposite);
 
     // Put it back, so the stack is as this spec found it.
     await toggle.click();
-    await expect(state).toHaveText(before);
+    await expect(state).toHaveAttribute('data-enabled', before);
   });
 
   test('a tail receives the source’s signals while started and nothing once stopped', async ({

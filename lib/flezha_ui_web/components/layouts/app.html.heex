@@ -1,20 +1,33 @@
 <% node = FlezhaUi.Service.NodeManager.connected_node()
 
-authz =
-  FlezhaUi.Service.NodeManager.authz_status(
-    FlezhaUi.Accounts.Scope.flezha_token(assigns[:current_scope])
-  )
+token = FlezhaUi.Accounts.Scope.flezha_token(assigns[:current_scope])
+authz = FlezhaUi.Service.NodeManager.authz_status(token)
 
 # The settings screens are plain controller pages sharing this shell, and a
 # LiveComponent cannot be mounted into one.
 live? = is_nil(assigns[:conn])
 
 current_path = assigns[:current_path] || (assigns[:conn] && assigns[:conn].request_path) || "/"
-scope = assigns[:shell_namespace]
-namespaces = assigns[:shell_namespaces] || [] %>
+
+scope =
+  if live?,
+    do: assigns[:shell_namespace],
+    else: FlezhaUiWeb.Layouts.dead_namespace(assigns)
+
+namespaces =
+  if live?,
+    do: assigns[:shell_namespaces] || [],
+    else: FlezhaUiWeb.Layouts.dead_namespaces(assigns)
+
+problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
 <div class="flz-app">
   <aside class="flz-sidebar">
-    <.link navigate={~p"/"} class="flz-sidebar-brand">
+    <.link
+      navigate={~p"/"}
+      class="flz-sidebar-brand"
+      aria-label="Flezha UI"
+      data-testid="brand-link"
+    >
       <.brand_lockup on={:chrome} />
     </.link>
 
@@ -40,13 +53,26 @@ namespaces = assigns[:shell_namespaces] || [] %>
           class="flz-sidebar-link"
         >
           <.icon name={entry.icon} class="w-4 h-4 shrink-0" />{entry.label}
+          <span
+            :if={entry.count == :problems and problems not in [nil, []]}
+            class={"fui-count fui-count--#{FlezhaUiWeb.Attention.worst(problems)} ml-auto"}
+            data-testid="problems-count"
+            data-tone={FlezhaUiWeb.Attention.worst(problems)}
+          >
+            {length(problems)}
+          </span>
         </.link>
       <% end %>
     </nav>
 
     <div class="flz-sidebar-foot">
       <div class="flex items-center gap-2 mb-2">
-        <.status_dot connected?={!!node} />
+        <span
+          class={["fui-shape", (node && "fui-tone-positive") || "fui-tone-negative"]}
+          data-shape="dot"
+          aria-hidden="true"
+        >
+        </span>
         <span :if={node} class="flz-num truncate">{node}</span>
         <span :if={!node}>Disconnected</span>
       </div>
@@ -55,83 +81,162 @@ namespaces = assigns[:shell_namespaces] || [] %>
   </aside>
 
   <div class="flz-app-main">
-    <header class="flz-topbar">
-      <div class="flex items-center gap-3">
+    <header class="flz-topbar" data-testid="topbar">
+      <div class="flex flex-wrap items-center gap-3">
         <span :if={node} class="flex items-center gap-1.5">
-          <.status_dot connected?={true} />{node}
+          <span class="fui-shape fui-tone-positive" data-shape="dot" aria-hidden="true"></span>{node}
         </span>
         <span :if={!node} class="flz-topbar-muted flex items-center gap-1.5">
-          <.status_dot connected?={false} /> Not connected
+          <span class="fui-shape fui-tone-negative" data-shape="dot" aria-hidden="true"></span>
+          Not connected
         </span>
 
         <%!-- One meaning in both places: show me this namespace. --%>
-        <.menu :if={live?} id="namespace-picker" testid="namespace-picker" label="Namespace scope">
-          <:trigger>
-            <.icon name="hero-rectangle-stack" class="w-4 h-4" />
-            <span class="flz-num">{scope || "no namespace"}</span>
-          </:trigger>
-          <p :if={namespaces == []} class="flz-menu-item">
-            No namespace is reachable.
-          </p>
-          <.link
-            :for={name <- namespaces}
-            navigate={scope_target(current_path, name)}
-            aria-current={name == scope && "true"}
-            data-testid={"namespace-picker-#{name}"}
-            class="flz-menu-item flz-num"
-          >
-            {name}
-          </.link>
-        </.menu>
-      </div>
-
-      <div class="flex items-center gap-3">
-        <.liveness
-          :if={assigns[:refresh_interval]}
-          interval={@refresh_interval}
-          at={assigns[:refresh_at]}
-          paused={assigns[:refresh_paused] || false}
-        />
-        <.authz_identity status={authz} />
-
-        <.menu id="account-menu" testid="account-menu" label="Account">
-          <:trigger>
-            <.icon name="hero-user-circle" class="w-5 h-5" />
-          </:trigger>
-          <p class="flz-menu-item" data-testid="account-identity">
-            {assigns[:current_scope] && assigns[:current_scope].user &&
-              assigns[:current_scope].user.email}
-          </p>
-          <hr class="flz-menu-sep" />
-          <.link navigate={~p"/users/settings"} class="flz-menu-item">
-            <.icon name="hero-cog-6-tooth" class="w-4 h-4" /> Settings
-          </.link>
+        <div :if={live?} id="namespace-picker" class="relative" data-fui-pop>
           <button
             type="button"
-            data-flz-theme-toggle
-            class="flz-menu-item"
-            title="Toggle light/dark mode"
+            class="flz-dropdown-trigger flz-chrome-icon-btn"
+            data-fui-pop-trigger
+            data-testid="namespace-picker"
+            aria-label="Namespace scope"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            phx-mounted={JS.ignore_attributes(["aria-expanded"])}
           >
-            <%!-- Sun in dark mode (switch to light), moon in light mode. --%>
-            <.icon name="hero-sun" class="w-4 h-4 flz-theme-sun" />
-            <.icon name="hero-moon" class="w-4 h-4 flz-theme-moon" /> Toggle theme
+            <.icon name="hero-rectangle-stack" class="w-4 h-4" />
+            <span class="flz-num">{scope || "no namespace"}</span>
+            <.icon name="hero-chevron-down-micro" class="shrink-0" />
           </button>
-          <hr class="flz-menu-sep" />
-          <.link
-            href={~p"/users/log-out"}
-            method="delete"
-            class="flz-menu-item"
-            data-testid="log-out"
+          <div
+            class="flz-dropdown flz-menu mt-1"
+            role="menu"
+            data-fui-pop-panel
+            hidden
+            phx-mounted={JS.ignore_attributes(["hidden", "style"])}
           >
-            <.icon name="hero-arrow-right-start-on-rectangle" class="w-4 h-4" /> Log out
-          </.link>
-        </.menu>
+            <p :if={namespaces == []} class="flz-menu-item">No namespace is reachable.</p>
+            <.link
+              :for={name <- namespaces}
+              navigate={scope_target(current_path, name)}
+              aria-current={name == scope && "true"}
+              data-testid={"namespace-picker-#{name}"}
+              data-fui-pop-item
+              class="flz-menu-item flz-num"
+            >
+              {name}
+            </.link>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <div
+          :if={assigns[:refresh_interval]}
+          data-testid="liveness"
+          class="flex items-center gap-2"
+        >
+          <span class="flz-topbar-muted" data-testid="liveness-state">
+            <span :if={assigns[:refresh_paused]}>Paused</span>
+            <span :if={!assigns[:refresh_paused]}>
+              Every {FlezhaUi.Format.duration(@refresh_interval)} · {FlezhaUi.Format.time_of_day(
+                assigns[:refresh_at]
+              )}
+            </span>
+          </span>
+          <button
+            type="button"
+            phx-click="refresh_toggle"
+            aria-pressed={to_string(assigns[:refresh_paused] || false)}
+            data-testid="liveness-toggle"
+            class="flz-chrome-icon-btn"
+            title={if assigns[:refresh_paused], do: "Resume refreshing", else: "Pause refreshing"}
+            aria-label={
+              if assigns[:refresh_paused], do: "Resume refreshing", else: "Pause refreshing"
+            }
+          >
+            <.icon :if={assigns[:refresh_paused]} name="hero-play" class="w-4 h-4" />
+            <.icon :if={!assigns[:refresh_paused]} name="hero-pause" class="w-4 h-4" />
+          </button>
+        </div>
+
+        <span
+          :if={authz.principal}
+          data-testid="authz-identity"
+          class="flz-num flz-topbar-muted flex items-center gap-1.5 text-xs"
+          title={"flezha principal #{authz.principal}"}
+        >
+          <.icon name="hero-key" class="w-3.5 h-3.5" />
+          {authz.principal}
+          <span :if={authz.namespace}>/{authz.namespace}</span>
+          <span :if={authz.role}>({authz.role})</span>
+        </span>
+
+        <button
+          type="button"
+          class="flz-chrome-icon-btn"
+          data-fui-help-open
+          aria-label="Help for this screen"
+          data-testid="help-btn"
+        >
+          <.icon name="hero-question-mark-circle" class="w-5 h-5" />
+        </button>
+
+        <div id="account-menu" class="relative" data-fui-pop>
+          <button
+            type="button"
+            class="flz-dropdown-trigger flz-chrome-icon-btn"
+            data-fui-pop-trigger
+            data-testid="account-menu"
+            aria-label="Account"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            phx-mounted={JS.ignore_attributes(["aria-expanded"])}
+          >
+            <.icon name="hero-user-circle" class="w-5 h-5" />
+            <.icon name="hero-chevron-down-micro" class="shrink-0" />
+          </button>
+          <div
+            class="flz-dropdown flz-menu mt-1 right-0"
+            role="menu"
+            data-fui-pop-panel
+            hidden
+            phx-mounted={JS.ignore_attributes(["hidden", "style"])}
+          >
+            <p class="flz-menu-item" data-testid="account-identity">
+              {assigns[:current_scope] && assigns[:current_scope].user &&
+                assigns[:current_scope].user.email}
+            </p>
+            <hr class="flz-menu-sep" />
+            <.link navigate={~p"/users/settings"} class="flz-menu-item" data-fui-pop-item>
+              <.icon name="hero-cog-6-tooth" class="w-4 h-4" /> Settings
+            </.link>
+            <button
+              type="button"
+              data-flz-theme-toggle
+              data-fui-pop-item
+              class="flz-menu-item"
+              title="Toggle light/dark mode"
+            >
+              <%!-- Sun in dark mode (switch to light), moon in light mode. --%>
+              <.icon name="hero-sun" class="w-4 h-4 flz-theme-sun" />
+              <.icon name="hero-moon" class="w-4 h-4 flz-theme-moon" /> Toggle theme
+            </button>
+            <hr class="flz-menu-sep" />
+            <.link
+              href={~p"/users/log-out"}
+              method="delete"
+              class="flz-menu-item"
+              data-fui-pop-item
+              data-testid="log-out"
+            >
+              <.icon name="hero-arrow-right-start-on-rectangle" class="w-4 h-4" /> Log out
+            </.link>
+          </div>
+        </div>
       </div>
     </header>
 
-    <main class="flz-canvas">
-      <.breadcrumb trail={assigns[:breadcrumbs] || []} />
-      <.flash_group flash={@flash} />
+    <main class="flz-canvas" data-testid="main">
       <.authz_banner status={authz} />
       <%= if assigns[:inner_block] do %>
         {render_slot(@inner_block)}
@@ -142,11 +247,27 @@ namespaces = assigns[:shell_namespaces] || [] %>
   </div>
 </div>
 
+<%!-- What `g` then a letter follows; each is in the rail too. --%>
+<div hidden>
+  <.link navigate={(scope && ~p"/namespaces/#{scope}") || ~p"/namespaces"} data-shortcut="h">
+    Home
+  </.link>
+  <.link navigate={(scope && ~p"/namespaces/#{scope}/relays") || ~p"/relays"} data-shortcut="r">
+    Relays
+  </.link>
+  <.link navigate={~p"/problems"} data-shortcut="p">Problems</.link>
+  <.link navigate={~p"/cluster"} data-shortcut="c">Cluster</.link>
+</div>
+
+<.flash_group flash={@flash} />
+<.help_overlay screen={FlezhaUiWeb.Layouts.screen(current_path)} />
+
 <.live_component
   :if={live?}
   module={FlezhaUiWeb.CommandPalette}
   id={FlezhaUiWeb.CommandPalette.id()}
   namespaces={namespaces}
   scope={scope}
-  token={FlezhaUi.Accounts.Scope.flezha_token(assigns[:current_scope])}
+  token={token}
+  operations={assigns[:operations]}
 />

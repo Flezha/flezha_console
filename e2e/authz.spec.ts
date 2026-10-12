@@ -24,7 +24,7 @@ test.describe('Authorization posture', () => {
   test('the controller screen states that authorization is enforced', async ({ page, live }) => {
     await live('/controller');
 
-    await expect(page.getByTestId('authz-posture')).toContainText('enforced');
+    await expect(page.getByTestId('authz-posture')).toContainText('Enforced');
     // The "authorization is disabled" call-out belongs to an open controller.
     await expect(page.getByTestId('authz-open')).toHaveCount(0);
   });
@@ -49,7 +49,7 @@ test.describe('The flezha token in settings', () => {
     await openSettings(page);
 
     const binding = page.getByTestId('flezha-token-binding');
-    await expect(binding).toContainText('using the service token');
+    await expect(binding).toContainText('the service token is used');
     await expect(binding).toContainText('Principal');
     await expect(binding).toContainText('_system');
   });

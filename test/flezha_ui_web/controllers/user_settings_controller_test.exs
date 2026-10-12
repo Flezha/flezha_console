@@ -11,6 +11,10 @@ defmodule FlezhaUiWeb.UserSettingsControllerTest do
       conn = get(conn, ~p"/users/settings")
       response = html_response(conn, 200)
       assert response =~ "Settings"
+      assert response =~ ~s(data-testid="email-settings")
+      assert response =~ ~s(data-testid="password-settings")
+      # The shell's content canvas, inside the rail and topbar.
+      assert response =~ ~s(<main class="flz-canvas" data-testid="main">)
     end
 
     test "redirects if user is not logged in" do
@@ -164,7 +168,7 @@ defmodule FlezhaUiWeb.UserSettingsControllerTest do
       response = conn |> get(~p"/users/settings") |> html_response(200)
 
       assert response =~ "Flezha token"
-      assert response =~ "using the service token"
+      assert response =~ "the service token is used"
     end
 
     test "storing a token round-trips without echoing it", %{conn: conn, user: user} do

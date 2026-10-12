@@ -13,57 +13,18 @@ module.exports = {
   ],
   theme: {
     extend: {
-      // Every alias resolves to a flezha_stylebook token, so the utility
-      // classes already spread across these templates inherit the brand
-      // palette without being rewritten one by one. `th-brand` is the brand
-      // ink, `--text-brand`; `brand` is the fill, never a text colour.
-      // `font-mono` / `font-sans` land on the self-hosted faces, so the
-      // hundred-odd existing utility usages pick up JetBrains Mono and Inter
-      // without being rewritten.
+      // Utilities carry layout and spacing only; colour, borders and type
+      // come from the console's kit. `font-mono` / `font-sans` land on the
+      // console's own faces for the few places a utility sets them.
       fontFamily: {
-        sans: "var(--font-body)",
-        mono: "var(--font-mono)",
-        display: "var(--font-display)",
-      },
-      colors: {
-        brand: "var(--brand-solid)",
-        surface: {
-          base: "var(--surface-base)",
-          DEFAULT: "var(--surface-raised)",
-          hover: "var(--surface-hover)",
-          input: "var(--surface-sunken)",
-        },
-        th: {
-          primary: "var(--text-primary)",
-          secondary: "var(--text-secondary)",
-          muted: "var(--text-muted)",
-          brand: "var(--text-brand)",
-        },
-        brd: {
-          DEFAULT: "var(--border-default)",
-          subtle: "var(--border-subtle)",
-          input: "var(--border-default)",
-          focus: "var(--brand-solid)",
-        },
-        success: "var(--positive)",
-        danger: {
-          DEFAULT: "var(--negative)",
-          text: "var(--negative)",
-        },
-        warning: "var(--warning)",
-      },
-      // Radius stays literal, per the stylebook: 6px controls, 8px cards,
-      // 12px large surfaces. Tailwind's own md/lg/xl already are those.
-      boxShadow: {
-        sm: "var(--shadow-sm)",
-        DEFAULT: "var(--shadow-md)",
-        md: "var(--shadow-md)",
-        lg: "var(--shadow-lg)",
+        sans: "var(--fui-font-sans)",
+        mono: "var(--fui-font-mono)",
+        display: "var(--fui-font-display)",
       },
     },
   },
   plugins: [
-    // No @tailwindcss/forms: the stylebook's base.css is the form baseline,
+    // No @tailwindcss/forms: the console's base.css is the form baseline,
     // and the plugin's `[type='text']` selectors would outrank its
     // zero-specificity `:where()` rules and re-declare the same properties.
     // Allows prefixing tailwind classes with LiveView classes to add rules

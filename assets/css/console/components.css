@@ -1,0 +1,1969 @@
+/*
+ * The console's component kit. One recipe per element, each drawn by exactly
+ * one function component in `FlezhaUiWeb.CoreComponents`; a screen composes
+ * them and adds layout utilities, never a colour, a border or a radius of
+ * its own. Every element is listed on the dev-only `/dev/kit` page.
+ *
+ * Raised surfaces (raised fill and an elevation) are kept for what floats:
+ * live canvases, drawers, dialogs, popovers and toasts. Everything else sits
+ * on the canvas, separated by space and hairlines.
+ */
+
+/* ======================================================================
+   Brand on the canvas, counts and strips
+   (the shell itself — rail and topbar — is the stylebook's)
+   ====================================================================== */
+
+.fui-brand {
+  align-items: center;
+  color: var(--fui-ink-1);
+  display: inline-flex;
+  flex: none;
+}
+
+.fui-brand:hover {
+  text-decoration: none;
+}
+
+.fui-brand--canvas {
+  color: var(--fui-brand);
+}
+
+.fui-logo {
+  background-color: currentColor;
+  display: block;
+  height: 2.75rem;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+}
+
+.fui-count {
+  align-items: center;
+  border-radius: var(--fui-radius-round);
+  display: inline-flex;
+  font-family: var(--fui-font-mono);
+  font-size: var(--fui-text-xs);
+  font-weight: 500;
+  height: 1.25rem;
+  justify-content: center;
+  min-width: 1.25rem;
+  padding: 0 var(--fui-space-1);
+}
+
+.fui-count--warning {
+  background: var(--fui-warning);
+  color: var(--fui-on-warning);
+}
+
+.fui-count--negative {
+  background: var(--fui-negative);
+  color: var(--fui-on-negative);
+}
+
+.fui-count--neutral {
+  background: var(--fui-hover);
+  color: var(--fui-ink-2);
+}
+
+/* A namespace's health, as one strip of segments sized by count. */
+.fui-strip {
+  background: var(--fui-hover);
+  border-radius: var(--fui-radius-round);
+  display: flex;
+  gap: 1px;
+  grid-column: 1 / -1;
+  height: 4px;
+  overflow: hidden;
+}
+
+.fui-strip-part {
+  min-width: 4px;
+}
+
+.fui-strip-part[data-tone="positive"] { background: var(--fui-positive); }
+.fui-strip-part[data-tone="warning"] { background: var(--fui-warning); }
+.fui-strip-part[data-tone="negative"] { background: var(--fui-negative); }
+.fui-strip-part[data-tone="neutral"] { background: var(--fui-ink-3); }
+
+/* ======================================================================
+   Page grammar: a header of kind, name, sentence, actions and tabs
+   ====================================================================== */
+
+.fui-page-header {
+  display: grid;
+  gap: var(--fui-space-2) var(--fui-space-6);
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: var(--fui-space-7);
+}
+
+.fui-crumbs {
+  align-items: center;
+  color: var(--fui-ink-3);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--fui-text-sm);
+  gap: var(--fui-space-2);
+  grid-column: 1 / -1;
+}
+
+.fui-crumbs a {
+  color: var(--fui-ink-2);
+}
+
+.fui-crumbs a:hover {
+  color: var(--fui-accent);
+}
+
+.fui-crumbs [aria-current] {
+  color: var(--fui-ink-1);
+}
+
+.fui-crumb-sep {
+  color: var(--fui-line-strong);
+}
+
+.fui-eyebrow {
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fui-title {
+  color: var(--fui-ink-1);
+  font-family: var(--fui-font-display);
+  font-size: var(--fui-text-3xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: var(--fui-leading-tight);
+  overflow-wrap: anywhere;
+}
+
+.fui-sentence {
+  color: var(--fui-ink-2);
+  font-size: var(--fui-text-lg);
+  max-width: 72ch;
+}
+
+.fui-sentence--headline {
+  color: var(--fui-ink-1);
+  font-family: var(--fui-font-display);
+  font-size: var(--fui-text-2xl);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: var(--fui-leading-tight);
+}
+
+.fui-figures {
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-md);
+}
+
+.fui-page-actions {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fui-space-2);
+  justify-content: flex-end;
+}
+
+.fui-page-header .fui-tabs {
+  grid-column: 1 / -1;
+  margin-top: var(--fui-space-3);
+}
+
+@media (width <= 599px) {
+  .fui-page-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fui-page-actions {
+    justify-content: flex-start;
+  }
+
+  .fui-title {
+    font-size: var(--fui-text-2xl);
+  }
+}
+
+.fui-tabs {
+  border-bottom: 1px solid var(--fui-line);
+  display: flex;
+  gap: var(--fui-space-1);
+  overflow-x: auto;
+}
+
+.fui-tab {
+  border-bottom: 2px solid transparent;
+  color: var(--fui-ink-2);
+  font-weight: 500;
+  margin-bottom: -1px;
+  padding: var(--fui-space-2) var(--fui-space-3);
+  white-space: nowrap;
+}
+
+.fui-tab:hover {
+  color: var(--fui-accent);
+  text-decoration: none;
+}
+
+.fui-tab[aria-current] {
+  border-bottom-color: var(--fui-accent);
+  color: var(--fui-accent);
+}
+
+/* Sections: separated by space and a hairline, not drawn as cards. */
+.fui-section {
+  border-top: 1px solid var(--fui-line);
+  margin-top: var(--fui-space-8);
+  padding-top: var(--fui-space-5);
+}
+
+.fui-section--flush {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.fui-section-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fui-space-2) var(--fui-space-4);
+  justify-content: space-between;
+  min-height: var(--fui-control-h);
+}
+
+.fui-section-title {
+  align-items: baseline;
+  color: var(--fui-ink-1);
+  display: inline-flex;
+  flex-wrap: wrap;
+  font-size: var(--fui-text-lg);
+  font-weight: 600;
+  gap: var(--fui-space-2) var(--fui-space-3);
+}
+
+.fui-section-digest {
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-sm);
+  font-weight: 400;
+}
+
+.fui-section-toggle {
+  align-items: center;
+  border-radius: var(--fui-radius-control);
+  display: inline-flex;
+  gap: var(--fui-space-2);
+  margin-left: calc(-1 * var(--fui-space-1));
+  padding: 0 var(--fui-space-1);
+  text-align: left;
+}
+
+.fui-section-toggle:hover .fui-section-title {
+  color: var(--fui-accent);
+}
+
+.fui-chevron {
+  color: var(--fui-ink-3);
+  transition: transform var(--fui-base) var(--fui-ease);
+}
+
+[aria-expanded="true"] > .fui-chevron {
+  transform: rotate(90deg);
+}
+
+.fui-section-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fui-space-2);
+}
+
+.fui-section-body {
+  margin-top: var(--fui-space-4);
+}
+
+/* ======================================================================
+   Controls
+   ====================================================================== */
+
+.fui-btn {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--fui-radius-control);
+  cursor: pointer;
+  display: inline-flex;
+  flex: none;
+  font-size: var(--fui-text-md);
+  font-weight: 500;
+  gap: var(--fui-space-2);
+  height: var(--fui-control-h);
+  justify-content: center;
+  padding: 0 var(--fui-space-3);
+  transition:
+    background-color var(--fui-fast) var(--fui-ease),
+    border-color var(--fui-fast) var(--fui-ease),
+    color var(--fui-fast) var(--fui-ease);
+  white-space: nowrap;
+}
+
+.fui-btn:hover {
+  text-decoration: none;
+}
+
+.fui-btn--sm {
+  font-size: var(--fui-text-sm);
+  gap: var(--fui-space-1);
+  height: var(--fui-control-h-sm);
+  padding: 0 var(--fui-space-2);
+}
+
+.fui-btn--primary {
+  background: var(--fui-accent);
+  color: var(--fui-on-accent);
+}
+
+.fui-btn--primary:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--fui-accent) 88%, var(--fui-ink-1));
+}
+
+.fui-btn--secondary {
+  background: var(--fui-surface);
+  border-color: var(--fui-line-strong);
+  color: var(--fui-ink-1);
+}
+
+.fui-btn--secondary:hover:not(:disabled) {
+  background: var(--fui-hover);
+  border-color: var(--fui-ink-3);
+}
+
+.fui-btn--ghost {
+  background: transparent;
+  color: var(--fui-ink-2);
+}
+
+/* An icon-only control: a row's menu, a close, a dismiss. Its hit area is a
+   full control's height, whatever the icon's size. */
+.fui-iconbtn {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--fui-radius-control);
+  color: var(--fui-ink-2);
+  cursor: pointer;
+  display: inline-flex;
+  height: 2rem;
+  justify-content: center;
+  min-width: 2rem;
+  padding: 0 var(--fui-space-1);
+}
+
+.fui-iconbtn:hover {
+  background: var(--fui-hover);
+  color: var(--fui-ink-1);
+}
+
+.fui-btn--ghost:hover:not(:disabled) {
+  background: var(--fui-hover);
+  color: var(--fui-ink-1);
+}
+
+.fui-btn--danger {
+  background: var(--fui-negative);
+  color: var(--fui-on-negative);
+}
+
+.fui-btn--danger:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--fui-negative) 88%, var(--fui-ink-1));
+}
+
+.fui-btn[aria-pressed="true"] {
+  background: var(--fui-accent-subtle);
+  border-color: var(--fui-accent);
+  color: var(--fui-accent);
+}
+
+.fui-btn:disabled,
+.fui-btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.phx-submit-loading .fui-btn[type="submit"] {
+  opacity: 0.75;
+}
+
+.fui-spin {
+  animation: fui-spin 0.9s linear infinite;
+}
+
+@keyframes fui-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---- Fields ---- */
+.fui-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fui-space-1);
+}
+
+.fui-label {
+  color: var(--fui-ink-2);
+  font-size: var(--fui-text-sm);
+  font-weight: 500;
+}
+
+.fui-hint {
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-xs);
+}
+
+.fui-error {
+  align-items: center;
+  color: var(--fui-negative);
+  display: flex;
+  font-size: var(--fui-text-xs);
+  gap: var(--fui-space-1);
+}
+
+.fui-input--mono {
+  font-family: var(--fui-font-mono);
+}
+
+.fui-input--compact {
+  font-size: var(--fui-text-sm);
+  min-height: var(--fui-control-h-sm);
+}
+
+.fui-check {
+  align-items: center;
+  color: var(--fui-ink-1);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: var(--fui-text-md);
+  gap: var(--fui-space-2);
+}
+
+/* A switch is a button with `role="switch"`; its state is `aria-checked`. */
+.fui-switch {
+  align-items: center;
+  cursor: pointer;
+  display: inline-flex;
+  gap: var(--fui-space-2);
+}
+
+.fui-switch-track {
+  background: var(--fui-line-strong);
+  border-radius: var(--fui-radius-round);
+  display: inline-block;
+  flex: none;
+  height: 1.125rem;
+  position: relative;
+  transition: background-color var(--fui-fast) var(--fui-ease);
+  width: 2rem;
+}
+
+.fui-switch-track::after {
+  background: var(--fui-surface);
+  border-radius: var(--fui-radius-round);
+  box-shadow: 0 1px 2px var(--fui-shadow);
+  content: "";
+  height: 0.875rem;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  transition: transform var(--fui-fast) var(--fui-ease);
+  width: 0.875rem;
+}
+
+.fui-switch[aria-checked="true"] .fui-switch-track {
+  background: var(--fui-accent);
+}
+
+.fui-switch[aria-checked="true"] .fui-switch-track::after {
+  transform: translateX(0.875rem);
+}
+
+.fui-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.fui-switch-label {
+  color: var(--fui-ink-1);
+  font-size: var(--fui-text-sm);
+}
+
+/* ---- Segmented control ---- */
+.fui-segmented {
+  background: var(--fui-canvas);
+  border: 1px solid var(--fui-line);
+  border-radius: var(--fui-radius-control);
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+}
+
+.fui-segment {
+  align-items: center;
+  border-radius: calc(var(--fui-radius-control) - 2px);
+  color: var(--fui-ink-2);
+  display: inline-flex;
+  font-size: var(--fui-text-sm);
+  font-weight: 500;
+  gap: var(--fui-space-1);
+  height: var(--fui-control-h-sm);
+  padding: 0 var(--fui-space-3);
+}
+
+.fui-segment:hover {
+  color: var(--fui-accent);
+  text-decoration: none;
+}
+
+.fui-segment[aria-pressed="true"],
+.fui-segment[aria-current] {
+  background: var(--fui-surface);
+  box-shadow: 0 1px 2px var(--fui-shadow);
+  color: var(--fui-ink-1);
+}
+
+/* ---- Popover, menu and combobox ---- */
+.fui-pop {
+  display: inline-block;
+  position: relative;
+}
+
+.fui-popover {
+  background: var(--fui-raised);
+  border: 1px solid var(--fui-line);
+  border-radius: var(--fui-radius-surface);
+  box-shadow: 0 12px 32px var(--fui-shadow);
+  margin-top: var(--fui-space-1);
+  max-height: min(28rem, 70vh);
+  min-width: 12rem;
+  overflow: auto;
+  padding: var(--fui-space-1);
+  position: absolute;
+  top: 100%;
+  z-index: var(--fui-z-popover);
+}
+
+.fui-popover--end {
+  right: 0;
+}
+
+.fui-popover--start {
+  left: 0;
+}
+
+.fui-menu-item {
+  align-items: center;
+  border-radius: var(--fui-radius-control);
+  color: var(--fui-ink-1);
+  display: flex;
+  font-size: var(--fui-text-md);
+  gap: var(--fui-space-2);
+  padding: var(--fui-space-2) var(--fui-space-3);
+  text-align: left;
+  white-space: nowrap;
+  width: 100%;
+}
+
+a.fui-menu-item:hover,
+button.fui-menu-item:hover,
+.fui-menu-item:focus-visible {
+  background: var(--fui-accent-subtle);
+  color: var(--fui-ink-1);
+  text-decoration: none;
+}
+
+.fui-menu-item--danger,
+a.fui-menu-item--danger:hover,
+button.fui-menu-item--danger:hover {
+  color: var(--fui-negative);
+}
+
+button.fui-menu-item--danger:hover {
+  background: var(--fui-negative-subtle);
+}
+
+.fui-menu-note {
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-xs);
+  padding: var(--fui-space-2) var(--fui-space-3);
+}
+
+.fui-menu-sep {
+  border: 0;
+  border-top: 1px solid var(--fui-line);
+  margin: var(--fui-space-1) 0;
+}
+
+.fui-combobox {
+  display: block;
+  position: relative;
+}
+
+.fui-combobox-trigger {
+  align-items: center;
+  background: var(--fui-surface);
+  border: 1px solid var(--fui-line-strong);
+  border-radius: var(--fui-radius-control);
+  color: var(--fui-ink-1);
+  display: flex;
+  font-size: var(--fui-text-md);
+  gap: var(--fui-space-2);
+  min-height: var(--fui-control-h);
+  padding: 0 var(--fui-space-2) 0 var(--fui-space-3);
+  width: 100%;
+}
+
+.fui-combobox-trigger:hover {
+  border-color: var(--fui-ink-3);
+}
+
+.fui-combobox-trigger:disabled {
+  background: var(--fui-canvas);
+  color: var(--fui-ink-3);
+  cursor: not-allowed;
+}
+
+.fui-combobox .fui-popover {
+  left: 0;
+  min-width: 100%;
+}
+
+.fui-combobox-search {
+  margin-bottom: var(--fui-space-1);
+}
+
+.fui-option {
+  align-items: center;
+  border-radius: var(--fui-radius-control);
+  color: var(--fui-ink-1);
+  display: flex;
+  font-size: var(--fui-text-md);
+  gap: var(--fui-space-2);
+  padding: var(--fui-space-2) var(--fui-space-3);
+  text-align: left;
+  width: 100%;
+}
+
+.fui-option:hover,
+.fui-option:focus-visible {
+  background: var(--fui-accent-subtle);
+}
+
+.fui-option-check {
+  color: var(--fui-accent);
+  visibility: hidden;
+}
+
+.fui-option[aria-checked="true"] .fui-option-check {
+  visibility: visible;
+}
+
+.fui-option[aria-checked="true"] {
+  font-weight: 600;
+}
+
+/* ---- Chip ---- */
+.fui-chip {
+  align-items: center;
+  background: var(--fui-surface);
+  border: 1px solid var(--fui-line);
+  border-radius: var(--fui-radius-round);
+  color: var(--fui-ink-2);
+  display: inline-flex;
+  font-size: var(--fui-text-xs);
+  gap: var(--fui-space-1);
+  height: 1.375rem;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 var(--fui-space-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fui-chip--mono {
+  font-family: var(--fui-font-mono);
+}
+
+/* "Live": a solid signal tag on a live canvas. */
+.fui-live {
+  align-items: center;
+  background: var(--fui-signal);
+  border-radius: var(--fui-radius-round);
+  color: var(--fui-on-signal);
+  display: inline-flex;
+  font-size: var(--fui-text-xs);
+  font-weight: 600;
+  gap: var(--fui-space-1);
+  letter-spacing: 0.06em;
+  padding: 0 var(--fui-space-2);
+  text-transform: uppercase;
+}
+
+/* ---- State badge: words, a tone, and a shape per value ---- */
+.fui-badge {
+  align-items: center;
+  background: var(--fui-hover);
+  border-radius: var(--fui-radius-round);
+  color: var(--fui-ink-2);
+  display: inline-flex;
+  flex: none;
+  font-size: var(--fui-text-xs);
+  font-weight: 500;
+  gap: var(--fui-space-1);
+  height: 1.375rem;
+  padding: 0 var(--fui-space-2);
+  white-space: nowrap;
+}
+
+.fui-badge--positive {
+  background: var(--fui-positive-subtle);
+  color: var(--fui-positive);
+}
+
+.fui-badge--warning {
+  background: var(--fui-warning-subtle);
+  color: var(--fui-warning);
+}
+
+.fui-badge--negative {
+  background: var(--fui-negative-subtle);
+  color: var(--fui-negative);
+}
+
+.fui-badge-count {
+  font-family: var(--fui-font-mono);
+  font-weight: 600;
+}
+
+/* A shape per value, so state is never colour alone. */
+.fui-shape {
+  background: currentColor;
+  display: inline-block;
+  flex: none;
+  height: 0.5rem;
+  width: 0.5rem;
+}
+
+.fui-shape[data-shape="dot"] { border-radius: 50%; }
+.fui-shape[data-shape="ring"] { background: transparent; border: 1.5px solid currentColor; border-radius: 50%; }
+.fui-shape[data-shape="triangle"] { clip-path: polygon(50% 0, 100% 100%, 0 100%); height: 0.5625rem; width: 0.625rem; }
+.fui-shape[data-shape="diamond"] { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); height: 0.625rem; width: 0.625rem; }
+.fui-shape[data-shape="square"] { border-radius: 1px; }
+.fui-shape[data-shape="cross"] { clip-path: polygon(20% 0, 50% 30%, 80% 0, 100% 20%, 70% 50%, 100% 80%, 80% 100%, 50% 70%, 20% 100%, 0 80%, 30% 50%, 0 20%); height: 0.5625rem; width: 0.5625rem; }
+.fui-shape[data-shape="bars"] { background: linear-gradient(90deg, currentColor 0 35%, transparent 35% 65%, currentColor 65% 100%); }
+.fui-shape[data-shape="half"] { background: linear-gradient(90deg, currentColor 0 50%, transparent 50% 100%); border: 1.5px solid currentColor; border-radius: 50%; }
+
+/* Ink levels for running text, and mono figures. */
+.fui-strong { color: var(--fui-ink-1); }
+.fui-quiet { color: var(--fui-ink-2); }
+.fui-muted { color: var(--fui-ink-3); }
+
+.fui-num {
+  font-family: var(--fui-font-mono);
+}
+
+/* Tone as ink, for a word in a sentence rather than a badge. */
+.fui-tone-positive { color: var(--fui-positive); }
+.fui-tone-warning { color: var(--fui-warning); }
+.fui-tone-negative { color: var(--fui-negative); }
+.fui-tone-neutral { color: var(--fui-ink-2); }
+
+/* ======================================================================
+   Data display
+   ====================================================================== */
+
+.fui-grid-wrap {
+  overflow-x: auto;
+  position: relative;
+  width: 100%;
+}
+
+.fui-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--fui-text-sm);
+  width: 100%;
+}
+
+.fui-grid th {
+  background: var(--fui-canvas);
+  border-bottom: 1px solid var(--fui-line-strong);
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-xs);
+  font-weight: 500;
+  padding: var(--fui-space-2) var(--fui-space-3);
+  position: sticky;
+  text-align: left;
+  top: 0;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.fui-grid td {
+  border-bottom: 1px solid var(--fui-line);
+  color: var(--fui-ink-1);
+  padding: var(--fui-space-2) var(--fui-space-3);
+  vertical-align: middle;
+}
+
+.fui-grid tbody tr:hover td {
+  background: var(--fui-hover);
+}
+
+.fui-grid tbody tr[aria-selected="true"] td {
+  background: var(--fui-accent-subtle);
+}
+
+.fui-grid tr[data-activate] {
+  cursor: pointer;
+}
+
+/* The health edge bar: a row's tone on its leading edge. */
+.fui-grid tr[data-tone] td:first-child {
+  box-shadow: inset 3px 0 0 var(--fui-line-strong);
+}
+
+.fui-grid tr[data-tone="positive"] td:first-child { box-shadow: inset 3px 0 0 var(--fui-positive); }
+.fui-grid tr[data-tone="warning"] td:first-child { box-shadow: inset 3px 0 0 var(--fui-warning); }
+.fui-grid tr[data-tone="negative"] td:first-child { box-shadow: inset 3px 0 0 var(--fui-negative); }
+
+.fui-grid .fui-cell-num {
+  font-family: var(--fui-font-mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.fui-grid th.fui-cell-num {
+  font-family: inherit;
+}
+
+.fui-grid .fui-cell-menu {
+  text-align: right;
+  width: 1%;
+}
+
+.fui-grid-foot {
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-xs);
+  padding: var(--fui-space-2) var(--fui-space-3);
+}
+
+/* Facts: a definition list of labelled figures. */
+.fui-facts {
+  display: grid;
+  gap: var(--fui-space-4) var(--fui-space-6);
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+}
+
+.fui-fact dt {
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.fui-fact dd {
+  color: var(--fui-ink-1);
+  font-size: var(--fui-text-md);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.fui-figure {
+  color: var(--fui-ink-1);
+  font-family: var(--fui-font-display);
+  font-size: var(--fui-text-2xl);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* A figure that just changed, marked for a moment by the client. */
+[data-changed] {
+  animation: fui-changed 1.6s var(--fui-ease) 1;
+  border-radius: 3px;
+}
+
+@keyframes fui-changed {
+  0% { background: var(--fui-signal-subtle); box-shadow: 0 0 0 2px var(--fui-signal-subtle); }
+  100% { background: transparent; box-shadow: 0 0 0 2px transparent; }
+}
+
+.fui-spark {
+  display: inline-block;
+  flex: none;
+  overflow: visible;
+  vertical-align: middle;
+}
+
+.fui-spark polyline {
+  fill: none;
+  stroke: var(--fui-signal);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.fui-rate {
+  color: var(--fui-signal);
+  font-family: var(--fui-font-mono);
+  font-size: var(--fui-text-sm);
+  white-space: nowrap;
+}
+
+.fui-meter {
+  background: var(--fui-hover);
+  border-radius: var(--fui-radius-round);
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.fui-meter-fill {
+  background: var(--fui-accent);
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+}
+
+.fui-meter[data-tone="warning"] .fui-meter-fill { background: var(--fui-warning); }
+.fui-meter[data-tone="negative"] .fui-meter-fill { background: var(--fui-negative); }
+
+.fui-code {
+  background: var(--fui-canvas);
+  border: 1px solid var(--fui-line);
+  border-radius: var(--fui-radius-control);
+  color: var(--fui-ink-1);
+  font-family: var(--fui-font-mono);
+  font-size: var(--fui-text-sm);
+  max-height: 28rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: var(--fui-space-3);
+  white-space: pre-wrap;
+}
+
+.fui-kbd {
+  background: var(--fui-surface);
+  border: 1px solid var(--fui-line-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  color: var(--fui-ink-2);
+  display: inline-block;
+  font-family: var(--fui-font-mono);
+  font-size: var(--fui-text-xs);
+  line-height: 1.4;
+  min-width: 1.25rem;
+  padding: 0 var(--fui-space-1);
+  text-align: center;
+}
+
+/* An identifier: shortened past 16 characters, copied whole on activation. */
+.fui-ident {
+  color: var(--fui-ink-1);
+  font-family: var(--fui-font-mono);
+  font-size: 0.95em;
+  overflow-wrap: anywhere;
+}
+
+button.fui-ident {
+  border-bottom: 1px dotted var(--fui-ink-3);
+  cursor: copy;
+}
+
+button.fui-ident:hover {
+  color: var(--fui-accent);
+}
+
+button.fui-ident[data-copied]::after {
+  color: var(--fui-positive);
+  content: " copied";
+  font-family: var(--fui-font-sans);
+  font-size: var(--fui-text-xs);
+}
+
+/* A flezha term, explained in place on hover and focus. */
+.fui-term {
+  border-bottom: 1px dotted var(--fui-ink-3);
+  cursor: help;
+}
+
+.fui-tip-host {
+  display: inline;
+  position: relative;
+}
+
+.fui-tooltip {
+  background: var(--fui-raised);
+  border: 1px solid var(--fui-line);
+  border-radius: var(--fui-radius-control);
+  bottom: calc(100% + var(--fui-space-2));
+  box-shadow: 0 12px 32px var(--fui-shadow);
+  color: var(--fui-ink-1);
+  font-family: var(--fui-font-sans);
+  font-size: var(--fui-text-sm);
+  font-weight: 400;
+  left: 0;
+  letter-spacing: 0;
+  line-height: var(--fui-leading-normal);
+  /* Out of the layout until shown, so a term near the edge cannot widen the
+     page. */
+  display: none;
+  padding: var(--fui-space-2) var(--fui-space-3);
+  pointer-events: none;
+  position: absolute;
+  text-transform: none;
+  white-space: normal;
+  width: max-content;
+  max-width: min(20rem, 80vw);
+  z-index: var(--fui-z-popover);
+}
+
+.fui-tip-host:hover > .fui-tooltip,
+.fui-tip-host:focus-within > .fui-tooltip {
+  display: block;
+}
+
+.fui-tooltip-term {
+  color: var(--fui-ink-1);
+  display: block;
+  font-weight: 600;
+}
+
+/* ======================================================================
+   Statements: notes, empty states, skeletons
+   ====================================================================== */
+
+.fui-note {
+  align-items: flex-start;
+  background: var(--fui-surface);
+  border: 1px solid var(--fui-line);
+  border-left: 3px solid var(--fui-accent);
+  border-radius: var(--fui-radius-control);
+  color: var(--fui-ink-1);
+  display: flex;
+  font-size: var(--fui-text-sm);
+  gap: var(--fui-space-3);
+  padding: var(--fui-space-3) var(--fui-space-4);
+}
+
+.fui-note--error {
+  background: var(--fui-negative-subtle);
+  border-color: var(--fui-negative);
+}
+
+.fui-note-icon {
+  color: var(--fui-accent);
+  flex: none;
+  margin-top: 1px;
+}
+
+.fui-note--error .fui-note-icon {
+  color: var(--fui-negative);
+}
+
+.fui-note a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.fui-empty {
+  border: 1px dashed var(--fui-line-strong);
+  border-radius: var(--fui-radius-surface);
+  display: grid;
+  gap: var(--fui-space-2);
+  justify-items: start;
+  padding: var(--fui-space-6);
+}
+
+.fui-empty-icon {
+  color: var(--fui-ink-3);
+}
+
+.fui-empty-text {
+  color: var(--fui-ink-2);
+  font-size: var(--fui-text-md);
+  max-width: 64ch;
+}
+
+.fui-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fui-space-2);
+  margin-top: var(--fui-space-2);
+}
+
+.fui-skeleton {
+  animation: fui-shimmer 1.4s ease-in-out infinite;
+  background: var(--fui-hover);
+  border-radius: var(--fui-radius-control);
+  display: block;
+  height: 0.875rem;
+}
+
+.fui-skeleton-rows {
+  display: grid;
+  gap: var(--fui-space-3);
+}
+
+@keyframes fui-shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* ======================================================================
+   Overlays: drawer, dialog, toast
+   ====================================================================== */
+
+.fui-scrim {
+  background: var(--fui-scrim);
+  inset: 0;
+  position: fixed;
+}
+
+.fui-drawer {
+  inset: 0;
+  position: fixed;
+  z-index: var(--fui-z-drawer);
+}
+
+.fui-drawer .fui-scrim {
+  background: transparent;
+}
+
+.fui-drawer-panel {
+  animation: fui-slide-in var(--fui-slow) var(--fui-ease) 1;
+  background: var(--fui-raised);
+  border-left: 1px solid var(--fui-line);
+  bottom: 0;
+  box-shadow: 0 12px 32px var(--fui-shadow);
+  display: flex;
+  flex-direction: column;
+  max-width: 100vw;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: var(--fui-drawer-w);
+}
+
+.fui-drawer-head {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--fui-line);
+  display: flex;
+  gap: var(--fui-space-3);
+  justify-content: space-between;
+  padding: var(--fui-space-4) var(--fui-space-5);
+}
+
+.fui-drawer-title {
+  font-family: var(--fui-font-display);
+  font-size: var(--fui-text-xl);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.fui-drawer-body {
+  display: grid;
+  flex: 1;
+  gap: var(--fui-space-5);
+  align-content: start;
+  overflow-y: auto;
+  padding: var(--fui-space-5);
+}
+
+@keyframes fui-slide-in {
+  from { opacity: 0; transform: translateX(var(--fui-space-7)); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@media (width <= 599px) {
+  .fui-drawer .fui-scrim {
+    background: var(--fui-scrim);
+  }
+
+  .fui-drawer-panel {
+    border-left: 0;
+    width: 100vw;
+  }
+}
+
+.fui-dialog {
+  display: grid;
+  inset: 0;
+  overflow-y: auto;
+  padding: var(--fui-space-9) var(--fui-space-4);
+  place-items: start center;
+  position: fixed;
+  z-index: var(--fui-z-dialog);
+}
+
+.fui-dialog-panel {
+  animation: fui-rise var(--fui-base) var(--fui-ease) 1;
+  background: var(--fui-raised);
+  border: 1px solid var(--fui-line);
+  border-radius: var(--fui-radius-surface);
+  box-shadow: 0 12px 32px var(--fui-shadow);
+  position: relative;
+  width: 100%;
+}
+
+.fui-dialog-panel--confirm { max-width: 28rem; }
+.fui-dialog-panel--form { max-width: 38rem; }
+.fui-dialog-panel--wide { max-width: 52rem; }
+
+.fui-dialog-head {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--fui-space-3);
+  justify-content: space-between;
+  padding: var(--fui-space-5) var(--fui-space-5) 0;
+}
+
+.fui-dialog-title {
+  font-family: var(--fui-font-display);
+  font-size: var(--fui-text-xl);
+  font-weight: 600;
+}
+
+.fui-dialog-body {
+  color: var(--fui-ink-1);
+  display: grid;
+  gap: var(--fui-space-4);
+  padding: var(--fui-space-5);
+}
+
+.fui-dialog-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fui-space-2);
+  justify-content: flex-end;
+  padding: 0 var(--fui-space-5) var(--fui-space-5);
+}
+
+@keyframes fui-rise {
+  from { opacity: 0; transform: translateY(var(--fui-space-2)); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fui-toasts {
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fui-space-2);
+  max-width: min(26rem, 100vw);
+  padding: var(--fui-space-4);
+  pointer-events: none;
+  position: fixed;
+  right: 0;
+  z-index: var(--fui-z-toast);
+}
+
+.fui-toast {
+  align-items: flex-start;
+  animation: fui-rise var(--fui-base) var(--fui-ease) 1;
+  background: var(--fui-raised);
+  border: 1px solid var(--fui-line);
+  border-left: 3px solid var(--fui-positive);
+  border-radius: var(--fui-radius-control);
+  box-shadow: 0 12px 32px var(--fui-shadow);
+  color: var(--fui-ink-1);
+  display: flex;
+  font-size: var(--fui-text-sm);
+  gap: var(--fui-space-3);
+  padding: var(--fui-space-3) var(--fui-space-3) var(--fui-space-3) var(--fui-space-4);
+  pointer-events: auto;
+}
+
+.fui-toast--error {
+  border-left-color: var(--fui-negative);
+}
+
+.fui-toast-icon {
+  color: var(--fui-positive);
+  flex: none;
+  margin-top: 1px;
+}
+
+.fui-toast--error .fui-toast-icon {
+  color: var(--fui-negative);
+}
+
+.fui-toast-title {
+  font-weight: 600;
+}
+
+/* The help overlay is a native dialog: the browser keeps its focus and
+   closes it on Escape. */
+/* In the top layer, so it is placed against the viewport rather than the page. */
+dialog.fui-dialog-panel {
+  color: var(--fui-ink-1);
+  inset: 0 0 auto;
+  margin: 10vh auto 0;
+  position: fixed;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 0;
+  width: calc(100% - 2 * var(--fui-space-4));
+}
+
+dialog.fui-dialog-panel::backdrop {
+  background: var(--fui-scrim);
+}
+
+/* ======================================================================
+   Flows: steps
+   ====================================================================== */
+
+.fui-steps {
+  counter-reset: fui-step;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fui-space-2) var(--fui-space-5);
+  list-style: none;
+}
+
+.fui-step {
+  align-items: center;
+  color: var(--fui-ink-3);
+  counter-increment: fui-step;
+  display: inline-flex;
+  font-size: var(--fui-text-sm);
+  font-weight: 500;
+  gap: var(--fui-space-2);
+}
+
+.fui-step::before {
+  align-items: center;
+  border: 1.5px solid currentColor;
+  border-radius: var(--fui-radius-round);
+  content: counter(fui-step);
+  display: inline-flex;
+  font-family: var(--fui-font-mono);
+  font-size: var(--fui-text-xs);
+  height: 1.375rem;
+  justify-content: center;
+  width: 1.375rem;
+}
+
+.fui-step[aria-current="step"] {
+  color: var(--fui-accent);
+}
+
+.fui-step[data-done] {
+  color: var(--fui-ink-2);
+}
+
+.fui-step[data-done]::before {
+  background: var(--fui-positive);
+  border-color: var(--fui-positive);
+  color: var(--fui-on-positive);
+  content: "✓";
+}
+
+.fui-steps-body {
+  display: grid;
+  gap: var(--fui-space-4);
+  margin-top: var(--fui-space-5);
+}
+
+.fui-steps-foot {
+  align-items: center;
+  border-top: 1px solid var(--fui-line);
+  display: flex;
+  gap: var(--fui-space-2);
+  justify-content: space-between;
+  margin-top: var(--fui-space-5);
+  padding-top: var(--fui-space-4);
+}
+
+/* A choice drawn as a card: a factory in the start flow. */
+.fui-choice {
+  align-items: start;
+  border: 1px solid var(--fui-line);
+  border-radius: var(--fui-radius-control);
+  color: var(--fui-ink-1);
+  display: grid;
+  gap: var(--fui-space-1);
+  padding: var(--fui-space-3) var(--fui-space-4);
+  text-align: left;
+  width: 100%;
+}
+
+.fui-choice:hover:not(:disabled) {
+  border-color: var(--fui-accent);
+}
+
+.fui-choice[aria-pressed="true"] {
+  background: var(--fui-accent-subtle);
+  border-color: var(--fui-accent);
+}
+
+.fui-choice:disabled {
+  background: var(--fui-canvas);
+  color: var(--fui-ink-3);
+  cursor: not-allowed;
+}
+
+.fui-choices {
+  display: grid;
+  gap: var(--fui-space-2);
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+/* ======================================================================
+   Problems and the event river
+   ====================================================================== */
+
+.fui-problems {
+  display: grid;
+  gap: var(--fui-space-3);
+}
+
+.fui-problem {
+  border: 1px solid var(--fui-line);
+  border-left: 3px solid var(--fui-warning);
+  border-radius: var(--fui-radius-control);
+  display: grid;
+  gap: var(--fui-space-1) var(--fui-space-4);
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: var(--fui-space-3) var(--fui-space-4);
+}
+
+.fui-problem--negative {
+  border-left-color: var(--fui-negative);
+}
+
+.fui-problem-what {
+  align-items: center;
+  color: var(--fui-ink-1);
+  display: flex;
+  flex-wrap: wrap;
+  font-weight: 600;
+  gap: var(--fui-space-2);
+}
+
+.fui-problem-why {
+  color: var(--fui-ink-2);
+  font-size: var(--fui-text-sm);
+  grid-column: 1;
+}
+
+.fui-problem-meta {
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-xs);
+  grid-column: 1;
+}
+
+.fui-problem-actions {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fui-space-2);
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  justify-content: flex-end;
+}
+
+.fui-problem-detail {
+  grid-column: 1 / -1;
+  margin-top: var(--fui-space-2);
+}
+
+@media (width <= 599px) {
+  .fui-problem {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fui-problem-actions {
+    grid-column: 1;
+    grid-row: auto;
+    justify-content: flex-start;
+  }
+}
+
+.fui-river {
+  display: grid;
+  gap: var(--fui-space-3);
+}
+
+.fui-river-track {
+  background: var(--fui-hover);
+  border-radius: var(--fui-radius-round);
+  height: 0.5rem;
+  position: relative;
+}
+
+.fui-river-mark {
+  background: var(--fui-signal);
+  border-radius: var(--fui-radius-round);
+  height: 0.5rem;
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: 3px;
+}
+
+.fui-river-mark[data-tone="warning"] { background: var(--fui-warning); }
+.fui-river-mark[data-tone="negative"] { background: var(--fui-negative); }
+.fui-river-mark[data-tone="positive"] { background: var(--fui-positive); }
+
+.fui-river-scale {
+  color: var(--fui-ink-3);
+  display: flex;
+  font-size: var(--fui-text-xs);
+  justify-content: space-between;
+}
+
+.fui-river-list {
+  display: grid;
+}
+
+.fui-river-event {
+  align-items: baseline;
+  border-bottom: 1px solid var(--fui-line);
+  display: grid;
+  font-size: var(--fui-text-sm);
+  gap: var(--fui-space-1) var(--fui-space-3);
+  grid-template-columns: 5.5rem minmax(0, 12rem) minmax(0, 1fr);
+  padding: var(--fui-space-2) 0;
+}
+
+.fui-river-time {
+  color: var(--fui-ink-3);
+  font-family: var(--fui-font-mono);
+  font-size: var(--fui-text-xs);
+}
+
+.fui-river-object {
+  font-family: var(--fui-font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (width <= 599px) {
+  .fui-river-event {
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+  }
+
+  .fui-river-event > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ======================================================================
+   Tiles: a namespace, a source, a provider
+   ====================================================================== */
+
+.fui-tiles {
+  display: grid;
+  gap: var(--fui-space-4);
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+}
+
+.fui-tile {
+  border: 1px solid var(--fui-line);
+  border-radius: var(--fui-radius-surface);
+  display: grid;
+  gap: var(--fui-space-3);
+  padding: var(--fui-space-4) var(--fui-space-5);
+}
+
+a.fui-tile {
+  color: var(--fui-ink-1);
+}
+
+a.fui-tile:hover {
+  border-color: var(--fui-accent);
+  text-decoration: none;
+}
+
+.fui-tile-title {
+  font-family: var(--fui-font-display);
+  font-size: var(--fui-text-xl);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* ======================================================================
+   The Home map: a namespace's data plane, drawn by the console
+   ====================================================================== */
+
+.fui-map {
+  background: var(--fui-surface);
+  border: 1px solid var(--fui-line);
+  border-radius: var(--fui-radius-surface);
+  box-shadow: 0 1px 2px var(--fui-shadow);
+  display: grid;
+  gap: var(--fui-space-3);
+  padding: var(--fui-space-4) var(--fui-space-5) var(--fui-space-5);
+}
+
+.fui-map-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fui-space-2) var(--fui-space-4);
+  justify-content: space-between;
+}
+
+.fui-map-scroll {
+  overflow-x: auto;
+}
+
+.fui-map-svg {
+  display: block;
+  font-family: var(--fui-font-sans);
+  height: auto;
+  max-width: 64rem;
+  min-width: 46rem;
+  width: 100%;
+}
+
+.fui-map-col {
+  fill: var(--fui-ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fui-map-node rect {
+  fill: var(--fui-raised);
+  stroke: var(--fui-line-strong);
+  stroke-width: 1;
+}
+
+.fui-map-node text,
+.fui-map-lane text,
+.fui-map-band-head text {
+  fill: var(--fui-ink-1);
+  font-size: 12px;
+}
+
+.fui-map-node .fui-map-sub,
+.fui-map-lane .fui-map-sub,
+.fui-map-band-head .fui-map-sub {
+  fill: var(--fui-ink-3);
+  font-size: 11px;
+}
+
+.fui-map-mono {
+  font-family: var(--fui-font-mono);
+}
+
+.fui-map-band rect.fui-map-band-box {
+  fill: var(--fui-brand-subtle);
+  stroke: var(--fui-line);
+}
+
+.fui-map-unbound rect {
+  fill: var(--fui-warning-subtle);
+  stroke: var(--fui-warning);
+  stroke-dasharray: 4 4;
+}
+
+.fui-map-unbound .fui-map-zone-label {
+  fill: var(--fui-warning);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.fui-map-band-head text.fui-map-band-title {
+  font-family: var(--fui-font-mono);
+  font-weight: 600;
+}
+
+.fui-map-lane rect.fui-map-lane-box {
+  fill: var(--fui-surface);
+  stroke: var(--fui-line-strong);
+}
+
+.fui-map-lane[data-tone="warning"] rect.fui-map-lane-box {
+  fill: var(--fui-warning-subtle);
+  stroke: var(--fui-warning);
+}
+
+.fui-map-lane[data-tone="negative"] rect.fui-map-lane-box {
+  fill: var(--fui-negative-subtle);
+  stroke: var(--fui-negative);
+}
+
+.fui-map-lane .fui-map-health {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.fui-map-lane[data-tone="positive"] .fui-map-health { fill: var(--fui-positive); }
+.fui-map-lane[data-tone="warning"] .fui-map-health { fill: var(--fui-warning); }
+.fui-map-lane[data-tone="negative"] .fui-map-health { fill: var(--fui-negative); }
+.fui-map-lane[data-tone="neutral"] .fui-map-health { fill: var(--fui-ink-2); }
+
+.fui-map-glyph {
+  fill: currentColor;
+}
+
+.fui-map-lane .fui-map-glyph,
+.fui-map-lane .fui-map-glyph-ring {
+  color: var(--fui-ink-2);
+}
+
+.fui-map-lane[data-tone="positive"] .fui-map-glyph { color: var(--fui-positive); }
+.fui-map-lane[data-tone="warning"] .fui-map-glyph,
+.fui-map-lane[data-tone="warning"] .fui-map-glyph-ring { color: var(--fui-warning); }
+.fui-map-lane[data-tone="negative"] .fui-map-glyph { color: var(--fui-negative); }
+
+.fui-map-glyph-ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.fui-map-rate {
+  fill: var(--fui-signal);
+  font-family: var(--fui-font-mono);
+  font-size: 11px;
+}
+
+.fui-map-spark {
+  fill: none;
+  stroke: var(--fui-signal);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.25;
+}
+
+.fui-map-hit {
+  cursor: pointer;
+  outline: none;
+}
+
+.fui-map-hit:hover rect:first-of-type,
+.fui-map-hit:focus-visible rect:first-of-type {
+  stroke: var(--fui-accent);
+  stroke-width: 1.5;
+}
+
+.fui-map-hit:focus-visible rect:first-of-type {
+  stroke-width: 2.5;
+}
+
+.fui-map-hit[aria-pressed="true"] rect:first-of-type {
+  stroke: var(--fui-accent);
+  stroke-width: 2;
+}
+
+.fui-map-wire {
+  fill: none;
+  stroke: var(--fui-line-strong);
+  stroke-width: 1.25;
+}
+
+/* Flow dots ride a wire at the speed bucket of its measured rate; an idle
+   wire is drawn plain. The marching keyframe is the relay graph's. */
+.fui-map-wire.topo-flow-slow,
+.fui-map-wire.topo-flow-medium,
+.fui-map-wire.topo-flow-fast {
+  stroke: var(--fui-signal);
+  stroke-dasharray: 0 10;
+  stroke-linecap: round;
+  stroke-width: 3;
+}
+
+.fui-map-wire.topo-flow-fast {
+  stroke-width: 3.5;
+}
+
+.fui-map-drain rect {
+  fill: var(--fui-raised);
+  stroke: var(--fui-warning);
+}
+
+.fui-map-drain text {
+  fill: var(--fui-ink-1);
+  font-size: 12px;
+}
+
+.fui-map-drain .fui-map-sub {
+  fill: var(--fui-warning);
+  font-size: 11px;
+}
+
+.fui-map-more text {
+  fill: var(--fui-accent);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.fui-map-legend {
+  color: var(--fui-ink-3);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--fui-text-xs);
+  gap: var(--fui-space-2) var(--fui-space-5);
+}
+
+/* ======================================================================
+   The command palette and help
+   ====================================================================== */
+
+.fui-palette .fui-dialog-panel {
+  max-width: 40rem;
+  overflow: hidden;
+}
+
+.fui-palette-input {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--fui-line);
+  border-radius: 0;
+  font-size: var(--fui-text-lg);
+  min-height: 3.25rem;
+  padding: 0 var(--fui-space-5);
+}
+
+.fui-palette-input:focus-visible {
+  box-shadow: none;
+}
+
+.fui-palette-list {
+  max-height: min(26rem, 60vh);
+  overflow-y: auto;
+  padding: var(--fui-space-2);
+}
+
+.fui-palette-option {
+  align-items: center;
+  border-radius: var(--fui-radius-control);
+  color: var(--fui-ink-1);
+  display: flex;
+  gap: var(--fui-space-3);
+  justify-content: space-between;
+  padding: var(--fui-space-2) var(--fui-space-3);
+  text-align: left;
+  width: 100%;
+}
+
+.fui-palette-option:hover,
+.fui-palette-option:focus-visible {
+  background: var(--fui-accent-subtle);
+  text-decoration: none;
+}
+
+.fui-palette-meta {
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-xs);
+}
+
+.fui-palette-note {
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-sm);
+  padding: var(--fui-space-4) var(--fui-space-5);
+}
+
+.fui-shortcuts {
+  display: grid;
+  gap: var(--fui-space-2) var(--fui-space-4);
+  grid-template-columns: max-content 1fr;
+}
+
+.fui-shortcuts dt {
+  display: flex;
+  gap: var(--fui-space-1);
+}
+
+.fui-shortcuts dd {
+  color: var(--fui-ink-2);
+}
+
+.fui-glossary {
+  display: grid;
+  gap: var(--fui-space-3);
+}
+
+.fui-glossary dt {
+  font-weight: 600;
+}
+
+.fui-glossary dd {
+  color: var(--fui-ink-2);
+  font-size: var(--fui-text-sm);
+}
+
+/* ======================================================================
+   Signed-out pages: the canvas, a form, and the mascot
+   ====================================================================== */
+
+.fui-auth {
+  align-items: center;
+  display: grid;
+  gap: var(--fui-space-9);
+  grid-template-columns: minmax(0, 26rem) minmax(0, 22rem);
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--fui-space-9) var(--fui-space-6);
+}
+
+.fui-auth-form {
+  display: grid;
+  gap: var(--fui-space-5);
+}
+
+.fui-auth-mascot {
+  height: auto;
+  max-width: 100%;
+}
+
+@media (width <= 799px) {
+  .fui-auth {
+    grid-template-columns: minmax(0, 26rem);
+  }
+
+  .fui-auth-mascot {
+    display: none;
+  }
+}
+
+@media (width <= 599px) {
+  .fui-auth {
+    padding: var(--fui-space-7) var(--fui-space-4);
+  }
+}
+
+.fui-map-hitbox {
+  fill: transparent;
+  stroke: transparent;
+}
+
+/* A sampled series drawn as bars, a missing sample as a gap. */
+.fui-bars {
+  align-items: flex-end;
+  display: flex;
+  gap: 1px;
+  height: 3rem;
+}
+
+.fui-bar {
+  background: var(--fui-signal);
+  border-radius: 1px;
+  width: 4px;
+}
+
+.fui-bar[data-gap] {
+  background: transparent;
+}

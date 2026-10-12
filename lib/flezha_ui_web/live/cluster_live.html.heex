@@ -1,161 +1,139 @@
-<div class="space-y-6">
-  <.header>Cluster</.header>
+<.page_header eyebrow="Platform" title="Cluster">
+  <:sentence>
+    <span :if={@connected_node} data-testid="cluster-connected">
+      This console is connected to the controller at <span class="fui-num">{@connected_node}</span>. {Words.count(
+        length(@cluster_nodes),
+        "node"
+      )} host the
+      <.term key="hub">hubs</.term>
+      of {Words.count(length(@namespaces), "namespace")}, served by {Words.count(
+        @namespaces |> Enum.map(&length(&1.runners)) |> Enum.sum(),
+        "runner"
+      )}.
+    </span>
+    <span :if={!@connected_node} data-testid="cluster-disconnected">
+      This console holds no connection to a controller node.
+    </span>
+  </:sentence>
+</.page_header>
 
-  <.runtime_error error={@load_error} />
+<.runtime_error error={@load_error} />
 
-  <%!-- Nodes --%>
-  <.panel icon="hero-server-stack">
-    <:title>Nodes ({length(@cluster_nodes)})</:title>
-    <%= if @cluster_nodes == [] do %>
-      <.empty_state icon="hero-server" testid="cluster-nodes-empty">
-        No controller node is reachable.
-      </.empty_state>
-    <% else %>
-      <ul data-testid="cluster-nodes" class="divide-y divide-brd-subtle">
-        <li
-          :for={node <- @cluster_nodes}
-          data-testid={"cluster-node-#{node.name}"}
-          class="px-5 py-3 flex items-center gap-3"
-        >
-          <span class={
-            "w-2 h-2 rounded-full shrink-0 " <> if node.connected?, do: "bg-success", else: "bg-th-muted"
-          }>
-          </span>
-          <span class="text-th-primary font-mono text-sm">{node.name}</span>
-          <span
-            :if={node.connected?}
-            class="flz-badge ml-auto"
-          >
-            connected to this UI
-          </span>
-        </li>
-      </ul>
-    <% end %>
-  </.panel>
-
-  <%!-- Per-namespace hubs and fleet --%>
-  <.empty_state
-    :if={@namespaces == []}
-    icon="hero-rectangle-stack"
-    testid="cluster-namespaces-empty"
-    boxed={true}
-  >
-    No namespace is running.
+<%!-- Nodes --%>
+<.section flush testid="cluster-nodes-panel">
+  <:title>Nodes</:title>
+  <.empty_state :if={@cluster_nodes == []} icon="hero-server" testid="cluster-nodes-empty">
+    A controller node hosts namespace hubs. None is reachable from this console.
   </.empty_state>
-
-  <div
-    :for={ns <- @namespaces}
-    data-testid={"cluster-namespace-#{ns.name}"}
-    class="flz-panel"
-  >
-    <div class="px-5 py-4 border-b border-brd flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <.icon name="hero-rectangle-stack" class="w-4 h-4 text-th-secondary" />
-        <h2 class="text-sm font-semibold text-th-primary font-mono">{ns.name}</h2>
-      </div>
-      <div class="flex items-center gap-2 text-xs text-th-secondary">
-        <.button
-          variant="ghost"
-          size="sm"
-          phx-click="open_recovery"
-          phx-value-namespace={ns.name}
-          data-testid={"open-recovery-#{ns.name}"}
+  <ul :if={@cluster_nodes != []} data-testid="cluster-nodes" class="fui-tiles">
+    <li :for={node <- @cluster_nodes} data-testid={"cluster-node-#{node.name}"} class="fui-tile">
+      <span class="flex items-center gap-2">
+        <span
+          class={["fui-shape", (node.connected? && "fui-tone-positive") || "fui-tone-neutral"]}
+          data-shape={(node.connected? && "dot") || "ring"}
+          aria-hidden="true"
         >
-          Recovery
-        </.button>
-        <span>Hub:</span>
-        <%= cond do %>
-          <% ns.hub_error -> %>
-            <span data-testid={"hub-nodes-#{ns.name}"} class="text-warning">
-              {error_message(ns.hub_error, "the hub read")}
-            </span>
-          <% ns.hub_nodes == [] -> %>
-            <span data-testid={"hub-nodes-#{ns.name}"} class="text-th-muted">no hub running</span>
-          <% true -> %>
-            <span data-testid={"hub-nodes-#{ns.name}"} class="font-mono text-th-secondary">
-              {Enum.join(ns.hub_nodes, ", ")}
-            </span>
-        <% end %>
-      </div>
-    </div>
+        </span>
+        <span class="fui-num font-medium">{node.name}</span>
+      </span>
+      <span :if={node.connected?} class="fui-figures">Connected to this console</span>
+    </li>
+  </ul>
+</.section>
 
+<%!-- Per-namespace hubs and runners --%>
+<.empty_state
+  :if={@namespaces == []}
+  icon="hero-rectangle-stack"
+  testid="cluster-namespaces-empty"
+>
+  A namespace's hub runs on one or more of these nodes. No namespace is running.
+</.empty_state>
+
+<.section :for={ns <- @namespaces} testid={"cluster-namespace-#{ns.name}"}>
+  <:title><span class="fui-num">{ns.name}</span></:title>
+  <:actions>
+    <span class="fui-figures">
+      Hub on
+      <%= cond do %>
+        <% ns.hub_error -> %>
+          <span data-testid={"hub-nodes-#{ns.name}"} class="fui-tone-warning">
+            {error_message(ns.hub_error, "the hub read")}
+          </span>
+        <% ns.hub_nodes == [] -> %>
+          <span data-testid={"hub-nodes-#{ns.name}"}>no node — no hub running</span>
+        <% true -> %>
+          <span data-testid={"hub-nodes-#{ns.name}"} class="fui-num">
+            {Enum.join(ns.hub_nodes, ", ")}
+          </span>
+      <% end %>
+    </span>
+    <.button
+      variant="secondary"
+      size="sm"
+      phx-click="open_recovery"
+      phx-value-namespace={ns.name}
+      data-testid={"open-recovery-#{ns.name}"}
+    >
+      Recovery
+    </.button>
+  </:actions>
+
+  <div class="space-y-8">
     <%!-- Per-node relay rollup --%>
-    <div data-testid={"node-rollup-#{ns.name}"} class="px-5 py-4 border-b border-brd-subtle">
-      <p class="text-xs text-th-muted uppercase tracking-wider mb-3">
-        Relays per node
-      </p>
-      <p :if={ns.per_node == []} class="text-sm text-th-muted">
-        No relay is placed in this namespace.
-      </p>
-      <table :if={ns.per_node != []} class="flz-table">
-        <thead>
-          <tr>
-            <th>Node</th>
-            <th>Relays</th>
-            <th>Health</th>
-            <th>Hub recovery</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            :for={row <- ns.per_node}
-            data-testid={"node-#{row.node}"}
-            class="last:border-b-0"
+    <div data-testid={"node-rollup-#{ns.name}"} class="space-y-2">
+      <h3 class="fui-eyebrow">Relays per node</h3>
+      <p :if={ns.per_node == []} class="fui-figures">No relay is placed in this namespace.</p>
+      <.grid
+        :if={ns.per_node != []}
+        id={"rollup-#{ns.name}"}
+        rows={ns.per_node}
+        row_testid={&"node-#{&1.node}"}
+      >
+        <:col :let={row} label="Node"><span class="fui-num">{row.node}</span></:col>
+        <:col :let={row} label="Relays" num>
+          <span data-testid={"node-count-#{row.node}"}>{row.count}</span>
+        </:col>
+        <:col :let={row} label="Health">
+          <span class="flex flex-wrap gap-1">
+            <.state_badge :for={{health, count} <- row.health} value={health} count={count} />
+          </span>
+        </:col>
+        <:col :let={row} label="Hub recovery">
+          <span
+            :if={row.recovery in [:unavailable, :unreachable]}
+            data-testid={"recovery-unavailable-#{row.node}"}
+            class="fui-muted"
           >
-            <td class="text-th-primary flz-num text-xs">{row.node}</td>
-            <td
-              data-testid={"node-count-#{row.node}"}
-              class="flz-num text-xs"
-            >
-              {row.count}
-            </td>
-            <td>
-              <span class="flex flex-wrap gap-1">
-                <.health_badge :for={{health, count} <- row.health} health={health} count={count} />
-              </span>
-            </td>
-            <td class="flz-num text-xs">
-              <span
-                :if={row.recovery in [:unavailable, :unreachable]}
-                data-testid={"recovery-unavailable-#{row.node}"}
-                class="text-th-muted"
-              >
-                unavailable
-              </span>
-              <span
-                :if={row.recovery not in [:unavailable, :unreachable]}
-                data-testid={"recovery-#{row.node}"}
-                class={if row.recovery == :normal, do: "text-success", else: "text-warning"}
-              >
-                {recovery_label(row.recovery)}
-              </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div :if={ns.unplaced != []} data-testid={"unplaced-#{ns.name}"} class="mt-3">
-        <p class="text-xs text-warning mb-1">
-          {length(ns.unplaced)} relay(s) have no live node:
-        </p>
-        <p class="text-xs font-mono text-th-secondary">
-          {Enum.map_join(ns.unplaced, ", ", &to_string(&1.id))}
-        </p>
-      </div>
+            Unavailable
+          </span>
+          <span
+            :if={row.recovery not in [:unavailable, :unreachable]}
+            data-testid={"recovery-#{row.node}"}
+            class={"fui-tone-#{recovery(row.recovery).tone}"}
+          >
+            {recovery(row.recovery).text}
+          </span>
+        </:col>
+      </.grid>
+      <p :if={ns.unplaced != []} data-testid={"unplaced-#{ns.name}"} class="fui-tone-warning">
+        {Words.count(length(ns.unplaced), "relay")} have no live node:
+        <span class="fui-num">{Enum.map_join(ns.unplaced, ", ", &to_string(&1.id))}</span>
+      </p>
     </div>
 
     <%!-- Runners --%>
-    <div class="px-5 py-4">
-      <p class="text-xs text-th-muted uppercase tracking-wider mb-3">
-        Runners ({length(ns.runners)})
+    <div class="space-y-2">
+      <h3 class="fui-eyebrow">
+        Runners
         <span
           :if={ns.runner_principal}
           data-testid={"runner-principal-#{ns.name}"}
-          class="ml-2 normal-case font-mono text-th-secondary tracking-normal"
+          class="normal-case tracking-normal font-normal"
         >
-          principal {ns.runner_principal}
+          · they connect as <span class="fui-num">{ns.runner_principal}</span>
         </span>
-      </p>
+      </h3>
       <.runner_table
         namespace={ns.name}
         runners={ns.runners}
@@ -166,100 +144,79 @@
         error={FlezhaUiWeb.Live.RunnerActions.error_for(@runner_error, ns.name)}
       >
         <:empty>
-          <p data-testid={"runners-empty-#{ns.name}"} class="text-sm text-th-muted">
-            No runner has connected to this namespace.
+          <p data-testid={"runners-empty-#{ns.name}"} class="fui-figures">
+            A runner serves this namespace's factories. None has connected.
           </p>
         </:empty>
       </.runner_table>
     </div>
 
     <%!-- Factory placement --%>
-    <div :if={ns.factories != []} class="px-5 py-4 border-t border-brd">
-      <p class="text-xs text-th-muted uppercase tracking-wider mb-3">Factory placement</p>
+    <div :if={ns.factories != []} class="space-y-3">
+      <h3 class="fui-eyebrow">Which runners serve each factory</h3>
       <div class="flex flex-wrap gap-2">
-        <button
-          :for={factory <- ns.factories}
-          phx-click="select_factory"
-          phx-value-namespace={ns.name}
-          phx-value-factory={factory.id}
-          data-testid={"factory-#{factory.id}"}
-          aria-pressed={to_string(@selected_factory == {ns.name, factory.id})}
-          class="flz-segmented-option flz-num"
-        >
-          {factory.id} <span class="text-th-secondary">· {factory.run || "—"}</span>
-        </button>
+        <.segmented label={"Factories in #{ns.name}"}>
+          <:option
+            :for={factory <- ns.factories}
+            click="select_factory"
+            value={"#{ns.name}/#{factory.id}"}
+            current={@selected_factory == {ns.name, factory.id}}
+            testid={"factory-#{factory.id}"}
+          >
+            <span class="fui-num">{factory.id}</span><span class="fui-muted"> · {factory.run || "—"}</span>
+          </:option>
+        </.segmented>
       </div>
-
-      <div :if={@selected_factory && elem(@selected_factory, 0) == ns.name} class="mt-4">
-        <%= if @factory_runners == [] do %>
-          <p data-testid="factory-runners-empty" class="text-sm text-th-muted">
-            No runner currently serves <span class="font-mono">{elem(@selected_factory, 1)}</span>.
-          </p>
-        <% else %>
-          <p data-testid="factory-runners" class="text-sm text-th-secondary">
-            <span class="font-mono">{elem(@selected_factory, 1)}</span>
-            is served by:
-            <span class="font-mono text-th-primary">{Enum.join(@factory_runners, ", ")}</span>
-          </p>
-        <% end %>
-        <button
-          phx-click="clear_factory"
-          class="mt-2 flz-button flz-button--sm flz-button--ghost"
-        >
+      <div :if={@selected_factory && elem(@selected_factory, 0) == ns.name} class="space-y-2">
+        <p :if={@factory_runners == []} data-testid="factory-runners-empty">
+          No runner currently serves <span class="fui-num">{elem(@selected_factory, 1)}</span>.
+        </p>
+        <p :if={@factory_runners != []} data-testid="factory-runners">
+          <span class="fui-num">{elem(@selected_factory, 1)}</span>
+          is served by
+          <span :for={runner <- @factory_runners} class="mr-2"><.ident value={runner} /></span>
+        </p>
+        <.button variant="ghost" size="sm" phx-click="clear_factory" data-testid="clear-factory">
           Clear
-        </button>
+        </.button>
       </div>
     </div>
   </div>
+</.section>
 
-  <.runner_dialogs drop={@runner_drop} readmit={@runner_readmit} />
+<.runner_dialogs drop={@runner_drop} readmit={@runner_readmit} />
 
-  <.dialog
-    :if={@recovery}
-    testid="recovery-modal"
-    size="form"
-    on_close="close_recovery"
-    close_testid="recovery-close"
-  >
-    <:title>
-      Recovery of
-      <.mono>{@recovery.namespace}</.mono>
-    </:title>
-    <%= if @recovery.error do %>
-      <div data-testid="recovery-error">
-        <.runtime_error error={@recovery.error} action="the recovery read" />
-      </div>
-    <% else %>
-      <dl class="flz-stats mb-4">
-        <.stat label="Hub" testid="recovery-hub-id">{@recovery.hub_id}</.stat>
-        <.stat label="On this node" testid="recovery-local">
-          {recovery_label(@recovery.local)}
-        </.stat>
-      </dl>
-      <div :if={@recovery.per_node_error} data-testid="recovery-per-node-error">
-        <.runtime_error error={@recovery.per_node_error} action="the per-node recovery read" />
-      </div>
-      <table :if={@recovery.per_node != []} data-testid="recovery-per-node" class="flz-table">
-        <thead>
-          <tr>
-            <th>Node</th>
-            <th>Recovery</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={{node, state} <- @recovery.per_node} data-testid={"recovery-node-#{node}"}>
-            <td class="text-th-primary flz-num text-xs">{node}</td>
-            <td class={[
-              "flz-num text-xs",
-              state == :normal && "text-success",
-              state == :unreachable && "text-th-muted",
-              state not in [:normal, :unreachable] && "text-warning"
-            ]}>
-              {recovery_label(state)}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    <% end %>
-  </.dialog>
-</div>
+<.dialog
+  :if={@recovery}
+  testid="recovery-modal"
+  size="form"
+  on_close="close_recovery"
+  close_testid="recovery-close"
+>
+  <:title>Recovery of {@recovery.namespace}</:title>
+  <%= if @recovery.error do %>
+    <div data-testid="recovery-error">
+      <.runtime_error error={@recovery.error} action="the recovery read" />
+    </div>
+  <% else %>
+    <dl class="fui-facts">
+      <.stat label="Hub" testid="recovery-hub-id" mono>{@recovery.hub_id}</.stat>
+      <.stat label="On this node" testid="recovery-local">{recovery(@recovery.local).text}</.stat>
+    </dl>
+    <div :if={@recovery.per_node_error} data-testid="recovery-per-node-error">
+      <.runtime_error error={@recovery.per_node_error} action="the per-node recovery read" />
+    </div>
+    <.grid
+      :if={@recovery.per_node != []}
+      id="recovery-per-node-rows"
+      rows={@recovery.per_node}
+      testid="recovery-per-node"
+      row_testid={fn {node, _state} -> "recovery-node-#{node}" end}
+    >
+      <:col :let={{node, _state}} label="Node"><span class="fui-num">{node}</span></:col>
+      <:col :let={{_node, state}} label="Recovery">
+        <span class={"fui-tone-#{recovery(state).tone}"}>{recovery(state).text}</span>
+      </:col>
+    </.grid>
+  <% end %>
+</.dialog>

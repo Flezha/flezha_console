@@ -114,8 +114,9 @@ e2e/
                     `sendToRelay()` for traffic the test makes, `openPage()`
                     for a second page beside the one under test,
                     `fillPluginForm()`/`optionError()` for the plugin form
-                    both plugin specs drive, and `confirmEach()` for cleanup
-                    that confirms one row action at a time; plus
+                    both plugin specs drive, `menuAction()` for an action in
+                    a row's menu, and `confirmEach()` for cleanup that
+                    confirms one row action at a time; plus
                     `startRelay()`/`stopRelay()`, since
                     one launcher serves two screens and driving it twice would
                     stop catching the drift it exists to prevent; and the shell
@@ -131,13 +132,13 @@ e2e/
                     and the settings forms, as a user each test registers
   listen.spec.ts    the seeded-traffic precondition, then the listen screen
   dlq.spec.ts       entries parked by a `poison_probe` relay of its own
-  dashboard.spec.ts namespaces.spec.ts audit.spec.ts schedules.spec.ts
+  home.spec.ts problems.spec.ts namespaces.spec.ts audit.spec.ts schedules.spec.ts
   relay-lifecycle.spec.ts plugin-attach.spec.ts topology.spec.ts
   authz.spec.ts              the posture banner and the flezha-token round-trip
   relays-index.spec.ts       the cross-namespace index and its filters
-  namespace-health.spec.ts   the health column on a namespace
+  namespace-health.spec.ts   the health column on a namespace's relays
   namespace-admin.spec.ts    quota meters, create and delete
-  steps.spec.ts              the steps panel, task journal, input log, finished relays
+  steps.spec.ts              steps facts, task journal and input log on State, finished relays
   controller-health.spec.ts  durability posture and the shipper, shutdown, boot,
                              memory; the stop dialog's typed-name gate, cancelled
   cluster.spec.ts            nodes, hubs, runners and factories; a namespace's

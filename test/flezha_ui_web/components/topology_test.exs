@@ -388,4 +388,192 @@ defmodule FlezhaUiWeb.TopologyTest do
       assert Topology.speed_bucket(100.0) == :fast
     end
   end
+
+  describe "map/1" do
+    defp map_row(id, overrides \\ %{}) do
+      Map.merge(
+        %{
+          id: id,
+          health: :healthy,
+          runner: "runner-a",
+          factory: "f_#{id}",
+          partition: nil,
+          node: :flezha@a
+        },
+        overrides
+      )
+    end
+
+    defp lanes(map), do: Enum.flat_map(map.bands, & &1.lanes)
+
+    test "on_input bindings become sources and on_output ones outputs, wired to their lanes" do
+      plugins = [
+        {"orders",
+         [
+           {"ws_in", %{hooks: [:on_input], provider: Ws}},
+           {"kafka_out", %{hooks: [{:on_output, []}], provider: K}}
+         ]}
+      ]
+
+      map =
+        Topology.map(%{
+          namespace: "default",
+          rows: [map_row("orders"), map_row("plain")],
+          runners: [%{id: "runner-a", pid: 42}],
+          plugins: plugins
+        })
+
+      assert Enum.map(map.sources, & &1.id) == ["calls", "in-ws_in"]
+      assert Enum.map(map.outputs, & &1.id) == ["out-kafka_out", "stream"]
+      assert Enum.find(map.sources, &(&1.id == "in-ws_in")).inspect == {:plugin, "ws_in"}
+
+      wires = Enum.map(map.wires, & &1.id)
+      assert "in-ws_in->relay-orders" in wires
+      assert "relay-orders->out-kafka_out" in wires
+      # A lane no input plugin feeds is fed by calls and sends, and one no
+      # output plugin carries leaves on the runner stream.
+      assert "calls->relay-plain" in wires
+      assert "relay-plain->stream" in wires
+    end
+
+    test "a relay sits in its runner's band, and one with no runner in the unbound zone" do
+      map =
+        Topology.map(%{
+          namespace: "default",
+          rows: [map_row("orders"), map_row("testnet_echo", %{runner: nil, health: :suspended})],
+          runners: [%{id: "runner-a", pid: 42}]
+        })
+
+      assert [%{id: "runner-a", pid: 42, lanes: [%{id: "orders"}]}] = map.bands
+      assert [%{id: "testnet_echo", tone: :warning, state: state}] = map.zone.lanes
+      assert state =~ "waiting for a runner"
+      # Unbound, so no runner stream to reach.
+      refute Enum.any?(map.wires, &(&1.id == "relay-testnet_echo->stream"))
+    end
+
+    test "more than three relays of one factory stack, until the stack is opened" do
+      rows = for i <- 1..4, do: map_row("store_#{i}", %{factory: "store_input"})
+
+      input = %{
+        namespace: "default",
+        rows: rows ++ [map_row("other")],
+        runners: [%{id: "runner-a"}]
+      }
+
+      assert [%{id: "other"}, stack] = lanes(Topology.map(input))
+      assert stack.kind == :stack
+      assert stack.label == "store_input ×4"
+      assert stack.members == ~w(store_1 store_2 store_3 store_4)
+      assert stack.sub =~ "4 healthy"
+
+      opened = Topology.map(Map.put(input, :expanded, MapSet.new(["runner-a/store_input"])))
+      assert length(lanes(opened)) == 5
+    end
+
+    test "three of one factory do not stack" do
+      rows = for i <- 1..3, do: map_row("s_#{i}", %{factory: "same"})
+
+      assert Enum.all?(
+               lanes(Topology.map(%{namespace: "d", rows: rows, runners: [%{id: "runner-a"}]})),
+               &(&1.kind == :relay)
+             )
+    end
+
+    test "a band draws twelve lanes and then +N more, linked to the relays index by runner" do
+      rows = for i <- 1..15, do: map_row("r_#{String.pad_leading("#{i}", 2, "0")}")
+
+      [band] =
+        Topology.map(%{namespace: "default", rows: rows, runners: [%{id: "runner-a"}]}).bands
+
+      assert length(band.lanes) == 12
+      assert band.more.count == 3
+      assert band.more.href == "/namespaces/default/relays?runner=runner-a"
+    end
+
+    test "lanes needing attention come first, then the busiest, then by id" do
+      rows = [
+        map_row("b_busy"),
+        map_row("a_idle"),
+        map_row("z_sick", %{health: :degraded}),
+        map_row("c_busier")
+      ]
+
+      rates = %{
+        "b_busy" => %{in: 5.0, out: 5.0},
+        "c_busier" => %{in: 20.0, out: 1.0},
+        "a_idle" => %{in: 0.0, out: 0.0}
+      }
+
+      map =
+        Topology.map(%{namespace: "d", rows: rows, runners: [%{id: "runner-a"}], rates: rates})
+
+      assert Enum.map(lanes(map), & &1.id) == ~w(z_sick c_busier b_busy a_idle)
+    end
+
+    test "no wire animates before two snapshots, and a moving lane carries its speed and rate" do
+      rows = [map_row("orders")]
+      first = Topology.map(%{namespace: "d", rows: rows, runners: [%{id: "runner-a"}]})
+
+      refute first.animated?
+      assert Enum.all?(first.wires, &(&1.bucket == :idle))
+      assert hd(lanes(first)).rate == nil
+
+      measured =
+        Topology.map(%{
+          namespace: "d",
+          rows: rows,
+          runners: [%{id: "runner-a"}],
+          rates: %{"orders" => %{in: 12.0, out: 0.0}},
+          history: %{"orders" => [%{in: 12.0, out: 0.0}, %{in: 4.0, out: 0.0}]}
+        })
+
+      assert measured.animated?
+      assert Enum.find(measured.wires, &(&1.id == "calls->relay-orders")).bucket == :medium
+      assert Enum.find(measured.wires, &(&1.id == "relay-orders->stream")).bucket == :idle
+      assert %{rate: %{in: 12.0}, spark: spark} = hd(lanes(measured))
+      assert is_binary(spark)
+    end
+
+    test "health is carried in words and shape, not colour alone" do
+      map =
+        Topology.map(%{
+          namespace: "d",
+          rows: [map_row("ok"), map_row("sick", %{health: :failed})],
+          runners: [%{id: "runner-a"}]
+        })
+
+      [sick, ok] = lanes(map)
+      assert {sick.state, sick.shape} == {"failed", "cross"}
+      assert {ok.state, ok.shape} == {"healthy", "dot"}
+    end
+
+    test "parked entries open a drain to the dead-letter screen" do
+      map = Topology.map(%{namespace: "d", rows: [], runners: [], parked: 3})
+
+      assert %{sub: "3 parked", href: "/dlq"} = map.drain
+      assert Topology.map(%{namespace: "d", rows: [], runners: []}).drain == nil
+    end
+
+    test "the selection is marked on its lane, band or node" do
+      map =
+        Topology.map(%{
+          namespace: "d",
+          rows: [map_row("orders")],
+          runners: [%{id: "runner-a"}],
+          selected: {:relay, "orders"}
+        })
+
+      assert hd(lanes(map)).selected?
+      refute hd(map.bands).selected?
+
+      assert Topology.map(%{
+               namespace: "d",
+               rows: [],
+               runners: [%{id: "runner-a"}],
+               selected: {:runner, "runner-a"}
+             }).bands
+             |> hd()
+             |> Map.fetch!(:selected?)
+    end
+  end
 end

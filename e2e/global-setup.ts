@@ -52,8 +52,9 @@ async function globalSetup(config: FullConfig) {
 
     await submitLogin(page, { email: DEV_EMAIL, password: DEV_PASSWORD });
 
-    await page.waitForURL(`${baseURL}/`);
-    await expect(page.locator('body')).toContainText('Dashboard');
+    // `/` lands on the Home of the namespace last worked in, or on the list.
+    await page.waitForURL(/\/namespaces(\/[^/?#]+)?$/);
+    await expect(page.getByTestId('topbar')).toBeVisible();
 
     await page.context().storageState({ path: storageState });
   } finally {

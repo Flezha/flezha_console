@@ -1,59 +1,61 @@
 <Layouts.auth flash={@flash} current_scope={@current_scope}>
-  <div class="mx-auto max-w-sm">
-    <div class="text-center">
-      <.header>Welcome {@user.email}</.header>
-    </div>
+  <.page_header eyebrow="Flezha UI" title={"Welcome, #{@user.email}"}>
+    <:sentence>
+      {if @user.confirmed_at,
+        do: "Log in with this link.",
+        else: "Confirm your account to log in."}
+    </:sentence>
+  </.page_header>
 
-    <.form
-      :if={!@user.confirmed_at}
-      for={@form}
-      id="confirmation_form"
-      action={~p"/users/log-in?_action=confirmed"}
-      phx-mounted={JS.focus_first()}
+  <.form
+    :if={!@user.confirmed_at}
+    for={@form}
+    id="confirmation_form"
+    action={~p"/users/log-in?_action=confirmed"}
+    phx-mounted={JS.focus_first()}
+    class="space-y-2"
+  >
+    <input type="hidden" name={@form[:token].name} value={@form[:token].value} />
+    <.button
+      name={@form[:remember_me].name}
+      value="true"
+      phx-disable-with="Confirming…"
+      class="w-full"
     >
-      <input type="hidden" name={@form[:token].name} value={@form[:token].value} />
+      Confirm and stay logged in
+    </.button>
+    <.button variant="secondary" phx-disable-with="Confirming…" class="w-full">
+      Confirm and log in only this time
+    </.button>
+  </.form>
+
+  <.form
+    :if={@user.confirmed_at}
+    for={@form}
+    id="login_form"
+    action={~p"/users/log-in"}
+    phx-mounted={JS.focus_first()}
+    class="space-y-2"
+  >
+    <input type="hidden" name={@form[:token].name} value={@form[:token].value} />
+    <%= if @current_scope do %>
+      <.button phx-disable-with="Logging in…" class="w-full">Log in</.button>
+    <% else %>
       <.button
         name={@form[:remember_me].name}
         value="true"
-        phx-disable-with="Confirming..."
-        class="btn btn-primary w-full"
+        phx-disable-with="Logging in…"
+        class="w-full"
       >
-        Confirm and stay logged in
+        Log in and stay logged in
       </.button>
-      <.button phx-disable-with="Confirming..." class="btn btn-primary btn-soft w-full mt-2">
-        Confirm and log in only this time
+      <.button variant="secondary" phx-disable-with="Logging in…" class="w-full">
+        Log in only this time
       </.button>
-    </.form>
+    <% end %>
+  </.form>
 
-    <.form
-      :if={@user.confirmed_at}
-      for={@form}
-      id="login_form"
-      action={~p"/users/log-in"}
-      phx-mounted={JS.focus_first()}
-    >
-      <input type="hidden" name={@form[:token].name} value={@form[:token].value} />
-      <%= if @current_scope do %>
-        <.button phx-disable-with="Logging in..." class="btn btn-primary w-full">
-          Log in
-        </.button>
-      <% else %>
-        <.button
-          name={@form[:remember_me].name}
-          value="true"
-          phx-disable-with="Logging in..."
-          class="btn btn-primary w-full"
-        >
-          Log in and stay logged in
-        </.button>
-        <.button phx-disable-with="Logging in..." class="btn btn-primary btn-soft w-full mt-2">
-          Log in only this time
-        </.button>
-      <% end %>
-    </.form>
-
-    <p :if={!@user.confirmed_at} class="alert alert-outline mt-8">
-      Tip: If you prefer passwords, you can enable them in the user settings.
-    </p>
-  </div>
+  <.notice :if={!@user.confirmed_at}>
+    If you prefer a password, you can set one in your account settings.
+  </.notice>
 </Layouts.auth>

@@ -183,9 +183,9 @@ test.describe('Theme contract', () => {
     const faces = await page.evaluate(() =>
       [...document.fonts].map((f) => `${f.family}:${f.status}`),
     );
-    expect(faces).toContain('Inter:loaded');
-    expect(faces).toContain('Space Grotesk:loaded');
-    expect(faces).toContain('JetBrains Mono:loaded');
+    expect(faces).toContain('Bricolage Grotesque:loaded');
+    expect(faces).toContain('IBM Plex Sans:loaded');
+    expect(faces).toContain('IBM Plex Mono:loaded');
     expect(thirdParty, 'no font or icon may come from a third party').toEqual([]);
 
     await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg');
@@ -215,7 +215,7 @@ test.describe('Brand outside the shell', () => {
       await page.goto('/users/log-in');
       await expect(theme(page)).toHaveAttribute('data-theme', scheme);
 
-      const logo = page.locator('.flz-brand .flz-logo').first();
+      const logo = page.locator('.fui-brand .fui-logo').first();
       await expect(logo).toBeVisible();
       expect(await logo.evaluate((el) => getComputedStyle(el).maskImage)).toContain(
         'flezha-ui-badger-line-text-white.svg',

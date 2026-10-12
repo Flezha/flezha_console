@@ -21,9 +21,13 @@ defmodule FlezhaUiWeb.Live.Launcher do
   host renders `launcher_dialog/1` and points a control at the `launcher_open`
   event; everything else — the four events and the catalog read — is injected.
 
-  How a relay runs is its factory's, so the form asks for none: it states the
-  chosen factory's run read-only. The namespace and factory listings ride
-  `FlezhaUiWeb.Live.Target`, which the schedule form aims the same way.
+  It is a guided flow of three steps: Factory (searchable, each with its
+  description, its run and how many runners serve it, an unserved one shown
+  unavailable with that reason), Details (the optional id and the init values),
+  and Review (one sentence saying what will start, then Start). How a relay
+  runs is its factory's, so the flow asks for none. The namespace and factory
+  listings ride `FlezhaUiWeb.Live.Target`, which the schedule form aims the
+  same way.
 
   The screen holds still while the form is open, as every other modal on these
   screens does, and leaves `refresh_paused?/1` overridable for a host with
@@ -37,7 +41,8 @@ defmodule FlezhaUiWeb.Live.Launcher do
 
   # Named exactly rather than by prefix, and namespaced, so a host's own events
   # cannot be swallowed by the injected clause.
-  @events ~w(launcher_open launcher_close launcher_change launcher_submit)
+  @events ~w(launcher_open launcher_close launcher_change launcher_pick launcher_next
+             launcher_back launcher_submit)
 
   @doc """
   The namespaces this screen can start into, as `scoped_namespaces/1` answers
@@ -84,6 +89,7 @@ defmodule FlezhaUiWeb.Live.Launcher do
     assign(socket,
       launcher: %{
         open?: false,
+        step: 0,
         fixed_namespace: namespace,
         form: empty_form(namespace),
         target: Target.new(nil),
@@ -124,6 +130,7 @@ defmodule FlezhaUiWeb.Live.Launcher do
     state = %{
       socket.assigns.launcher
       | open?: true,
+        step: 0,
         form: empty_form(namespace),
         target: target,
         started: nil,
@@ -151,9 +158,57 @@ defmodule FlezhaUiWeb.Live.Launcher do
     end
   end
 
-  def handle_event(module, "launcher_submit", %{"start" => params}, socket) do
+  # The typed-factory fallback changes nothing until it is submitted.
+  def handle_event(_module, "launcher_change", _params, socket), do: socket
+
+  # Choosing a factory moves on to its details; an unserved one cannot be
+  # chosen, whatever the client sends.
+  def handle_event(_module, "launcher_pick", %{"factory" => factory_id}, socket) do
     state = socket.assigns.launcher
-    form = Map.merge(state.form, params)
+
+    case Enum.find(state.target.factories, &(&1.id == factory_id)) do
+      %{servable?: false} ->
+        socket
+
+      _known_or_typed ->
+        put_launcher(socket, %{
+          state
+          | form: Map.put(state.form, "factory_id", factory_id),
+            step: 1,
+            error: nil
+        })
+    end
+  end
+
+  # The details are checked before the review, so the review states what
+  # would start and nothing is sent until Start.
+  def handle_event(_module, "launcher_next", params, socket) do
+    state = socket.assigns.launcher
+    form = Map.merge(state.form, params["start"] || %{})
+
+    case details(state, form) do
+      :ok -> put_launcher(socket, %{state | form: form, step: 2, error: nil})
+      {:error, error} -> put_launcher(socket, %{state | form: form, error: error})
+    end
+  end
+
+  def handle_event(_module, "launcher_back", _params, socket) do
+    update_launcher(socket, &%{&1 | step: max(&1.step - 1, 0), error: nil})
+  end
+
+  # A second click while the first start is answered starts nothing more.
+  def handle_event(
+        _module,
+        "launcher_submit",
+        _params,
+        %{assigns: %{launcher: %{started: started}}} = socket
+      )
+      when started != nil,
+      do: socket
+
+  def handle_event(module, "launcher_submit", params, socket) do
+    state = socket.assigns.launcher
+    form = Map.merge(state.form, params["start"] || %{})
     socket = put_launcher(socket, %{state | form: form})
 
     case start(state, form, socket.assigns.flezha_token) do
@@ -185,6 +240,15 @@ defmodule FlezhaUiWeb.Live.Launcher do
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  defp details(state, form) do
+    with :ok <- require_namespace(String.trim(form["namespace"] || "")),
+         :ok <- require_factories(state.target),
+         :ok <- require_factory(String.trim(form["factory_id"] || "")),
+         {:ok, _init_values} <- NodeManager.parse_init_values(form["init_values"]) do
+      :ok
     end
   end
 
@@ -224,28 +288,37 @@ defmodule FlezhaUiWeb.Live.Launcher do
 
   # ---- Rendering ----
 
-  @doc "The start form, as a modal."
+  @doc "The guided start, as a dialog: Factory, then Details, then Review."
   attr :launcher, :map, required: true
 
   def launcher_dialog(assigns) do
+    assigns =
+      assign(assigns,
+        factory:
+          Enum.find(
+            assigns.launcher.target.factories,
+            &(&1.id == assigns.launcher.form["factory_id"])
+          )
+      )
+
     ~H"""
     <.dialog :if={@launcher.open?} testid="start-modal" size="form" on_close="launcher_close">
-      <:title>Start Relay</:title>
+      <:title>Start a relay</:title>
 
       <%!-- What the controller answered: the id the relay runs under, which it
             generates when none was asked for, and whether this call started it. --%>
       <div :if={@launcher.started} data-testid="start-result" class="space-y-4">
         <.notice icon="hero-check-circle">
           <span :if={@launcher.started.outcome == :already_running}>
-            A relay with that id is already running in {@launcher.started.namespace}.
+            A relay with that id is already running in {@launcher.started.namespace}:
           </span>
           <span :if={@launcher.started.outcome != :already_running}>
-            Relay started in {@launcher.started.namespace}.
+            Relay started in {@launcher.started.namespace}:
           </span>
           <.link
             navigate={~p"/namespaces/#{@launcher.started.namespace}/relays/#{@launcher.started.id}"}
             data-testid="start-result-link"
-            class="underline hover:no-underline font-mono"
+            class="fui-num"
           >
             {@launcher.started.id}
           </.link>
@@ -255,80 +328,183 @@ defmodule FlezhaUiWeb.Live.Launcher do
         </div>
       </div>
 
-      <div :if={is_nil(@launcher.started)}>
+      <.steps
+        :if={is_nil(@launcher.started)}
+        steps={["Factory", "Details", "Review"]}
+        current={@launcher.step}
+        testid="start-steps"
+      >
         <.form_error error={@launcher.error} action="the start" testid="start-error" />
 
-        <form phx-submit="launcher_submit" phx-change="launcher_change" class="space-y-4">
-          <%!-- A screen that pinned its namespace does not ask again; the form
-                keeps it, so there is nothing to submit either. --%>
-          <Target.namespace_field
-            :if={is_nil(@launcher.fixed_namespace)}
-            target={@launcher.target}
-            name="start[namespace]"
-            label="Namespace *"
-            value={@launcher.form["namespace"]}
-            testid="input-namespace"
-          />
+        <%!-- Factory --%>
+        <div :if={@launcher.step == 0} class="space-y-4">
+          <form :if={is_nil(@launcher.fixed_namespace)} phx-change="launcher_change">
+            <Target.namespace_field
+              target={@launcher.target}
+              name="start[namespace]"
+              label="Namespace"
+              value={@launcher.form["namespace"]}
+              testid="input-namespace"
+            />
+          </form>
+          <p :if={@launcher.fixed_namespace}>
+            Into <span class="fui-num">{@launcher.fixed_namespace}</span>. Pick the
+            factory the relay starts from.
+          </p>
+          <.notice :if={Target.no_factories?(@launcher.target)} testid="start-no-factories">
+            {Target.no_factories_message()}: a runner registers its factories when it connects.
+          </.notice>
+          <.runtime_error error={Target.catalog_error(@launcher.target)} action="the factory listing" />
+          <form
+            :if={Target.catalog_error(@launcher.target)}
+            phx-change="launcher_change"
+            phx-submit="launcher_pick"
+            class="flex items-end gap-2"
+          >
+            <.input
+              type="text"
+              name="factory"
+              label="Factory id"
+              value={@launcher.form["factory_id"]}
+              mono
+              data-testid="input-factory-id"
+            />
+            <.button type="submit" data-testid="start-typed-factory">Continue</.button>
+          </form>
+          <div :if={@launcher.target.factories != []} data-fui-filterable class="space-y-2">
+            <input
+              type="search"
+              placeholder="Find a factory"
+              aria-label="Find a factory"
+              data-fui-filter
+              data-testid="factory-search"
+            />
+            <div class="fui-choices" data-testid="factory-choices">
+              <button
+                :for={factory <- @launcher.target.factories}
+                type="button"
+                class="fui-choice"
+                data-fui-item
+                phx-click="launcher_pick"
+                phx-value-factory={factory.id}
+                disabled={factory.servable? == false}
+                aria-pressed={to_string(factory.id == @launcher.form["factory_id"])}
+                data-testid={"factory-choice-#{factory.id}"}
+              >
+                <span class="flex flex-wrap items-center gap-2">
+                  <span class="fui-num font-medium">{factory.id}</span>
+                  <.chip :if={factory.run}>{factory.run}</.chip>
+                </span>
+                <span :if={factory.description} class="fui-quiet text-sm">{factory.description}</span>
+                <span class="fui-muted text-xs">
+                  {if factory.servable? == false,
+                    do: "Unavailable: no runner serves it right now.",
+                    else: "Served by " <> Words.count(length(factory.runners || []), "runner") <> "."}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
 
-          <Target.factory_field
-            target={@launcher.target}
-            name="start[factory_id]"
-            label="Factory ID *"
-            value={@launcher.form["factory_id"]}
-            testid="input-factory-id"
-          />
-
-          <Target.factory_run
-            target={@launcher.target}
-            value={@launcher.form["factory_id"]}
-            testid="factory-run"
-          />
-
+        <%!-- Details --%>
+        <form
+          :if={@launcher.step == 1}
+          id="start-details"
+          phx-change="launcher_change"
+          phx-submit="launcher_next"
+          class="space-y-4"
+        >
+          <p>
+            A relay from <span class="fui-num">{@launcher.form["factory_id"]}</span>{if @factory &&
+                                                                                          @factory.run,
+                                                                                        do:
+                                                                                          ", which runs as #{@factory.run}"}.
+          </p>
           <.input
             type="text"
             name="start[id]"
-            label="Relay ID"
-            hint="optional — the controller generates one when left empty"
+            label="Relay id"
+            hint="Optional — the controller generates one when left empty."
             value={@launcher.form["id"]}
             placeholder="my-relay"
             maxlength="32"
+            mono
             data-testid="input-relay-id"
           />
-
           <.input
             type="textarea"
             name="start[init_values]"
-            label="Init Values"
-            hint="JSON, optional"
+            label="Init values"
+            hint="JSON, optional: the factory declares no typed fields."
             value={@launcher.form["init_values"]}
             placeholder="{}"
             mono
             data-testid="input-init-values"
           />
-
           <.input
             type="number"
             name="start[snapshot_interval]"
-            label="Snapshot Interval"
+            label="Snapshot interval"
+            hint="Optional."
             value={@launcher.form["snapshot_interval"]}
-            placeholder="optional"
             data-testid="input-snapshot-interval"
           />
-
-          <div class="flex justify-end gap-3 pt-2">
-            <.button variant="ghost" phx-click="launcher_close" data-testid="start-cancel-btn">
-              Cancel
-            </.button>
-            <.button
-              type="submit"
-              data-testid="start-submit-btn"
-              disabled={Target.no_factories?(@launcher.target)}
-            >
-              Start
-            </.button>
-          </div>
         </form>
-      </div>
+
+        <%!-- Review --%>
+        <div :if={@launcher.step == 2} class="space-y-2" data-testid="start-review">
+          <p class="fui-sentence" data-testid="start-review-sentence">
+            Start a {(@factory && @factory.run) || ""} relay from
+            <span class="fui-num">{@launcher.form["factory_id"]}</span>
+            in <span class="fui-num">{@launcher.form["namespace"]}</span>,
+            <%= if String.trim(@launcher.form["id"] || "") == "" do %>
+              under an id the controller generates.
+            <% else %>
+              as <span class="fui-num">{String.trim(@launcher.form["id"])}</span>.
+            <% end %>
+          </p>
+          <p :if={String.trim(@launcher.form["init_values"] || "") != ""} class="fui-figures">
+            With init values <code>{@launcher.form["init_values"]}</code>.
+          </p>
+        </div>
+
+        <:foot>
+          <.button
+            :if={@launcher.step == 0}
+            variant="ghost"
+            phx-click="launcher_close"
+            data-testid="start-cancel-btn"
+          >
+            Cancel
+          </.button>
+          <.button
+            :if={@launcher.step > 0}
+            variant="ghost"
+            phx-click="launcher_back"
+            data-testid="start-back-btn"
+          >
+            Back
+          </.button>
+          <span :if={@launcher.step == 0} class="fui-figures">Choose a factory to go on.</span>
+          <.button
+            :if={@launcher.step == 1}
+            type="submit"
+            form="start-details"
+            data-testid="start-next-btn"
+          >
+            Review
+          </.button>
+          <.button
+            :if={@launcher.step == 2}
+            phx-click="launcher_submit"
+            phx-disable-with="Starting…"
+            data-testid="start-submit-btn"
+            disabled={Target.no_factories?(@launcher.target)}
+          >
+            Start
+          </.button>
+        </:foot>
+      </.steps>
     </.dialog>
     """
   end

@@ -52,7 +52,17 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       {:ok, _view, html} = live(conn, ~p"/namespaces")
 
       assert html =~ ~s(data-testid="namespace-row-default")
-      assert html =~ "declared &amp; running"
+      assert html =~ "Declared and running"
+    end
+
+    test "a declared namespace's tile carries its health and its menu", %{conn: conn, node: node} do
+      with_catalog(node, records: [record("default")], running: ["default"])
+      FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces")
+
+      assert html =~ ~s(data-testid="namespace-strip-default")
+      assert html =~ ~s(data-testid="namespace-menu-default")
     end
 
     test "a declared namespace with no hub is listed with zero counts", %{conn: conn, node: node} do
@@ -60,10 +70,10 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
 
       {:ok, _view, html} = live(conn, ~p"/namespaces")
 
-      assert html =~ "declared, no hub"
+      assert html =~ "Declared, no hub running"
       # Zero, not blank.
-      assert html =~ ~r/namespace-relays-cold[^>]*>\s*0\s*</
-      assert html =~ ~r/namespace-runners-cold[^>]*>\s*0\s*</
+      assert html =~ ~r/namespace-relays-cold[^>]*>\s*0 relays\s*</
+      assert html =~ ~r/namespace-runners-cold[^>]*>\s*0 runners\s*</
     end
 
     test "a running namespace with no record is marked undeclared", %{conn: conn, node: node} do
@@ -71,7 +81,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
 
       {:ok, _view, html} = live(conn, ~p"/namespaces")
 
-      assert html =~ "running, undeclared"
+      assert html =~ "Running, undeclared"
     end
 
     test "records the controller cannot answer leave the namespaces listed", %{
@@ -116,7 +126,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
 
       {:ok, _view, html} = live(conn, ~p"/namespaces")
 
-      assert html =~ "declared &amp; running"
+      assert html =~ "Declared and running"
       refute html =~ ~s(data-testid="declarations-unavailable")
       calls = FakeController.calls(node, {Namespace, :get})
       assert calls != []
@@ -163,7 +173,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       html = open_section(view, "quotas")
 
       assert html =~ ~s(data-testid="quota-unset-disk_bytes")
-      assert html =~ "no limit applies"
+      assert html =~ "No limit applies"
     end
 
     test "a counter at its limit is marked breached and opens the section", %{
@@ -349,9 +359,10 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
 
-      html = open_section(view, "role-bindings")
+      html = open_section(view, "access")
 
       assert html =~ ~s(data-testid="role-binding-alice")
+      assert html =~ ~s(data-testid="binding-menu-alice")
       assert html =~ ~s(data-testid="role-alice-ops")
       assert html =~ ~s(data-testid="role-alice-viewer")
     end
@@ -361,7 +372,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
 
-      html = open_section(view, "role-bindings")
+      html = open_section(view, "access")
 
       assert html =~ ~s(data-testid="role-bindings-empty")
       assert html =~ ~s(data-testid="bind-role-empty-btn")
@@ -370,7 +381,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
     test "binds a principal to a role in this namespace", %{conn: conn, node: node} do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      open_section(view, "role-bindings")
+      open_section(view, "access")
 
       view |> element(~s([data-testid="bind-role-btn"])) |> render_click()
 
@@ -408,6 +419,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      open_section(view, "access")
       view |> element(~s([data-testid="bind-role-btn"])) |> render_click()
 
       html =
@@ -429,7 +441,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      open_section(view, "role-bindings")
+      open_section(view, "access")
 
       html = view |> element(~s([data-testid="unbind-role-alice-ops"])) |> render_click()
       assert html =~ "Its other roles stay."
@@ -457,11 +469,11 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      open_section(view, "role-bindings")
+      open_section(view, "access")
 
       html = view |> element(~s([data-testid="unbind-binding-alice"])) |> render_click()
       assert html =~ "Remove every role"
-      assert html =~ ~r/holds in <span[^>]*>default</
+      assert text_of(html, ~s([data-testid="unbind-role-modal"])) =~ ~r/holds in\s+default\?/
       refute html =~ ~s(data-testid="unbind-cluster-wide")
 
       FakeController.set(node, {Namespace, :roles}, {:ok, []})
@@ -481,11 +493,11 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      open_section(view, "role-bindings")
+      open_section(view, "access")
 
       html = view |> element(~s([data-testid="unbind-binding-root"])) |> render_click()
 
-      assert html =~ ~r/holds in <span[^>]*>_system</
+      assert text_of(html, ~s([data-testid="unbind-role-modal"])) =~ ~r/holds in\s+_system\?/
       assert html =~ ~s(data-testid="unbind-cluster-wide")
     end
 
@@ -499,7 +511,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      open_section(view, "role-bindings")
+      open_section(view, "access")
       view |> element(~s([data-testid="unbind-binding-alice"])) |> render_click()
       view |> element(~s([data-testid="unbind-role-cancel"])) |> render_click()
 
@@ -520,11 +532,12 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      html = open_section(view, "tokens")
+      html = open_section(view, "access")
 
       assert html =~ ~s(data-testid="token-tok-1")
+      assert html =~ ~s(data-testid="token-menu-tok-1")
       assert html =~ "deploys"
-      assert html =~ ~r/data-testid="token-status-tok-1"[^>]*>active/
+      assert html =~ ~r/data-testid="token-status-tok-1"[^>]*>\s*Active/
       refute html =~ ~s(data-testid="token-tok-2")
       refute html =~ "flzt_"
     end
@@ -622,7 +635,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       FakeController.set(node, {Namespace, :tokens}, {:ok, [token_row("tok-1")]})
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      open_section(view, "tokens")
+      open_section(view, "access")
 
       html = view |> element(~s([data-testid="revoke-token-tok-1"])) |> render_click()
       assert html =~ ~s(data-testid="revoke-token-modal")
@@ -636,7 +649,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       html = view |> element(~s([data-testid="revoke-token-confirm"])) |> render_click()
 
       assert [["tok-1", _ctx]] = FakeController.calls(node, {Namespace, :revoke_token})
-      assert html =~ ~r/data-testid="token-status-tok-1"[^>]*>revoked/
+      assert html =~ ~r/data-testid="token-status-tok-1"[^>]*>\s*Revoked/
       refute html =~ ~s(data-testid="revoke-token-tok-1")
     end
 
@@ -645,7 +658,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       FakeController.set(node, {Namespace, :tokens}, {:ok, [token_row("tok-1")]})
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      open_section(view, "tokens")
+      open_section(view, "access")
       view |> element(~s([data-testid="revoke-token-tok-1"])) |> render_click()
       view |> element(~s([data-testid="revoke-token-cancel"])) |> render_click()
 
@@ -667,6 +680,11 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
     )
   end
 
-  defp open_issue(view),
-    do: view |> element(~s([data-testid="issue-token-btn"])) |> render_click()
+  # The tokens sit in the folded access section.
+  defp open_issue(view) do
+    unless has_element?(view, ~s([data-testid="issue-token-btn"])),
+      do: open_section(view, "access")
+
+    view |> element(~s([data-testid="issue-token-btn"])) |> render_click()
+  end
 end

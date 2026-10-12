@@ -10,12 +10,18 @@ defmodule FlezhaUiWeb.PluginLive do
 
   Plugins are enabled, bound to further relays and given new options here
   through `FlezhaUiWeb.Live.PluginForm`, the form the relay screen attaches with.
+
+  A provider is presented by what it does — its description and the hooks it
+  supports, as the controller declares them — with its module on request.
+  Each provider is described once per screen, never on the tick.
   """
 
   use FlezhaUiWeb, :live_view
 
   use FlezhaUiWeb.Live.Refresh, every: 5_000
   use FlezhaUiWeb.Live.PluginForm
+  use FlezhaUiWeb.Inspect, kinds: ~w(plugin)
+  use FlezhaUiWeb.Live.Sections, open: %{"providers" => false}
 
   alias FlezhaUi.Service.NodeManager
 
@@ -25,15 +31,68 @@ defmodule FlezhaUiWeb.PluginLive do
      socket
      |> start_refresh()
      |> plugin_form_init()
-     |> assign(confirm_disable: nil, confirm_unbind: nil, page_title: "Plugins")}
+     |> sections_init()
+     |> assign(
+       confirm_disable: nil,
+       confirm_unbind: nil,
+       page_title: "Plugins",
+       loaded?: false,
+       provider_details: %{},
+       plugins: [],
+       refused: [],
+       available_providers: [],
+       refused_packages: 0,
+       providers_error: nil,
+       catalog: [],
+       catalog_error: nil
+     )}
   end
 
   @impl true
-  def handle_params(_params, _uri, socket) do
+  def handle_params(params, _uri, socket) do
     title = Layouts.scoped_title("Plugins", socket.assigns.scoped_namespace)
+    # Opening an inspector patches the address too; only a new scope reads again.
+    socket =
+      if socket.assigns.loaded? and
+           socket.assigns[:loaded_scope] == socket.assigns.scoped_namespace,
+         do: socket,
+         else:
+           socket
+           |> assign(page_title: title, loaded_scope: socket.assigns.scoped_namespace)
+           |> refresh_when_connected()
 
-    {:noreply, socket |> assign(page_title: title) |> refresh()}
+    {:noreply, inspect_params(socket, params)}
   end
+
+  @impl FlezhaUiWeb.Inspect
+  def inspect_context(socket, {"plugin", key}) do
+    {namespace, name} =
+      case {socket.assigns.scoped_namespace, String.split(key, "/", parts: 2)} do
+        {nil, [ns, name]} -> {ns, name}
+        {scope, _parts} -> {scope, key}
+      end
+
+    case Enum.find(socket.assigns.plugins, &(&1.name == name and &1.namespace == namespace)) do
+      nil ->
+        %{namespace: namespace}
+
+      plugin ->
+        %{
+          namespace: namespace,
+          provider: plugin.provider,
+          provider_id: provider_id(plugin),
+          hooks: Enum.map(plugin[:hooks] || [], &to_string/1),
+          relays: Enum.map(plugin[:relays] || [], &to_string/1),
+          controllers: Enum.map(plugin[:controllers] || [], &to_string/1)
+        }
+    end
+  end
+
+  def inspect_context(_socket, _selection), do: %{}
+
+  @doc "How a plugin is named in `?inspect=`: with its namespace on an unscoped screen."
+  def inspect_id(plugin, nil), do: "#{plugin.namespace}/#{plugin.name}"
+  def inspect_id(plugin, _scope), do: plugin.name
 
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
@@ -45,6 +104,7 @@ defmodule FlezhaUiWeb.PluginLive do
 
     socket
     |> assign(
+      loaded?: true,
       available_providers: listing.providers,
       refused_packages: listing.refused,
       providers_error: providers_error,
@@ -73,7 +133,43 @@ defmodule FlezhaUiWeb.PluginLive do
         end
       end)
 
-    assign(socket, plugins: Enum.sort_by(plugins, &{&1.namespace, &1.name}), refused: refused)
+    socket
+    |> assign(plugins: Enum.sort_by(plugins, &{&1.namespace, &1.name}), refused: refused)
+    |> describe_providers()
+  end
+
+  # Each provider in view, described once: its help's first paragraph and its
+  # hooks. A provider the controller will not describe is listed by name.
+  defp describe_providers(socket) do
+    %{plugins: plugins, available_providers: providers, provider_details: known} = socket.assigns
+
+    ids =
+      (Enum.map(plugins, &provider_id/1) ++ Enum.map(providers, &to_string(&1.id)))
+      |> Enum.uniq()
+      |> Enum.reject(&Map.has_key?(known, &1))
+
+    details =
+      Map.new(ids, fn id ->
+        case NodeManager.provider(id, socket.assigns.flezha_token) do
+          {:ok, provider} ->
+            {id,
+             %{
+               description: summary(provider[:help]),
+               hooks: Enum.map(provider[:hooks] || [], &to_string/1)
+             }}
+
+          {:error, _reason} ->
+            {id, %{description: nil, hooks: []}}
+        end
+      end)
+
+    assign(socket, provider_details: Map.merge(known, details))
+  end
+
+  defp summary(nil), do: nil
+
+  defp summary(help) do
+    help |> to_string() |> String.split(~r/\n\s*\n/, parts: 2) |> hd() |> String.trim()
   end
 
   @impl true

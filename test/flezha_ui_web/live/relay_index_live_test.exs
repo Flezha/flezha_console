@@ -47,6 +47,76 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
     )
   end
 
+  describe "a row" do
+    defp counters(node, received) do
+      FakeController.set(
+        node,
+        {Flezha.Service.Controller, :liveness_counters},
+        {:ok,
+         %{
+           channels: [],
+           relays: [
+             %{relay_id: "relay_a", io_in_received: received, forwarded: 0, filtered_nil: 0}
+           ]
+         }}
+      )
+    end
+
+    # The sleep buys elapsed time for the delta to be divided by.
+    defp tick(view) do
+      Process.sleep(20)
+      send(view.pid, :refresh)
+      render(view)
+    end
+
+    test "its rate carries its recent history once two readings exist", %{conn: conn, node: node} do
+      with_fleet(node, rows: [row("relay_a")])
+      counters(node, 0)
+      {:ok, view, html} = live(conn, ~p"/relays")
+
+      assert view |> element(~s([data-testid="relay-rate-relay_a"])) |> render() =~ "—"
+      refute html =~ ~s(data-testid="relay-spark-relay_a")
+
+      counters(node, 1_000)
+      tick(view)
+      counters(node, 3_000)
+      html = tick(view)
+
+      assert html =~ ~s(data-testid="relay-spark-relay_a")
+      assert view |> element(~s([data-testid="relay-rate-relay_a"])) |> render() =~ "/s"
+    end
+
+    test "its menu inspects it in place", %{conn: conn, node: node} do
+      with_fleet(node, rows: [row("relay_a")])
+      {:ok, view, html} = live(conn, ~p"/relays")
+
+      assert html =~ ~s(data-testid="relay-menu-relay_a")
+
+      view |> element(~s([data-testid="inspect-relay-relay_a"])) |> render_click()
+      assert_patch(view, ~p"/relays?#{[inspect: "relay:default/relay_a"]}")
+      assert render(view) =~ ~s(data-testid="inspector-relay")
+    end
+
+    test "a runner filter says which runner, and is cleared in one step", %{
+      conn: conn,
+      node: node
+    } do
+      with_fleet(node,
+        rows: [row("relay_a", %{runner: "runner-a"}), row("relay_b", %{runner: "runner-b"})]
+      )
+
+      {:ok, view, html} = live(conn, ~p"/relays?runner=runner-a")
+
+      assert html =~ ~s(data-testid="filter-runner")
+      assert html =~ ~s(data-testid="relay-index-row-relay_a")
+      refute html =~ ~s(data-testid="relay-index-row-relay_b")
+
+      view |> element(~s([data-testid="filter-runner-clear"])) |> render_click()
+      assert_patch(view, ~p"/relays")
+      assert render(view) =~ ~s(data-testid="relay-index-row-relay_b")
+    end
+  end
+
   describe "listing" do
     test "lists every relay in every reachable namespace", %{conn: conn, node: node} do
       with_fleet(node, rows: [row("relay_a"), row("relay_b")])
@@ -77,7 +147,7 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
       assert html =~ "steps"
       assert html =~ "flezha@node-z"
       assert html =~ "runner-a"
-      assert html =~ ">2<"
+      assert html =~ ~r/<td class="fui-cell-num">\s*2\s*<\/td>/
     end
 
     test "every health verdict the controller answers renders distinctly", %{
@@ -107,7 +177,7 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/relays")
 
-      assert html =~ "unplaced"
+      assert html =~ "Unplaced"
     end
 
     test "a builder without a run reads as flow, and plugin entries are skipped", %{
@@ -130,7 +200,7 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
       {:ok, _view, html} = live(conn, ~p"/relays")
 
       assert html =~ ~s(data-testid="relays-empty")
-      assert html =~ "No relays are running in any reachable namespace."
+      assert html =~ "None is running in any namespace you can reach."
       refute html =~ ~s(data-testid="relays-index-table")
     end
 
@@ -175,7 +245,7 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/namespaces/staging/relays")
 
-      assert html =~ "No relays are running in staging."
+      assert html =~ "None is running in staging."
       refute html =~ "No running relay matches these filters."
     end
 
@@ -225,8 +295,8 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
 
       html = render_change(view, "filter", %{"filters" => %{"namespace" => "staging"}})
 
-      assert html =~ "staging"
-      refute html =~ ~s(>default<)
+      assert html =~ "/namespaces/staging/relays/relay_a"
+      refute html =~ "/namespaces/default/relays/relay_a"
     end
 
     test "filtering to suspended relays costs no per-relay read", %{conn: conn, node: node} do
@@ -289,17 +359,49 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
              )
     end
 
+    test "the start walks factory, details and review, and can step back", %{
+      conn: conn,
+      node: node
+    } do
+      {:ok, view, _html} = live(conn, ~p"/relays")
+      html = render_click(view, "launcher_open", %{})
+
+      for testid <- ~w(start-steps factory-search factory-choices),
+          do: assert(html =~ ~s(data-testid="#{testid}"), "#{testid} is missing")
+
+      view |> element(~s([data-testid="factory-choice-store_input"])) |> render_click()
+
+      html = view |> form("#start-details", start: %{id: "relay_new"}) |> render_submit()
+      assert html =~ ~s(data-testid="start-review")
+
+      sentence =
+        text_of(html, ~s([data-testid="start-review-sentence"]))
+
+      assert sentence =~ ~r/from\s+store_input\s+in\s+default,\s+as\s+relay_new\./
+      assert FakeController.calls(node, {Relay, :start}) == []
+
+      html = view |> element(~s([data-testid="start-back-btn"])) |> render_click()
+      assert html =~ ~s(data-testid="start-next-btn")
+      refute html =~ ~s(data-testid="start-review")
+
+      render_submit(view, "launcher_next", %{"start" => %{"id" => "relay_new"}})
+      html = view |> element(~s([data-testid="start-submit-btn"])) |> render_click()
+
+      assert html =~ ~s(data-testid="start-result")
+
+      # A second click while the answer is on screen starts nothing more.
+      render_click(view, "launcher_submit", %{})
+      assert [["default", _fields, _ctx]] = FakeController.calls(node, {Relay, :start})
+    end
+
     test "the chosen factory's run is stated, not offered", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/relays")
       render_click(view, "launcher_open", %{})
 
-      html =
-        render_change(view, "launcher_change", %{
-          "start" => start_form(%{"factory_id" => "chat_loop_steps"})
-        })
+      html = render_click(view, "launcher_pick", %{"factory" => "chat_loop_steps"})
 
-      assert html =~ ~s(data-testid="factory-run")
-      assert html =~ ~r/data-testid="factory-run"[^>]*>\s*Runs as\s*<span[^>]*>steps/
+      assert html =~ "which runs as steps"
+      refute html =~ ~s(name="start[run]")
     end
 
     test "a start reaches the chosen namespace with no run", %{conn: conn, node: node} do
@@ -312,7 +414,7 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
         })
 
       assert html =~ ~s(data-testid="start-result")
-      assert html =~ "Relay started in staging."
+      assert html =~ "Relay started in staging:"
       assert html =~ "/namespaces/staging/relays/relay_new"
 
       assert [["staging", relay, %{source: :ui}]] = FakeController.calls(node, {Relay, :start})
@@ -460,11 +562,30 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
         )
 
       assert html =~
-               ~r/data-testid="lifecycle-what-0"[^>]*>\s*exited on runner runner-a: runner_disconnected/
+               ~r/data-testid="lifecycle-what-0"[^>]*>\s*<span[^>]*>default<\/span> exited on runner runner-a: runner_disconnected/
 
-      assert html =~ ~r/data-testid="lifecycle-what-1"[^>]*>\s*stopped: :stopped/
-      assert html =~ ~r/data-testid="lifecycle-what-2"[^>]*>\s*started from orders/
+      assert html =~
+               ~r/data-testid="lifecycle-what-1"[^>]*>\s*<span[^>]*>default<\/span> stopped: :stopped/
+
+      assert html =~
+               ~r/data-testid="lifecycle-what-2"[^>]*>\s*<span[^>]*>default<\/span> started from orders/
+
       assert length(FakeController.calls(node, {Relay, :list})) >= reads + 3
+    end
+
+    test "a runner dropped or readmitted is said, and the index keeps running", %{
+      conn: conn,
+      node: node
+    } do
+      with_fleet(node, rows: [row("r1")])
+      {:ok, view, _html} = live(conn, ~p"/relays")
+
+      send(view.pid, {:flezha_event, :runner_dropped, {"default", "runner-a"}})
+      send(view.pid, {:flezha_event, :runner_readmitted, {"default", "runner-a"}})
+      html = render(view)
+
+      assert html =~ "runner readmitted"
+      assert html =~ "runner dropped"
     end
 
     test "a signal from a namespace the token does not reach is not shown", %{
@@ -507,7 +628,6 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
 
       html = render(view)
 
-      assert html =~ "Lifecycle (50)"
       assert html =~ ~s(data-testid="lifecycle-entry-49")
       refute html =~ ~s(data-testid="lifecycle-entry-50")
       assert html =~ "/namespaces/default/relays/r55"

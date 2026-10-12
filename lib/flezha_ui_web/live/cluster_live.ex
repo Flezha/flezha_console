@@ -24,13 +24,16 @@ defmodule FlezhaUiWeb.ClusterLive do
      |> start_refresh()
      |> runner_actions_init()
      |> assign(page_title: "Cluster", selected_factory: nil, factory_runners: nil, recovery: nil)
+     |> assign(load_error: nil, connected_node: nil, cluster_nodes: [], namespaces: [])
      |> refresh()}
   end
 
   # A lookup, not a read: the catalog this screen already loaded per namespace
   # answers which runners serve each factory, so selecting one costs nothing.
   @impl true
-  def handle_event("select_factory", %{"namespace" => ns, "factory" => factory}, socket) do
+  def handle_event("select_factory", %{"value" => key}, socket) do
+    [ns, factory] = String.split(key, "/", parts: 2)
+
     runners =
       socket.assigns.namespaces
       |> Enum.find(%{}, &(&1.name == ns))
@@ -117,12 +120,11 @@ defmodule FlezhaUiWeb.ClusterLive do
     end
   end
 
-  @doc "A recovery state as an operator reads it."
-  def recovery_label(:normal), do: "serving"
-  def recovery_label(:not_hosted), do: "no hub on this node"
-  def recovery_label({:error, reason}), do: error_message(reason, "the recovery read")
-  def recovery_label(:unreachable), do: "could not be reached"
-  def recovery_label(state), do: to_string(state)
+  @doc "A recovery state as an operator reads it, in its tone."
+  def recovery({:error, reason}),
+    do: %{text: error_message(reason, "the recovery read"), tone: :negative}
+
+  def recovery(state), do: Words.say(:hub_recovery, state)
 
   # The members are the nodes holding a hub for some namespace the caller can
   # see, as the controller answers them. The node this UI reached is always

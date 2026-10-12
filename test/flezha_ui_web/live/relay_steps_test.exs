@@ -14,7 +14,10 @@ defmodule FlezhaUiWeb.RelayStepsTest do
   alias Flezha.Service.Relay
   alias Flezha.Service.Steps
 
-  @url "/namespaces/default/relays/relay_steps"
+  # Steps facts, the task journal and the input log are what a relay has kept,
+  # so they are on its State view; the Live view only names them.
+  @url "/namespaces/default/relays/relay_steps/state"
+  @live "/namespaces/default/relays/relay_steps"
 
   defp row(id, overrides \\ %{}) do
     FakeController.relay_row(id, Map.merge(%{factory: "chat_loop_steps"}, overrides))
@@ -54,6 +57,24 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       assert html =~ "30s"
     end
 
+    test "a refused first read is tried again, and the panel follows", %{conn: conn, node: node} do
+      FakeController.set(node, {Relay, :relay_rows}, {:ok, [row("relay_steps")]})
+
+      FakeController.set(
+        node,
+        {Relay, :overwatch_state},
+        FakeController.error("controller.timeout")
+      )
+
+      {:ok, view, html} = live(conn, @url)
+      refute html =~ ~s(data-testid="steps-panel")
+
+      steps(node)
+      send(view.pid, :refresh)
+
+      assert render(view) =~ ~s(data-testid="steps-panel")
+    end
+
     test "a flow relay gets no steps panel", %{conn: conn, node: node} do
       FakeController.set(node, {Relay, :relay_rows}, {:ok, [row("relay_steps")]})
 
@@ -80,6 +101,34 @@ defmodule FlezhaUiWeb.RelayStepsTest do
 
       assert html =~ ~s(data-testid="steps-init-error")
       assert html =~ "factory_missing"
+    end
+
+    test "the Live view names whether the relay is durable and links to its steps facts", %{
+      conn: conn,
+      node: node
+    } do
+      steps(node, %{effectively_once: true})
+
+      {:ok, _view, html} = live(conn, @live)
+
+      assert html =~ ~s(data-testid="relay-durable")
+      assert html =~ "Durable, effectively once."
+      assert html =~ ~s(href="/namespaces/default/relays/relay_steps/state#steps")
+      refute html =~ ~s(data-testid="steps-panel")
+      refute html =~ ~s(data-testid="task-journal-panel")
+    end
+
+    test "steps facts are stated as sentences, not a grid of yes and no", %{
+      conn: conn,
+      node: node
+    } do
+      steps(node, %{effectively_once: false})
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert html =~ "It is durable: its steps are journaled and survive a restart."
+      assert html =~ "Inputs are delivered at least once."
+      refute html =~ ">yes<"
     end
 
     test "a field an older controller omits does not break the decode", %{conn: conn, node: node} do
@@ -126,8 +175,8 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       assert html =~ ~s(data-testid="journal-entry-2")
       # Newest first: seq 2's row is rendered before seq 1's.
       assert :binary.match(html, "journal-entry-2") < :binary.match(html, "journal-entry-1")
-      assert html =~ "committed iterations: 3, 2, 1"
-      assert html =~ "leaf tasklets: reply"
+      assert html =~ ~s(Committed iterations: <span class="fui-num">3, 2, 1</span>)
+      assert html =~ ~s(Its leaf tasklets are <span class="fui-num">reply</span>)
       assert html =~ "has not committed every leaf"
     end
 
@@ -163,7 +212,9 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       html = open_section(view, "journal")
 
       assert html =~ ~s(data-testid="journal-dead-lettered-9")
-      assert html =~ "tasklet charge parked as relay_steps/charge/abc"
+
+      assert html =~
+               ~r/Tasklet <span class="fui-num">charge<\/span>\s+parked as <span class="fui-num">relay_steps\/charge\/abc<\/span>/
     end
 
     test "the input log shows its depth and offsets", %{conn: conn, node: node} do
@@ -234,9 +285,9 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       html = open_section(view, "input-log")
 
       assert [["relay_steps", _ctx]] = FakeController.calls(node, {Steps, :inbox})
-      assert html =~ ~r/data-testid="inbox-floor".*Floor <span class="font-mono">5</s
-      assert html =~ ~r/data-testid="inbox-entry-5".*consumed.*12 B.*prompts/s
-      assert html =~ ~r/data-testid="inbox-entry-6".*pending.*2.0 KB/s
+      assert html =~ ~r/data-testid="inbox-floor".*Floor <span class="fui-num">5</s
+      assert html =~ ~r/data-testid="inbox-entry-5".*Consumed.*12 B.*prompts/s
+      assert html =~ ~r/data-testid="inbox-entry-6".*Pending.*2.0 KB/s
     end
 
     test "are not read on the tick", %{conn: conn, node: node} do
@@ -298,14 +349,14 @@ defmodule FlezhaUiWeb.RelayStepsTest do
 
       assert html =~ ~s(data-testid="finished-relays")
       assert html =~ ~s(data-testid="finished-row-relay_done")
-      assert html =~ "completed"
+      assert html =~ "Completed"
       refute html =~ ~s(data-testid="finished-row-relay_live")
     end
 
     test "with none finished, the panel says so", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
 
-      assert open_section(view, "finished-relays") =~ "No steps relay has finished"
+      assert open_section(view, "finished-relays") =~ "None has finished"
     end
 
     test "the listing is read on open and on request, never on a tick", %{
@@ -341,10 +392,10 @@ defmodule FlezhaUiWeb.RelayStepsTest do
          }}
       )
 
-      {:ok, _view, html} = live(conn, @url)
+      {:ok, _view, html} = live(conn, @live)
 
       assert html =~ ~s(data-testid="completion-record")
-      assert html =~ "failed"
+      assert html =~ "Failed"
       assert html =~ "boom"
       refute html =~ ~s(data-testid="runtime-error")
     end

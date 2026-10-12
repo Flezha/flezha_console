@@ -37,68 +37,75 @@ The UI uses the controller's terms exactly. If a name here disagrees with
 
 A route carrying a namespace is scoped to it; the rest are platform-global.
 The three scoped listings are the *same* LiveViews as their platform twins,
-reading the namespace from the path instead of from a filter control.
+reading the namespace from the path instead of from a filter control, and a
+scope switch moves between the two forms.
 
 | Route | Shows |
 | --- | --- |
-| `/` | Connected controller, counts with a health breakdown, runners, namespace links |
-| `/namespaces` | Declared and running namespaces, their counts, and quota breaches |
-| `/namespaces/:ns` | Relays with health and run; quotas, role bindings (bind, unbind), tokens (issue once, revoke), partition groups, finished relays and runners with their OS pids as sections that fold; drop a runner and readmit its process |
-| `/namespaces/:ns/relays` | That namespace's relays, its scope fixed rather than filterable |
+| `/` | Redirects to the Home of the namespace last worked in, then to the first reachable one, then to `/namespaces` |
+| `/namespaces/:ns` | **Home** — a headline sentence and the namespace's figures, its open problems (three, then a link), a live map of its sources, runner bands with their relays as lanes, outputs and the dead-letter drain, what happened while the screen was open, and as sections that fold: quotas, access (role bindings and tokens), partition groups, finished relays and runners; drop a runner and readmit its process |
+| `/problems` | **Open problems** in every reachable namespace, worst first, each saying what is wrong, why, and offering the action that fixes it |
+| `/namespaces` | Declared and running namespaces as tiles, with a health strip, counts and quota breaches |
+| `/namespaces/:ns/relays` | That namespace's relays: health, run, node, runner, plugins and the measured rate with its recent history; each opens in an inspector, and its menu opens, inspects or stops it |
 | `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update, with a typed field for each option the provider declares |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
-| `/relays` | **Fleet** — every relay across every reachable namespace, filterable by namespace, health and run; starts one into any of them; the relay lifecycle feed as it happens |
-| `/namespaces/:ns/relays/:id` | Factory, runner, run, uptime, health, node, pipeline graph, steps panel, diagnosis on request; the relay's API, the calls made to it from anywhere (source, payload, answer or failure, duration) as they happen, task journal, input log and its records, cell state, and its plugin bindings — running or not, each unbindable from this relay — as sections that fold; send to the relay, call it, or call an entry channel from a form built from its schema, keeping this visit's results |
-| `/namespaces/:ns/relays/:id/listen` | The relay's live outputs or inputs |
-| `/namespaces/:ns/relays/:id/state` | Durable cells with their WAL/snapshot sequences and durability lag; point-in-time reads, a cell's outbox, replay from a point (flow relays), rotate, delete; history and finished-instance retention, the former settable |
-| `/plugins` | Enabled plugins per namespace, and the packages installed on the controller with their providers and why one was refused |
-| `/cluster` | Cluster nodes, per-node health rollup, hub recovery and each namespace's recovery detail per node, runner fleet with OS pids; drop a runner and readmit its process |
-| `/observability` | Observability sources and sinks, their enabled state, and a live signal tail |
-| `/controller` | Durability posture, RPO breaches and the shipper's own status, shutdown and boot state, authorization posture, memory hot spots; drain and stop the controller, watching each phase |
-| `/schedules` | Cron schedules with their status (Active while a node holds the job, Inactive while none does) and next fire; run one now |
-| `/dlq` | Parked dead-letter entries grouped by tasklet; inspect, replay, drop |
+| `/relays` | **Fleet** — every relay across every reachable namespace, filterable by namespace, health, run and runner; starts one into any of them; what happened while the screen was open |
+| `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph with its payload tap, and as sections that fold: diagnosis, the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema |
+| `/namespaces/:ns/relays/:id/listen` | **Listen** — the relay's live outputs or inputs |
+| `/namespaces/:ns/relays/:id/state` | **State** — steps facts as sentences, the task journal and input log, SDK state, and durable cells with their sequences and lag; point-in-time reads, a cell's outbox, replay, rotate, delete; retention, the history one settable |
+| `/plugins` | Enabled plugins per namespace, the providers on offer, and the packages installed on the controller with why one was refused |
+| `/cluster` | Cluster nodes, per-node health rollup, hub recovery per node, runners with what they serve, and which runners serve a factory; drop a runner and readmit its process |
+| `/observability` | Observability sources grouped by area with a name filter and an on/off switch each, sinks, and a live signal tail |
+| `/controller` | Readiness, authorization and durability in one sentence; durability posture, RPO breaches and the shipper, shutdown and boot state, memory hot spots; drain and stop the controller, watching each phase |
+| `/schedules` | Cron schedules with their status and next fire; run one now, after a confirmation |
+| `/dlq` | Parked dead-letter entries grouped by tasklet; inspect an entry's payload in place, replay, drop |
 | `/audit` | Audit file catalog, filtered reads, live tail, rotation |
+
+Starting a relay is a guided flow: choose a factory (each says what it is, how
+it runs and how many runners serve it), give the details, then read the start
+back as one sentence before it is made.
 
 ## Getting around
 
 The shell models the domain it controls: some concerns are scoped to a
 namespace and some are not, and it says which is which.
 
-- **The rail is two labelled sections.** `NAMESPACE` holds Overview,
-  Relays, Plugins and Schedules; `PLATFORM` holds Dashboard, Fleet,
-  Namespaces, Cluster, Controller, Observability, Dead-letter and Audit. A
-  screen is in the first only when the controller call behind it takes a
-  namespace, or the rows it returns each carry one — which is why Dead-letter
-  (keyed by relay class) and Observability (namespace-less) stay in the
-  second. With nothing in scope the first section says so instead of offering
-  destinations it has no scope to point at.
+- **The rail is two labelled sections.** `NAMESPACE` holds Home, Relays,
+  Plugins and Schedules; `PLATFORM` holds Problems, Fleet, Namespaces,
+  Cluster, Controller, Observability, Dead-letter and Audit. A screen is in the
+  first only when the controller call behind it takes a namespace, or the rows
+  it returns each carry one. With nothing in scope the first section says so.
+- **Problems are counted on the rail.** A per-session pulse reads every
+  reachable namespace every ten seconds, with the operator's own token and a
+  fixed number of calls per namespace, and the Problems entry shows how many
+  are open in the tone of the worst.
 - **Scope lives in the URL, never in the session.** `FlezhaUiWeb.Layouts`
   reads it back out of the path on every navigation, so the rail, the picker
   and the screen cannot disagree, and a pasted link opens the scope it names.
-- **The namespace picker means one thing in both places**: show me this
+- **The topbar's namespace picker means one thing everywhere**: show me this
   namespace. From a scoped screen it re-navigates to the same screen kind under
-  the new scope; from a platform screen, to that namespace's overview.
-- **Breadcrumbs are derived from the route, once**, in the same `on_mount` hook
-  that marks the current destination — not assembled per screen. There is no
-  back arrow.
-- **A relay's Detail, Listen and State are a tab strip on the object**,
-  and each stays its own route: Listen holds a live listener, State does
-  point-in-time reads, Detail polls overwatch. They are three processes with
-  three lifecycles, and collapsing them would leave a listener attached while
-  the operator reads something else.
+  the new scope; from a platform screen, to that namespace's Home.
+- **Crumbs appear only below a rail destination** — on a relay's views — and
+  sit in the page header. A rail destination carries none.
+- **A relay's Live, Listen and State are tabs on the object**, and each stays
+  its own route: Listen holds a live listener, State does point-in-time reads,
+  Live polls overwatch.
+- **Objects open in place.** A relay, a runner, a plugin or a parked entry
+  opens in an inspector drawer on the current screen, addressed by
+  `?inspect=<kind>:<id>` so the link can be shared; Escape closes it.
 - **`⌘K` / `Ctrl+K` opens a command palette** that reaches a relay by id, a
-  namespace by name, or any screen by name. Its screen index is the rail's own
-  list, so it can offer nothing the rail does not. The relay index is read
-  on first open — never on mount — and dropped again on the same lifecycle
-  events the screens refresh on.
-- **A long screen opens on what it is for** and folds the rest away. Which
-  sections start open is the screen's own declaration; the viewer's last choice
-  is restored over it from `localStorage`, and a browser that refuses to store
-  anything leaves the declared defaults standing. A breached quota outranks
-  both and opens its section regardless.
+  namespace by name or any rail destination by name, and offers actions — stop
+  or diagnose a relay, listen to it, run a schedule now — each landing on its
+  own screen's confirmation. Its screen index is the rail's own list.
+- **`?` explains the screen** — what it shows, the terms on it and the
+  keyboard shortcuts — as does the topbar's help control. `g` then `h`, `r`,
+  `p` or `c` goes to Home, Relays, Problems or Cluster. Every flezha term on
+  screen shows its definition on hover or focus, from one glossary.
+- **A long screen opens on what it is for** and folds the rest away, each
+  folded section stating what it holds. The viewer's last choice is restored
+  from `localStorage`; a breached quota opens its section regardless.
 - **Every screen that refreshes says so** — its interval, when it last did, and
-  a control to hold it still. Pausing is the operator's; a screen that already
-  suspends its tick for an open modal still does, independently.
+  a control to hold it still.
 
 ## Dev setup
 
@@ -163,7 +170,7 @@ Then log in at http://localhost:4000 with:
 
 In dev the UI seeds testnet relays — flow and steps, and `orders`, the runner's
 relay API fixture — websocket plugins and a `hook_webhook` controller plugin
-once the controller is reachable, so the dashboard is populated on arrival. See
+once the controller is reachable, so Home's map is populated on arrival. See
 `:dev_setup` in `config/dev.exs`. Before the controller boots, the
 `plugin_packages` service builds the `flezha_http` plugin package with the
 controller's toolchain and places it in the plugin root with a copy the loader
@@ -229,7 +236,8 @@ npm run tokens                # the design-token gate over assets/ and lib/
 ```
 
 `npm run tokens` runs the stylebook's own `check-tokens.mjs` over this
-repository. It fails on a `var()` naming a token nobody defines, a token
+repository, once for the console's colour roles and once for the relay graph's
+stylebook tokens. It fails on a `var()` naming a token nobody defines, a token
 defined but never referenced, and any ink/surface pairing below its WCAG AA
 floor in either theme — so a colour that only looks fine in dark mode is caught
 before it ships.
@@ -260,74 +268,47 @@ which layer a new assertion belongs to.
 
 ## How it looks
 
-Everything visual comes from [`flezha_stylebook`](../flezha_stylebook), the
-Flezha group's design system, and flezha.com is its reference look. This
-repository defines **no colours of its own** — `npm run tokens` fails on an
-undefined or unused token, a contrast pairing below WCAG AA, and any hex,
-`rgb()` or `hsl()` colour written here.
+The colours, the shell and the brand come from
+[`flezha_stylebook`](../flezha_stylebook), the Flezha group's design system;
+the content of every screen is drawn with the console's own component kit.
 
-- **Three CSS layers**, imported in order from `assets/css/app.css`:
-  `tokens.css`, `base.css`, `components.css`. They land after Tailwind's base
-  layer and before its utilities, so the stylebook's reset and form baseline
-  win over preflight while a utility still wins over a component recipe.
-  Tailwind keeps doing layout and spacing; the stylebook owns colour, type and
-  component skins.
-- **The alias layer** in `assets/tailwind.config.js` maps every colour, font
-  and shadow utility onto a stylebook token, so existing utility classes
-  inherit the palette rather than being rewritten one by one.
+- **Colour has one source.** The kit reads colour only through `--fui-*` roles
+  in `assets/css/console/tokens.css`, and each role names the stylebook token it
+  takes — `--fui-ink-1` is `--text-primary`, `--fui-canvas` is
+  `--surface-sheet` — so the palette and both themes are the stylebook's. The
+  console adds only a signal colour for live data, and the overlay scrim and
+  shadow.
+- **Status colour states an outcome.** The positive, warning and negative roles
+  say healthy, degraded and failed, and every state is also said in words and
+  by a shape. The accent marks interaction; the signal marks live data — flow,
+  rates, change marks — and never a status.
+- **The shell is the stylebook's**: the rail and topbar in the chrome, which is
+  pale in light and deep plum in dark, and the content on a rounded sheet set
+  into the chrome, the only part that scrolls.
+- **The content kit** is `assets/css/console/` (`tokens.css`, `base.css`,
+  `components.css`) with one function component per element in
+  `FlezhaUiWeb.CoreComponents`: buttons, fields, switches, segmented controls,
+  comboboxes, chips, state badges, grids with row menus, sections with digests,
+  the page header, tabs, drawers, dialogs, popovers, tooltips, toasts,
+  sparklines, meters, skeletons, code blocks, steps and identifiers. A screen
+  opens on its page header — the kind of object, its name, one sentence on its
+  condition, its actions and its tabs — and its sections are separated by space
+  and hairlines rather than nested cards. In dev, `/dev/kit` shows every
+  component in every state.
+- **Type**: Bricolage Grotesque for display, IBM Plex Sans for the interface
+  and IBM Plex Mono for identifiers and figures, self-hosted under
+  `priv/static/fonts` with their OFL licences.
 - **Theme contract**: attribute `data-theme="light|dark"` on `<html>`, storage
-  key `flezha-theme`. With nothing stored the theme is the device's colour
-  scheme (dark when it states none) and keeps following it; a toggle away from
-  the device is stored, a toggle back forgets it. The stylebook's
-  `theme-hydrate.js` is inlined in `<head>` at compile time, so the attribute
-  is set before the first paint. The control is `<button data-flz-theme-toggle>`
-  inside the account menu, bound by the stylebook's own `bindThemeToggles()`,
-  with the stylebook's `.flz-theme-sun` / `.flz-theme-moon` icons.
-- **The chrome follows the theme.** The sidebar and topbar are pale in light and
-  deep plum in dark, and the topbar wears the chrome band as flezha.com's
-  header does. The accent — plum in light, gold in dark — marks hover and the
-  current destination.
-- **The brand** is the stylebook's white honey badger painted as a mask
-  (`.flz-logo`), so it takes the ink of the surface it sits on, beside
-  "Flezha UI" in `.flz-brand-name`. The favicon is the stylebook's adaptive
-  badger, which follows the browser's scheme. The login screen and the 404 page
-  show a mascot pose; data screens never do.
-- **Fonts, the badger, the favicons and the mascot poses** are copied out of the
-  stylebook into `priv/static/` by `mix assets.stylebook` (wired into
-  `assets.setup`, `assets.build` and `assets.deploy`) and committed, so the
-  Node-less container serves them with no extra step.
-- **Controls come from one vocabulary.** Text inputs, selects, textareas,
-  checkboxes and the dropdown trigger are all skinned by the stylebook's
-  `base.css`, so they are the same box; labels, hints and errors are
-  `.flz-field-*`. A picker whose menu needs styling — a filter — is a
-  `<.dropdown>` (a menu button, since the OS draws a `select`'s menu and it
-  cannot be themed); a `select` stays the control inside a dialog. A panel of
-  *actions* rather than values — the account controls, the namespace to scope
-  to — is a `<.menu>`, which shares the same panel and the same open/close hook.
-  An exclusive pair or triple is `.flz-segmented`.
-- **Every labelled control is `<.input>`**, the one field component in
-  `FlezhaUiWeb.CoreComponents`. It renders the label, the control, the hint and
-  the errors, and it is where a control class string lives — no template
-  carries one. A field whose values the controller can enumerate is
-  `<.enumerated_field>`, which offers them and falls back to free text only
-  when the listing was refused. A dialog names its *role* — `confirm`, `form`,
-  `wide` — and `<.dialog>` maps it to a width, so "how wide is a form modal" has
-  one answer.
-- **Status colour states an outcome, and is never a brand colour.** Green
-  (`--positive`), amber (`--warning`) and red (`--negative`) say healthy,
-  degraded and failed. The accent (`--accent-solid`) marks interaction and
-  magenta (`--brand-solid`) is the brand fill; neither is a status. Every solid
-  fill uses its matched foreground token — never white on amber.
-- **Row actions are small ghost buttons**, and a destructive one opens a
-  confirmation whose confirm button is the danger fill. Payloads, schemas and
-  tokens sit in `.flz-code.flz-code--wrap` so long lines wrap; a quota is a
-  `.flz-meter`.
-- **A component another Flezha surface could reuse goes upstream**, into the
-  stylebook's `components.css` — not into a local stylesheet. The topology
-  graph draws its nodes, wires and legend with the stylebook's relay-graph
-  recipe (`.flz-graph-*`), the same one flezha.com's relay shapes use; only its
-  own behaviour — flow-speed buckets, selection, backpressure, rate labels and
-  the sparkline — stays here as `topo-*` rules.
+  key `flezha-theme`, set before the first paint by the stylebook's inlined
+  `theme-hydrate.js`. The toggle is in the account menu.
+- **The relay pipeline graph** keeps the stylebook's relay-graph recipe
+  (`.flz-graph-*`) until its own redesign; only its behaviour — flow-speed
+  buckets, selection, backpressure, rate labels — stays here as `topo-*` rules.
+- **The gate.** `npm run tokens` runs the stylebook's `check-tokens.mjs` twice:
+  over the console's roles, resolved through the stylebook's palette, and over
+  the stylebook tokens the graph still reads. Either fails on an undefined or
+  unused token, a contrast pairing below WCAG AA in either theme, or a hex,
+  `rgb()` or `hsl()` colour written outside a token file.
 
 ## How the UI talks to the controller
 

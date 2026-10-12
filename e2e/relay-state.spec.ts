@@ -1,4 +1,4 @@
-import { test, expect, choose, withStepsRelay, expectAdvances } from './fixtures';
+import { menuAction, test, expect, choose, withStepsRelay, expectAdvances } from './fixtures';
 
 /**
  * A relay's durable state: its cells, their counters, and the point-in-time
@@ -51,12 +51,13 @@ test.describe('Relay durable state', () => {
     await expectAdvances(() => series.count(), 'the lag series');
 
     const provenance = page.getByTestId('chart-provenance');
-    await expect(provenance).toContainText('Sampled by this UI');
+    await expect(provenance).toContainText('Sampled by this console');
     await expect(provenance).toContainText('never interpolated');
   });
 
   test('a point-in-time read states the sequence it resolved and the sizes', async ({ page }) => {
-    await page.locator('[data-testid^="select-"]').first().click();
+    const cell = (await page.locator('[data-testid^="cell-menu-"]').first().getAttribute('data-testid'))!.slice('cell-menu-'.length);
+    await menuAction(page, `cell-menu-${cell}`, `select-${cell}`);
 
     const travel = page.getByTestId('time-travel');
     await expect(travel).toBeVisible();
@@ -81,7 +82,8 @@ test.describe('Relay durable state', () => {
   test('a target that is neither a sequence nor a time is refused on the form', async ({
     page,
   }) => {
-    await page.locator('[data-testid^="select-"]').first().click();
+    const cell = (await page.locator('[data-testid^="cell-menu-"]').first().getAttribute('data-testid'))!.slice('cell-menu-'.length);
+    await menuAction(page, `cell-menu-${cell}`, `select-${cell}`);
 
     await choose(page, 'travel-kind', 'time');
     await page.getByTestId('travel-value').fill('yesterday');

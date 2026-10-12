@@ -1,297 +1,425 @@
-<div class="space-y-6">
-  <.header>
-    <span class="flz-num">{@relay_id}</span>
-    <span class="ml-2 text-sm font-normal text-th-secondary">durable state</span>
-  </.header>
+<.page_header
+  eyebrow="Relay"
+  title={@relay_id}
+  crumbs={@breadcrumbs}
+  tabs={Layouts.relay_tabs(@ns, @relay_id, :state)}
+  tabs_label="Relay views"
+>
+  <:sentence>
+    What {@relay_id} has kept:
+    <%= if @run == :steps do %>
+      its steps facts,
+    <% end %>
+    <%= if @journal do %>
+      its <.term key="task journal" /> and <.term key="input log" />,
+    <% end %>
+    its SDK state and its durable <.term key="cell">cells</.term>.
+  </:sentence>
+</.page_header>
 
-  <.relay_tabs ns={@ns} relay_id={@relay_id} current={:state} />
+<.runtime_error error={@load_error} action="the state listing" />
 
-  <.runtime_error error={@load_error} action="the state listing" />
+<%!-- Steps facts, as sentences --%>
+<.section :if={@run == :steps and @facts} id="steps" testid="steps-panel" flush>
+  <:title>Steps</:title>
+  <ul class="space-y-1">
+    <li :for={{testid, text} <- steps_sentences(@facts)} data-testid={testid}>{text}</li>
+  </ul>
+  <.notice :if={@facts.init_error} kind={:error} testid="steps-init-error" class="mt-4">
+    This relay failed to initialise: <code>{Format.printable(@facts.init_error)}</code>
+  </.notice>
+</.section>
 
-  <div class="flz-panel p-5 space-y-3" data-testid="state-retention">
-    <dl class="flex flex-wrap gap-6 text-sm">
-      <div>
-        <dt class="flz-label">History retention</dt>
-        <dd data-testid="history-retention" class="flz-num text-th-primary mt-1">
-          <%= case @history_retention do %>
-            <% nil -> %>
-              unavailable
-            <% :unknown -> %>
-              unknown — this controller does not report it
-            <% hours -> %>
-              {hours} hours
-          <% end %>
-        </dd>
-      </div>
-      <div :if={@run != :flow}>
-        <dt class="flz-label">Finished-instance retention</dt>
-        <dd data-testid="finished-retention" class="flz-num text-th-primary mt-1">
-          {if @retention_hours, do: "#{@retention_hours} hours", else: "unavailable"}
-        </dd>
-      </div>
-    </dl>
-    <form
-      :if={NodeManager.granted?(@operations, "Steps.set_retention")}
-      phx-change="retention_change"
-      phx-submit="set_retention"
-      data-testid="retention-form"
-      class="flex flex-wrap items-end gap-3"
+<%!-- Task journal, durable steps relays only --%>
+<.section
+  :if={@journal}
+  fold="journal"
+  open={@sections["journal"]}
+  testid="task-journal-panel"
+  digest={journal_digest(@journal, @committed_iterations)}
+>
+  <:title>Task journal</:title>
+  <:actions>
+    <.button
+      :if={@committed_iterations != [] and NodeManager.granted?(@operations, "Steps.rewind")}
+      variant="secondary"
+      size="sm"
+      phx-click="open_rewind"
+      data-testid="open-rewind-btn"
     >
-      <.input
-        type="number"
-        name="retention[hours]"
-        label="Set history retention (hours)"
-        value={@retention_form["hours"]}
-        compact
-        data-testid="retention-hours"
-      />
-      <.button type="submit" size="sm" data-testid="retention-submit">Set</.button>
-      <p class="text-xs text-th-muted basis-full">
-        Kept in the controller's memory: it lasts until the controller next boots unless its
-        runtime configuration says the same.
-      </p>
-    </form>
-    <.form_error error={@retention_error} action="the retention change" testid="retention-error" />
+      Rewind
+    </.button>
+  </:actions>
+  <div class="space-y-1 mb-4">
+    <p data-testid="task-journal-committed">
+      Committed iterations: <span class="fui-num">{Enum.join(@committed_iterations, ", ") |> then(&if(&1 == "", do: "none", else: &1))}</span>.
+    </p>
+    <p data-testid="task-journal-leaves">
+      Its leaf tasklets are <span class="fui-num">{Enum.join(@journal.leaf_tasks, ", ")}</span>; {if @journal.complete,
+        do: "the in-flight iteration has committed every leaf.",
+        else: "the in-flight iteration has not committed every leaf."}
+    </p>
   </div>
+  <.empty_state :if={@journal.entries == []} icon="hero-book-open">
+    The journal records each tasklet as it commits. Nothing is recorded yet.
+  </.empty_state>
+  <.grid
+    :if={@journal.entries != []}
+    id="journal-entries"
+    rows={@journal.entries}
+    row_testid={&"journal-entry-#{&1[:seq]}"}
+  >
+    <:col :let={entry} label="Seq" num>{entry[:seq]}</:col>
+    <:col :let={entry} label="Type"><span class="fui-num">{entry[:type]}</span></:col>
+    <:col :let={entry} label="Iteration" num>{entry[:iter]}</:col>
+    <:col :let={entry} label="Task" num>{entry[:task_idx]}</:col>
+    <:col :let={entry} label="Detail">
+      <span
+        :if={entry[:type] == "dead_lettered"}
+        data-testid={"journal-dead-lettered-#{entry[:seq]}"}
+      >
+        Tasklet <span class="fui-num">{entry[:tasklet]}</span>
+        parked as <span class="fui-num">{entry[:dlq_entry]}</span>
+      </span>
+    </:col>
+  </.grid>
+</.section>
 
-  <%= if @cells == [] do %>
-    <.empty_state icon="hero-circle-stack" testid="state-empty" boxed={true}>
-      This relay has no durable state yet.
-    </.empty_state>
-  <% else %>
-    <.panel
-      :for={{tasklet, cells} <- Enum.group_by(@cells, & &1.tasklet)}
-      testid={"tasklet-#{tasklet}"}
-      icon="hero-circle-stack"
-      class="overflow-hidden"
+<%!-- Input log --%>
+<.section
+  :if={@input_log}
+  fold="input-log"
+  open={@sections["input-log"]}
+  testid="input-log-panel"
+  digest={"#{@input_log.undelivered} undelivered"}
+>
+  <:title>Input log</:title>
+  <dl class="fui-facts mb-4">
+    <.stat label="Undelivered" testid="input-log-undelivered">{@input_log.undelivered}</.stat>
+    <.stat label="Last offset" testid="input-log-last-offset">
+      {last_offset(@input_log.last_offset)}
+    </.stat>
+    <.stat label="Consumed offset">{@input_log.consumed_offset || "—"}</.stat>
+  </dl>
+  <div :if={@inbox_error} data-testid="inbox-error">
+    <.runtime_error error={@inbox_error} action="the input log" />
+  </div>
+  <div :if={@inbox} data-testid="inbox-records" class="space-y-2">
+    <p data-testid="inbox-floor" class="fui-figures">
+      <span :if={@inbox.floor >= 0}>
+        Floor <span class="fui-num">{@inbox.floor}</span>: records at or below it are consumed.
+      </span>
+      <span :if={@inbox.floor < 0}>Floor: nothing is consumed yet.</span>
+      Payloads are not shown.
+    </p>
+    <p :if={@inbox.entries == []} class="fui-figures">The input log retains no records.</p>
+    <.grid
+      :if={@inbox.entries != []}
+      id="inbox"
+      rows={@inbox.entries}
+      row_testid={&"inbox-entry-#{&1.offset}"}
     >
-      <:title>Tasklet <span class="font-mono normal-case">{tasklet}</span></:title>
-      <table class="flz-table">
-        <thead>
-          <tr>
-            <th>Cell</th>
-            <th>WAL seq</th>
-            <th>Snapshot seq</th>
-            <th>Flush p99</th>
-            <th>Fsync lag</th>
-            <th>Dedup drops</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            :for={cell <- cells}
-            data-testid={"cell-#{cell.key}"}
+      <:col :let={entry} label="Offset" num>{entry.offset}</:col>
+      <:col :let={entry} label="State">{if entry.consumed, do: "Consumed", else: "Pending"}</:col>
+      <:col :let={entry} label="Size" num>{Format.bytes(entry.bytes)}</:col>
+      <:col :let={entry} label="Channel">
+        <span class="fui-num">{entry.channel || "—"}</span>
+      </:col>
+    </.grid>
+  </div>
+</.section>
+
+<%!-- SDK state, read on request --%>
+<.section
+  fold="sdk-state"
+  open={@sections["sdk-state"]}
+  testid="sdk-state-panel"
+  digest={if @state_json, do: "read at sequence #{@state_seq || "—"}", else: "not read yet"}
+>
+  <:title>SDK state</:title>
+  <:actions>
+    <.button
+      variant="secondary"
+      size="sm"
+      phx-click="toggle_auto_refresh"
+      aria-pressed={to_string(@auto_refresh_state)}
+      data-testid="state-auto-refresh"
+    >
+      {if @auto_refresh_state, do: "Reading every refresh", else: "Read every refresh"}
+    </.button>
+    <.button
+      variant="secondary"
+      size="sm"
+      icon="hero-arrow-path"
+      phx-click="fetch_state"
+      data-testid="fetch-state-btn"
+    >
+      Read state
+    </.button>
+  </:actions>
+  <div class="space-y-4">
+    <form phx-change="selector_change" class="grid gap-4 sm:grid-cols-2">
+      <.input
+        type="text"
+        name="selector[tasklet]"
+        label="Tasklet"
+        value={@selector_form["tasklet"]}
+        placeholder="all tasklets"
+        data-testid="input-selector-tasklet"
+      />
+      <.input
+        type="text"
+        name="selector[cell_key]"
+        label="Cell key"
+        value={@selector_form["cell_key"]}
+        placeholder="all cells"
+        data-testid="input-selector-cell-key"
+      />
+    </form>
+    <%= case @state_notice do %>
+      <% {:info, message} -> %>
+        <.notice testid="state-notice">{message}</.notice>
+      <% {:error, reason} -> %>
+        <.runtime_error error={reason} />
+      <% nil -> %>
+    <% end %>
+    <%= if @state_json do %>
+      <p :if={@state_seq} class="fui-figures">
+        Serialized at change sequence <span data-testid="state-seq" class="fui-num">{@state_seq}</span>;
+        this may be ahead of what is durable.
+      </p>
+      <.code_block testid="state-json">{@state_json}</.code_block>
+    <% else %>
+      <p :if={is_nil(@state_notice)} class="fui-figures">
+        Read state to see the relay's cells as its SDK holds them now.
+      </p>
+    <% end %>
+  </div>
+</.section>
+
+<%!-- Retention --%>
+<.section testid="state-retention">
+  <:title>Retention</:title>
+  <dl class="fui-facts">
+    <.stat label="History retention" testid="history-retention">
+      <%= case @history_retention do %>
+        <% nil -> %>
+          Unavailable
+        <% :unknown -> %>
+          Unknown — this controller does not report it
+        <% hours -> %>
+          {hours} hours
+      <% end %>
+    </.stat>
+    <.stat :if={@run != :flow} label="Finished-instance retention" testid="finished-retention">
+      {if @retention_hours, do: "#{@retention_hours} hours", else: "Unavailable"}
+    </.stat>
+  </dl>
+  <form
+    :if={NodeManager.granted?(@operations, "Steps.set_retention")}
+    phx-change="retention_change"
+    phx-submit="set_retention"
+    data-testid="retention-form"
+    class="flex flex-wrap items-end gap-3 mt-4"
+  >
+    <.input
+      type="number"
+      name="retention[hours]"
+      label="Set history retention (hours)"
+      value={@retention_form["hours"]}
+      compact
+      data-testid="retention-hours"
+    />
+    <.button type="submit" size="sm" data-testid="retention-submit">Set</.button>
+    <p class="fui-hint basis-full">
+      Kept in the controller's memory: it lasts until the controller next boots unless its
+      runtime configuration says the same.
+    </p>
+  </form>
+  <.form_error error={@retention_error} action="the retention change" testid="retention-error" />
+</.section>
+
+<%!-- Durable cells --%>
+<.section testid="cells-panel">
+  <:title>Durable cells</:title>
+  <.empty_state :if={@cells == []} icon="hero-circle-stack" testid="state-empty">
+    A cell is a keyed unit of state a tasklet persists. This relay has none persisted yet.
+  </.empty_state>
+  <div :if={@cells != []} class="space-y-8">
+    <div
+      :for={{tasklet, cells} <- Enum.group_by(@cells, & &1.tasklet)}
+      data-testid={"tasklet-#{tasklet}"}
+      class="space-y-2"
+    >
+      <h3 class="fui-eyebrow">Tasklet <span class="fui-num">{tasklet}</span></h3>
+      <.grid
+        id={"cells-#{tasklet}"}
+        rows={cells}
+        row_testid={&"cell-#{&1.key}"}
+        row_tone={&(lagging?(&1) && "warning")}
+        row_selected={&(&1.key == @selected)}
+      >
+        <:col :let={cell} label="Cell">
+          <%!-- A tasklet holding one unkeyed cell reports an empty key;
+                naming it is clearer than rendering nothing. --%>
+          <span class="fui-num">
+            {if cell.cell_key == "", do: "(unkeyed)", else: cell.cell_key}
+          </span>
+          <span
+            :if={lagging?(cell)}
+            data-testid={"cell-lagging-#{cell.key}"}
+            class="fui-badge fui-badge--warning ml-1"
           >
-            <td class="text-th-primary flz-num text-xs">
-              <%!-- A tasklet holding one unkeyed cell reports an empty key;
-                    naming it is clearer than rendering nothing. --%>
-              {if cell.cell_key == "", do: "(unkeyed)", else: cell.cell_key}
-              <span
-                :if={lagging?(cell)}
-                data-testid={"cell-lagging-#{cell.key}"}
-                class="flz-badge flz-badge--warning ml-1"
-              >
-                lagging
-              </span>
-            </td>
-            <td class="flz-num text-xs">
-              {cell.counters[:wal_seq]}
-            </td>
-            <td class="flz-num text-xs">
-              {cell.counters[:snapshot_seq]}
-            </td>
-            <td class="flz-num text-xs">
-              {cell.counters[:flush_latency_ms_p99]}
-            </td>
-            <td class="flz-num text-xs">
-              {cell.counters[:fsync_durability_lag_ms]}
-            </td>
-            <td class="flz-num text-xs">
-              {cell.counters[:dedup_drops_total]}
-            </td>
-            <td class="text-right whitespace-nowrap space-x-3">
-              <button
-                phx-click="select_cell"
-                phx-value-cell={cell.key}
-                data-testid={"select-#{cell.key}"}
-                class="flz-button flz-button--sm flz-button--ghost"
-              >
-                Inspect
-              </button>
-              <button
-                :if={NodeManager.granted?(@operations, "Steps.rotate")}
-                phx-click="confirm"
-                phx-value-action="rotate"
-                phx-value-cell={cell.key}
-                data-testid={"rotate-#{cell.key}"}
-                class="flz-button flz-button--sm flz-button--ghost"
-              >
-                Rotate
-              </button>
-              <button
-                :if={NodeManager.granted?(@operations, "Steps.delete")}
-                phx-click="confirm"
-                phx-value-action="delete"
-                phx-value-cell={cell.key}
-                data-testid={"delete-#{cell.key}"}
-                class="flz-button flz-button--sm flz-button--ghost"
-              >
-                Delete
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </.panel>
+            Lagging
+          </span>
+        </:col>
+        <:col :let={cell} label="WAL seq" num>{cell.counters[:wal_seq]}</:col>
+        <:col :let={cell} label="Snapshot seq" num>{cell.counters[:snapshot_seq]}</:col>
+        <:col :let={cell} label="Flush p99" num>{cell.counters[:flush_latency_ms_p99]}</:col>
+        <:col :let={cell} label="Fsync lag" num>{cell.counters[:fsync_durability_lag_ms]}</:col>
+        <:col :let={cell} label="Dedup drops" num>{cell.counters[:dedup_drops_total]}</:col>
+        <:menu :let={cell}>
+          <.row_menu
+            id={"cell-menu-#{cell.key}"}
+            label={"Actions for #{cell.key}"}
+            testid={"cell-menu-#{cell.key}"}
+          >
+            <:item
+              click="select_cell"
+              values={%{cell: cell.key}}
+              testid={"select-#{cell.key}"}
+              icon="hero-eye"
+            >
+              Read where its history stands
+            </:item>
+            <:item
+              :if={NodeManager.granted?(@operations, "Steps.rotate")}
+              click="confirm"
+              values={%{action: "rotate", cell: cell.key}}
+              testid={"rotate-#{cell.key}"}
+            >
+              Rotate
+            </:item>
+            <:item
+              :if={NodeManager.granted?(@operations, "Steps.delete")}
+              click="confirm"
+              values={%{action: "delete", cell: cell.key}}
+              testid={"delete-#{cell.key}"}
+              danger
+            >
+              Delete
+            </:item>
+          </.row_menu>
+        </:menu>
+      </.grid>
+    </div>
 
     <%!-- Durability lag, sampled by this UI --%>
-    <div
-      data-testid="lag-chart"
-      class="flz-panel p-5"
-    >
-      <div class="flex items-center gap-2 mb-1">
-        <.icon name="hero-chart-bar-square" class="w-4 h-4 text-th-secondary" />
-        <h2 class="flz-panel-title">
-          Durability lag and WAL-behind-snapshot
-        </h2>
-      </div>
-      <p data-testid="chart-provenance" class="text-xs text-th-muted mb-4">
-        Sampled by this UI every 5s — not a series the controller records. A missed tick is drawn
-        as a gap, never interpolated.
+    <div data-testid="lag-chart" class="space-y-3">
+      <h3 class="fui-eyebrow">Durability lag and WAL behind snapshot</h3>
+      <p data-testid="chart-provenance" class="fui-figures">
+        Sampled by this console every 5 seconds — not a series the controller records. A missed
+        reading is drawn as a gap, never interpolated.
       </p>
-      <div :for={cell <- @cells} class="mb-4 last:mb-0">
-        <p class="text-xs font-mono text-th-secondary mb-1">{cell.key}</p>
-        <div class="flex items-end gap-px h-12" data-testid={"spark-#{cell.key}"}>
+      <div :for={cell <- @cells} class="space-y-1">
+        <p class="fui-num fui-muted text-xs">{cell.key}</p>
+        <div class="fui-bars" data-testid={"spark-#{cell.key}"}>
           <span
             :for={point <- Enum.reverse(Map.get(@history, cell.key, []))}
-            class={[
-              "w-1 rounded-sm",
-              if(is_nil(point.lag_ms), do: "bg-transparent", else: "bg-brand")
-            ]}
-            style={"height: #{min(48, (point.lag_ms || 0))}px"}
-            title={"lag #{point.lag_ms || "—"}ms, wal gap #{point.wal_gap || "—"}"}
+            class="fui-bar"
+            data-gap={is_nil(point.lag_ms) && "true"}
+            style={"height: #{max(1, min(48, point.lag_ms || 0))}px"}
+            title={"lag #{point.lag_ms || "—"}ms, WAL gap #{point.wal_gap || "—"}"}
           >
           </span>
         </div>
       </div>
     </div>
+  </div>
+</.section>
 
-    <%!-- Point-in-time read --%>
-    <div
-      :if={@selected}
-      data-testid="time-travel"
-      class="flz-panel p-5"
+<%!-- Point-in-time read --%>
+<.section :if={@selected} testid="time-travel">
+  <:title>Where history stands — <span class="fui-num">{@selected}</span></:title>
+  <form phx-change="travel_change" class="flex flex-wrap items-end gap-3">
+    <.combobox
+      label="Target"
+      id="travel-kind"
+      name="travel[kind]"
+      value={@travel_form["kind"]}
+      testid="travel-kind"
+      class="w-44"
     >
-      <div class="flex items-center gap-2 mb-4">
-        <.icon name="hero-clock" class="w-4 h-4 text-th-secondary" />
-        <h2 class="flz-panel-title">
-          Where history stands — <span class="font-mono normal-case">{@selected}</span>
-        </h2>
-      </div>
-
-      <form phx-change="travel_change" class="flex items-end gap-3 mb-4">
-        <div>
-          <.dropdown
-            label="Target"
-            id="travel-kind"
-            name="travel[kind]"
-            value={@travel_form["kind"]}
-            testid="travel-kind"
-            class="w-36"
-          >
-            <:option value="seq">sequence</:option>
-            <:option value="time">ISO 8601 time</:option>
-          </.dropdown>
-        </div>
-        <div>
-          <.input
-            type="text"
-            name="travel[value]"
-            label="Value"
-            value={@travel_form["value"]}
-            compact
-            data-testid="travel-value"
-          />
-        </div>
-      </form>
-      <div class="flex gap-3">
-        <button
-          phx-click="travel"
-          data-testid="travel-submit"
-          class="flz-button flz-button--sm"
-        >
-          Read
-        </button>
-        <%!-- Core refuses a steps relay's cell, so replay is a flow relay's alone. --%>
-        <button
-          :if={@run == :flow and NodeManager.granted?(@operations, "Relay.replay")}
-          phx-click="confirm"
-          phx-value-action="replay"
-          phx-value-cell={@selected}
-          data-testid="replay-open"
-          class="flz-button flz-button--sm flz-button--secondary"
-        >
-          Replay from here
-        </button>
-      </div>
-
-      <p :if={@replayed} data-testid="replay-result" class="text-sm text-th-secondary mt-4">
-        Replaying <span class="font-mono">{@replayed.cell}</span>
-        from sequence <span class="font-mono">{@replayed.from_seq}</span>.
-      </p>
-
-      <p
-        :if={@travel_target && @travel_result}
-        data-testid="travel-target"
-        class="text-xs text-th-muted mt-4"
-      >
-        Asked for: <span class="font-mono">{@travel_target}</span>
-      </p>
-
-      <%!-- The controller answers where the history stands, not the state
-            itself, so the sizes are shown and nothing is presented as the
-            cell's state at that point. --%>
-      <dl :if={@travel_result} data-testid="travel-result" class="grid grid-cols-3 gap-4 mt-2">
-        <.stat label="Resolved sequence" testid="travel-seq">{@travel_result.terminal_seq}</.stat>
-        <.stat label="Snapshot" testid="travel-snapshot-size">
-          {Format.bytes(@travel_result.snapshot_size)}
-        </.stat>
-        <.stat label="Change log" testid="travel-change-log-size">
-          {Format.bytes(@travel_result.change_log_size)}
-        </.stat>
-      </dl>
-
-      <.notice :if={@travel_error} kind={:error} testid="travel-error" class="mt-4">
-        {travel_reason(@travel_error)}
-      </.notice>
-
-      <div data-testid="outbox" class="mt-6">
-        <h3 class="flz-label mb-2">Outbox</h3>
-        <.runtime_error error={@outbox_error} action="the outbox" />
-        <dl :if={@outbox} class="grid grid-cols-3 gap-4">
-          <.stat label="Durable seq" testid="outbox-durable-seq">
-            {@outbox[:outbox_durable_seq] || "unknown — writer not running"}
-          </.stat>
-          <.stat label="Flush cursor">{@outbox[:outbox_flushed_seq]}</.stat>
-          <.stat label="Persisted WAL seq" testid="outbox-persisted-seq">
-            {@outbox[:last_persisted_seq]}
-          </.stat>
-          <.stat label="Epoch">{@outbox[:epoch]}</.stat>
-          <.stat label="Pending" testid="outbox-pending">
-            {if is_nil(@outbox[:pending]),
-              do: "unknown — writer not running",
-              else: @outbox.pending}
-          </.stat>
-          <.stat label="Held" testid="outbox-held">
-            {if is_nil(@outbox[:held]), do: "unknown — writer not running", else: @outbox.held}
-          </.stat>
-          <.stat label="Input watermark">{@outbox[:input_watermark] || "—"}</.stat>
-        </dl>
-      </div>
-    </div>
-  <% end %>
-</div>
+      <:option value="seq">Sequence</:option>
+      <:option value="time">ISO 8601 time</:option>
+    </.combobox>
+    <.input
+      type="text"
+      name="travel[value]"
+      label="Value"
+      value={@travel_form["value"]}
+      compact
+      data-testid="travel-value"
+    />
+  </form>
+  <div class="flex gap-3 mt-4">
+    <.button size="sm" phx-click="travel" data-testid="travel-submit">Read</.button>
+    <%!-- Core refuses a steps relay's cell, so replay is a flow relay's alone. --%>
+    <.button
+      :if={@run == :flow and NodeManager.granted?(@operations, "Relay.replay")}
+      variant="secondary"
+      size="sm"
+      phx-click="confirm"
+      phx-value-action="replay"
+      phx-value-cell={@selected}
+      data-testid="replay-open"
+    >
+      Replay from here
+    </.button>
+  </div>
+  <p :if={@replayed} data-testid="replay-result" class="mt-4">
+    Replaying <span class="fui-num">{@replayed.cell}</span>
+    from sequence <span class="fui-num">{@replayed.from_seq}</span>.
+  </p>
+  <p :if={@travel_target && @travel_result} data-testid="travel-target" class="fui-figures mt-4">
+    Asked for: <span class="fui-num">{@travel_target}</span>
+  </p>
+  <%!-- The controller answers where the history stands, not the state itself,
+        so the sizes are shown and nothing is presented as the cell's state. --%>
+  <dl :if={@travel_result} data-testid="travel-result" class="fui-facts mt-2">
+    <.stat label="Resolved sequence" testid="travel-seq">{@travel_result.terminal_seq}</.stat>
+    <.stat label="Snapshot" testid="travel-snapshot-size">
+      {Format.bytes(@travel_result.snapshot_size)}
+    </.stat>
+    <.stat label="Change log" testid="travel-change-log-size">
+      {Format.bytes(@travel_result.change_log_size)}
+    </.stat>
+  </dl>
+  <.notice :if={@travel_error} kind={:error} testid="travel-error" class="mt-4">
+    {travel_reason(@travel_error)}
+  </.notice>
+  <div data-testid="outbox" class="mt-6 space-y-2">
+    <h3 class="fui-eyebrow">Outbox</h3>
+    <.runtime_error error={@outbox_error} action="the outbox" />
+    <dl :if={@outbox} class="fui-facts">
+      <.stat label="Durable seq" testid="outbox-durable-seq">
+        {@outbox[:outbox_durable_seq] || "Unknown — writer not running"}
+      </.stat>
+      <.stat label="Flush cursor">{@outbox[:outbox_flushed_seq]}</.stat>
+      <.stat label="Persisted WAL seq" testid="outbox-persisted-seq">
+        {@outbox[:last_persisted_seq]}
+      </.stat>
+      <.stat label="Epoch">{@outbox[:epoch]}</.stat>
+      <.stat label="Pending" testid="outbox-pending">
+        {if is_nil(@outbox[:pending]), do: "Unknown — writer not running", else: @outbox.pending}
+      </.stat>
+      <.stat label="Held" testid="outbox-held">
+        {if is_nil(@outbox[:held]), do: "Unknown — writer not running", else: @outbox.held}
+      </.stat>
+      <.stat label="Input watermark">{@outbox[:input_watermark] || "—"}</.stat>
+    </dl>
+  </div>
+</.section>
 
 <.confirm_dialog
   :if={@confirm}
@@ -299,7 +427,7 @@
   confirm_label={confirm_label(@confirm.action)}
   on_confirm={@confirm.action}
   on_cancel="cancel_confirm"
-  variant={if @confirm.action == "rotate", do: "accent", else: "danger"}
+  variant={confirm_variant(@confirm.action)}
   values={%{"cell" => @confirm.cell}}
   testid="state-confirm-modal"
   cancel_testid="state-confirm-cancel"
@@ -307,15 +435,40 @@
 >
   <%= case @confirm.action do %>
     <% "rotate" -> %>
-      Compact the persisted state of <.mono>{@confirm.cell}</.mono>? Its runner writes a fresh
+      Compact the persisted state of <span class="fui-ident">{@confirm.cell}</span>? Its runner writes a fresh
       snapshot; nothing is lost.
     <% "delete" -> %>
-      Delete the persisted state of <.mono>{@confirm.cell}</.mono>? Its write-ahead log,
+      Delete the persisted state of <span class="fui-ident">{@confirm.cell}</span>? Its write-ahead log,
       snapshots and outbox deduplication are removed and cannot be recovered.
     <% "replay" -> %>
-      Replay
-      <.mono>{@confirm.cell}</.mono>
-      from <.mono>{@travel_form["value"]}</.mono>? The cell is rewound to that point and its
+      Replay <span class="fui-ident">{@confirm.cell}</span>
+      from <span class="fui-ident">{@travel_form["value"]}</span>? The cell is rewound to that point and its
       retained inputs are run again through the current code.
   <% end %>
 </.confirm_dialog>
+
+<.dialog :if={@rewind_target} testid="rewind-modal" size="confirm" on_close="cancel_rewind">
+  <:title>Rewind relay</:title>
+  <.notice kind={:error}>
+    Rewinding discards every iteration after the one you choose. The relay resumes from that
+    boundary and the work in between is unwound.
+  </.notice>
+  <form phx-change="select_rewind">
+    <.input
+      type="select"
+      name="rewind[iteration]"
+      label="Committed iteration"
+      value={@rewind_target}
+      options={@committed_iterations}
+      data-testid="rewind-iteration"
+    />
+  </form>
+  <:actions>
+    <.button variant="ghost" phx-click="cancel_rewind" data-testid="rewind-cancel-btn">
+      Cancel
+    </.button>
+    <.button variant="danger" phx-click="rewind" data-testid="rewind-confirm-btn">
+      Rewind to {@rewind_target}
+    </.button>
+  </:actions>
+</.dialog>

@@ -34,25 +34,48 @@ defmodule FlezhaUiWeb.ScheduleLive do
         confirm_remove: nil,
         target: Target.new(nil),
         schedules: [],
+        loaded?: false,
         load_error: nil,
+        confirm_run: nil,
         ran: nil
       )
 
     {:ok, socket}
   end
 
+  # `?run=<name>` lands the command palette's "run now" on this screen's own
+  # confirmation: a schedule is never fired by a keystroke alone.
   @impl true
-  def handle_params(_params, _uri, socket) do
+  def handle_params(params, _uri, socket) do
     title = Layouts.scoped_title("Schedules", socket.assigns.scoped_namespace)
+    socket = socket |> assign(page_title: title) |> refresh_when_connected()
 
-    {:noreply, socket |> assign(page_title: title) |> refresh()}
+    case params["run"] do
+      name when is_binary(name) and name != "" ->
+        socket =
+          if NodeManager.granted?(socket.assigns.operations, "Schedule.run"),
+            do: assign(socket, confirm_run: name),
+            else: socket
+
+        # Once applied, `run` leaves the address, so a reload does not ask again.
+        if connected?(socket),
+          do:
+            {:noreply,
+             push_patch(socket, to: Map.get(socket.assigns, :current_path, ~p"/schedules"))},
+          else: {:noreply, socket}
+
+      _none ->
+        {:noreply, socket}
+    end
   end
 
   # Holding still while a modal is open keeps a row from moving underneath the
   # operator between reading it and confirming.
   @impl FlezhaUiWeb.Live.Refresh
   def refresh_paused?(socket),
-    do: socket.assigns.show_form or socket.assigns.confirm_remove != nil
+    do:
+      socket.assigns.show_form or socket.assigns.confirm_remove != nil or
+        socket.assigns.confirm_run != nil
 
   # The target is listed here rather than on the tick: a schedule list that
   # re-read a catalog per namespace every five seconds would pay for a form that
@@ -111,7 +134,20 @@ defmodule FlezhaUiWeb.ScheduleLive do
   # schedule hub is up. What it answered stays above the listing until the
   # next run replaces it.
   @impl true
-  def handle_event("run_now", %{"name" => name}, socket) do
+  def handle_event("confirm_run", %{"name" => name}, socket) do
+    {:noreply, assign(socket, confirm_run: name)}
+  end
+
+  @impl true
+  def handle_event("cancel_run", _params, socket) do
+    {:noreply, assign(socket, confirm_run: nil)}
+  end
+
+  @impl true
+  # Only the open confirmation fires, and only once: a second click finds it
+  # already closed.
+  def handle_event("run_now", %{"name" => name}, %{assigns: %{confirm_run: name}} = socket) do
+    socket = assign(socket, confirm_run: nil)
     schedule = Enum.find(socket.assigns.schedules, %{}, &(&1.name == name))
 
     ran =
@@ -122,6 +158,8 @@ defmodule FlezhaUiWeb.ScheduleLive do
 
     {:noreply, socket |> assign(ran: ran) |> refresh()}
   end
+
+  def handle_event("run_now", _params, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("confirm_remove", %{"name" => name}, socket) do
@@ -156,6 +194,7 @@ defmodule FlezhaUiWeb.ScheduleLive do
     case NodeManager.schedule_list(socket.assigns.flezha_token) do
       {:ok, entries} ->
         assign(socket,
+          loaded?: true,
           schedules:
             entries
             |> Enum.map(&decorate/1)
@@ -164,7 +203,7 @@ defmodule FlezhaUiWeb.ScheduleLive do
         )
 
       {:error, reason} ->
-        assign(socket, schedules: [], load_error: reason)
+        assign(socket, schedules: [], load_error: reason, loaded?: true)
     end
   end
 
@@ -187,22 +226,24 @@ defmodule FlezhaUiWeb.ScheduleLive do
     }
   end
 
-  # The status badge: `armed` is the controller's word, which the operator
-  # never sees.
-  defp status(true),
-    do: %{
-      label: "Active",
-      dot: "bg-success",
-      title: "A node holds this schedule and fires it on time; the last fire shows how that went."
-    }
+  @doc "What a schedule's status means, for its badge's tooltip."
+  def status_title(true),
+    do: "A node holds this schedule and fires it on time; the last fire shows how that went."
 
-  defp status(false),
-    do: %{
-      label: "Inactive",
-      dot: "bg-th-muted",
-      title:
-        "No node holds this schedule right now, so it does not fire: the schedule hub may be down or still taking it."
-    }
+  def status_title(false),
+    do:
+      "No node holds this schedule right now, so it does not fire: the schedule hub may be down or still taking it."
+
+  @doc "How far the create form has got, for its steps."
+  def form_step(form) do
+    cond do
+      blank?(form["name"]) or blank?(form["cron"]) -> 0
+      blank?(form["namespace"]) or blank?(form["factory_id"]) -> 1
+      true -> 2
+    end
+  end
+
+  defp blank?(value), do: String.trim(value || "") == ""
 
   defp next_fire(%DateTime{} = dt), do: dt
   defp next_fire({:ok, %DateTime{} = dt}), do: dt

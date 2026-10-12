@@ -1,7 +1,6 @@
 import {
   test,
   expect,
-  chosen,
   closeSection,
   openPalette,
   openSection,
@@ -42,15 +41,14 @@ test.describe('The console shell', () => {
 
     // The address names no namespace from here on, so only the remembered
     // scope can keep the rail and the picker on it.
-    await page.locator('.flz-sidebar-nav a[href="/"]').click();
-    await expect(page).toHaveURL(/\/$/);
+    await page.locator('.flz-sidebar-nav a[href="/cluster"]').click();
+    await expect(page).toHaveURL(/\/cluster$/);
 
     await expect(page.getByTestId('namespace-picker')).toContainText('default');
     await expect(page.getByTestId('no-namespace-scoped')).toHaveCount(0);
     await expect(
       page.locator('.flz-sidebar-nav a[href="/namespaces/default/relays"]'),
     ).toBeVisible();
-    await expect(chosen(page, 'topology-namespace')).toHaveValue('default');
   });
 
   test('every rail entry reaches its own screen and is marked there', async ({ page, live }) => {
@@ -107,7 +105,7 @@ test.describe('The console shell', () => {
     // Every ancestor is a link to its own screen.
     const crumbs = await trail.locator('a').evaluateAll((links) => links.map((a) => a.getAttribute('href')!));
     expect(crumbs).toEqual(
-      expect.arrayContaining(['/namespaces', '/namespaces/default', '/namespaces/default/relays', RELAY]),
+      expect.arrayContaining(['/namespaces/default', '/namespaces/default/relays', RELAY]),
     );
     for (const href of crumbs) {
       await live(`${RELAY}/state`);
@@ -115,13 +113,13 @@ test.describe('The console shell', () => {
       await expect(page).toHaveURL((url) => url.pathname === href);
     }
 
-    // A top-level screen has no trail to render.
-    await live('/');
+    // A rail destination has no trail to render.
+    await live('/cluster');
     await expect(page.getByTestId('breadcrumb')).toHaveCount(0);
   });
 
   test('the account controls are one menu, log out included', async ({ page, live }) => {
-    await live('/');
+    await live('/cluster');
 
     // Nothing to log out with until the menu is opened.
     await expect(page.getByTestId('log-out')).toBeHidden();
@@ -138,9 +136,9 @@ test.describe("A relay's views", () => {
   test('are a tab strip that navigates between three routes', async ({ page, live }) => {
     await live(RELAY);
 
-    const tabs = page.getByTestId('relay-tabs');
+    const tabs = page.getByRole('navigation', { name: 'Relay views' });
     await expect(tabs).toBeVisible();
-    await expect(page.getByTestId('relay-tab-detail')).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByTestId('relay-tab-live')).toHaveAttribute('aria-current', 'page');
 
     await page.getByTestId('relay-tab-listen').click();
     await expect(page).toHaveURL(new RegExp(`${RELAY}/listen$`));
@@ -153,7 +151,7 @@ test.describe("A relay's views", () => {
     await expect(page).toHaveURL(new RegExp(`${RELAY}/state$`));
     await expect(page.getByTestId('relay-tab-state')).toHaveAttribute('aria-current', 'page');
 
-    await page.getByTestId('relay-tab-detail').click();
+    await page.getByTestId('relay-tab-live').click();
     await expect(page).toHaveURL(new RegExp(`${RELAY}$`));
   });
 });
@@ -340,7 +338,8 @@ test.describe('Fleet filters', () => {
   test('a scoped listing keeps its namespace out of the query string', async ({ page, live }) => {
     await live('/namespaces/default/relays');
 
-    await expect(page.getByTestId('fixed-namespace')).toContainText('default');
+    await expect(page.getByTestId('scope-namespace')).toHaveAttribute('aria-current', 'true');
+    await expect(page.getByTestId('scope-namespace')).toContainText('default');
     await expect(page.getByTestId('filter-namespace')).toHaveCount(0);
 
     await page.getByTestId('filter-health').click();

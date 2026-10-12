@@ -90,6 +90,9 @@ defmodule FlezhaUiWeb do
       # Core UI components
       import FlezhaUiWeb.CoreComponents
 
+      # Controller values in words
+      alias FlezhaUiWeb.Words
+
       # Rendering controller values as text
       alias FlezhaUi.Format
 

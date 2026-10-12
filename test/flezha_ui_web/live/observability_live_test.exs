@@ -15,6 +15,33 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
     FakeController.set(node, {Observability, :list_sources}, {:ok, list})
   end
 
+  describe "finding a source" do
+    test "a name narrows each area's sources, and the area still counts them all", %{
+      conn: conn,
+      node: node
+    } do
+      sources(node, [
+        %{name: :flezha_health, status: :active},
+        %{name: :platform_authz, status: :disabled}
+      ])
+
+      {:ok, view, _html} = live(conn, ~p"/observability")
+
+      html =
+        view
+        |> element(~s([data-testid="source-filter-form"]))
+        |> render_change(%{"q" => "authz"})
+
+      assert html =~ ~s(data-testid="source-filter")
+      assert html =~ ~s(data-testid="source-platform_authz")
+      refute html =~ ~s(data-testid="source-flezha_health")
+      assert html =~ ~s(data-testid="source-group-relay")
+
+      assert view |> element(~s([data-testid="source-group-count-relay"])) |> render() =~
+               "1 of 1 on"
+    end
+  end
+
   describe "listing" do
     test "sources and sinks are listed with their enabled state", %{conn: conn, node: node} do
       sources(node, [
@@ -37,12 +64,12 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       assert html =~ ~s(data-testid="source-flezha_health")
       assert html =~ ~s(data-testid="source-enabled-platform_authz")
       assert html =~ ~s(data-testid="sink-pubsub")
-      assert html =~ "enabled"
-      assert html =~ "disabled"
+      assert html =~ ~r/data-testid="source-enabled-flezha_health"[^>]*data-enabled="true"/
+      assert html =~ ~r/data-testid="source-enabled-platform_authz"[^>]*data-enabled="false"/
       # A sink has no enabled flag — a live pid is what "running" means.
       assert html =~ ~s(data-testid="sink-running-pubsub")
-      assert html =~ "running"
-      assert html =~ "not running"
+      assert html =~ "Running"
+      assert html =~ "Not running"
     end
 
     test "a switched-off subsystem is stated as switched off", %{conn: conn, node: node} do

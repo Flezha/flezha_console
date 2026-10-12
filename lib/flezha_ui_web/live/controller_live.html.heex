@@ -1,285 +1,222 @@
-<div class="space-y-6">
-  <.header>Controller</.header>
+<.page_header eyebrow="Platform" title="Controller">
+  <:sentence>
+    <span data-testid="controller-sentence">
+      {sentence(@boot, @authz, @status)}
+    </span>
+  </:sentence>
+  <:actions>
+    <.button
+      :if={
+        @status && !@status[:shutdown_in_progress] &&
+          NodeManager.granted?(@operations, "Controller.stop")
+      }
+      variant="danger"
+      phx-click="open_stop"
+      data-testid="stop-controller-btn"
+    >
+      Stop controller
+    </.button>
+  </:actions>
+</.page_header>
 
-  <%!-- Durability --%>
-  <div
-    data-testid="durability-panel"
-    class="flz-panel p-5"
+<%!-- Readiness --%>
+<.section flush testid="boot-panel">
+  <:title>Readiness</:title>
+  <.runtime_error error={@boot_error} action="the boot status" />
+  <p :if={@boot} data-testid="boot-readiness" class="mb-3">
+    <.state_badge kind={:readiness} value={@boot.readiness} />
+  </p>
+  <p :if={@boot && @boot.namespaces == []} class="fui-figures">No namespace hub is running.</p>
+  <.grid
+    :if={@boot && @boot.namespaces != []}
+    id="boot-namespaces"
+    rows={@boot.namespaces}
+    row_testid={&"boot-#{&1.namespace}"}
   >
-    <div class="flex items-center gap-2 mb-4">
-      <.icon name="hero-circle-stack" class="w-4 h-4 text-th-secondary" />
-      <h2 class="flz-panel-title">Durability</h2>
-    </div>
-    <.runtime_error error={@status_error} action="the controller status" />
-    <dl :if={@status} class="grid grid-cols-4 gap-4 text-sm">
-      <.stat label="Backend" testid="durability-backend">
-        {backend_label(@status[:durability_backend])}
-      </.stat>
-      <.stat label="Posture" testid="durability-posture">
-        {inspect(@status[:durability_posture])}
-      </.stat>
-      <.stat label="RPO breaches" testid="durability-breaches">
-        {@status[:durability_rpo_breaches]}
-      </.stat>
-      <.stat label="Superseded" testid="durability-superseded">
-        {@status[:durability_superseded]}
+    <:col :let={row} label="Namespace"><span class="fui-num">{row.namespace}</span></:col>
+    <:col :let={row} label="Hub recovery">
+      <.said kind={:hub_recovery} value={row.recovery_state} />
+    </:col>
+  </.grid>
+</.section>
+
+<%!-- Authorization --%>
+<.section testid="authz-panel">
+  <:title>Authorization</:title>
+  <p data-testid="authz-posture">
+    <.state_badge :if={@authz.posture} kind={:authz_posture} value={@authz.posture} />
+    <span :if={is_nil(@authz.posture)} class="fui-muted">The controller could not be asked.</span>
+  </p>
+  <%!-- A wide-open controller is a fact an operator should be able to find. --%>
+  <.notice :if={@authz.posture == :open} kind={:error} testid="authz-open" class="mt-3">
+    Authorization is disabled on this controller. Every call is allowed, whoever makes it.
+  </.notice>
+  <p :if={@authz.posture == :enforced} class="fui-figures mt-2">
+    Every call is checked against the <.term key="role" /> its <.term key="principal" />
+    is bound to.
+  </p>
+</.section>
+
+<%!-- Durability --%>
+<.section testid="durability-panel">
+  <:title>Durability</:title>
+  <.runtime_error error={@status_error} action="the controller status" />
+  <dl :if={@status} class="fui-facts">
+    <.stat label="Backend" testid="durability-backend">
+      {backend_label(@status[:durability_backend])}
+    </.stat>
+    <.stat label="Posture" testid="durability-posture">
+      <.said kind={:durability_posture} value={@status[:durability_posture]} />
+    </.stat>
+    <.stat
+      label="Past their RPO target"
+      testid="durability-breaches"
+      tone={((@status[:durability_rpo_breaches] || 0) > 0 && :negative) || nil}
+    >
+      {@status[:durability_rpo_breaches]}
+    </.stat>
+    <.stat label="Shipped by another controller" testid="durability-superseded">
+      {@status[:durability_superseded]}
+    </.stat>
+  </dl>
+
+  <%!-- A stated posture, not an alarm: one copy is a choice, not a failure. --%>
+  <.notice
+    :if={@status && @status[:durability_posture] == :local_only}
+    testid="durability-local-only"
+    class="mt-4"
+  >
+    Durable state has exactly one copy, on the node that wrote it. No remote tier is shipping it.
+  </.notice>
+
+  <.grid
+    :if={@breaches != []}
+    id="breaches"
+    rows={@breaches}
+    testid="durability-breach-table"
+    row_tone={fn _ -> "negative" end}
+  >
+    <:col :let={breach} label="Reference">
+      <code>{inspect(breach[:ref] || breach[:reference])}</code>
+    </:col>
+    <:col :let={breach} label="Past target by" num>{Format.duration(breach[:lag_ms])}</:col>
+  </.grid>
+
+  <%!-- The shipper's own rows: what the remote tier holds and how far behind it is. --%>
+  <div data-testid="shipper-status" class="mt-6 space-y-2">
+    <h3 class="fui-eyebrow">Shipper</h3>
+    <.runtime_error error={@shipper_error} action="the shipper status" />
+    <p
+      :if={(is_nil(@shipper_error) and @status) && @status[:durability_posture] == :local_only}
+      data-testid="shipper-not-applicable"
+      class="fui-figures"
+    >
+      Not applicable: nothing is shipped from a controller that keeps one copy.
+    </p>
+    <p
+      :if={
+        is_nil(@shipper_error) and @shipper == [] and
+          !(@status && @status[:durability_posture] == :local_only)
+      }
+      data-testid="shipper-empty"
+      class="fui-figures"
+    >
+      The shipper holds no references yet.
+    </p>
+    <.grid
+      :if={@shipper != []}
+      id="shipper"
+      rows={@shipper}
+      testid="shipper-table"
+      row_testid={fn _ -> "shipper-row" end}
+    >
+      <:col :let={row} label="Reference"><code>{inspect(row[:ref])}</code></:col>
+      <:col :let={row} label="Last shipped" num>
+        {Format.unix_time(row[:last_shipped_ms], :millisecond)}
+      </:col>
+      <:col :let={row} label="Pending since" num>
+        {Format.unix_time(row[:pending_since_ms], :millisecond)}
+      </:col>
+      <:col :let={row} label="Failures" num>
+        <span class={(row[:failures] || 0) > 0 && "fui-tone-negative"}>
+          {row[:failures] || 0}
+        </span>
+      </:col>
+      <:col :let={row} label="Retry after" num>
+        {Format.unix_time(row[:retry_after_ms], :millisecond)}
+      </:col>
+      <:col :let={row} label="Superseded by">
+        <code>{(row[:superseded_by] && inspect(row[:superseded_by])) || "—"}</code>
+      </:col>
+      <:col :let={row} label="Last error">
+        <code>{(row[:last_error] && inspect(row[:last_error])) || "—"}</code>
+      </:col>
+    </.grid>
+  </div>
+</.section>
+
+<%!-- Shutdown --%>
+<.section testid="shutdown-panel">
+  <:title>Shutdown</:title>
+  <p :if={is_nil(@status)} data-testid="shutdown-unavailable" class="fui-figures">
+    Shutdown status is unavailable on this controller.
+  </p>
+  <dl :if={@status} class="fui-facts">
+    <.stat label="Stopping" testid="shutdown-in-progress">
+      {if @status.shutdown_in_progress, do: "Yes", else: "No"}
+    </.stat>
+    <.stat label="Phase" testid="shutdown-phase">
+      <.said kind={:shutdown_phase} value={@status.shutdown_phase} />
+    </.stat>
+    <.stat label="Signal handler">
+      <.said kind={:signal_handler} value={@status.signal_handler_status} />
+    </.stat>
+    <.stat label="Graceful shutdown">
+      {if @status.graceful_shutdown_enabled, do: "On", else: "Off"}, within {Format.duration(
+        @status.graceful_shutdown_timeout_ms
+      )}
+    </.stat>
+  </dl>
+</.section>
+
+<%!-- Memory hot spots, operator-triggered --%>
+<.section testid="memory-panel">
+  <:title>Memory hot spots</:title>
+  <:actions>
+    <.button
+      variant="secondary"
+      size="sm"
+      phx-click="memory_snapshot"
+      data-testid="memory-snapshot-btn"
+    >
+      Take snapshot
+    </.button>
+  </:actions>
+  <.runtime_error error={@memory_error} action="the memory snapshot" />
+  <p :if={is_nil(@memory) and is_nil(@memory_error)} class="fui-figures">
+    Not taken. A snapshot scans every process and the allocator, so it runs only when asked.
+  </p>
+  <div :if={@memory} class="space-y-4">
+    <p data-testid="memory-captured-at" class="fui-figures">
+      Captured at {@memory[:captured_at]} on {@memory[:node]} — a point reading, not live.
+    </p>
+    <dl class="fui-facts">
+      <.stat
+        :for={{key, value} <- Enum.sort(@memory[:erlang_memory] || %{})}
+        label={Words.humanize(key)}
+      >
+        {Format.bytes(value)}
       </.stat>
     </dl>
-
-    <%!-- A stated posture, not an alarm: one copy is a choice, not a failure. --%>
-    <.notice
-      :if={@status && @status[:durability_posture] == :local_only}
-      kind={:info}
-      testid="durability-local-only"
-      class="mt-4"
+    <.grid
+      id="memory-processes"
+      rows={Enum.take(@memory[:top_processes] || [], 10)}
+      testid="memory-top-processes"
     >
-      This controller is <span class="font-mono">local_only</span>: durable state has exactly one
-      copy, on the node that wrote it. No remote tier is shipping it.
-    </.notice>
-
-    <div :if={@breaches != []} class="mt-4">
-      <table data-testid="durability-breach-table" class="flz-table">
-        <thead>
-          <tr>
-            <th>Reference</th>
-            <th>Past target by</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={breach <- @breaches}>
-            <td class="text-th-primary flz-num text-xs">
-              {inspect(breach[:ref] || breach[:reference])}
-            </td>
-            <td class="text-danger-text flz-num text-xs">
-              {Format.duration(breach[:lag_ms])}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <%!-- The shipper's own rows: what the remote tier holds and how far behind it is. --%>
-    <div data-testid="shipper-status" class="mt-4">
-      <p class="flz-label mb-2">Shipper</p>
-      <.runtime_error error={@shipper_error} action="the shipper status" />
-      <p
-        :if={(is_nil(@shipper_error) and @status) && @status[:durability_posture] == :local_only}
-        data-testid="shipper-not-applicable"
-        class="text-sm text-th-muted"
-      >
-        Not applicable: nothing is shipped from a local-only controller.
-      </p>
-      <p
-        :if={
-          is_nil(@shipper_error) and @shipper == [] and
-            !(@status && @status[:durability_posture] == :local_only)
-        }
-        data-testid="shipper-empty"
-        class="text-sm text-th-muted"
-      >
-        The shipper holds no references yet.
-      </p>
-      <div :if={@shipper != []} class="table-scroll">
-        <table data-testid="shipper-table" class="flz-table">
-          <thead>
-            <tr>
-              <th>Reference</th>
-              <th>Last shipped</th>
-              <th>Pending since</th>
-              <th>Failures</th>
-              <th>Retry after</th>
-              <th>Superseded by</th>
-              <th>Last error</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={row <- @shipper} data-testid="shipper-row">
-              <td class="text-th-primary flz-num text-xs">{inspect(row[:ref])}</td>
-              <td class="flz-num text-xs">
-                {Format.unix_time(row[:last_shipped_ms], :millisecond)}
-              </td>
-              <td class="flz-num text-xs">
-                {Format.unix_time(row[:pending_since_ms], :millisecond)}
-              </td>
-              <td class={["flz-num text-xs", (row[:failures] || 0) > 0 && "text-danger-text"]}>
-                {row[:failures] || 0}
-              </td>
-              <td class="flz-num text-xs">
-                {Format.unix_time(row[:retry_after_ms], :millisecond)}
-              </td>
-              <td class="flz-num text-xs">
-                {(row[:superseded_by] && inspect(row[:superseded_by])) || "—"}
-              </td>
-              <td class="text-xs">{(row[:last_error] && inspect(row[:last_error])) || "—"}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+      <:col :let={proc} label="Process"><code>{inspect(proc[:name] || proc[:pid])}</code></:col>
+      <:col :let={proc} label="Memory" num>{Format.bytes(proc[:memory])}</:col>
+    </.grid>
   </div>
+</.section>
 
-  <%!-- Shutdown and boot --%>
-  <div class="grid grid-cols-2 gap-6">
-    <div
-      data-testid="shutdown-panel"
-      class="flz-panel p-5"
-    >
-      <div class="flex items-center justify-between gap-2 mb-4">
-        <div class="flex items-center gap-2">
-          <.icon name="hero-power" class="w-4 h-4 text-th-secondary" />
-          <h2 class="flz-panel-title">Shutdown</h2>
-        </div>
-        <.button
-          :if={
-            @status && !@status[:shutdown_in_progress] &&
-              NodeManager.granted?(@operations, "Controller.stop")
-          }
-          variant="danger"
-          size="sm"
-          phx-click="open_stop"
-          data-testid="stop-controller-btn"
-        >
-          Stop controller
-        </.button>
-      </div>
-      <p :if={is_nil(@status)} data-testid="shutdown-unavailable" class="text-sm text-th-muted">
-        Shutdown status is unavailable on this controller.
-      </p>
-      <dl :if={@status} class="space-y-2 text-sm">
-        <div class="flex gap-2">
-          <dt class="text-th-secondary w-48">In progress</dt>
-          <dd data-testid="shutdown-in-progress" class="font-mono">
-            {if @status.shutdown_in_progress, do: "yes", else: "no"}
-          </dd>
-        </div>
-        <div class="flex gap-2">
-          <dt class="text-th-secondary w-48">Phase</dt>
-          <dd data-testid="shutdown-phase" class="font-mono">
-            {@status.shutdown_phase || "none"}
-          </dd>
-        </div>
-        <div class="flex gap-2">
-          <dt class="text-th-secondary w-48">Signal handler</dt>
-          <dd class="font-mono">{inspect(@status.signal_handler_status)}</dd>
-        </div>
-        <div class="flex gap-2">
-          <dt class="text-th-secondary w-48">Graceful shutdown</dt>
-          <dd class="font-mono">
-            {if @status.graceful_shutdown_enabled, do: "enabled", else: "disabled"}, {Format.duration(
-              @status.graceful_shutdown_timeout_ms
-            )}
-          </dd>
-        </div>
-      </dl>
-    </div>
-
-    <div
-      data-testid="boot-panel"
-      class="flz-panel p-5"
-    >
-      <div class="flex items-center gap-2 mb-4">
-        <.icon name="hero-rocket-launch" class="w-4 h-4 text-th-secondary" />
-        <h2 class="flz-panel-title">Boot</h2>
-      </div>
-      <.runtime_error error={@boot_error} action="the boot status" />
-      <p :if={@boot} data-testid="boot-readiness" class="text-sm text-th-secondary mb-2">
-        Readiness: <span class="font-mono">{inspect(@boot.readiness)}</span>
-      </p>
-      <p :if={@boot && @boot.namespaces == []} class="text-sm text-th-muted">
-        No namespace hub is running.
-      </p>
-      <ul :if={@boot} class="space-y-1 text-sm">
-        <li
-          :for={row <- @boot.namespaces}
-          data-testid={"boot-#{row.namespace}"}
-          class="flex gap-3"
-        >
-          <span class="font-mono text-th-primary w-48">{row.namespace}</span>
-          <span class="font-mono text-th-secondary">{row.recovery_state}</span>
-        </li>
-      </ul>
-    </div>
-  </div>
-
-  <%!-- Authorization --%>
-  <div
-    data-testid="authz-panel"
-    class="flz-panel p-5"
-  >
-    <div class="flex items-center gap-2 mb-4">
-      <.icon name="hero-key" class="w-4 h-4 text-th-secondary" />
-      <h2 class="flz-panel-title">
-        Authorization
-      </h2>
-    </div>
-    <p data-testid="authz-posture" class="text-sm text-th-secondary">
-      Posture: <span class="font-mono">{inspect(@authz.posture)}</span>
-    </p>
-    <%!-- A wide-open controller is a fact an operator should be able to find. --%>
-    <.notice :if={@authz.posture == :open} kind={:error} testid="authz-open" class="mt-3">
-      Authorization is disabled on this controller. Every call is allowed, whoever makes it.
-    </.notice>
-    <p :if={@authz.posture == :enforced} class="text-sm text-th-secondary mt-2">
-      Authorization is enforced. Calls are policy-checked against the caller's role binding.
-    </p>
-  </div>
-
-  <%!-- Memory hot spots, operator-triggered --%>
-  <div
-    data-testid="memory-panel"
-    class="flz-panel p-5"
-  >
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-2">
-        <.icon name="hero-chart-pie" class="w-4 h-4 text-th-secondary" />
-        <h2 class="flz-panel-title">
-          Memory hot spots
-        </h2>
-      </div>
-      <button
-        phx-click="memory_snapshot"
-        data-testid="memory-snapshot-btn"
-        class="flz-button flz-button--sm flz-button--secondary"
-      >
-        Take snapshot
-      </button>
-    </div>
-
-    <.runtime_error error={@memory_error} action="the memory snapshot" />
-
-    <p :if={is_nil(@memory) and is_nil(@memory_error)} class="text-sm text-th-muted">
-      Not taken. A snapshot scans every process and the allocator, so it runs only when asked.
-    </p>
-
-    <div :if={@memory}>
-      <p data-testid="memory-captured-at" class="text-xs text-th-muted mb-3">
-        Captured at {@memory[:captured_at]} on {@memory[:node]} — a point reading, not live.
-      </p>
-      <dl class="grid grid-cols-4 gap-4 text-sm mb-4">
-        <.stat :for={{key, value} <- Enum.sort(@memory[:erlang_memory] || %{})} label={key}>
-          {Format.bytes(value)}
-        </.stat>
-      </dl>
-      <table data-testid="memory-top-processes" class="flz-table">
-        <thead>
-          <tr>
-            <th>Process</th>
-            <th>Memory</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={proc <- Enum.take(@memory[:top_processes] || [], 10)}>
-            <td class="text-th-primary flz-num text-xs">
-              {inspect(proc[:name] || proc[:pid])}
-            </td>
-            <td class="flz-num text-xs">
-              {Format.bytes(proc[:memory])}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <.stop_dialog :if={@stop} stop={@stop} />
-</div>
+<.stop_dialog :if={@stop} stop={@stop} />

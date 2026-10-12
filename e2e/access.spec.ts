@@ -2,6 +2,7 @@ import {
   test,
   expect,
   clearStoredToken,
+  menuAction,
   openSection,
   openSettings,
   uniqueId,
@@ -33,7 +34,7 @@ async function submitIssue(page: Page, principal: string, role: string, ttl = '3
 
 /** Issues a token from the namespace screen and answers its id and value. */
 async function issueToken(page: Page, principal: string, role: string) {
-  await openSection(page, 'tokens');
+  await openSection(page, 'access');
   await submitIssue(page, principal, role);
 
   const value = page.getByTestId('issued-token-value');
@@ -50,23 +51,22 @@ async function issueToken(page: Page, principal: string, role: string) {
 /** Revokes `id` when it is still active. Safe from `finally`. */
 async function revokeToken(page: Page, live: (path: string) => Promise<void>, id: string) {
   await live(NS_URL);
-  await openSection(page, 'tokens');
-  const revoke = page.getByTestId(`revoke-token-${id}`);
-  if ((await revoke.count()) === 0) return;
+  await openSection(page, 'access');
+  // A revoked token keeps its row but offers no revoke.
+  if ((await page.getByTestId(`revoke-token-${id}`).count()) === 0) return;
 
-  await revoke.click();
+  await menuAction(page, `token-menu-${id}`, `revoke-token-${id}`);
   await page.getByTestId('revoke-token-confirm').click();
-  await expect(page.getByTestId(`token-status-${id}`)).toHaveText('revoked');
+  await expect(page.getByTestId(`token-status-${id}`)).toHaveText('Revoked');
 }
 
 /** Removes `principal`'s whole binding when it has one. Safe from `finally`. */
 async function removeBinding(page: Page, live: (path: string) => Promise<void>, principal: string) {
   await live(NS_URL);
-  await openSection(page, 'role-bindings');
-  const remove = page.getByTestId(`unbind-binding-${principal}`);
-  if ((await remove.count()) === 0) return;
+  await openSection(page, 'access');
+  if ((await page.getByTestId(`unbind-binding-${principal}`).count()) === 0) return;
 
-  await remove.click();
+  await menuAction(page, `binding-menu-${principal}`, `unbind-binding-${principal}`);
   await page.getByTestId('unbind-role-confirm').click();
   await expect(page.getByTestId(`role-binding-${principal}`)).toHaveCount(0);
 }
@@ -82,13 +82,13 @@ test.describe('Tokens', () => {
 
       const row = page.getByTestId(`token-${id}`);
       await expect(row).toContainText(principal);
-      await expect(page.getByTestId(`token-status-${id}`)).toHaveText('active');
+      await expect(page.getByTestId(`token-status-${id}`)).toHaveText('Active');
       await expect(page.locator('body')).not.toContainText('flzt_');
 
-      await page.getByTestId(`revoke-token-${id}`).click();
+      await menuAction(page, `token-menu-${id}`, `revoke-token-${id}`);
       await expect(page.getByTestId('revoke-token-modal')).toContainText(principal);
       await page.getByTestId('revoke-token-confirm').click();
-      await expect(page.getByTestId(`token-status-${id}`)).toHaveText('revoked');
+      await expect(page.getByTestId(`token-status-${id}`)).toHaveText('Revoked');
     } finally {
       if (id) await revokeToken(page, live, id);
     }
@@ -98,7 +98,7 @@ test.describe('Tokens', () => {
 test.describe('Issuing and revoking', () => {
   test.beforeEach(async ({ page, live }) => {
     await live(NS_URL);
-    await openSection(page, 'tokens');
+    await openSection(page, 'access');
   });
 
   test('a lifetime that is not a number of seconds is refused, and nothing is issued', async ({
@@ -153,10 +153,10 @@ test.describe('Issuing and revoking', () => {
       await expect(page.getByTestId('issued-token')).toHaveCount(0);
       await page.getByTestId('issue-token-cancel').click();
 
-      await page.getByTestId(`revoke-token-${id}`).click();
+      await menuAction(page, `token-menu-${id}`, `revoke-token-${id}`);
       await page.getByTestId('revoke-token-cancel').click();
       await expect(page.getByTestId('revoke-token-modal')).toHaveCount(0);
-      await expect(page.getByTestId(`token-status-${id}`)).toHaveText('active');
+      await expect(page.getByTestId(`token-status-${id}`)).toHaveText('Active');
     } finally {
       if (id) await revokeToken(page, live, id);
     }
@@ -169,7 +169,7 @@ test.describe('Role bindings', () => {
     const principal = uniqueId('pw_bound');
 
     try {
-      await openSection(page, 'role-bindings');
+      await openSection(page, 'access');
       await page.getByTestId('bind-role-btn').click();
       await page.getByTestId('bind-role-principal').fill(principal);
       await page.getByTestId('bind-role-role').fill('viewer');
@@ -177,7 +177,7 @@ test.describe('Role bindings', () => {
 
       await expect(page.getByTestId(`role-${principal}-viewer`)).toBeVisible();
 
-      await page.getByTestId(`unbind-role-${principal}-viewer`).click();
+      await menuAction(page, `binding-menu-${principal}`, `unbind-role-${principal}-viewer`);
       await expect(page.getByTestId('unbind-role-modal')).toContainText(principal);
       await page.getByTestId('unbind-role-confirm').click();
       await expect(page.getByTestId(`role-${principal}-viewer`)).toHaveCount(0);
@@ -191,7 +191,7 @@ test.describe('Role bindings', () => {
     const principal = uniqueId('pw_kept');
 
     try {
-      await openSection(page, 'role-bindings');
+      await openSection(page, 'access');
       await page.getByTestId('bind-role-btn').click();
       await expect(page.getByTestId('bind-role-modal')).toBeVisible();
       await page.getByTestId('bind-role-principal').fill(principal);
@@ -206,7 +206,7 @@ test.describe('Role bindings', () => {
       await expect(page.getByTestId(`role-${principal}-viewer`)).toBeVisible();
 
       for (const control of [`unbind-role-${principal}-viewer`, `unbind-binding-${principal}`]) {
-        await page.getByTestId(control).click();
+        await menuAction(page, `binding-menu-${principal}`, control);
         await page.getByTestId('unbind-role-cancel').click();
         await expect(page.getByTestId('unbind-role-modal')).toHaveCount(0);
         await expect(page.getByTestId(`role-${principal}-viewer`)).toBeVisible();
@@ -218,7 +218,7 @@ test.describe('Role bindings', () => {
 
   test('an unknown role is refused with the roles there are', async ({ page, live }) => {
     await live(NS_URL);
-    await openSection(page, 'role-bindings');
+    await openSection(page, 'access');
     await page.getByTestId('bind-role-btn').click();
     await page.getByTestId('bind-role-principal').fill(uniqueId('pw_nobody'));
     await page.getByTestId('bind-role-role').fill('overlord');

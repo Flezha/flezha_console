@@ -1,0 +1,127 @@
+/*
+ * The console's design tokens: the one place the kit's colours, sizes and
+ * durations are written down. Everything the kit paints reads a `--fui-*`
+ * name from here, and `npm run tokens` grades the colour roles for contrast in
+ * both themes.
+ *
+ * Colour is the stylebook's: each role names the stylebook token it takes, so
+ * the console wears the Flezha palette and follows the stylebook's own theme
+ * switch. The console adds only what the stylebook has no token for — the
+ * signal colour for live data, the scrim and the overlay shadow — and the inks
+ * a solid fill needs in the dark theme.
+ *
+ * Roles, not hues. Accent marks interaction (focus, the current place, links,
+ * the primary action). Signal is reserved for live data — flow, rates, a
+ * figure that just changed — and never states an outcome. Positive, warning
+ * and negative state outcomes.
+ *
+ * Each fill role has a `-subtle` tint for a badge or a row, and an `--fui-on-*`
+ * ink for text laid on its solid fill.
+ */
+
+:root {
+  /* Type */
+  --fui-font-display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  --fui-font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --fui-font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --fui-text-xs: 0.75rem;
+  --fui-text-sm: 0.8125rem;
+  --fui-text-md: 0.875rem;
+  --fui-text-lg: 1rem;
+  --fui-text-xl: 1.25rem;
+  --fui-text-2xl: 1.625rem;
+  --fui-text-3xl: 2.125rem;
+
+  --fui-leading-tight: 1.2;
+  --fui-leading-normal: 1.5;
+
+  /* Spacing, on a 4 px base */
+  --fui-space-1: 0.25rem;
+  --fui-space-2: 0.5rem;
+  --fui-space-3: 0.75rem;
+  --fui-space-4: 1rem;
+  --fui-space-5: 1.25rem;
+  --fui-space-6: 1.5rem;
+  --fui-space-7: 2rem;
+  --fui-space-8: 2.5rem;
+  --fui-space-9: 3rem;
+
+  /* Radius: controls, surfaces, chips */
+  --fui-radius-control: 6px;
+  --fui-radius-surface: 12px;
+  --fui-radius-round: 999px;
+
+  /* Sizes the shell is laid out on */
+  --fui-control-h: 2rem;
+  --fui-control-h-sm: 1.625rem;
+  --fui-drawer-w: 30rem;
+
+  /* Motion: one easing curve, three durations */
+  --fui-ease: cubic-bezier(0.2, 0, 0, 1);
+  --fui-fast: 120ms;
+  --fui-base: 200ms;
+  --fui-slow: 320ms;
+
+  /* Layers. An open menu is what the operator is acting on, so it sits above
+     a passing toast. */
+  --fui-z-drawer: 50;
+  --fui-z-dialog: 60;
+  --fui-z-toast: 70;
+  --fui-z-popover: 80;
+
+  /* Colour, by role, from the stylebook */
+  --fui-page: var(--surface-base);
+  --fui-canvas: var(--surface-sheet);
+  --fui-surface: var(--surface-raised);
+  --fui-raised: var(--surface-raised);
+  --fui-hover: var(--surface-hover);
+  --fui-line: var(--border-default);
+  --fui-line-strong: var(--field-border);
+
+  --fui-ink-1: var(--text-primary);
+  --fui-ink-2: var(--text-secondary);
+  --fui-ink-3: var(--text-muted);
+
+  --fui-accent: var(--text-brand);
+  --fui-accent-subtle: color-mix(in oklab, var(--fui-accent) 10%, var(--fui-surface));
+  --fui-on-accent: var(--text-on-brand);
+
+  --fui-positive: var(--positive);
+  --fui-positive-subtle: color-mix(in oklab, var(--fui-positive) 10%, var(--fui-surface));
+  --fui-on-positive: var(--text-on-positive);
+
+  --fui-warning: var(--warning);
+  --fui-warning-subtle: color-mix(in oklab, var(--fui-warning) 10%, var(--fui-surface));
+  --fui-on-warning: var(--text-on-warning);
+
+  --fui-negative: var(--negative);
+  --fui-negative-subtle: color-mix(in oklab, var(--fui-negative) 9%, var(--fui-surface));
+  --fui-on-negative: var(--text-on-negative);
+
+  --fui-brand: var(--text-brand);
+  --fui-brand-subtle: color-mix(in oklab, var(--accent-plum) 7%, var(--fui-surface));
+
+  /* What the stylebook has no token for */
+  --fui-signal: #8a580c;
+  --fui-signal-subtle: color-mix(in oklab, var(--fui-signal) 12%, var(--fui-surface));
+  --fui-on-signal: #ffffff;
+  --fui-scrim: #17141c59;
+  --fui-shadow: #1714241f;
+}
+
+/* ---- Colour: what changes in the dark theme ----
+ * The stylebook's dark roles already flip with its own switch; only the inks
+ * laid on the console's light dark-theme fills, and its own colours, change.
+ */
+[data-theme='dark'] {
+  --fui-on-accent: var(--text-on-gold);
+  --fui-accent-subtle: color-mix(in oklab, var(--fui-accent) 16%, var(--fui-surface));
+  --fui-brand-subtle: color-mix(in oklab, var(--accent-plum) 30%, var(--fui-surface));
+
+  --fui-signal: var(--gold);
+  --fui-signal-subtle: color-mix(in oklab, var(--fui-signal) 14%, var(--fui-surface));
+  --fui-on-signal: var(--text-on-gold);
+  --fui-scrim: #0d0b10b3;
+  --fui-shadow: #00000099;
+}

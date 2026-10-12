@@ -1,4 +1,4 @@
-import { test, expect, openSection, withStepsRelay } from './fixtures';
+import { menuAction, test, expect, openSection, withStepsRelay } from './fixtures';
 
 /**
  * Namespaces as declared objects: quota meters against live counters, and the
@@ -27,7 +27,7 @@ test.describe('Namespace administration', () => {
 
   test('role bindings are listed with the control that binds one', async ({ page, live }) => {
     await live('/namespaces/default');
-    await openSection(page, 'role-bindings');
+    await openSection(page, 'access');
 
     await expect(page.getByTestId('role-bindings')).toBeVisible();
     await expect(page.getByTestId('bind-role-btn')).toBeVisible();
@@ -37,7 +37,7 @@ test.describe('Namespace administration', () => {
     await live('/namespaces');
 
     await expect(page.getByTestId('namespace-row-default')).toBeVisible();
-    await expect(page.getByTestId('namespace-state-default')).toContainText('declared');
+    await expect(page.getByTestId('namespace-state-default')).toContainText('Declared and running');
   });
 
   test('creating a namespace and deleting it round-trips', async ({ page, live }) => {
@@ -57,7 +57,7 @@ test.describe('Namespace administration', () => {
     await expect(row).toBeVisible();
     // Declared, with no hub running for it.
     await expect(page.getByTestId(`namespace-state-${name}`)).toContainText('no hub');
-    await expect(page.getByTestId(`namespace-relays-${name}`)).toHaveText(/^\s*0\s*$/);
+    await expect(page.getByTestId(`namespace-relays-${name}`)).toHaveText(/^\s*0 relays\s*$/);
 
     // The quota override reached the controller.
     await live(`/namespaces/${name}`);
@@ -85,7 +85,7 @@ test.describe('Namespace administration', () => {
     await expect(page.getByTestId('quota-relays')).toContainText('of 9');
 
     await live('/namespaces');
-    await page.getByTestId(`namespace-delete-${name}`).click();
+    await menuAction(page, `namespace-menu-${name}`, `namespace-delete-${name}`);
     await expect(page.getByTestId('delete-namespace-modal')).toContainText(name);
     await page.getByTestId('delete-namespace-confirmation').fill(name);
     await page.getByTestId('delete-namespace-confirm').click();
@@ -133,18 +133,19 @@ test.describe('Namespace administration', () => {
     await openSection(page, 'finished-relays');
     await page.getByTestId('reload-finished').click();
     await expect(page.getByTestId('finished-loading')).toHaveCount(0, { timeout: 20_000 });
-    await expect(page.getByTestId(`finished-row-${stopped}`)).toContainText('cancelled');
+    await expect(page.getByTestId(`finished-row-${stopped}`)).toContainText('Cancelled');
 
     await openSection(page, 'runners');
-    await expect(page.getByTestId('runners-panel')).toContainText('Runners (');
-    await expect(page.getByTestId('runners-default').locator('tbody tr').first()).toContainText(
-      'default_',
-    );
+    await expect(page.getByTestId('runners-panel')).toContainText('Runners');
+    // A long runner id is shortened on screen, so the row is read by its id.
+    await expect(
+      page.getByTestId('runners-default').locator('[data-testid^="runner-default_"]').first(),
+    ).toBeVisible();
   });
 
   test('delete is refused until the namespace is named exactly', async ({ page, live }) => {
     await live('/namespaces');
-    await page.getByTestId('namespace-delete-default').click();
+    await menuAction(page, 'namespace-menu-default', 'namespace-delete-default');
 
     // The confirm button stays disabled while the typed name does not match.
     await page.getByTestId('delete-namespace-confirmation').fill('not-default');

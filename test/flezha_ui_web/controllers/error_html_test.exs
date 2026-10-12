@@ -8,7 +8,7 @@ defmodule FlezhaUiWeb.ErrorHTMLTest do
     html = conn |> get("/no-such-page") |> html_response(404)
 
     assert html =~ ~s(data-testid="not-found")
-    assert html =~ ~s(class="flz-brand)
+    assert html =~ ~s(class="fui-brand fui-brand--canvas")
     assert html =~ "Flezha UI"
     assert html =~ ~s(src="/images/badger-not-found.webp")
     assert html =~ ~s(alt="")

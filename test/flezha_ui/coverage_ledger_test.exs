@@ -13,9 +13,11 @@ defmodule FlezhaUi.CoverageLedgerTest do
     * events: each literal `handle_event/3` clause name and each name in an
       `@events ~w(...)` list a module dispatches through a guard.
     * bindings: the literal event of each `phx-*` event attribute, including
-      what `JS.push/2` pushes, and of each `on_<x>` attribute a component
-      turns into a `phx-click`. A binding is tied to the test id in its own
-      tag: `data-testid` or `testid` for `phx-*`, `<x>_testid` for `on_<x>`.
+      what `JS.push/2` pushes, of each `on_<x>` attribute a component
+      turns into a `phx-click`, and of the `click` attribute of a menu item or
+      a segmented option. A binding is tied to the test id in its own tag:
+      `data-testid` or `testid` for `phx-*` and `click`, `<x>_testid` for
+      `on_<x>`.
 
   Read from `e2e/*.ts` and `test/**/*.exs`, this file aside and lines that
   refute a control or assert it absent left out, as names: each
@@ -58,7 +60,7 @@ defmodule FlezhaUi.CoverageLedgerTest do
   # A `{...}` expression: braces balanced, strings skipped whole.
   @expr ~S/(?(DEFINE)(?<x>\{(?:[^{}"]++|"(?:[^"\\]|\\.)*+"|(?&x))*+\}))/
 
-  @event_attr ~r/^(?:phx-(?:click|click-away|capture-click|submit|change|blur|focus|keydown|keyup|window-[a-z]+|viewport-top|viewport-bottom|mounted|remove|connected|disconnected)|on_([a-z_]+))$/
+  @event_attr ~r/^(?:phx-(?:click|click-away|capture-click|submit|change|blur|focus|keydown|keyup|window-[a-z]+|viewport-top|viewport-bottom|mounted|remove|connected|disconnected)|click|on_([a-z_]+))$/
 
   setup_all do
     %{ledger: ledger()}
@@ -183,7 +185,7 @@ defmodule FlezhaUi.CoverageLedgerTest do
     tag =
       Regex.compile!(
         @expr <>
-          ~S'<[.A-Za-z][\w.:-]*+(?<attrs>(?:\s++(?:(?&x)|[^\s=>{}"/]++(?:\s*+=\s*+(?:"[^"]*+"|(?&x)))?))*+)\s*+/?>'
+          ~S'<[.:A-Za-z][\w.:-]*+(?<attrs>(?:\s++(?:(?&x)|[^\s=>{}"/]++(?:\s*+=\s*+(?:"[^"]*+"|(?&x)))?))*+)\s*+/?>'
       )
 
     attr =

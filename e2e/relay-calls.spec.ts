@@ -18,7 +18,7 @@ test.describe('Talking to a relay', () => {
     await page.getByTestId('diagnose-btn').click();
     await expect(page.getByTestId('diagnose-panel')).toBeVisible();
 
-    await expect(page.getByTestId('diagnose-verdict')).toHaveText(/^\s*(ok|warning|problem)\s*$/);
+    await expect(page.getByTestId('diagnose-verdict')).toHaveText(/^\s*(Nothing wrong|Worth a look|A problem)\s*$/);
     const findings = page.locator('[data-testid^="diagnose-finding-diagnose."]');
     await expect(findings.first()).toBeVisible();
     await expect(findings.first().getByTestId('runtime-error-reference')).toHaveAttribute(
@@ -40,13 +40,13 @@ test.describe('Talking to a relay', () => {
     ).not.toHaveCount(0);
     const place = page.getByTestId('api-channel-place');
     await expect(place).toContainText('json');
-    await expect(place).toContainText('yes, json');
+    await expect(place).toContainText('Yes, json');
     await expect(place).toContainText('Places an order');
     await expect(page.getByTestId('api-schema-place')).toBeVisible();
 
     const audit = page.getByTestId('api-channel-audit');
     await expect(audit).toContainText('text');
-    await expect(audit).toContainText('no');
+    await expect(audit).toContainText('No');
   });
 
   test('place is called from fields its schema generated, and answers', async ({ page }) => {
@@ -71,7 +71,7 @@ test.describe('Talking to a relay', () => {
 
     // The field's container holds its label, control, hint and error.
     const amount = page.getByTestId('talk-field-amount').locator('xpath=..');
-    await expect(amount.locator('.flz-field-error')).toContainText('is required');
+    await expect(amount.locator('.fui-error')).toContainText('is required');
     await expect(page.getByTestId('talk-result')).toHaveCount(0);
   });
 

@@ -24,6 +24,7 @@ defmodule FlezhaUiWeb.ObservabilityLive do
        page_title: "Observability",
        sources: [],
        sinks: [],
+       source_filter: "",
        load_error: nil,
        disabled?: false,
        toggle_error: nil
@@ -45,6 +46,11 @@ defmodule FlezhaUiWeb.ObservabilityLive do
       nil -> {:noreply, socket}
       source -> {:noreply, socket |> apply_toggle(source) |> refresh()}
     end
+  end
+
+  @impl true
+  def handle_event("filter_sources", %{"q" => text}, socket) do
+    {:noreply, assign(socket, source_filter: text)}
   end
 
   @impl true
@@ -87,6 +93,45 @@ defmodule FlezhaUiWeb.ObservabilityLive do
           do: assign(socket, sources: [], sinks: [], load_error: nil, disabled?: true),
           else: assign(socket, sources: [], sinks: [], load_error: reason, disabled?: false)
     end
+  end
+
+  @areas [
+    {:relay, "Relay runtime", ~w(relay steps state mailbox runner reconcile health convergence)},
+    {:plugins, "Plugins and transports", ~w(hook http file plugin transport kafka websocket)},
+    {:vm, "The virtual machine and host", ~w(beam_vm vm host)}
+  ]
+
+  @doc """
+  The sources grouped by area — relay runtime, plugins and transports,
+  platform, the virtual machine and host — each group with its sources whose
+  name contains `filter`, and how many of all its sources are enabled.
+  """
+  def groups(sources, filter) do
+    needle = filter |> String.trim() |> String.downcase()
+
+    sources
+    |> Enum.group_by(&area(to_string(&1[:name])))
+    |> Enum.map(fn {{key, label}, members} ->
+      %{
+        key: key,
+        label: label,
+        enabled: Enum.count(members, &NodeManager.source_enabled?/1),
+        total: length(members),
+        sources:
+          members
+          |> Enum.filter(&String.contains?(String.downcase(to_string(&1[:name])), needle))
+          |> Enum.sort_by(&to_string(&1[:name]))
+      }
+    end)
+    |> Enum.sort_by(fn group ->
+      Enum.find_index([:relay, :plugins, :platform, :vm], &(&1 == group.key))
+    end)
+  end
+
+  defp area(name) do
+    Enum.find_value(@areas, {:platform, "Platform"}, fn {key, label, words} ->
+      if Enum.any?(words, &String.contains?(name, &1)), do: {key, label}
+    end)
   end
 
   @doc "Whether a tail was refused because the controller's pubsub sink is off."

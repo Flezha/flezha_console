@@ -1,145 +1,140 @@
-<div class="space-y-6">
-  <.header>Observability</.header>
+<.page_header eyebrow="Platform" title="Observability">
+  <:sentence>
+    <%= if @disabled? do %>
+      Observability is switched off on this controller.
+    <% else %>
+      The controller emits {Words.count(
+        Enum.count(@sources, &NodeManager.source_enabled?/1),
+        "source"
+      )} of {length(@sources)} and ships them to {Words.count(length(@sinks), "sink")}. Switch a
+      <.term key="source" /> on or off, or tail it live.
+    <% end %>
+  </:sentence>
+</.page_header>
 
-  <.runtime_error error={@load_error} action="the observability listing" />
+<.runtime_error error={@load_error} action="the observability listing" />
 
-  <.notice :if={@disabled?} kind={:info} testid="observability-disabled">
-    Observability is switched off on this controller, so it emits no signals and there is nothing
-    to list or tail.
-  </.notice>
+<.notice :if={@disabled?} kind={:info} testid="observability-disabled">
+  Observability is switched off on this controller, so it emits no signals and there is nothing
+  to list or tail.
+</.notice>
 
-  <.runtime_error error={@toggle_error} action="the source toggle" />
+<.runtime_error error={@toggle_error} action="the source toggle" />
 
-  <.panel :if={not @disabled?} testid="sources-panel" icon="hero-signal" class="overflow-hidden">
-    <:title>Sources ({length(@sources)})</:title>
-    <.empty_state :if={@sources == []} icon="hero-signal">
-      This controller reports no observability sources.
-    </.empty_state>
-    <table :if={@sources != []} class="flz-table">
-      <thead>
-        <tr>
-          <th>Source</th>
-          <th>Enabled</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          :for={source <- @sources}
-          data-testid={"source-#{source[:name]}"}
-        >
-          <td class="text-th-primary flz-num text-xs">{source[:name]}</td>
-          <td>
-            <span
-              data-testid={"source-enabled-#{source[:name]}"}
-              class={["flz-badge", NodeManager.source_enabled?(source) && "flz-badge--positive"]}
-            >
-              {if NodeManager.source_enabled?(source), do: "enabled", else: "disabled"}
-            </span>
-          </td>
-          <td class="text-right flex items-center justify-end gap-3">
-            <button
+<.section :if={not @disabled?} flush testid="sources-panel">
+  <:title>Sources</:title>
+  <:actions>
+    <form phx-change="filter_sources" class="w-56" data-testid="source-filter-form">
+      <.input
+        type="search"
+        name="q"
+        value={@source_filter}
+        placeholder="Filter by name"
+        aria-label="Filter sources by name"
+        compact
+        phx-debounce="150"
+        data-testid="source-filter"
+      />
+    </form>
+  </:actions>
+  <.empty_state :if={@sources == []} icon="hero-signal">
+    A source is a stream of signals the controller can emit. This controller reports none.
+  </.empty_state>
+  <div class="space-y-8">
+    <div
+      :for={group <- groups(@sources, @source_filter)}
+      data-testid={"source-group-#{group.key}"}
+      class="space-y-2"
+    >
+      <h3 class="flex items-baseline gap-3">
+        <span class="font-medium">{group.label}</span>
+        <span class="fui-figures" data-testid={"source-group-count-#{group.key}"}>
+          {group.enabled} of {group.total} on
+        </span>
+      </h3>
+      <p :if={group.sources == []} class="fui-figures">No source in this area matches.</p>
+      <.grid
+        :if={group.sources != []}
+        id={"sources-#{group.key}"}
+        rows={group.sources}
+        row_testid={&"source-#{&1[:name]}"}
+      >
+        <:col :let={source} label="Source"><span class="fui-num">{source[:name]}</span></:col>
+        <:col :let={source} label="Emitting">
+          <span
+            data-testid={"source-enabled-#{source[:name]}"}
+            data-enabled={to_string(NodeManager.source_enabled?(source))}
+          >
+            <.switch
+              checked={NodeManager.source_enabled?(source)}
+              label={to_string(source[:name])}
+              show_label={false}
               phx-click="toggle_source"
               phx-value-source={source[:name]}
-              data-testid={"toggle-#{source[:name]}"}
-              class="flz-button flz-button--sm flz-button--ghost"
-            >
-              {if NodeManager.source_enabled?(source), do: "Disable", else: "Enable"}
-            </button>
-            <button
-              phx-click="start_tail"
-              phx-value-source={source[:name]}
-              data-testid={"tail-#{source[:name]}"}
-              class="flz-button flz-button--sm flz-button--ghost"
-            >
-              Tail
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </.panel>
+              testid={"toggle-#{source[:name]}"}
+            />
+          </span>
+        </:col>
+        <:col :let={source} label="Live">
+          <.button
+            variant="ghost"
+            size="sm"
+            phx-click="start_tail"
+            phx-value-source={source[:name]}
+            data-testid={"tail-#{source[:name]}"}
+          >
+            Tail
+          </.button>
+        </:col>
+      </.grid>
+    </div>
+  </div>
+</.section>
 
-  <.panel
-    :if={not @disabled?}
-    testid="sinks-panel"
-    icon="hero-arrow-down-on-square"
-    class="overflow-hidden"
-  >
-    <:title>Sinks ({length(@sinks)})</:title>
-    <.empty_state :if={@sinks == []} icon="hero-inbox-arrow-down">
-      This controller reports no observability sinks.
-    </.empty_state>
-    <ul class="divide-y divide-brd-subtle">
-      <li
-        :for={sink <- @sinks}
-        data-testid={"sink-#{sink[:name]}"}
-        class="px-5 py-3 flex items-center gap-3 text-xs font-mono"
-      >
-        <span class="text-th-primary">{sink[:name]}</span>
-        <span
-          data-testid={"sink-running-#{sink[:name]}"}
-          class={["flz-badge", NodeManager.sink_running?(sink) && "flz-badge--positive"]}
-        >
-          {if NodeManager.sink_running?(sink), do: "running", else: "not running"}
+<.section :if={not @disabled?} testid="sinks-panel">
+  <:title>Sinks</:title>
+  <.empty_state :if={@sinks == []} icon="hero-inbox-arrow-down">
+    A sink is where the controller ships its signals. This controller reports none.
+  </.empty_state>
+  <ul :if={@sinks != []} class="fui-tiles">
+    <li :for={sink <- @sinks} data-testid={"sink-#{sink[:name]}"} class="fui-tile">
+      <span class="fui-num font-medium">{sink[:name]}</span>
+      <span data-testid={"sink-running-#{sink[:name]}"}>
+        <span class={["fui-badge", NodeManager.sink_running?(sink) && "fui-badge--positive"]}>
+          {if NodeManager.sink_running?(sink), do: "Running", else: "Not running"}
         </span>
-      </li>
-    </ul>
-  </.panel>
+      </span>
+    </li>
+  </ul>
+</.section>
 
-  <.panel
-    :if={@tailing || @tail_error}
-    testid="tail-panel"
-    icon="hero-play"
-    class="overflow-hidden"
-  >
-    <:title>Tailing <span class="font-mono normal-case">{@tailing}</span></:title>
-    <:actions>
-      <button
-        :if={@tailing}
-        phx-click="stop_tail"
-        data-testid="stop-tail"
-        class="flz-button flz-button--sm flz-button--secondary"
-      >
-        Stop
-      </button>
-    </:actions>
-
-    <.notice
-      :if={pubsub_disabled?(@tail_error)}
-      kind={:info}
-      testid="pubsub-sink-disabled"
-      class="m-5"
+<.section :if={@tailing || @tail_error} testid="tail-panel">
+  <:title>Tailing <span class="fui-num">{@tailing}</span></:title>
+  <:actions>
+    <.button
+      :if={@tailing}
+      variant="secondary"
+      size="sm"
+      phx-click="stop_tail"
+      data-testid="stop-tail"
     >
-      Live tailing is unavailable: the controller's pubsub sink is disabled. The query-based views
-      still work.
-    </.notice>
+      Stop
+    </.button>
+  </:actions>
 
-    <.runtime_error
-      :if={@tail_error && !pubsub_disabled?(@tail_error)}
-      error={@tail_error}
-      action="the live tail"
-      class="m-5"
-    />
+  <.notice :if={pubsub_disabled?(@tail_error)} kind={:info} testid="pubsub-sink-disabled">
+    Live tailing is unavailable: the controller's pubsub sink is disabled. The query-based views
+    still work.
+  </.notice>
+  <.runtime_error
+    :if={@tail_error && !pubsub_disabled?(@tail_error)}
+    error={@tail_error}
+    action="the live tail"
+  />
+  <.notice :if={@tail_reconnected?} kind={:info} testid="tail-reconnected">
+    The tail reconnected after its stream to the controller was cut — signals emitted while it was
+    down are not shown.
+  </.notice>
 
-    <.notice :if={@tail_reconnected?} kind={:info} testid="tail-reconnected" class="m-5">
-      The tail reconnected after its stream to the controller was cut — signals emitted while it was
-      down are not shown.
-    </.notice>
-
-    <ul :if={@tailing} class="divide-y divide-brd-subtle max-h-96 overflow-auto">
-      <li
-        :for={signal <- @tail_records}
-        data-testid="tail-record"
-        class="px-5 py-2 font-mono text-xs text-th-secondary"
-      >
-        <span class="text-th-muted">{signal[:ts]}</span>
-        <span class="text-th-primary">{signal[:source]}.{signal[:name]}</span>
-        <span class="text-th-secondary">{inspect(signal[:measurements])}</span>
-      </li>
-      <li :if={@tail_records == []} class="flz-empty">
-        Waiting for signals.
-      </li>
-    </ul>
-  </.panel>
-</div>
+  <pre :if={@tailing} class="fui-code"><span :for={signal <- @tail_records} data-testid="tail-record" class="block">{signal[:ts]} {signal[:source]}.{signal[:name]} {inspect(signal[:measurements])}</span><span :if={@tail_records == []} class="fui-muted">Waiting for signals.</span></pre>
+</.section>

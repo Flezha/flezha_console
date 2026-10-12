@@ -8,7 +8,11 @@ defmodule FlezhaUiWeb.UserRegistrationControllerTest do
       conn = get(conn, ~p"/users/register")
       response = html_response(conn, 200)
       assert response =~ "Create account"
-      assert response =~ ~p"/users/log-in"
+      assert response =~ ~s(data-testid="auth-canvas")
+
+      assert response =~
+               ~r/href="\/users\/log-in"[^>]*data-testid="login-link"|data-testid="login-link"[^>]*href="\/users\/log-in"/
+
       assert response =~ ~p"/users/register"
     end
 

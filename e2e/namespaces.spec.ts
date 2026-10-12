@@ -18,23 +18,26 @@ test.describe('Namespaces', () => {
 
     // The relay count is checked against the namespace screen below; the dev
     // stack runs one runner.
-    await expect(page.getByTestId('namespace-relays-default')).toHaveText(/^\s*\d+\s*$/);
-    await expect(page.getByTestId('namespace-runners-default')).toHaveText(/^\s*1\s*$/);
+    await expect(page.getByTestId('namespace-relays-default')).toHaveText(/^\s*\d+ relays?\s*$/);
+    await expect(page.getByTestId('namespace-runners-default')).toHaveText(/^\s*1 runner\s*$/);
   });
 
   test('navigates into a namespace', async ({ page }) => {
     await page.getByTestId('namespace-view-default').click();
 
     await expect(page).toHaveURL(/\/namespaces\/default$/);
-    await expect(page.getByTestId('relays-table')).toBeVisible();
+    await expect(page.getByTestId('namespace-map')).toBeVisible();
     await expect(page.getByTestId('start-relay-btn')).toBeVisible();
   });
 
-  test('the relay count matches the rows on the namespace page', async ({ page, live }) => {
-    const claimed = Number(await page.getByTestId('namespace-relays-default').innerText());
+  test('the relay count matches the rows on the namespace\'s relays screen', async ({
+    page,
+    live,
+  }) => {
+    const claimed = parseInt(await page.getByTestId('namespace-relays-default').innerText(), 10);
 
-    await live('/namespaces/default');
+    await live('/namespaces/default/relays');
 
-    await expect(page.locator('[data-testid^="relay-row-"]')).toHaveCount(claimed);
+    await expect(page.locator('[data-testid^="relay-index-row-"]')).toHaveCount(claimed);
   });
 });

@@ -212,56 +212,24 @@ test.describe('Payload tap', () => {
   });
 });
 
-test.describe('Fleet summary', () => {
-  test('reports the namespace data plane on the dashboard', async ({ page, live }) => {
-    await live('/');
-
-    await expect(page.getByTestId('topology-summary')).toBeVisible();
-    // A healthy dev stack: one runner, nothing held back, nothing parked, and
-    // as many relays as the namespace lists.
-    const relays = await readFigure(page.getByTestId('stat-relays'));
-    await expect(page.getByTestId('summary-relays')).toHaveText(new RegExp(`^\\s*${relays}\\s*$`));
-    await expect(page.getByTestId('summary-runners')).toHaveText(/^\s*1\s*$/);
-    await expect(page.getByTestId('summary-backpressure')).toHaveText(/^\s*0\s*$/);
-    await expect(page.getByTestId('summary-parked')).toHaveText(/^\s*0\s*$/);
-    await expect(chosen(page, 'topology-namespace')).toHaveValue('default');
-  });
-
-  test('lists the busiest relays, each linking to its own pipeline', async ({ page, live }) => {
-    await live('/');
-
-    await expect(page.getByTestId('summary-busiest')).toBeVisible({ timeout: 15_000 });
-
-    const ranked = await testIds(page, 'summary-relay-');
-    expect(ranked.length).toBeGreaterThan(0);
-
-    await page.getByTestId(`summary-relay-${ranked[0]}`).click();
-
-    await expect(page).toHaveURL(new RegExp(`/namespaces/default/relays/${ranked[0]}$`));
-    await expect(page.getByTestId('topology-graph')).toBeVisible();
-  });
-
-  test('is embedded on the namespace page without a namespace selector', async ({ page, live }) => {
+test.describe("Home's map", () => {
+  test('the seeded traffic moves a lane’s rate and the wire into it', async ({ page, live }) => {
     await live('/namespaces/default');
 
-    await expect(page.getByTestId('topology-summary')).toBeVisible();
-    await expect(page.getByTestId('topology-namespace')).toHaveCount(0);
-  });
+    const rate = page.getByTestId('map-rate-testnet_store_1');
+    await expect
+      .poll(async () => ((await rate.count()) ? await readFigure(rate) : 0), {
+        message: 'the seeded relay’s lane never showed a rate',
+        timeout: 2 * ADVANCE_WINDOW_MS,
+      })
+      .toBeGreaterThan(0);
 
-  test('breaks its counts down by health, each bucket linking out', async ({ page, live }) => {
-    await live('/');
-
-    const health = page.getByTestId('summary-health');
-    await expect(health).toBeVisible();
-
-    const buckets = page.locator('[data-testid^="summary-health-"]');
-    expect(await buckets.count()).toBeGreaterThan(0);
-
-    const first = buckets.first();
-    await expect(first).toHaveAttribute('href', /\/relays\?/);
-
-    await first.click();
-    await expect(page).toHaveURL(/\/relays\?/);
-    await expect(chosen(page, 'filter-health')).not.toHaveValue('');
+    const wires = page.locator('[data-testid^="map-wire-"][data-testid$="relay-testnet_store_1"]');
+    await expect
+      .poll(async () => (await wires.evaluateAll((els) => els.map((e) => e.getAttribute('class')))).join(' '), {
+        message: 'no wire into the seeded relay moved',
+        timeout: ADVANCE_WINDOW_MS,
+      })
+      .toMatch(/topo-flow-(slow|medium|fast)/);
   });
 });

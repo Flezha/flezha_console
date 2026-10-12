@@ -73,11 +73,14 @@ defmodule FlezhaUiWeb.AuditLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/audit")
 
+      for panel <- ~w(audit-files-panel audit-records-panel audit-tail-panel),
+          do: assert(html =~ ~s(data-testid="#{panel}"))
+
       assert html =~ ~s(data-testid="audit-stats")
       assert html =~ "42"
       assert html =~ ~s(data-testid="audit-files")
       assert html =~ "audit-1.log"
-      assert html =~ "7 records"
+      assert html =~ ~r/<td[^>]*>\s*7\s*<\/td>/
       assert html =~ "2.0 KB"
       refute html =~ "sha256"
     end
@@ -89,7 +92,7 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       {:ok, _view, html} = live(conn, ~p"/audit")
 
       assert html =~ ~s(data-testid="audit-files-empty")
-      assert html =~ "No file has been rotated yet"
+      assert html =~ "None has been rotated yet"
       assert html =~ "audit-now.log"
     end
   end
@@ -219,7 +222,7 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       {:ok, _view, html} = live(conn, ~p"/audit")
 
       assert html =~ ~s(data-testid="audit-tail-idle")
-      assert html =~ "Start tail"
+      assert html =~ "Tail new records"
       assert FakeController.streams(node, @tail) == []
     end
 

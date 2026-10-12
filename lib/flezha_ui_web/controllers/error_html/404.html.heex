@@ -1,11 +1,10 @@
 <Layouts.auth flash={%{}} mascot={~p"/images/badger-not-found.webp"}>
-  <div data-testid="not-found" class="space-y-4 text-center">
-    <h1 class="flz-title-lg">Nothing here</h1>
-    <p class="text-sm text-th-secondary">
-      This page does not exist. The link may be mistyped, or what it pointed at has moved.
-    </p>
-    <.link navigate={~p"/"} class="flz-button flz-button--md flz-button--ghost">
-      Back to the dashboard
-    </.link>
+  <div data-testid="not-found">
+    <.page_header eyebrow="Not found" title="Nothing here">
+      <:sentence>
+        This page does not exist. The link may be mistyped, or what it pointed at has moved.
+      </:sentence>
+    </.page_header>
+    <.button variant="secondary" href={~p"/"} icon="hero-arrow-left">Back to the console</.button>
   </div>
 </Layouts.auth>

@@ -146,20 +146,16 @@ export async function expectHealthBadges(
 }
 
 /**
- * The factory ids the start form offers, without its placeholder option.
- *
- * Read by value rather than by label: the labels carry the factory's
- * description and a mark for the ones no runner serves, which is what an
- * operator reads and not what a spec should match on.
+ * The factory ids the start flow's first step offers to choose: the served
+ * ones, read by id rather than by the description an operator reads.
  */
 export async function factoryOptions(page: Page): Promise<string[]> {
-  const select = page.getByTestId('input-factory-id');
-  await expect(select).toBeEnabled();
+  await expect(page.getByTestId('factory-choices')).toBeVisible();
 
-  return select
-    .locator('option')
-    .evaluateAll((opts) =>
-      opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== ''),
+  return page
+    .locator('[data-testid^="factory-choice-"]:not([disabled])')
+    .evaluateAll((els) =>
+      els.map((el) => (el.getAttribute('data-testid') ?? '').slice('factory-choice-'.length)),
     );
 }
 
@@ -190,8 +186,9 @@ export type Run = keyof typeof SEEDED_FACTORY;
  * prevent. How the relay runs is its factory's, so `run` only picks the
  * seeded factory of that run; the form asks for no run.
  *
- * The form answers with the id the relay runs under and a link to it, and
- * stays open until it is dismissed; this reads that answer and closes it.
+ * The flow walks factory, details and review; it answers with the id the
+ * relay runs under and a link to it, and stays open until it is dismissed.
+ * This reads that answer and closes it.
  *
  * Returns the factory it chose, so a caller can assert on it.
  */
@@ -202,20 +199,19 @@ export async function startRelay(
 ): Promise<string> {
   const run = opts.run ?? 'flow';
 
-  await page.getByTestId('start-relay-btn').click();
-  await expect(page.getByTestId('start-modal')).toBeVisible();
+  await openStart(page);
 
   // Before the factory: changing the namespace re-reads its catalog, which
-  // re-renders the factory selector and drops whatever was chosen.
+  // re-renders the factory choices and drops whatever was chosen.
   if (opts.namespace) {
     await page.getByTestId('input-namespace').selectOption(opts.namespace);
   }
 
   const factory = opts.factory ?? (await preferredFactory(page, run));
-  await page.getByTestId('input-factory-id').selectOption(factory);
+  await chooseFactory(page, factory);
   await page.getByTestId('input-relay-id').fill(id);
 
-  await page.getByTestId('start-submit-btn').click();
+  await reviewAndStart(page);
   await expect(page.getByTestId('start-result')).toBeVisible();
   await expect(page.getByTestId('start-result-link')).toHaveText(id);
 
@@ -223,6 +219,25 @@ export async function startRelay(
   await expect(page.getByTestId('start-modal')).toHaveCount(0);
 
   return factory;
+}
+
+/** Opens the start flow from the screen's start control. */
+export async function openStart(page: Page): Promise<void> {
+  await page.getByTestId('start-relay-btn').click();
+  await expect(page.getByTestId('start-modal')).toBeVisible();
+}
+
+/** Chooses `factory` in the open start flow, which moves on to its details. */
+export async function chooseFactory(page: Page, factory: string): Promise<void> {
+  await page.getByTestId(`factory-choice-${factory}`).click();
+  await expect(page.getByTestId('input-relay-id')).toBeVisible();
+}
+
+/** From the details, on to the review and the start. */
+export async function reviewAndStart(page: Page): Promise<void> {
+  await page.getByTestId('start-next-btn').click();
+  await expect(page.getByTestId('start-review')).toBeVisible();
+  await page.getByTestId('start-submit-btn').click();
 }
 
 async function preferredFactory(page: Page, run: Run): Promise<string> {
@@ -235,25 +250,36 @@ async function preferredFactory(page: Page, run: Run): Promise<string> {
 }
 
 /**
- * Stops `id` from the namespace screen the caller is already on.
+ * Runs one of a row's actions: opens the row's menu, named by its test id,
+ * and clicks the item. A row keeps its actions in a menu, so an item is
+ * hidden until its menu opens.
+ */
+export async function menuAction(page: Page, menu: string, item: string): Promise<void> {
+  await page.getByTestId(menu).click();
+  await page.getByTestId(item).click();
+}
+
+/**
+ * Stops `id` from its namespace's relays listing, which it opens itself.
  *
  * Tolerating an already-stopped relay is what makes this safe to call from
  * `finally` after the test stopped it itself; it never skips an assertion. A
  * steps relay stops cooperatively and leaves the listing once its in-flight
  * work is done, so the wait allows for that.
  */
-export async function stopRelay(page: Page, id: string): Promise<void> {
-  const row = page.getByTestId(`relay-row-${id}`);
+export async function stopRelay(page: Page, id: string, namespace = 'default'): Promise<void> {
+  await visitLive(page, `/namespaces/${namespace}/relays`);
+  const row = page.getByTestId(`relay-index-row-${id}`);
   if ((await row.count()) === 0) return;
 
-  await page.getByTestId(`stop-relay-${id}`).click();
+  await menuAction(page, `relay-menu-${id}`, `stop-relay-${id}`);
   await expect(page.getByTestId('stop-confirm-modal')).toBeVisible();
   await page.getByTestId('stop-confirm-btn').click();
   await expect(row).toHaveCount(0, { timeout: 20_000 });
 }
 
 /**
- * Chooses `value` in a `.flz-dropdown` picker, named by its trigger's test id.
+ * Chooses `value` in a combobox, named by its trigger's test id.
  *
  * The pickers are menu buttons rather than native selects — the OS draws a
  * `select`'s menu and it cannot be styled to match — so a spec opens the menu
@@ -265,8 +291,8 @@ export async function choose(page: Page, testid: string, value: string): Promise
 }
 
 /**
- * The hidden input a `.flz-dropdown` picker submits under, so a spec can
- * assert on what it currently holds with `toHaveValue`.
+ * The hidden input a combobox submits under, so a spec can assert on what it
+ * currently holds with `toHaveValue`.
  */
 export function chosen(page: Page, testid: string) {
   return page.locator(`#${testid}-value`);
@@ -336,7 +362,6 @@ export async function withStepsRelay(
   try {
     await body(id);
   } finally {
-    await visitLive(page, '/namespaces/default');
     await stopRelay(page, id);
   }
 }
@@ -388,7 +413,7 @@ export async function removeSchedule(page: Page, name: string): Promise<void> {
   const row = page.getByTestId(`schedule-row-${name}`);
   if ((await row.count()) === 0) return;
 
-  await page.getByTestId(`schedule-remove-${name}`).click();
+  await menuAction(page, `schedule-menu-${name}`, `schedule-remove-${name}`);
   await page.getByTestId('schedule-remove-confirm').click();
   await expect(row).toHaveCount(0);
 }
@@ -427,7 +452,7 @@ export async function fillPluginForm(page: Page, opener: string, fields: PluginF
 
 /** The error shown on a plugin option's field, inside the field's own container. */
 export const optionError = (page: Page, option: string) =>
-  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.flz-field-error');
+  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.fui-error');
 
 /**
  * Unbinds `name` from every relay and then disables it, from the plugins
@@ -442,11 +467,12 @@ export async function disablePlugin(page: Page, name: string): Promise<void> {
 
   await confirmEach(
     page,
-    page.getByTestId(`plugin-relays-${name}`).locator('[data-testid^="plugin-unbind-"]'),
+    page.locator(`[data-testid^="plugin-unbind-${name}-"]`),
     'plugin-unbind-confirm',
+    `plugin-menu-${name}`,
   );
 
-  await page.getByTestId(`plugin-disable-${name}`).click();
+  await menuAction(page, `plugin-menu-${name}`, `plugin-disable-${name}`);
   await page.getByTestId('plugin-disable-confirm').click();
   await expect(row).toHaveCount(0);
 }
@@ -477,7 +503,7 @@ export async function clearStoredToken(page: Page): Promise<void> {
 
   if (await page.locator('#clear_flezha_token').count()) {
     await page.locator('#clear_flezha_token button').click();
-    await expect(page.getByTestId('flezha-token-binding')).toContainText('using the service token');
+    await expect(page.getByTestId('flezha-token-binding')).toContainText('the service token is used');
   }
 }
 
@@ -532,12 +558,18 @@ export async function openPage(page: Page, path: string): Promise<Page> {
 
 /**
  * Drives each control `controls` matches through its confirmation dialog,
- * until none is left. For cleanup, where each confirmed action removes the
- * row that offered it.
+ * until none is left, opening `menu` first when the controls sit in a row's
+ * menu. For cleanup, where each confirmed action removes the control.
  */
-export async function confirmEach(page: Page, controls: Locator, confirm: string): Promise<void> {
+export async function confirmEach(
+  page: Page,
+  controls: Locator,
+  confirm: string,
+  menu?: string,
+): Promise<void> {
   while ((await controls.count()) > 0) {
     const before = await controls.count();
+    if (menu) await page.getByTestId(menu).click();
     await controls.first().click();
     await page.getByTestId(confirm).click();
     await expect(controls).toHaveCount(before - 1);

@@ -16,11 +16,11 @@ test.describe('Controller health', () => {
   test('shows the durability backend, posture and counts', async ({ page }) => {
     await expect(page.getByTestId('durability-panel')).toBeVisible();
     // local_only ships nowhere, so it has no backend and nothing to breach.
-    await expect(page.getByTestId('durability-backend')).toHaveText('none');
+    await expect(page.getByTestId('durability-backend')).toHaveText('None');
     await expect(
       page.getByTestId('durability-posture'),
       'the dev stack runs local_only; check docker-compose.dev.yml',
-    ).toContainText('local_only');
+    ).toContainText('one copy, on the node that wrote it');
     await expect(page.getByTestId('durability-breaches')).toHaveText('0');
     await expect(page.getByTestId('durability-superseded')).toHaveText('0');
   });
@@ -35,14 +35,14 @@ test.describe('Controller health', () => {
 
   test('shutdown, boot and authz state render', async ({ page }) => {
     await expect(page.getByTestId('shutdown-panel')).toBeVisible();
-    await expect(page.getByTestId('shutdown-in-progress')).toHaveText('no');
+    await expect(page.getByTestId('shutdown-in-progress')).toHaveText('No');
     // Said in words, never the raw `nil` a not-shutting-down coordinator reports.
-    await expect(page.getByTestId('shutdown-phase')).toHaveText('none');
+    await expect(page.getByTestId('shutdown-phase')).toHaveText('Not stopping');
 
-    await expect(page.getByTestId('boot-default')).toContainText('normal');
+    await expect(page.getByTestId('boot-default')).toContainText('Serving');
 
     await expect(page.getByTestId('authz-panel')).toBeVisible();
-    await expect(page.getByTestId('authz-posture')).toContainText('Posture: :enforced');
+    await expect(page.getByTestId('authz-posture')).toContainText('Enforced');
   });
 
   test('the memory snapshot is taken only when asked, and labelled when taken', async ({
@@ -76,7 +76,7 @@ test.describe('Controller health', () => {
     await page.getByTestId('stop-typed').fill('not-the-node');
     await expect(confirm).toBeDisabled();
 
-    const label = await modal.locator('label[for], .flz-field-label').filter({ hasText: 'Type ' }).innerText();
+    const label = await modal.locator('label').filter({ hasText: 'Type ' }).innerText();
     const node = label.replace(/^Type /, '').replace(/ to confirm$/, '').trim();
     await page.getByTestId('stop-typed').fill(node);
     await expect(confirm).toBeEnabled();
@@ -88,7 +88,7 @@ test.describe('Controller health', () => {
 
     await page.getByTestId('stop-cancel').click();
     await expect(modal).toHaveCount(0);
-    await expect(page.getByTestId('shutdown-in-progress')).toHaveText('no');
+    await expect(page.getByTestId('shutdown-in-progress')).toHaveText('No');
   });
 
   test('the stop dialog also closes from its close control, stopping nothing', async ({ page }) => {
@@ -97,7 +97,7 @@ test.describe('Controller health', () => {
 
     await page.getByTestId('stop-controller-close').click();
     await expect(page.getByTestId('stop-controller-modal')).toHaveCount(0);
-    await expect(page.getByTestId('shutdown-in-progress')).toHaveText('no');
+    await expect(page.getByTestId('shutdown-in-progress')).toHaveText('No');
     await expect(page.getByTestId('shutdown-phase')).not.toHaveText(/drain|finalise/);
   });
 });

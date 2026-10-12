@@ -5,7 +5,7 @@
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "e2e:headed": "playwright test --headed",
-    "tokens": "node assets/node_modules/@flezha/stylebook/scripts/check-tokens.mjs assets lib"
+    "tokens": "node assets/node_modules/@flezha/stylebook/scripts/check-tokens.mjs --config assets/css/console/gate.config.json assets lib && node assets/node_modules/@flezha/stylebook/scripts/check-tokens.mjs --config assets/css/console/gate.graph.json assets lib"
   },
   "devDependencies": {
     "@playwright/test": "^1.x",

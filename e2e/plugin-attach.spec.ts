@@ -1,4 +1,5 @@
 import {
+  menuAction,
   test,
   expect,
   disablePlugin,
@@ -229,13 +230,13 @@ test.describe('Plugin attachment', () => {
       await expect(page.getByTestId(`binding-row-${name}`)).toBeVisible();
 
       // Cancelling leaves the binding where it was.
-      await page.getByTestId(`unbind-btn-${name}`).click();
+      await menuAction(page, `binding-menu-${name}`, `unbind-btn-${name}`);
       await expect(page.getByTestId('unbind-confirm-modal')).toContainText('stays enabled');
       await page.getByTestId('unbind-cancel-btn').click();
       await expect(page.getByTestId('unbind-confirm-modal')).toHaveCount(0);
       await expect(page.getByTestId(`binding-row-${name}`)).toBeVisible();
 
-      await page.getByTestId(`unbind-btn-${name}`).click();
+      await menuAction(page, `binding-menu-${name}`, `unbind-btn-${name}`);
       await page.getByTestId('unbind-confirm-btn').click();
       await expect(page.locator('body')).toContainText(`testnet_store_1 unbound from plugin ${name}.`);
       await expect(page.getByTestId(`binding-row-${name}`)).toHaveCount(0);

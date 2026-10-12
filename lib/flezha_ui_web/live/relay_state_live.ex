@@ -1,7 +1,9 @@
 defmodule FlezhaUiWeb.RelayStateLive do
   @moduledoc """
-  One relay's durable state: its cells, their durability counters, a lag
-  series sampled at this UI's tick, and point-in-time reads.
+  A relay's State view: what it has kept. For a steps relay its steps facts
+  as sentences, and for a durable one its task journal and input log; its SDK
+  cell state on request; and its durable cells with their durability
+  counters, a lag series sampled at this UI's tick, and point-in-time reads.
 
   Beside the relay that owns them rather than as a top-level screen, because
   "what does this relay's state look like" is a question about that relay.
@@ -16,6 +18,9 @@ defmodule FlezhaUiWeb.RelayStateLive do
 
   use FlezhaUiWeb.Live.Refresh, every: 5_000
 
+  use FlezhaUiWeb.Live.Sections,
+    open: %{"journal" => false, "input-log" => false, "sdk-state" => false}
+
   alias FlezhaUi.Service.NodeManager
 
   # Enough points to see a trend at the tick rate without unbounded growth.
@@ -26,6 +31,7 @@ defmodule FlezhaUiWeb.RelayStateLive do
     socket =
       socket
       |> start_refresh()
+      |> sections_init()
       |> assign(
         ns: ns,
         relay_id: id,
@@ -45,11 +51,30 @@ defmodule FlezhaUiWeb.RelayStateLive do
         outbox: nil,
         outbox_error: nil,
         confirm: nil,
-        replayed: nil
+        replayed: nil,
+        facts: nil,
+        journal: nil,
+        committed_iterations: [],
+        input_log: nil,
+        inbox: nil,
+        inbox_error: nil,
+        rewind_target: nil,
+        state_json: nil,
+        state_seq: nil,
+        state_notice: nil,
+        selector_form: %{"tasklet" => "", "cell_key" => ""},
+        auto_refresh_state: false
       )
 
-    {:ok, socket |> assign_relay() |> load_retention() |> refresh()}
+    {:ok, refresh(socket)}
   end
+
+  # Read until it answers: one refused read must not hide the steps sections
+  # for as long as the screen is open.
+  defp read_relay(%{assigns: %{facts: nil}} = socket),
+    do: socket |> assign_relay() |> load_retention()
+
+  defp read_relay(socket), do: socket
 
   # Cells are filed under the relay's class, which defaults to its id. A
   # finished relay has no overwatch to ask: its class is then its id and its
@@ -58,11 +83,11 @@ defmodule FlezhaUiWeb.RelayStateLive do
     %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
 
     case NodeManager.overwatch_facts(ns, id, token) do
-      {:ok, %{relay_class: class, run: run}} when is_binary(class) ->
-        assign(socket, relay_class: class, run: run)
+      {:ok, %{relay_class: class, run: run} = facts} when is_binary(class) ->
+        assign(socket, relay_class: class, run: run, facts: facts)
 
       _unreadable ->
-        assign(socket, relay_class: id, run: nil)
+        assign(socket, relay_class: id, run: nil, facts: nil)
     end
   end
 
@@ -82,7 +107,64 @@ defmodule FlezhaUiWeb.RelayStateLive do
 
   # A row could move underneath an open confirmation.
   @impl FlezhaUiWeb.Live.Refresh
-  def refresh_paused?(socket), do: socket.assigns.confirm != nil
+  def refresh_paused?(socket),
+    do: socket.assigns.confirm != nil or socket.assigns.rewind_target != nil
+
+  @impl true
+  def handle_event("fetch_state", _params, socket) do
+    {:noreply, fetch_state(socket)}
+  end
+
+  @impl true
+  def handle_event("selector_change", %{"selector" => params}, socket) do
+    {:noreply, assign(socket, selector_form: Map.merge(socket.assigns.selector_form, params))}
+  end
+
+  @impl true
+  def handle_event("toggle_auto_refresh", _params, socket) do
+    {:noreply, assign(socket, auto_refresh_state: !socket.assigns.auto_refresh_state)}
+  end
+
+  @impl true
+  def handle_event("open_rewind", _params, socket) do
+    {:noreply, assign(socket, rewind_target: List.first(socket.assigns.committed_iterations))}
+  end
+
+  @impl true
+  def handle_event("cancel_rewind", _params, socket) do
+    {:noreply, assign(socket, rewind_target: nil)}
+  end
+
+  @impl true
+  def handle_event("select_rewind", %{"rewind" => %{"iteration" => value}}, socket) do
+    {:noreply, assign(socket, rewind_target: parse_iteration(value))}
+  end
+
+  @impl true
+  def handle_event("rewind", _params, socket) do
+    %{ns: ns, relay_class: class, rewind_target: target, flezha_token: token} = socket.assigns
+
+    # Only an iteration the journal reported as committed is ever a target, so
+    # a stale form cannot ask for one the controller would refuse.
+    if target in socket.assigns.committed_iterations do
+      case NodeManager.rewind(ns, class, target, token) do
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> assign(rewind_target: nil)
+           |> put_flash(:error, error_message(reason, "the rewind"))}
+
+        _ok ->
+          {:noreply,
+           socket
+           |> assign(rewind_target: nil)
+           |> load_durability()
+           |> put_flash(:info, "Rewound to iteration #{target}.")}
+      end
+    else
+      {:noreply, assign(socket, rewind_target: nil)}
+    end
+  end
 
   @impl true
   def handle_event("select_cell", %{"cell" => key}, socket) do
@@ -216,6 +298,140 @@ defmodule FlezhaUiWeb.RelayStateLive do
 
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
+    socket
+    |> read_relay()
+    |> load_cells()
+    |> load_durability()
+    |> then(&if(&1.assigns.auto_refresh_state, do: fetch_state(&1), else: &1))
+  end
+
+  # The retained records, read when the input log section opens, never on the
+  # tick; payloads are never read.
+  def section_opened(socket, "input-log"), do: load_inbox(socket)
+  def section_opened(socket, _key), do: socket
+
+  defp load_inbox(%{assigns: %{input_log: nil}} = socket), do: socket
+
+  defp load_inbox(socket) do
+    case NodeManager.inbox(socket.assigns.relay_id, socket.assigns.flezha_token) do
+      {:ok, inbox} -> assign(socket, inbox: inbox, inbox_error: nil)
+      {:error, reason} -> assign(socket, inbox: nil, inbox_error: reason)
+    end
+  end
+
+  # The task journal and input log exist only for a durable steps relay.
+  # Reading them for a flow relay would answer empty, which renders as "there
+  # is nothing here" rather than "this does not apply".
+  defp load_durability(%{assigns: %{facts: %{run: :steps, durable_steps: true}}} = socket) do
+    %{relay_id: id, flezha_token: token} = socket.assigns
+
+    assign(socket,
+      journal: NodeManager.ok_or(NodeManager.task_journal(id, token), nil),
+      committed_iterations:
+        id |> NodeManager.committed_iterations(token) |> NodeManager.ok_or([]) |> Enum.sort(:desc),
+      input_log: %{
+        undelivered: length(NodeManager.ok_or(NodeManager.input_log_undelivered(id, token), [])),
+        last_offset: integer_or_nil(NodeManager.input_log_last_offset(id, token)),
+        consumed_offset: integer_or_nil(NodeManager.consumed_offset(id, token))
+      }
+    )
+  end
+
+  defp load_durability(socket) do
+    assign(socket, journal: nil, committed_iterations: [], input_log: nil)
+  end
+
+  defp integer_or_nil({:ok, value}) when is_integer(value), do: value
+  defp integer_or_nil(_value), do: nil
+
+  defp fetch_state(socket) do
+    %{ns: ns, relay_id: id, selector_form: form, flezha_token: token} = socket.assigns
+
+    with {:ok, cell} <- selector(form),
+         {:ok, json, change_seq} <- NodeManager.cell_state(ns, id, cell, token) do
+      assign(socket, state_json: json, state_seq: change_seq, state_notice: nil)
+    else
+      {:error, reason} ->
+        assign(socket, state_json: nil, state_seq: nil, state_notice: state_notice(reason))
+    end
+  end
+
+  # No tasklet reads every cell; a tasklet alone narrows to its cells; both
+  # narrow to one cell. A cell key is unique only within its tasklet, so it is
+  # never sent alone.
+  defp selector(form) do
+    tasklet = String.trim(form["tasklet"] || "")
+    cell_key = String.trim(form["cell_key"] || "")
+
+    cond do
+      tasklet == "" and cell_key != "" -> {:error, :cell_key_without_tasklet}
+      tasklet == "" -> {:ok, nil}
+      cell_key == "" -> {:ok, tasklet}
+      true -> {:ok, "#{tasklet}/#{cell_key}"}
+    end
+  end
+
+  # These are explanations, not failures: the relay is healthy, the state just
+  # is not there to read.
+  defp state_notice(:cell_key_without_tasklet),
+    do: {:info, "A cell key is unique only within its tasklet, so name the tasklet too."}
+
+  defp state_notice(reason) do
+    case NodeManager.error(reason) do
+      %{code: "state.persistence_off"} ->
+        {:info, "This relay declares persistence off, so it keeps no cell state to read."}
+
+      %{code: "state.not_resident", message: message} ->
+        {:info, "#{message} This relay's cells are not held in memory."}
+
+      _failure ->
+        {:error, reason}
+    end
+  end
+
+  defp parse_iteration(value) do
+    case Integer.parse(to_string(value)) do
+      {int, ""} -> int
+      _ -> nil
+    end
+  end
+
+  @doc """
+  A steps relay's facts as sentences: durability, delivery, the correction
+  window, how it arrived, suspension and an initialisation failure.
+  """
+  def steps_sentences(facts) do
+    [
+      if(facts.durable_steps,
+        do: {"steps-durable", "It is durable: its steps are journaled and survive a restart."},
+        else: {"steps-durable", "It is not durable: its steps are not journaled."}
+      ),
+      if(facts.effectively_once,
+        do: {nil, "Each input takes effect exactly once."},
+        else: {nil, "Inputs are delivered at least once."}
+      ),
+      facts.correction_window_ms &&
+        {"steps-correction-window",
+         "Late corrections are accepted for #{Format.duration(facts.correction_window_ms)}."},
+      facts.arrived_via_hotswap? && {nil, "It arrived on this runner through a hot swap."},
+      facts.suspended && {nil, "It is suspended at a committed boundary."}
+    ]
+    |> Enum.filter(& &1)
+  end
+
+  @doc "The task journal's digest: how many iterations are committed, and the latest."
+  def journal_digest(nil, _committed), do: nil
+  def journal_digest(_journal, []), do: "nothing committed yet"
+
+  def journal_digest(_journal, [latest | _] = committed),
+    do: "#{Words.count(length(committed), "iteration")} committed, latest #{latest}"
+
+  # The controller answers `-1` for an input log that holds no records.
+  defp last_offset(-1), do: "no records"
+  defp last_offset(nil), do: "—"
+  defp last_offset(offset), do: offset
+
+  defp load_cells(socket) do
     case NodeManager.cells(socket.assigns.relay_class, socket.assigns.flezha_token) do
       {:ok, %{cells: rows} = answer} ->
         cells = rows |> Enum.map(&decorate/1) |> Enum.sort_by(&{&1.tasklet, &1.cell_key})
@@ -306,6 +522,9 @@ defmodule FlezhaUiWeb.RelayStateLive do
   defp confirm_label("rotate"), do: "Rotate"
   defp confirm_label("delete"), do: "Delete"
   defp confirm_label("replay"), do: "Replay"
+
+  defp confirm_variant("rotate"), do: "primary"
+  defp confirm_variant(_action), do: "danger"
 
   @doc "A cell is lagging when its most recent sample carries any fsync lag."
   def lagging?(cell), do: (Map.get(cell.counters, :fsync_durability_lag_ms) || 0) > 0

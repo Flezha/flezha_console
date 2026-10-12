@@ -1,9 +1,19 @@
 defmodule FlezhaUiWeb.NamespaceLive.Show do
+  @moduledoc """
+  A namespace's Home: a headline sentence, the namespace's open problems, the
+  live map of its data plane, the event river, and its administration folded
+  below — limits, access, partition groups, finished relays and runners.
+
+  It replaces both the former dashboard and the namespace overview, and is the
+  only screen that renders the namespace's data-plane summary. Selecting
+  anything on the map inspects it in place.
+  """
+
   use FlezhaUiWeb, :live_view
 
-  # The data-plane summary reads its rates from snapshot deltas, so this
-  # screen ticks at the rate those deltas are worth measuring over. A runner
-  # flip is the one state change worth showing before the next tick.
+  # The map reads its rates from snapshot deltas, so this screen ticks at the
+  # rate those deltas are worth measuring over. A runner flip is the one state
+  # change worth showing before the next tick.
   use FlezhaUiWeb.Live.Refresh,
     every: 2_000,
     on_events: [:runner_connected, :runner_disconnected, :runner_dropped, :runner_readmitted]
@@ -11,15 +21,17 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   use FlezhaUiWeb.Topology
   use FlezhaUiWeb.Live.Launcher
   use FlezhaUiWeb.Live.RunnerActions
+  use FlezhaUiWeb.Attention
+  use FlezhaUiWeb.River
+  use FlezhaUiWeb.Inspect, kinds: ~w(relay runner plugin)
 
-  # The namespace's own relays are what the screen is for; everything that
+  # The namespace's data plane is what the screen is for; everything that
   # administers the namespace is folded away until asked for. A breached quota
   # overrides that — see the `forced` section in the template.
   use FlezhaUiWeb.Live.Sections,
     open: %{
       "quotas" => false,
-      "role-bindings" => false,
-      "tokens" => false,
+      "access" => false,
       "partition-groups" => false,
       "finished-relays" => false,
       "runners" => false
@@ -27,6 +39,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
   alias FlezhaUi.Format
   alias FlezhaUi.Service.NodeManager
+  alias FlezhaUiWeb.Attention
   alias FlezhaUiWeb.Topology
 
   @impl true
@@ -38,11 +51,27 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       |> launcher_init(ns)
       |> runner_actions_init()
       |> sections_init()
+      |> attention_init()
+      |> river_init()
       |> assign(
         ns: ns,
         page_title: ns,
+        loaded?: false,
         confirm_stop: nil,
         load_error: nil,
+        runs: %{},
+        plugin_pairs: [],
+        groups: [],
+        runners: [],
+        runner_marks: [],
+        declared: nil,
+        quotas: [],
+        quota_breached: false,
+        role_bindings: [],
+        items: [],
+        expanded: MapSet.new(),
+        map: nil,
+        rows: [],
         finished: [],
         finished_error: nil,
         finished_loading?: false,
@@ -54,12 +83,18 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         token_issue: nil,
         confirm_revoke: nil,
         role_bind: nil,
-        confirm_unbind: nil
+        confirm_unbind: nil,
+        factory_descriptions: nil
       )
-      |> refresh()
+      |> refresh_when_connected()
       |> load_finished()
 
     {:ok, socket}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    {:noreply, socket |> inspect_params(params) |> assign_map()}
   end
 
   # The dialogs and the launcher, any of which a row could move underneath.
@@ -70,6 +105,19 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         ~w(confirm_stop rescale quota_form token_issue confirm_revoke role_bind confirm_unbind)a,
         &(socket.assigns[&1] != nil)
       )
+  end
+
+  # Opening a stack draws its member lanes from what the last tick read.
+  @impl true
+  def handle_event("map_expand", %{"id" => key}, socket) do
+    expanded = socket.assigns.expanded
+
+    expanded =
+      if MapSet.member?(expanded, key),
+        do: MapSet.delete(expanded, key),
+        else: MapSet.put(expanded, key)
+
+    {:noreply, socket |> assign(expanded: expanded) |> assign_map()}
   end
 
   # ---- Tokens ----
@@ -296,7 +344,8 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
          socket
          |> assign(confirm_stop: nil)
          |> refresh()
-         |> put_flash(:info, Format.relay_stopped(relay_id, answer))}
+         |> put_flash(:info, Format.relay_stopped(relay_id, answer))
+         |> close_inspector(relay_id)}
 
       {:error, reason} ->
         {:noreply,
@@ -305,6 +354,12 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
          |> put_flash(:error, error_message(reason, "the stop"))}
     end
   end
+
+  # A stopped relay's inspector has nothing left to show.
+  defp close_inspector(%{assigns: %{inspected: %{kind: "relay", relay: relay}}} = socket, relay),
+    do: push_patch(socket, to: inspect_path(socket, nil))
+
+  defp close_inspector(socket, _relay), do: socket
 
   # What both the issue and the bind dialog ask for, trimmed and required.
   defp principal_and_role(form) do
@@ -336,42 +391,223 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   def refresh(socket) do
     %{ns: ns, flezha_token: token} = socket.assigns
 
-    # One listing read answers every row's health, node, factory, runner and
-    # partition group, collapsed by the controller's own rule; the member rows
-    # behind them feed the group panel and the summary.
-    {relays, load_error} = NodeManager.ok_or_error(NodeManager.relay_list(ns, token), [])
-    rows = ns |> NodeManager.relay_rows(token) |> NodeManager.ok_or([])
-    groups = rows |> NodeManager.partition_groups(token) |> with_group_health(relays)
-
-    plugin_counts =
-      ns
-      |> NodeManager.relay_plugins(token)
-      |> NodeManager.ok_or([])
-      |> NodeManager.plugin_counts()
-
+    # One registry dump answers every relay's health, node, factory, runner and
+    # partition group; the summary and the map are built from it, not from a
+    # read per relay.
+    {rows, load_error} = NodeManager.ok_or_error(NodeManager.relay_rows(ns, token), [])
+    groups = rows |> NodeManager.partition_groups(token) |> with_group_health(rows)
     declared = NodeManager.ok_or(NodeManager.namespace_record(ns, token), nil)
     quotas = NodeManager.quota_usage(ns, declared && declared.quotas, token)
 
-    socket
-    |> assign(
-      relays: relays,
-      runs: ns |> NodeManager.relay_runs(token) |> NodeManager.ok_or(%{}),
-      plugin_counts: plugin_counts,
-      groups: groups,
-      runners:
-        ns |> NodeManager.runners(token) |> NodeManager.ok_or([]) |> FlezhaUiWeb.Runners.rows(),
-      runner_marks: ns |> NodeManager.dropped_runners(token) |> NodeManager.ok_or([]),
-      declared: declared,
-      quotas: quotas,
-      # A breach is never hidden behind a click, so it outranks the screen's
-      # own collapse default and whatever the viewer last chose.
-      quota_breached: Enum.any?(quotas, & &1.breached?),
-      role_bindings: ns |> NodeManager.roles(token) |> NodeManager.ok_or([]),
-      load_error: load_error
-    )
-    |> Topology.load_summary(ns, %{rows: rows, groups: groups})
-    |> load_tokens()
+    runners =
+      ns |> NodeManager.runners(token) |> NodeManager.ok_or([]) |> FlezhaUiWeb.Runners.rows()
+
+    socket =
+      socket
+      |> assign(
+        loaded?: true,
+        rows: rows,
+        runs: ns |> NodeManager.relay_runs(token) |> NodeManager.ok_or(%{}),
+        plugin_pairs: ns |> NodeManager.relay_plugins(token) |> NodeManager.ok_or([]),
+        groups: groups,
+        runners: runners,
+        runner_marks: ns |> NodeManager.dropped_runners(token) |> NodeManager.ok_or([]),
+        declared: declared,
+        quotas: quotas,
+        # A breach is never hidden behind a click, so it outranks the screen's
+        # own collapse default and whatever the viewer last chose.
+        quota_breached: Enum.any?(quotas, & &1.breached?),
+        role_bindings: ns |> NodeManager.roles(token) |> NodeManager.ok_or([]),
+        load_error: load_error
+      )
+      |> Topology.load_summary(ns, %{rows: rows, groups: groups})
+      |> track_attention()
+      |> load_tokens()
+
+    assign_map(socket)
   end
+
+  # The namespace's problems, from the same derivation the shell and the Open
+  # problems screen read; what came and went since the last tick goes on the
+  # river.
+  defp track_attention(socket) do
+    %{ns: ns, rows: rows, groups: groups, quotas: quotas, items: previous} = socket.assigns
+
+    items =
+      Attention.derive(%{
+        namespaces: [
+          %{
+            namespace: ns,
+            rows: rows,
+            faulted_groups: NodeManager.faulted_group_ids(groups),
+            quotas: quotas
+          }
+        ]
+      })
+
+    {items, appeared, cleared} =
+      Attention.track(Attention.by_id(previous), items, DateTime.utc_now())
+
+    # The first read is the baseline, not news.
+    appeared = if socket.assigns[:attention_tracked?], do: appeared, else: []
+
+    socket
+    |> assign(items: items, attention_tracked?: true)
+    |> FlezhaUiWeb.River.attention(appeared, cleared)
+  end
+
+  # The map is rebuilt from what the last tick read whenever the selection or
+  # an opened stack changes, so neither costs a controller call.
+  defp assign_map(%{assigns: %{topology: %{kind: :summary, state: :ok} = summary}} = socket) do
+    %{assigns: a} = socket
+
+    map =
+      Topology.map(%{
+        namespace: a.ns,
+        rows: a.rows,
+        runners: a.runners,
+        plugins: a.plugin_pairs,
+        runs: a.runs,
+        rates: a.topology_state.rates,
+        history: a.topology_state.history,
+        parked: summary.parked,
+        faulted_groups: NodeManager.faulted_group_ids(a.groups),
+        expanded: a.expanded,
+        selected: selection(a[:inspected])
+      })
+
+    assign(socket, map: map)
+  end
+
+  defp assign_map(socket), do: assign(socket, map: nil)
+
+  defp selection(%{kind: kind, id: id}), do: {String.to_existing_atom(kind), id}
+  defp selection(_none), do: nil
+
+  # What the screen already knows about a selection, so opening it costs only
+  # its own read.
+  @impl FlezhaUiWeb.Inspect
+  def inspect_context(socket, {"relay", id}) do
+    %{rows: rows, topology_state: state} = socket.assigns
+    row = Enum.find(rows, &(to_string(&1.id) == id))
+    factory = row && row[:factory] && to_string(row.factory)
+
+    %{
+      row: row,
+      rate: Map.get(state.rates, id),
+      history: state.history |> Map.get(id, []) |> Enum.reverse(),
+      factory_description: factory && Map.get(factory_descriptions(socket), factory)
+    }
+  end
+
+  def inspect_context(socket, {"runner", id}) do
+    %{rows: rows, runners: runners, ns: ns, flezha_token: token} = socket.assigns
+    runner = Enum.find(runners, &(&1.id == id)) || %{}
+
+    factories =
+      ns
+      |> NodeManager.factory_catalog(token)
+      |> NodeManager.ok_or([])
+      |> NodeManager.factories_by_runner()
+      |> Map.get(id, [])
+
+    %{
+      pid: runner[:pid],
+      factories: factories,
+      relays:
+        for(row <- rows, to_string(row[:runner]) == id, do: to_string(row.id)) |> Enum.sort()
+    }
+  end
+
+  def inspect_context(socket, {"plugin", name}) do
+    %{ns: ns, flezha_token: token} = socket.assigns
+
+    case ns
+         |> NodeManager.plugins(token)
+         |> NodeManager.ok_or([])
+         |> Enum.find(&(to_string(&1.name) == name)) do
+      nil ->
+        %{namespace: ns}
+
+      plugin ->
+        %{
+          namespace: ns,
+          provider: plugin.provider,
+          provider_id: FlezhaUiWeb.PluginLive.provider_id(plugin),
+          hooks: Enum.map(plugin[:hooks] || [], &to_string/1),
+          relays: Enum.map(plugin[:relays] || [], &to_string/1),
+          controllers: Enum.map(plugin[:controllers] || [], &to_string/1)
+        }
+    end
+  end
+
+  def inspect_context(_socket, _selection), do: %{}
+
+  # Factory descriptions, read once per screen and only when a relay is
+  # inspected: one listing, never a lookup per factory.
+  defp factory_descriptions(%{assigns: %{factory_descriptions: %{} = known}}), do: known
+
+  defp factory_descriptions(socket) do
+    socket.assigns.ns
+    |> NodeManager.factories(socket.assigns.flezha_token)
+    |> NodeManager.ok_or([])
+    |> Map.new(&{to_string(&1.id), Map.get(&1, :description)})
+  end
+
+  @doc """
+  The headline: the namespace's condition in one sentence, as `{condition,
+  text}`. `condition` is `:unreachable`, `:empty`, `:attention`, `:flowing`,
+  `:quiet` or `:healthy` (every relay healthy, rates not yet measured).
+  """
+  # Nothing is claimed before the first read.
+  def headline(%{state: :loading}, _items, _rates, ns), do: {:loading, "Reading #{ns}…"}
+
+  def headline(%{state: :disconnected}, _items, _rates, ns),
+    do: {:unreachable, "The controller cannot be reached, so #{ns} cannot be shown."}
+
+  def headline(%{state: :empty}, _items, _rates, ns),
+    do: {:empty, "Nothing runs in #{ns} yet."}
+
+  def headline(_summary, [_ | _] = items, _rates, _ns) do
+    relays = Enum.count(items, &(&1.kind == :relay))
+
+    text =
+      if relays == length(items),
+        do:
+          "#{Words.count(relays, "relay")} #{if relays == 1, do: "needs", else: "need"} attention.",
+        else:
+          "#{Words.count(length(items), "problem")} #{if length(items) == 1, do: "needs", else: "need"} attention."
+
+    {:attention, text}
+  end
+
+  def headline(_summary, [], rates, ns) when rates == %{},
+    do: {:healthy, "Every relay in #{ns} is healthy."}
+
+  def headline(_summary, [], rates, ns) do
+    if Enum.any?(rates, fn {_id, rate} -> rate.in + rate.out > 0 end),
+      do: {:flowing, "#{ns} is flowing: every relay is healthy and records are moving."},
+      else:
+        {:quiet,
+         "#{ns} is quiet: every relay is healthy and none moved records since the last reading."}
+  end
+
+  @doc "The headline's second line: its figures, in words."
+  def figures(%{state: :ok} = summary, rows, rates) do
+    healthy = Enum.count(rows, &(NodeManager.row_health(&1) == :healthy))
+    inbound = rates |> Map.values() |> Enum.map(& &1.in) |> Enum.sum()
+
+    [
+      "#{healthy} of #{Words.count(length(rows), "relay")} healthy",
+      Words.count(summary.runner_count, "runner"),
+      rates != %{} && "#{Float.round(inbound / 1, 1)} records/s in",
+      summary.parked > 0 && "#{summary.parked} parked"
+    ]
+    |> Enum.filter(& &1)
+    |> Enum.join(" · ")
+  end
+
+  def figures(_summary, _rows, _rates), do: nil
 
   # The controller answers every token the caller may see; this screen shows
   # its own namespace's.
@@ -390,12 +626,19 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     end
   end
 
-  # A group is as healthy as its sickest member, and `Relay.list/2` already
-  # answers its row ranked that way, so the panel takes it from there rather
-  # than ranking the members a second time.
-  defp with_group_health(groups, relays) do
-    health = Map.new(relays, &{to_string(&1.id), &1.health})
-    Enum.map(groups, &Map.put(&1, :health, Map.get(health, to_string(&1.id), :unknown)))
+  # A group is as healthy as its sickest member, by the controller's rank.
+  defp with_group_health(groups, rows) do
+    rank = NodeManager.health_verdicts()
+    health = Map.new(rows, &{to_string(&1.id), NodeManager.row_health(&1)})
+
+    Enum.map(groups, fn group ->
+      worst =
+        group.members
+        |> Enum.map(&Map.get(health, to_string(&1.id), :unknown))
+        |> Enum.max_by(&Enum.find_index(rank, fn h -> h == &1 end), fn -> :unknown end)
+
+      Map.put(group, :health, worst)
+    end)
   end
 
   defp save_quotas(socket, limits) do
@@ -445,4 +688,47 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         {:noreply, assign(socket, finished: [], finished_error: {:remote_error, reason})}
     end
   end
+
+  # ---- Section digests: what a folded section holds, in a few words ----
+
+  defp limits_digest(_quotas, nil), do: "no limits declared"
+
+  defp limits_digest(quotas, _declared) do
+    case Enum.filter(quotas, & &1.breached?) do
+      [] -> "#{Words.count(Enum.count(quotas, & &1.limit), "limit")} set, none reached"
+      breached -> "#{Words.join(Enum.map(breached, &Words.humanize(&1.kind)))} at the limit"
+    end
+  end
+
+  defp access_digest(bindings, tokens) do
+    active = Enum.count(tokens, &(&1.status == :active))
+    "#{Words.count(length(bindings), "principal")} bound · #{Words.count(active, "active token")}"
+  end
+
+  defp groups_digest(groups) do
+    case Enum.count(groups, &is_map(&1.coverage)) do
+      0 -> Words.count(length(groups), "group") <> ", coverage whole"
+      faulted -> Words.count(length(groups), "group") <> ", #{faulted} with broken coverage"
+    end
+  end
+
+  defp finished_digest(_finished, true), do: "reading…"
+  defp finished_digest([], false), do: "none in the retention window"
+
+  defp finished_digest(finished, false) do
+    latest = finished |> Enum.map(&(&1[:finished_at] || 0)) |> Enum.max()
+    "#{Words.count(length(finished), "relay")}, latest #{Format.token_expiry(latest)}"
+  end
+
+  defp runners_digest(runners, marks) do
+    [
+      Words.count(length(runners), "runner") <> " connected",
+      marks != [] && Words.count(length(marks), "dropped process", "dropped processes")
+    ]
+    |> Enum.filter(& &1)
+    |> Enum.join(" · ")
+  end
+
+  defp quota_tone(%{breached?: true}), do: "negative"
+  defp quota_tone(_row), do: nil
 end

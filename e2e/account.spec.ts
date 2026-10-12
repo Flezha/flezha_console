@@ -42,7 +42,8 @@ async function registerAndLogIn(page: Page): Promise<string> {
 
   await page.goto(await loginLink(page, email));
   await page.getByRole('button', { name: 'Confirm and stay logged in' }).click();
-  await expect(page).toHaveURL(/localhost:4000\/$/);
+  // `/` lands on the Home of the namespace last worked in, or on the list.
+  await expect(page).toHaveURL(/\/namespaces(\/[^/?#]+)?$/);
   // Joined before the test moves on, so the page is not left mid-connect.
   await expect(page.locator('[data-phx-main]')).not.toHaveClass(/phx-loading/);
   return email;

@@ -1,6 +1,10 @@
+<.page_header eyebrow="Platform" title="Audit log">
+  <:sentence>
+    The controller's record of who did what, as which <.term key="principal" />, and with which
+    outcome. Read it with a filter, or tail it live.
+  </:sentence>
+</.page_header>
 <div class="space-y-6">
-  <.header>Audit log</.header>
-
   <.runtime_error error={@load_error} action="the audit log" />
 
   <.notice :if={@disabled_reason} testid="audit-disabled">
@@ -9,73 +13,73 @@
 
   <%= if is_nil(@disabled_reason) do %>
     <%!-- Stats --%>
-    <div :if={@stats} class="flz-panel p-5">
-      <h2 class="flz-panel-title mb-3">
-        Statistics
-      </h2>
-      <dl data-testid="audit-stats" class="flz-stats">
-        <.stat :for={{label, value} <- stat_tiles(@stats)} label={label} boxed>{value}</.stat>
+    <div :if={@stats}>
+      <dl data-testid="audit-stats" class="fui-facts">
+        <.stat :for={{label, value} <- stat_tiles(@stats)} label={label}>{value}</.stat>
       </dl>
-      <p :if={@stats[:drop_count] not in [nil, 0]} class="mt-3 text-xs text-danger-text">
-        {@stats[:drop_count]} record(s) were dropped rather than written.
+      <p :if={@stats[:drop_count] not in [nil, 0]} class="mt-3 fui-tone-negative">
+        {Words.count(@stats[:drop_count], "record")} dropped rather than written.
       </p>
     </div>
 
     <%!-- Files --%>
-    <.panel icon="hero-document-text">
-      <:title>Files ({length(@files)})</:title>
+    <.section testid="audit-files-panel" digest={Words.count(length(@files), "rotated file")}>
+      <:title>Files</:title>
       <:actions>
-        <button
+        <.button
           :if={NodeManager.granted?(@operations, "AuditLog.rotate")}
+          variant="secondary"
+          size="sm"
+          icon="hero-arrow-path-rounded-square"
           phx-click="rotate"
           data-testid="audit-rotate-btn"
-          class="flz-button flz-button--sm flz-button--secondary"
         >
-          <.icon name="hero-arrow-path-rounded-square" class="w-3.5 h-3.5" /> Rotate
-        </button>
+          Rotate
+        </.button>
       </:actions>
-      <div :if={@rotate_error} data-testid="audit-rotate-error" class="px-5 pt-3">
+      <div :if={@rotate_error} data-testid="audit-rotate-error" class="mb-3">
         <.runtime_error error={@rotate_error} action="the rotation" />
       </div>
       <%= if @files == [] do %>
         <%!-- The catalog lists rotated files, so it is empty until the first
               rotation even while the current file is being written. --%>
         <.empty_state icon="hero-document-text" testid="audit-files-empty">
-          No file has been rotated yet.
+          A rotated file holds the records written before a rotation. None has been rotated yet.
           <:detail>
-            Records are being written to <span class="flz-num text-th-secondary">{current_file(@stats)}</span>.
+            Records are being written to <span class="fui-num fui-quiet">{current_file(@stats)}</span>.
           </:detail>
         </.empty_state>
       <% else %>
-        <ul data-testid="audit-files" class="divide-y divide-brd-subtle">
-          <li
-            :for={file <- @files}
-            data-testid="audit-file"
-            class="px-5 py-3 text-xs flex gap-4 text-th-secondary"
-          >
-            <span class="flz-num text-th-primary flex-1">{file[:filename]}</span>
-            <span class="flz-num">{file[:record_count]} records</span>
-            <span class="flz-num">{Format.bytes(file[:size_bytes])}</span>
-          </li>
-        </ul>
+        <.grid
+          id="audit-file-rows"
+          rows={@files}
+          testid="audit-files"
+          row_testid={fn _ -> "audit-file" end}
+        >
+          <:col :let={file} label="File"><span class="fui-num">{file[:filename]}</span></:col>
+          <:col :let={file} label="Records" num>{file[:record_count]}</:col>
+          <:col :let={file} label="Size" num>{Format.bytes(file[:size_bytes])}</:col>
+        </.grid>
       <% end %>
-    </.panel>
+    </.section>
 
     <%!-- Read --%>
-    <.panel icon="hero-magnifying-glass">
+    <.section testid="audit-records-panel">
       <:title>Records</:title>
       <:actions>
-        <button
+        <.button
+          variant="secondary"
+          size="sm"
+          icon="hero-arrow-path"
           phx-click="read"
           data-testid="audit-read-btn"
-          class="flz-button flz-button--sm flz-button--secondary"
         >
-          <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> Read
-        </button>
+          Read
+        </.button>
       </:actions>
 
-      <div class="p-5 space-y-4">
-        <form phx-change="filter_change" class="grid grid-cols-4 gap-4">
+      <div class="space-y-4">
+        <form phx-change="filter_change" class="grid gap-4 sm:grid-cols-4">
           <.input
             type="text"
             name="filter[file]"
@@ -118,60 +122,54 @@
         <%= cond do %>
           <% @read_error -> %>
           <% is_nil(@records) -> %>
-            <p class="text-sm text-th-muted">Click "Read" to load audit records.</p>
+            <p class="fui-figures">Read loads the records this filter matches.</p>
           <% @records == [] -> %>
-            <p data-testid="audit-records-empty" class="text-sm text-th-muted">
+            <p data-testid="audit-records-empty" class="fui-figures">
               No record matches this filter.
             </p>
           <% true -> %>
-            <div data-testid="audit-records" class="space-y-1 max-h-96 overflow-y-auto">
-              <pre
-                :for={record <- @records}
-                class="flz-code flz-code--wrap"
-              ><%= Format.json_line(record) %></pre>
-            </div>
+            <pre data-testid="audit-records" class="fui-code"><span :for={record <- @records} class="block">{Format.json_line(record)}</span></pre>
         <% end %>
       </div>
-    </.panel>
+    </.section>
 
     <%!-- Tail --%>
-    <.panel icon="hero-signal">
-      <:title>Live tail ({length(@tail_records)})</:title>
+    <.section
+      testid="audit-tail-panel"
+      digest={
+        if @tailing,
+          do: Words.count(length(@tail_records), "record") <> " so far",
+          else: "stopped"
+      }
+    >
+      <:title>Live tail</:title>
       <:actions>
-        <button
+        <.switch
+          checked={@tailing != nil}
+          label="Tail new records"
           phx-click={if @tailing, do: "stop_tail", else: "start_tail"}
-          data-testid="audit-tail-toggle"
-          aria-pressed={to_string(@tailing)}
-          class={["flz-button flz-button--sm", !@tailing && "flz-button--secondary"]}
-        >
-          {if @tailing, do: "Tailing — stop", else: "Start tail"}
-        </button>
+          testid="audit-tail-toggle"
+        />
       </:actions>
-      <div class="p-5">
+      <div>
         <%!-- A subscription the controller refused is stated: a tail that never
               started looks exactly like a quiet one otherwise. --%>
         <.runtime_error
           :if={@tail_error}
           error={@tail_error}
           action="the live audit tail"
-          class="mb-4"
         />
         <%= cond do %>
           <% is_nil(@tailing) -> %>
-            <p data-testid="audit-tail-idle" class="text-sm text-th-muted">
+            <p data-testid="audit-tail-idle" class="fui-figures">
               The tail is stopped. Start it to stream new audit records as they are written.
             </p>
           <% @tail_records == [] -> %>
-            <p class="text-sm text-th-muted">Tailing — waiting for the next record.</p>
+            <p class="fui-figures">Tailing — waiting for the next record.</p>
           <% true -> %>
-            <div data-testid="audit-tail-records" class="space-y-1 max-h-96 overflow-y-auto">
-              <pre
-                :for={record <- @tail_records}
-                class="flz-code flz-code--wrap"
-              ><%= Format.json_line(record) %></pre>
-            </div>
+            <pre data-testid="audit-tail-records" class="fui-code"><span :for={record <- @tail_records} class="block">{Format.json_line(record)}</span></pre>
         <% end %>
       </div>
-    </.panel>
+    </.section>
   <% end %>
 </div>

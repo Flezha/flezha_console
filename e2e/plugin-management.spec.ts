@@ -1,4 +1,6 @@
 import {
+  openSection,
+  menuAction,
   test,
   expect,
   disablePlugin,
@@ -50,7 +52,7 @@ async function enable(
 
 /** The hint shown on an option's field. */
 const optionHint = (page: Page, option: string) =>
-  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.flz-field-hint');
+  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.fui-hint');
 
 const RECEIVER = 'http://fui_web:4000/dev/null';
 
@@ -60,12 +62,12 @@ test.describe('Plugin packages', () => {
   });
 
   test('the loaded package lists its providers', async ({ page }) => {
-    await expect(page.getByTestId('installed-status-flezha_http')).toHaveText(/loaded/);
+    await expect(page.getByTestId('installed-status-flezha_http')).toHaveText(/Loaded/);
     await expect(page.getByTestId('installed-providers-flezha_http')).toContainText('http_server');
   });
 
   test('the refused package explains itself and its count is stated', async ({ page }) => {
-    await expect(page.getByTestId('installed-status-flezha_http_tampered')).toHaveText(/refused/);
+    await expect(page.getByTestId('installed-status-flezha_http_tampered')).toHaveText(/Refused/);
 
     const error = page.getByTestId('installed-error-flezha_http_tampered');
     await expect(error).toContainText(/\(plugin\.[a-z_]+\)/);
@@ -74,6 +76,7 @@ test.describe('Plugin packages', () => {
       /\/errors\.html#plugin$/,
     );
 
+    await openSection(page, 'providers');
     await expect(page.getByTestId('providers-refused')).toContainText('refused 1 installed package');
   });
 });
@@ -94,7 +97,7 @@ test.describe('Enabled plugins', () => {
   });
 
   test('cancelling a disable leaves the plugin enabled and bound', async ({ page }) => {
-    await page.getByTestId('plugin-disable-ws_store_1').click();
+    await menuAction(page, 'plugin-menu-ws_store_1', 'plugin-disable-ws_store_1');
     await expect(page.getByTestId('plugin-disable-modal')).toContainText('ws_store_1');
     await page.getByTestId('plugin-disable-cancel').click();
 
@@ -103,7 +106,7 @@ test.describe('Enabled plugins', () => {
   });
 
   test('cancelling an unbind leaves the relay bound', async ({ page }) => {
-    await page.getByTestId('plugin-unbind-ws_store_1-testnet_store_1').click();
+    await menuAction(page, 'plugin-menu-ws_store_1', 'plugin-unbind-ws_store_1-testnet_store_1');
     await expect(page.getByTestId('plugin-unbind-modal')).toContainText('stays enabled');
     await page.getByTestId('plugin-unbind-cancel').click();
 
@@ -160,7 +163,7 @@ test.describe('Plugin writes', () => {
       await expect(page.getByTestId(`plugin-relays-${name}`)).toContainText('testnet_store_1');
 
       // Bind
-      await page.getByTestId(`plugin-bind-${name}`).click();
+      await menuAction(page, `plugin-menu-${name}`, `plugin-bind-${name}`);
       await page.getByTestId('input-plugin-relay').selectOption('testnet_store_2');
       await page.getByTestId('input-hook-on_output').check();
       await page.getByTestId('attach-submit-btn').click();
@@ -168,14 +171,14 @@ test.describe('Plugin writes', () => {
       await expect(page.getByTestId(`plugin-relays-${name}`)).toContainText('testnet_store_2');
 
       // Unbind, after a confirmation
-      await page.getByTestId(`plugin-unbind-${name}-testnet_store_2`).click();
+      await menuAction(page, `plugin-menu-${name}`, `plugin-unbind-${name}-testnet_store_2`);
       await expect(page.getByTestId('plugin-unbind-modal')).toContainText('stays enabled');
       await page.getByTestId('plugin-unbind-confirm').click();
       await expect(page.getByTestId(`plugin-relays-${name}`)).not.toContainText('testnet_store_2');
       await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
 
       // Update, with nothing filled in
-      await page.getByTestId(`plugin-update-${name}`).click();
+      await menuAction(page, `plugin-menu-${name}`, `plugin-update-${name}`);
       await expect(page.getByTestId('plugin-no-options')).toBeVisible();
       await page.getByTestId('attach-submit-btn').click();
       await expect(page.locator('body')).toContainText(
@@ -239,7 +242,7 @@ test.describe('Plugin writes', () => {
       await enable(page, name, 'hook_webhook', ['on_relay_started'], { url: RECEIVER });
       await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
 
-      await page.getByTestId(`plugin-update-${name}`).click();
+      await menuAction(page, `plugin-menu-${name}`, `plugin-update-${name}`);
       await expect(optionHint(page, 'timeout_ms')).toContainText('a change restarts the plugin');
       await page.getByTestId('input-option-timeout_ms').fill('7000');
       await page.getByTestId('attach-submit-btn').click();

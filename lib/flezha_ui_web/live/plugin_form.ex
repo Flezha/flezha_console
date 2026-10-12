@@ -485,29 +485,34 @@ defmodule FlezhaUiWeb.Live.PluginForm do
     >
       <:title>{title(@form)}</:title>
 
+      <.steps
+        :if={@form.mode == :enable}
+        steps={["Provider", "Configure"]}
+        current={if is_nil(@form.provider), do: 0, else: 1}
+        testid="plugin-steps"
+      />
+
       <%= if is_nil(@form.provider) do %>
         <.runtime_error error={@form.providers_error} action="the provider listing" />
-        <p :if={@form.providers == [] and is_nil(@form.providers_error)} class="flz-empty">
+        <p :if={@form.providers == [] and is_nil(@form.providers_error)} class="fui-figures">
           This controller offers no plugin providers.
         </p>
-        <div data-testid="provider-grid" class="grid grid-cols-2 gap-3">
+        <p>
+          A provider implements a plugin. Choose the one this plugin is enabled from.
+        </p>
+        <div data-testid="provider-grid" class="fui-choices sm:grid-cols-2">
           <button
             :for={provider <- @form.providers}
+            type="button"
             phx-click="plugin_form_provider"
             phx-value-provider={provider.id}
             data-testid={"provider-btn-#{provider.id}"}
-            class="flz-card flz-card--link group text-left"
+            class="fui-choice"
           >
-            <div class="flex items-center gap-2">
-              <.icon
-                name="hero-cube"
-                class="w-4 h-4 text-th-secondary group-hover:text-th-brand transition-colors"
-              />
-              <p class="text-sm font-medium text-th-primary">{Format.humanize(provider.id)}</p>
-            </div>
-            <p class="text-xs text-th-secondary mt-1 font-mono">
-              {provider.id}<span :if={provider[:type]}> · {provider.type}</span>
-            </p>
+            <span class="font-medium">{Format.humanize(provider.id)}</span>
+            <span class="fui-num fui-muted text-xs">
+              {provider.id}{if provider[:type], do: " · runs on the #{provider.type}"}
+            </span>
           </button>
         </div>
       <% else %>
@@ -554,17 +559,14 @@ defmodule FlezhaUiWeb.Live.PluginForm do
           />
 
           <fieldset :if={@form.mode != :update or controller?(@form)} data-testid="input-hooks">
-            <legend class="flz-label mb-2">
+            <legend class="fui-eyebrow mb-2">
               {if controller?(@form), do: "Controller hooks", else: "Hooks"}
             </legend>
-            <p :if={@form.provider.hooks == []} class="text-xs text-th-muted">
+            <p :if={@form.provider.hooks == []} class="fui-figures">
               The controller did not say which hooks this provider supports.
             </p>
             <input type="hidden" name="plugin[hooks][]" value="" />
-            <label
-              :for={hook <- @form.provider.hooks}
-              class="flex items-center gap-2 text-sm text-th-secondary"
-            >
+            <label :for={hook <- @form.provider.hooks} class="fui-check mr-4">
               <input
                 type="checkbox"
                 name="plugin[hooks][]"
@@ -572,14 +574,11 @@ defmodule FlezhaUiWeb.Live.PluginForm do
                 checked={to_string(hook) in List.wrap(@form.fields["hooks"])}
                 data-testid={"input-hook-#{hook}"}
               />
-              <span class="font-mono">{hook}</span>
+              <span class="fui-num">{hook}</span>
             </label>
           </fieldset>
 
-          <label
-            :if={@form.mode == :enable and controller?(@form)}
-            class="flex items-center gap-2 text-sm text-th-secondary"
-          >
+          <label :if={@form.mode == :enable and controller?(@form)} class="fui-check">
             <input type="hidden" name="plugin[single]" value="false" />
             <input
               type="checkbox"
@@ -609,10 +608,10 @@ defmodule FlezhaUiWeb.Live.PluginForm do
             data-testid="provider-help"
             open={@form.options == :json}
           >
-            <summary class="text-xs text-th-brand cursor-pointer">
-              {Format.humanize(@form.provider.id)} options
+            <summary class="fui-label cursor-pointer">
+              What {Format.humanize(@form.provider.id)} does, and its options
             </summary>
-            <pre class="flz-code flz-code--wrap mt-2 max-h-64">{@form.provider.help}</pre>
+            <.code_block class="mt-2">{@form.provider.help}</.code_block>
           </details>
 
           <%= if @form.mode != :bind do %>
@@ -630,7 +629,7 @@ defmodule FlezhaUiWeb.Live.PluginForm do
                   testid="input-option-"
                 />
               <% :none -> %>
-                <p class="text-xs text-th-muted" data-testid="plugin-no-options">
+                <p class="fui-figures" data-testid="plugin-no-options">
                   This provider takes no options.
                 </p>
               <% :json -> %>
@@ -665,8 +664,8 @@ defmodule FlezhaUiWeb.Live.PluginForm do
 
   defp title(%{mode: :bind, fields: fields}), do: "Bind #{fields["name"]}"
   defp title(%{mode: :update, fields: fields}), do: "Update #{fields["name"]}"
-  defp title(%{provider: nil}), do: "Choose Provider"
-  defp title(_form), do: "Configure Plugin"
+  defp title(%{provider: nil}), do: "Enable a plugin"
+  defp title(_form), do: "Enable a plugin"
 
   defp submit_label(%{mode: :bind}), do: "Bind"
   defp submit_label(%{mode: :update}), do: "Update"

@@ -53,8 +53,10 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
 
       {:ok, _view, html} = live(conn, @url)
 
+      assert html =~ ~s(data-testid="cells-panel")
       assert html =~ ~s(data-testid="tasklet-orders")
       assert html =~ ~s(data-testid="cell-relay_a/orders/k1")
+      assert html =~ ~s(data-testid="cell-menu-relay_a/orders/k1")
       assert html =~ "120"
       assert html =~ "100"
     end
@@ -98,7 +100,7 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       {:ok, _view, html} = live(conn, @url)
 
       assert html =~ ~s(data-testid="state-empty")
-      assert html =~ "no durable state yet"
+      assert html =~ "This relay has none persisted yet."
     end
 
     test "a lagging cell is marked as lagging", %{conn: conn, node: node} do
@@ -165,7 +167,7 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert html =~ ~r/data-testid="finished-retention"[^>]*>\s*unavailable/
+      assert html =~ ~r/data-testid="finished-retention"[^>]*>\s*Unavailable/
       assert html =~ ~s(data-testid="cell-relay_a/orders/k1")
     end
 
@@ -177,7 +179,7 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert html =~ ~r/data-testid="history-retention"[^>]*>\s*unknown/
+      assert html =~ ~r/data-testid="history-retention"[^>]*>\s*Unknown/
     end
   end
 
@@ -262,9 +264,9 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       {:ok, view, _html} = live(conn, @url)
       html = render_click(view, "select_cell", %{"cell" => "relay_a/orders/k1"})
 
-      assert html =~ ~r/data-testid="outbox-pending"[^>]*>\s*unknown — writer not running/
-      assert html =~ ~r/data-testid="outbox-held"[^>]*>\s*unknown — writer not running/
-      assert html =~ ~r/data-testid="outbox-durable-seq"[^>]*>\s*unknown — writer not running/
+      assert html =~ ~r/data-testid="outbox-pending"[^>]*>\s*Unknown — writer not running/
+      assert html =~ ~r/data-testid="outbox-held"[^>]*>\s*Unknown — writer not running/
+      assert html =~ ~r/data-testid="outbox-durable-seq"[^>]*>\s*Unknown — writer not running/
       assert html =~ ~r/data-testid="outbox-persisted-seq"[^>]*>\s*118/
     end
   end
@@ -387,7 +389,7 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       {:ok, _view, html} = live(conn, @url)
 
       assert html =~ ~s(data-testid="chart-provenance")
-      assert html =~ "Sampled by this UI"
+      assert html =~ "Sampled by this console"
       assert html =~ "never interpolated"
     end
 

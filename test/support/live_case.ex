@@ -33,7 +33,7 @@ defmodule FlezhaUiWeb.LiveCase do
       import Phoenix.LiveViewTest
 
       import FlezhaUiWeb.LiveCase,
-        only: [open_section: 2, enforce_operations: 3, grant_operations: 3]
+        only: [open_section: 2, text_of: 2, enforce_operations: 3, grant_operations: 3]
 
       alias FlezhaUi.PeerNode
       alias FlezhaUi.Service.NodeManager
@@ -63,6 +63,19 @@ defmodule FlezhaUiWeb.LiveCase do
   """
   def open_section(view, key) do
     Phoenix.LiveViewTest.render_click(view, "section_toggle", %{"key" => key})
+  end
+
+  @doc """
+  The text of what `selector` matches in `html`, its whitespace collapsed as a
+  browser shows it.
+  """
+  def text_of(html, selector) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(selector)
+    |> LazyHTML.text()
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
   end
 
   @doc """

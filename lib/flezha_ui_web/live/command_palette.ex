@@ -1,17 +1,24 @@
 defmodule FlezhaUiWeb.CommandPalette do
   @moduledoc """
-  Reaching a known object by typing its name, from any screen.
+  Reaching a known object by typing its name, and acting on it, from any
+  screen.
 
   Mounted once by the shell, so every screen has it and no screen implements
-  it. Its destinations are the ones the sidebar already offers plus the
-  namespaces and relays the bound token can reach — nothing the palette can
-  reach is unreachable by clicking.
+  it. Its destinations are the rail's own (`FlezhaUiWeb.Layouts.nav_sections/1`)
+  plus the namespaces, relays and schedules the bound token can reach —
+  nothing the palette reaches is unreachable by clicking.
 
-  The relay index is the expensive part, so it is read on the first open
-  rather than on mount: a screen the operator never opens the palette on pays
-  nothing for it. Once read it is held on the component and dropped again by
-  `invalidate/1`, which `FlezhaUiWeb.Live.Refresh` calls on the same lifecycle
-  events the screens themselves refresh on.
+  It also offers actions on a named object, as the operator's operations
+  allow: stop a relay, diagnose it, listen to its output, run a schedule now,
+  open the open problems. An action that changes state lands on its own
+  screen with that screen's confirmation open, and never acts on the
+  keystroke alone.
+
+  The relay and schedule index is the expensive part, so it is read on the
+  first open rather than on mount: a screen the operator never opens the
+  palette on pays nothing for it. Once read it is held on the component and
+  dropped again by `invalidate/1`, which `FlezhaUiWeb.Live.Refresh` calls on
+  the same lifecycle events the screens themselves refresh on.
   """
 
   use FlezhaUiWeb, :live_component
@@ -22,7 +29,7 @@ defmodule FlezhaUiWeb.CommandPalette do
   @limit 20
 
   @doc """
-  Drops the cached relay index, so the next open reads it again.
+  Drops the cached index, so the next open reads it again.
 
   A no-op before the socket is connected: there is no component to update on a
   dead render, and nothing has been cached there to go stale.
@@ -45,12 +52,14 @@ defmodule FlezhaUiWeb.CommandPalette do
      |> assign(assigns)
      |> assign_new(:open, fn -> false end)
      |> assign_new(:query, fn -> "" end)
-     |> assign_new(:relays, fn -> nil end)}
+     |> assign_new(:relays, fn -> nil end)
+     |> assign_new(:schedules, fn -> [] end)
+     |> assign_new(:operations, fn -> nil end)}
   end
 
   @impl true
   def handle_event("open", _params, socket) do
-    {:noreply, socket |> load_relays() |> assign(open: true, query: "")}
+    {:noreply, socket |> load_index() |> assign(open: true, query: "")}
   end
 
   @impl true
@@ -63,38 +72,52 @@ defmodule FlezhaUiWeb.CommandPalette do
     {:noreply, assign(socket, query: query)}
   end
 
-  # One listing read per reachable namespace, the same read the Fleet screen
-  # makes — never one call per relay.
-  defp load_relays(%{assigns: %{relays: rows}} = socket) when is_list(rows), do: socket
+  # One listing read per reachable namespace, the same read the relays index
+  # makes, and one schedule listing — never one call per relay.
+  defp load_index(%{assigns: %{relays: rows}} = socket) when is_list(rows), do: socket
 
-  defp load_relays(socket) do
+  defp load_index(socket) do
+    %{namespaces: namespaces, token: token} = socket.assigns
+
     rows =
-      Enum.flat_map(socket.assigns.namespaces, fn namespace ->
+      Enum.flat_map(namespaces, fn namespace ->
         namespace
-        |> NodeManager.relay_list(socket.assigns.token)
+        |> NodeManager.relay_list(token)
         |> NodeManager.ok_or([])
         |> Enum.map(fn row ->
           %{id: to_string(row.id), namespace: namespace, health: row.health}
         end)
       end)
 
-    assign(socket, relays: rows)
+    schedules =
+      token
+      |> NodeManager.schedule_list()
+      |> NodeManager.ok_or([])
+      |> Enum.map(&to_string(&1.name))
+
+    assign(socket, relays: rows, schedules: schedules)
   end
 
-  # The destinations a typed string names. Screens come from the same list the
-  # sidebar renders, so the palette cannot offer a screen the rail does not —
-  # or miss one it does.
+  # The destinations and actions a typed string names. Screens come from the
+  # same list the rail renders, so the palette cannot offer a screen the rail
+  # does not — or miss one it does.
   defp matches(assigns) do
     needle = assigns.query |> to_string() |> String.trim() |> String.downcase()
 
-    (screens(assigns.scope) ++ namespaces(assigns.namespaces) ++ relays(assigns.relays))
+    (screens(assigns.scope) ++
+       namespaces(assigns.namespaces) ++
+       relays(assigns.relays) ++
+       actions(assigns))
+    |> Enum.filter(
+      &(&1.operation == nil or NodeManager.granted?(assigns.operations, &1.operation))
+    )
     |> Enum.filter(&String.contains?(String.downcase(&1.label), needle))
   end
 
   defp screens(scope) do
-    for section <- FlezhaUiWeb.Layouts.nav_sections(scope), entry <- section.entries do
-      entry("screen", entry.label, entry.path)
-    end
+    for section <- FlezhaUiWeb.Layouts.nav_sections(scope),
+        dest <- section.entries,
+        do: entry("screen", dest.label, dest.path)
   end
 
   defp namespaces(names) do
@@ -106,15 +129,56 @@ defmodule FlezhaUiWeb.CommandPalette do
   defp relays(rows) do
     for row <- rows do
       entry("relay", row.id, ~p"/namespaces/#{row.namespace}/relays/#{row.id}",
-        detail: "#{row.namespace} · #{row.health}"
+        detail: "#{row.namespace} · #{Words.text(:health, row.health)}"
       )
     end
+  end
+
+  # Each lands on the screen that owns the action, with that screen's own
+  # confirmation open where the action changes state.
+  defp actions(assigns) do
+    relay_actions =
+      for row <- assigns.relays || [] do
+        base = ~p"/namespaces/#{row.namespace}/relays/#{row.id}"
+
+        [
+          entry("action", "Stop #{row.id}", base <> "?do=stop",
+            detail: row.namespace,
+            operation: "Relay.stop"
+          ),
+          entry("action", "Diagnose #{row.id}", base <> "?do=diagnose",
+            detail: row.namespace,
+            operation: "Relay.diagnose"
+          ),
+          entry("action", "Listen to #{row.id} output", base <> "/listen",
+            detail: row.namespace,
+            operation: "Relay.listen"
+          )
+        ]
+      end
+
+    schedule_actions =
+      for name <- assigns.schedules do
+        entry("action", "Run #{name} now", ~p"/schedules?#{[run: name]}",
+          detail: "schedule",
+          operation: "Schedule.run"
+        )
+      end
+
+    [entry("action", "Open open problems", ~p"/problems") | List.flatten(relay_actions)] ++
+      schedule_actions
   end
 
   # A relay is the one destination whose name is not enough on its own —
   # an id says nothing about where it runs or how it is faring.
   defp entry(kind, label, path, opts \\ []) do
-    %{kind: kind, label: label, path: path, detail: opts[:detail]}
+    %{
+      kind: kind,
+      label: label,
+      path: path,
+      detail: opts[:detail],
+      operation: opts[:operation]
+    }
   end
 
   @impl true
@@ -126,9 +190,13 @@ defmodule FlezhaUiWeb.CommandPalette do
 
     ~H"""
     <div id={@id} phx-hook="FlzPalette" phx-target={@myself} data-open={to_string(@open)}>
-      <div :if={@open} class="flz-modal flz-palette">
+      <div :if={@open} class="fui-dialog fui-palette">
+        <div class="fui-scrim"></div>
         <div
-          class="flz-modal-surface max-w-xl"
+          class="fui-dialog-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Search or run a command"
           data-testid="command-palette"
           phx-click-away="close"
           phx-target={@myself}
@@ -143,38 +211,37 @@ defmodule FlezhaUiWeb.CommandPalette do
               type="text"
               name="q"
               value={@query}
-              class="flz-palette-input"
-              placeholder="Relay id, namespace, or screen"
+              class="fui-palette-input"
+              placeholder="Relay, namespace, screen or action — try “stop” or “diagnose”"
+              aria-label="Search or run a command"
               data-testid="command-palette-input"
               phx-debounce="80"
             />
           </form>
 
-          <p :if={@found == []} class="flz-empty" data-testid="command-palette-empty">
-            Nothing matches “{@query}”.
+          <p :if={@found == []} class="fui-palette-note" data-testid="command-palette-empty">
+            Nothing matches “{@query}”: no relay, namespace, screen or action of that name.
           </p>
 
-          <ul :if={@found != []} class="flz-palette-list" data-testid="command-palette-results">
+          <ul :if={@found != []} class="fui-palette-list" data-testid="command-palette-results">
             <li :for={match <- Enum.take(@found, @limit)}>
               <.link
                 navigate={match.path}
-                class="flz-palette-option"
+                class="fui-palette-option"
                 data-testid={"command-palette-#{match.kind}-#{match.label}"}
               >
-                <span class="flex items-center gap-2 truncate">
-                  <span class="flz-badge">{match.kind}</span>
-                  <span class="flz-num truncate">{match.label}</span>
+                <span class="flex items-center gap-2 min-w-0">
+                  <.chip>{match.kind}</.chip>
+                  <span class="truncate">{match.label}</span>
                 </span>
-                <span :if={match.detail} class="text-xs text-th-muted flz-num shrink-0">
-                  {match.detail}
-                </span>
+                <span :if={match.detail} class="fui-palette-meta">{match.detail}</span>
               </.link>
             </li>
           </ul>
 
           <p
             :if={length(@found) > @limit}
-            class="px-4 py-2 text-xs text-th-muted"
+            class="fui-palette-note"
             data-testid="command-palette-truncated"
           >
             {length(@found) - @limit} more match — keep typing to narrow them.

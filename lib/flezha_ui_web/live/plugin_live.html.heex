@@ -1,185 +1,244 @@
-<div class="space-y-6">
-  <.header>
-    Plugins
-    <:subtitle :if={@scoped_namespace}>
-      Enabled in <span class="flz-num">{@scoped_namespace}</span>.
-    </:subtitle>
-    <:actions>
-      <.button
-        :if={NodeManager.granted?(@operations, "PluginManager.enable")}
-        phx-click="plugin_form_open"
-        phx-value-mode="enable"
-        phx-value-namespace={@scoped_namespace}
-        data-testid="enable-plugin-btn"
-        icon="hero-plus"
+<.page_header
+  eyebrow="Plugins"
+  title={(@scoped_namespace && "Plugins in #{@scoped_namespace}") || "Every plugin"}
+>
+  <:sentence>
+    A <.term key="plugin" /> is a <.term key="provider" />
+    enabled by name and bound to relays on <.term key="hook">hooks</.term>. {if @scoped_namespace,
+      do: "These are enabled in #{@scoped_namespace}.",
+      else: "These are enabled in every namespace you can reach."}
+  </:sentence>
+  <:actions>
+    <.segmented label="Scope" testid="scope-switch">
+      <:option
+        :if={@shell_namespace}
+        patch={~p"/namespaces/#{@shell_namespace}/plugins"}
+        current={@scoped_namespace != nil}
+        testid="scope-namespace"
       >
-        Enable Plugin
-      </.button>
-    </:actions>
-  </.header>
+        {@shell_namespace}
+      </:option>
+      <:option patch={~p"/plugins"} current={is_nil(@scoped_namespace)} testid="scope-all">
+        All namespaces
+      </:option>
+    </.segmented>
+    <.button
+      :if={NodeManager.granted?(@operations, "PluginManager.enable")}
+      phx-click="plugin_form_open"
+      phx-value-mode="enable"
+      phx-value-namespace={@scoped_namespace}
+      data-testid="enable-plugin-btn"
+      icon="hero-plus"
+    >
+      Enable plugin
+    </.button>
+  </:actions>
+</.page_header>
 
-  <%!-- Available Providers Grid --%>
+<div :for={{namespace, reason} <- @refused} data-testid={"plugins-refused-#{namespace}"}>
+  <.runtime_error error={reason} action={"the plugin listing of #{namespace}"} />
+</div>
+
+<.skeleton :if={!@loaded?} rows={4} testid="plugins-loading" />
+
+<%!-- Enabled plugins --%>
+<.empty_state :if={@loaded? and @plugins == []} icon="hero-puzzle-piece" testid="plugins-empty">
+  A plugin adds behaviour to relays — reading their input, carrying their output — once a provider
+  is enabled by name. <span :if={@scoped_namespace}>None is enabled in {@scoped_namespace}.</span>
+  <span :if={!@scoped_namespace}>None is enabled.</span>
+  <:action :if={NodeManager.granted?(@operations, "PluginManager.enable")}>
+    <.button
+      size="sm"
+      phx-click="plugin_form_open"
+      phx-value-mode="enable"
+      phx-value-namespace={@scoped_namespace}
+      data-testid="enable-plugin-empty-btn"
+    >
+      Enable plugin
+    </.button>
+  </:action>
+</.empty_state>
+
+<.grid
+  :if={@plugins != []}
+  id="plugins"
+  rows={@plugins}
+  row_testid={&"plugin-row-#{&1.name}"}
+  row_tone={&(&1[:lagging] not in [nil, []] && "warning")}
+  row_label={&"Inspect #{&1.name}"}
+  row_activate={
+    &JS.push("inspect", value: %{kind: "plugin", id: inspect_id(&1, @scoped_namespace)})
+  }
+  row_selected={
+    &(@inspected != nil and @inspected.kind == "plugin" and
+        @inspected.id == inspect_id(&1, @scoped_namespace))
+  }
+>
+  <:col :let={plugin} label="Plugin">
+    <span class="fui-num">{plugin.name}</span>
+    <span
+      :if={plugin[:single]}
+      data-testid={"plugin-single-#{plugin.name}"}
+      class="fui-badge ml-1"
+    >
+      Single
+    </span>
+  </:col>
+  <:col :let={plugin} label="Provider">
+    <span class="font-medium">{Format.humanize(provider_id(plugin))}</span>
+    <span
+      :if={@provider_details[provider_id(plugin)][:description]}
+      class="block fui-muted text-xs"
+      data-testid={"plugin-description-#{plugin.name}"}
+    >
+      {@provider_details[provider_id(plugin)].description}
+    </span>
+  </:col>
+  <:col :let={plugin} label="Hooks">
+    <span class="flex flex-wrap gap-1">
+      <.chip :for={hook <- plugin[:hooks] || []} mono>{hook}</.chip>
+    </span>
+  </:col>
+  <:col :let={plugin} :if={!@scoped_namespace} label="Namespace">
+    <span class="fui-num">{plugin.namespace}</span>
+  </:col>
+  <:col :let={plugin} label="Relays">
+    <span data-testid={"plugin-relays-#{plugin.name}"} class="fui-num">
+      {join_or_dash(plugin[:relays])}
+    </span>
+  </:col>
+  <:col :let={plugin} label="Runs on">
+    <span class="fui-num" data-testid={"plugin-controllers-#{plugin.name}"}>
+      {join_or_dash(plugin[:controllers])}
+    </span>
+    <span
+      :if={plugin[:lagging] not in [nil, []]}
+      data-testid={"plugin-lagging-#{plugin.name}"}
+      class="fui-badge fui-badge--warning ml-1"
+    >
+      Lagging on {Enum.join(plugin.lagging, ", ")}
+    </span>
+  </:col>
+  <:menu :let={plugin}>
+    <.row_menu
+      id={"plugin-menu-#{plugin.namespace}-#{plugin.name}"}
+      label={"Actions for #{plugin.name}"}
+      testid={"plugin-menu-#{plugin.name}"}
+    >
+      <:item
+        click="inspect"
+        values={%{kind: "plugin", id: inspect_id(plugin, @scoped_namespace)}}
+        icon="hero-eye"
+        testid={"plugin-inspect-#{plugin.name}"}
+      >
+        Inspect
+      </:item>
+      <:item
+        :if={
+          not controller_plugin?(plugin, @available_providers) and
+            NodeManager.granted?(@operations, "PluginManager.bind")
+        }
+        click="plugin_form_open"
+        values={
+          %{
+            mode: "bind",
+            name: plugin.name,
+            provider: provider_id(plugin),
+            namespace: plugin.namespace
+          }
+        }
+        testid={"plugin-bind-#{plugin.name}"}
+      >
+        Bind to a relay
+      </:item>
+      <:item
+        :if={NodeManager.granted?(@operations, "PluginManager.update")}
+        click="plugin_form_open"
+        values={
+          %{
+            mode: "update",
+            name: plugin.name,
+            provider: provider_id(plugin),
+            namespace: plugin.namespace,
+            hooks: Enum.join(plugin[:hooks] || [], ",")
+          }
+        }
+        testid={"plugin-update-#{plugin.name}"}
+      >
+        Update options
+      </:item>
+      <:item
+        :for={
+          relay <-
+            (NodeManager.granted?(@operations, "PluginManager.unbind") && plugin[:relays]) || []
+        }
+        click="confirm_unbind"
+        values={%{name: plugin.name, namespace: plugin.namespace, relay: relay}}
+        testid={"plugin-unbind-#{plugin.name}-#{relay}"}
+        danger
+      >
+        Unbind {relay}
+      </:item>
+      <:item
+        :if={NodeManager.granted?(@operations, "PluginManager.disable")}
+        click="confirm_disable"
+        values={%{name: plugin.name, namespace: plugin.namespace}}
+        testid={"plugin-disable-#{plugin.name}"}
+        danger
+      >
+        Disable
+      </:item>
+    </.row_menu>
+  </:menu>
+</.grid>
+
+<%!-- What the controller can enable --%>
+<.section
+  testid="providers-panel"
+  fold="providers"
+  open={@sections["providers"]}
+  digest={Words.count(length(@available_providers), "provider")}
+>
+  <:title>Providers this controller offers</:title>
   <.runtime_error error={@providers_error} action="the provider listing" />
   <.notice :if={@refused_packages > 0} kind={:error} testid="providers-refused">
-    The controller refused {@refused_packages} installed package{if @refused_packages != 1,
-      do: "s"} at boot; their providers are not offered. The installed catalog below says why.
+    The controller refused {Words.count(@refused_packages, "installed package")} at boot; their
+    providers are not offered. The installed catalog below says why.
   </.notice>
-  <%= if @available_providers == [] do %>
-    <.empty_state :if={is_nil(@providers_error)} icon="hero-puzzle-piece" boxed={true}>
-      This controller offers no plugin providers.
-    </.empty_state>
-  <% else %>
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      <div
-        :for={provider <- @available_providers}
-        data-testid={"provider-#{provider.id}"}
-        class="flz-card"
-      >
-        <div class="flex items-center gap-2">
-          <.icon
-            name="hero-cube"
-            class="w-4 h-4 text-th-secondary"
-          />
-          <h3 class="text-sm font-semibold text-th-primary">
-            {Format.humanize(provider.id)}
-          </h3>
-        </div>
-
-        <div class="space-y-1 text-xs">
-          <p class="text-th-secondary">
-            <span class="text-th-secondary">ID:</span>
-            <span class="font-mono">{provider.id}</span>
-          </p>
-          <p class="text-th-secondary">
-            <span class="text-th-secondary">Module:</span>
-            <span class="font-mono">{provider.module}</span>
-          </p>
-          <p class="text-th-secondary">
-            <span class="text-th-secondary">Type:</span> {provider.type}
-          </p>
-        </div>
-      </div>
+  <.empty_state
+    :if={@available_providers == [] and is_nil(@providers_error)}
+    icon="hero-puzzle-piece"
+  >
+    This controller offers no plugin providers.
+  </.empty_state>
+  <div :if={@available_providers != []} class="fui-tiles">
+    <div
+      :for={provider <- @available_providers}
+      data-testid={"provider-#{provider.id}"}
+      class="fui-tile"
+    >
+      <p class="font-medium">{Format.humanize(provider.id)}</p>
+      <p :if={@provider_details[to_string(provider.id)][:description]} class="fui-quiet text-sm">
+        {@provider_details[to_string(provider.id)].description}
+      </p>
+      <p class="flex flex-wrap gap-1">
+        <.chip
+          :for={hook <- (@provider_details[to_string(provider.id)] || %{hooks: []}).hooks}
+          mono
+        >
+          {hook}
+        </.chip>
+      </p>
+      <p class="fui-muted text-xs">Runs on the {provider.type}.</p>
+      <details data-testid={"provider-module-#{provider.id}"}>
+        <summary class="fui-label cursor-pointer">Implementation</summary>
+        <p class="fui-num text-xs mt-1">{provider.module}</p>
+      </details>
     </div>
-  <% end %>
-
-  <%!-- Enabled Plugins --%>
-  <h2 class="flz-modal-title pt-2">Enabled Plugins</h2>
-
-  <div :for={{namespace, reason} <- @refused} data-testid={"plugins-refused-#{namespace}"}>
-    <.runtime_error error={reason} action={"the plugin listing of #{namespace}"} />
   </div>
+</.section>
 
-  <%= if @plugins == [] do %>
-    <.empty_state icon="hero-puzzle-piece" boxed={true} testid="plugins-empty">
-      <span :if={@scoped_namespace}>No plugin is enabled in {@scoped_namespace}.</span>
-      <span :if={!@scoped_namespace}>No plugin is enabled.</span>
-    </.empty_state>
-  <% else %>
-    <div class="flz-panel overflow-hidden">
-      <table class="flz-table">
-        <thead>
-          <tr>
-            <th>Plugin</th>
-            <th>Provider</th>
-            <th>Hooks</th>
-            <th>Namespace</th>
-            <th>Relays</th>
-            <th>Runs on</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={plugin <- @plugins} data-testid={"plugin-row-#{plugin.name}"}>
-            <td class="text-th-primary flz-num text-xs">
-              {plugin.name}
-              <span
-                :if={plugin[:single]}
-                data-testid={"plugin-single-#{plugin.name}"}
-                class="flz-badge"
-              >
-                single
-              </span>
-            </td>
-            <td class="text-xs">{plugin.provider}</td>
-            <td class="text-xs">{join_or_dash(plugin[:hooks])}</td>
-            <td class="text-xs">{plugin.namespace}</td>
-            <td class="flz-num text-xs" data-testid={"plugin-relays-#{plugin.name}"}>
-              <span :if={plugin[:relays] in [nil, []]}>—</span>
-              <span
-                :for={relay <- plugin[:relays] || []}
-                class="inline-flex items-center gap-1 mr-2"
-              >
-                {relay}
-                <button
-                  :if={NodeManager.granted?(@operations, "PluginManager.unbind")}
-                  phx-click="confirm_unbind"
-                  phx-value-name={plugin.name}
-                  phx-value-namespace={plugin.namespace}
-                  phx-value-relay={relay}
-                  data-testid={"plugin-unbind-#{plugin.name}-#{relay}"}
-                  class="text-danger-text hover:text-danger"
-                  aria-label={"Unbind #{relay}"}
-                >
-                  <.icon name="hero-x-mark" class="w-3 h-3" />
-                </button>
-              </span>
-            </td>
-            <td class="flz-num text-xs" data-testid={"plugin-controllers-#{plugin.name}"}>
-              {join_or_dash(plugin[:controllers])}
-              <span
-                :if={plugin[:lagging] not in [nil, []]}
-                data-testid={"plugin-lagging-#{plugin.name}"}
-                class="flz-badge flz-badge--warning ml-1"
-              >
-                lagging on {Enum.join(plugin.lagging, ", ")}
-              </span>
-            </td>
-            <td class="text-right whitespace-nowrap space-x-3">
-              <button
-                :if={
-                  not controller_plugin?(plugin, @available_providers) and
-                    NodeManager.granted?(@operations, "PluginManager.bind")
-                }
-                phx-click="plugin_form_open"
-                phx-value-mode="bind"
-                phx-value-name={plugin.name}
-                phx-value-provider={provider_id(plugin)}
-                phx-value-namespace={plugin.namespace}
-                data-testid={"plugin-bind-#{plugin.name}"}
-                class="flz-button flz-button--sm flz-button--ghost"
-              >
-                Bind
-              </button>
-              <button
-                :if={NodeManager.granted?(@operations, "PluginManager.update")}
-                phx-click="plugin_form_open"
-                phx-value-mode="update"
-                phx-value-name={plugin.name}
-                phx-value-provider={provider_id(plugin)}
-                phx-value-namespace={plugin.namespace}
-                phx-value-hooks={Enum.join(plugin[:hooks] || [], ",")}
-                data-testid={"plugin-update-#{plugin.name}"}
-                class="flz-button flz-button--sm flz-button--ghost"
-              >
-                Update
-              </button>
-              <button
-                :if={NodeManager.granted?(@operations, "PluginManager.disable")}
-                phx-click="confirm_disable"
-                phx-value-name={plugin.name}
-                phx-value-namespace={plugin.namespace}
-                data-testid={"plugin-disable-#{plugin.name}"}
-                class="flz-button flz-button--sm flz-button--ghost"
-              >
-                Disable
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  <% end %>
-</div>
+<.inspector inspected={@inspected} operations={@operations} />
 
 <.confirm_dialog
   :if={@confirm_disable}
@@ -192,9 +251,8 @@
   cancel_testid="plugin-disable-cancel"
   confirm_testid="plugin-disable-confirm"
 >
-  Disable plugin
-  <.mono>{@confirm_disable.name}</.mono>
-  in <.mono>{@confirm_disable.namespace}</.mono>? Every running copy stops; its bindings stay.
+  Disable plugin <span class="fui-ident">{@confirm_disable.name}</span>
+  in <span class="fui-ident">{@confirm_disable.namespace}</span>? Every running copy stops; its bindings stay.
 </.confirm_dialog>
 
 <.confirm_dialog
@@ -214,20 +272,19 @@
   cancel_testid="plugin-unbind-cancel"
   confirm_testid="plugin-unbind-confirm"
 >
-  Unbind
-  <.mono>{@confirm_unbind.relay}</.mono>
-  from plugin <.mono>{@confirm_unbind.name}</.mono>? The plugin stays enabled; this relay stops
+  Unbind <span class="fui-ident">{@confirm_unbind.relay}</span>
+  from plugin <span class="fui-ident">{@confirm_unbind.name}</span>? The plugin stays enabled; this relay stops
   using it.
 </.confirm_dialog>
 
 <.plugin_form_dialog form={@plugin_form} />
 
-<.panel testid="installed-catalog" icon="hero-archive-box" class="overflow-hidden mt-6">
-  <:title>Installed on the controller ({length(@catalog)})</:title>
+<.section testid="installed-catalog" digest={Words.count(length(@catalog), "package")}>
+  <:title>Installed on the controller</:title>
 
-  <p class="px-5 py-2 text-xs text-th-muted border-b border-brd-subtle">
+  <p class="fui-figures mb-3">
     Installing, upgrading and uninstalling move files on the controller host — those are
-    <code class="font-mono">flz plugin</code>
+    <code>flz plugin</code>
     verbs, not control-panel actions.
   </p>
 
@@ -235,7 +292,6 @@
     :if={@catalog_error}
     kind={:info}
     testid="catalog-unavailable"
-    class="m-5"
   >
     The installed-plugin catalog is unavailable on this controller. The enabled plugins above
     still list normally.
@@ -245,7 +301,7 @@
     No plugins are installed on the controller host.
   </.empty_state>
 
-  <table :if={@catalog != []} class="flz-table">
+  <table :if={@catalog != []} class="fui-grid mt-3">
     <thead>
       <tr>
         <th>Plugin</th>
@@ -259,13 +315,13 @@
         :for={plugin <- @catalog}
         data-testid={"installed-#{plugin[:id]}"}
       >
-        <td class="text-th-primary flz-num text-xs">{plugin[:id]}</td>
-        <td class="flz-num text-xs">
+        <td class="fui-strong fui-num text-xs">{plugin[:id]}</td>
+        <td class="fui-num text-xs">
           {plugin[:version]}
           <span
             :if={plugin[:status] == :pending and plugin[:loaded_version]}
             data-testid={"installed-loaded-#{plugin[:id]}"}
-            class="block text-th-muted"
+            class="block fui-muted"
           >
             {plugin[:loaded_version]} still loaded until the next boot
           </span>
@@ -273,9 +329,9 @@
         <td>
           <span
             data-testid={"installed-status-#{plugin[:id]}"}
-            class={["flz-badge", plugin[:status] == :loaded && "flz-badge--positive"]}
+            class={["fui-badge", plugin[:status] == :loaded && "fui-badge--positive"]}
           >
-            {plugin[:status]}
+            {Words.humanize(plugin[:status])}
           </span>
         </td>
         <td class="text-xs" data-testid={"installed-providers-#{plugin[:id]}"}>
@@ -287,4 +343,4 @@
       </tr>
     </tbody>
   </table>
-</.panel>
+</.section>

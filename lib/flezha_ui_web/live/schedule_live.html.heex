@@ -1,132 +1,148 @@
-<div class="space-y-6">
-  <.header>
-    Schedules
-    <:subtitle :if={@scoped_namespace}>
-      Targeting <span class="flz-num">{@scoped_namespace}</span>.
-    </:subtitle>
-    <:actions>
-      <button
-        :if={NodeManager.granted?(@operations, "Schedule.add")}
-        phx-click="open_form"
-        data-testid="schedule-new-btn"
-        class="flz-button flz-button--md"
+<.page_header
+  eyebrow="Schedules"
+  title={(@scoped_namespace && "Schedules into #{@scoped_namespace}") || "Every schedule"}
+>
+  <:sentence>
+    A <.term key="schedule" />
+    starts a relay from a steps factory each time its cron expression fires.
+  </:sentence>
+  <:figures :if={@scoped_namespace}>
+    <span data-testid="schedule-scope-notice">
+      The controller keeps one schedule list for the cluster, so {@scoped_namespace} is a filter over it here.
+    </span>
+  </:figures>
+  <:actions>
+    <.segmented label="Scope" testid="scope-switch">
+      <:option
+        :if={@shell_namespace}
+        patch={~p"/namespaces/#{@shell_namespace}/schedules"}
+        current={@scoped_namespace != nil}
+        testid="scope-namespace"
       >
-        <.icon name="hero-plus" class="w-4 h-4" /> New Schedule
-      </button>
-    </:actions>
-  </.header>
+        {@shell_namespace}
+      </:option>
+      <:option patch={~p"/schedules"} current={is_nil(@scoped_namespace)} testid="scope-all">
+        All namespaces
+      </:option>
+    </.segmented>
+    <.button
+      :if={NodeManager.granted?(@operations, "Schedule.add")}
+      phx-click="open_form"
+      data-testid="schedule-new-btn"
+      icon="hero-plus"
+    >
+      New schedule
+    </.button>
+  </:actions>
+</.page_header>
 
-  <.runtime_error error={@load_error} />
+<.runtime_error error={@load_error} />
 
-  <div :if={@ran} data-testid="schedule-ran">
-    <.runtime_error :if={@ran[:error]} error={@ran[:error]} action={"the run of #{@ran.name}"} />
-    <.notice :if={@ran[:answer] && @ran.answer.outcome == :spawned} icon="hero-play">
-      {@ran.name} ran now and started <.link
-        navigate={~p"/namespaces/#{@ran.namespace || "default"}/relays/#{@ran.answer.relay_id}"}
-        data-testid="schedule-ran-link"
-        class="underline hover:no-underline font-mono"
-      >
-        {@ran.answer.relay_id}
-      </.link>.
-    </.notice>
-    <.notice :if={@ran[:answer] && @ran.answer.outcome == :already_running}>
-      {@ran.name} has an instance running already, so none was started.
-    </.notice>
-  </div>
-
-  <.scope_notice
-    :if={@scoped_namespace}
-    scope={@scoped_namespace}
-    listing="schedule"
-    testid="schedule-scope-notice"
-  />
-
-  <.panel icon="hero-clock" class="overflow-hidden">
-    <:title>Entries ({length(@schedules)})</:title>
-
-    <%= if @schedules == [] do %>
-      <.empty_state icon="hero-clock" testid="schedule-empty">
-        <span :if={@scoped_namespace}>No schedule targets {@scoped_namespace}.</span>
-        <span :if={!@scoped_namespace}>No schedule has been created.</span>
-      </.empty_state>
-    <% else %>
-      <div class="overflow-x-auto">
-        <table data-testid="schedule-table" class="flz-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Cron</th>
-              <th>Timezone</th>
-              <th>Namespace</th>
-              <th>Factory</th>
-              <th>Status</th>
-              <th>Last fire</th>
-              <th>Next fire</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              :for={schedule <- @schedules}
-              data-testid={"schedule-row-#{schedule.name}"}
-            >
-              <td class="text-th-primary flz-num text-xs">{schedule.name}</td>
-              <td class="flz-num text-xs">{schedule.cron}</td>
-              <td class="text-xs">{schedule.timezone}</td>
-              <td class="text-xs">{schedule.namespace}</td>
-              <td class="flz-num text-xs">{schedule.factory_id}</td>
-              <td class="text-xs">
-                <span
-                  data-testid={"schedule-status-#{schedule.name}"}
-                  class="flz-badge"
-                  title={status(schedule.armed).title}
-                >
-                  <span class={["w-1.5 h-1.5 rounded-full", status(schedule.armed).dot]}></span>
-                  {status(schedule.armed).label}
-                </span>
-              </td>
-              <td data-testid={"schedule-last-fire-#{schedule.name}"} class="text-xs">
-                {Format.timestamp(schedule.last_fire)}
-              </td>
-              <td
-                data-testid={"schedule-next-fire-#{schedule.name}"}
-                class="text-xs"
-              >
-                {Format.timestamp(schedule.next_fire)}
-              </td>
-              <td class="text-right whitespace-nowrap space-x-3">
-                <button
-                  :if={NodeManager.granted?(@operations, "Schedule.run")}
-                  phx-click="run_now"
-                  phx-value-name={schedule.name}
-                  data-testid={"schedule-run-#{schedule.name}"}
-                  class="flz-button flz-button--sm flz-button--ghost"
-                >
-                  Run now
-                </button>
-                <button
-                  :if={NodeManager.granted?(@operations, "Schedule.remove")}
-                  phx-click="confirm_remove"
-                  phx-value-name={schedule.name}
-                  data-testid={"schedule-remove-#{schedule.name}"}
-                  class="flz-button flz-button--sm flz-button--ghost"
-                >
-                  Remove
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    <% end %>
-  </.panel>
+<div :if={@ran} data-testid="schedule-ran" class="mb-5">
+  <.runtime_error :if={@ran[:error]} error={@ran[:error]} action={"the run of #{@ran.name}"} />
+  <.notice :if={@ran[:answer] && @ran.answer.outcome == :spawned} icon="hero-play">
+    {@ran.name} ran now and started <.link
+      navigate={~p"/namespaces/#{@ran.namespace || "default"}/relays/#{@ran.answer.relay_id}"}
+      data-testid="schedule-ran-link"
+      class="fui-num"
+    >{@ran.answer.relay_id}</.link>.
+  </.notice>
+  <.notice :if={@ran[:answer] && @ran.answer.outcome == :already_running}>
+    {@ran.name} has an instance running already, so none was started.
+  </.notice>
 </div>
+
+<.skeleton :if={!@loaded?} rows={3} testid="schedules-loading" />
+
+<.empty_state :if={@loaded? and @schedules == []} icon="hero-clock" testid="schedule-empty">
+  A schedule starts a relay from a steps factory on a cron expression.
+  <span :if={@scoped_namespace}>None starts relays in {@scoped_namespace}.</span>
+  <span :if={!@scoped_namespace}>None has been created.</span>
+  <:action :if={NodeManager.granted?(@operations, "Schedule.add")}>
+    <.button size="sm" phx-click="open_form" data-testid="schedule-new-empty-btn">
+      New schedule
+    </.button>
+  </:action>
+</.empty_state>
+
+<.grid
+  :if={@schedules != []}
+  id="schedules"
+  rows={@schedules}
+  testid="schedule-table"
+  row_testid={&"schedule-row-#{&1.name}"}
+  row_tone={&(&1.armed && "positive")}
+>
+  <:col :let={schedule} label="Name"><span class="fui-num">{schedule.name}</span></:col>
+  <:col :let={schedule} label="Cron"><code>{schedule.cron}</code></:col>
+  <:col :let={schedule} label="Timezone">{schedule.timezone}</:col>
+  <:col :let={schedule} :if={!@scoped_namespace} label="Namespace">
+    <span class="fui-num">{schedule.namespace}</span>
+  </:col>
+  <:col :let={schedule} label="Factory"><span class="fui-num">{schedule.factory_id}</span></:col>
+  <:col :let={schedule} label="Status">
+    <span title={status_title(schedule.armed)}>
+      <.state_badge
+        kind={:schedule}
+        value={schedule.armed}
+        title={status_title(schedule.armed)}
+        testid={"schedule-status-#{schedule.name}"}
+      />
+    </span>
+  </:col>
+  <:col :let={schedule} label="Last fire" num>
+    <span data-testid={"schedule-last-fire-#{schedule.name}"}>
+      {Format.timestamp(schedule.last_fire)}
+    </span>
+  </:col>
+  <:col :let={schedule} label="Next fire" num>
+    <span data-testid={"schedule-next-fire-#{schedule.name}"}>
+      {Format.timestamp(schedule.next_fire)}
+    </span>
+  </:col>
+  <:menu :let={schedule}>
+    <.row_menu
+      :if={
+        NodeManager.granted?(@operations, "Schedule.run") or
+          NodeManager.granted?(@operations, "Schedule.remove")
+      }
+      id={"schedule-menu-#{schedule.name}"}
+      label={"Actions for #{schedule.name}"}
+      testid={"schedule-menu-#{schedule.name}"}
+    >
+      <:item
+        :if={NodeManager.granted?(@operations, "Schedule.run")}
+        click="confirm_run"
+        values={%{name: schedule.name}}
+        testid={"schedule-run-#{schedule.name}"}
+        icon="hero-play"
+      >
+        Run now
+      </:item>
+      <:item
+        :if={NodeManager.granted?(@operations, "Schedule.remove")}
+        click="confirm_remove"
+        values={%{name: schedule.name}}
+        testid={"schedule-remove-#{schedule.name}"}
+        danger
+      >
+        Remove
+      </:item>
+    </.row_menu>
+  </:menu>
+</.grid>
 
 <%!-- Create --%>
 <.dialog :if={@show_form} testid="schedule-form-modal" size="form" on_close="close_form">
-  <:title>New Schedule</:title>
+  <:title>New schedule</:title>
 
-  <.notice :if={@form_error} kind={:error} testid="schedule-form-error" class="mb-4">
+  <.steps
+    steps={["When", "What it starts", "With what"]}
+    current={form_step(@form)}
+    testid="schedule-steps"
+  />
+
+  <.notice :if={@form_error} kind={:error} testid="schedule-form-error">
     {@form_error}
   </.notice>
 
@@ -158,7 +174,7 @@
       value={@form["timezone"]}
       data-testid="schedule-input-timezone"
     />
-    <div class="grid grid-cols-2 gap-4">
+    <div class="grid gap-4 sm:grid-cols-2">
       <Target.namespace_field
         target={@target}
         name="schedule[namespace]"
@@ -173,14 +189,13 @@
         testid="schedule-input-factory"
       />
     </div>
-    <p class="text-xs text-th-muted">
-      Only a factory whose run is <span class="font-mono">steps</span>
-      can be scheduled, so only those are offered.
+    <p class="fui-hint">
+      Only a factory whose run is steps can be scheduled, so only those are offered.
     </p>
     <.input
       type="textarea"
       name="schedule[init_values]"
-      label="Init Values"
+      label="Init values"
       hint="JSON, optional"
       value={@form["init_values"]}
       placeholder="{}"
@@ -208,7 +223,22 @@
   cancel_testid="schedule-remove-cancel"
   confirm_testid="schedule-remove-confirm"
 >
-  Retract
-  <.mono>{@confirm_remove}</.mono>
+  Retract <span class="fui-ident">{@confirm_remove}</span>
   from the hub and delete it. It will stop firing.
+</.confirm_dialog>
+
+<.confirm_dialog
+  :if={@confirm_run}
+  title="Run schedule now?"
+  confirm_label="Run now"
+  variant="primary"
+  on_confirm="run_now"
+  on_cancel="cancel_run"
+  values={%{"name" => @confirm_run}}
+  testid="schedule-run-modal"
+  cancel_testid="schedule-run-cancel"
+  confirm_testid="schedule-run-confirm"
+>
+  Fire <.ident value={@confirm_run} full /> once, now, whatever its cron says? It starts a relay
+  from its factory unless an instance is running already.
 </.confirm_dialog>

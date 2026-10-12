@@ -176,7 +176,7 @@ defmodule FlezhaUiWeb.Live.TypedFieldsTest do
       html =
         render_inputs(
           [spec("a", :string), spec("k", :secret)],
-          %{"a" => "given", "k" => "hidden"},
+          %{"a" => "given", "k" => "the-secret-value"},
           [{"a", {"must be at most %{number}", number: 3}}]
         )
 
@@ -184,7 +184,7 @@ defmodule FlezhaUiWeb.Live.TypedFieldsTest do
       assert html =~ ~s(value="given")
       assert html =~ "must be at most 3"
       assert html =~ ~s(name="s[k]")
-      refute html =~ "hidden"
+      refute html =~ "the-secret-value"
     end
   end
 

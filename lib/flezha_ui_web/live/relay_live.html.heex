@@ -1,672 +1,350 @@
-<div class="space-y-6">
-  <.header mono>
-    {@relay_id}
-    <:actions>
-      <button
-        :if={is_nil(@completion) and NodeManager.granted?(@operations, "Relay.stop")}
-        phx-click="confirm_stop"
-        data-testid="stop-relay-btn"
-        class="flz-button flz-button--md flz-button--danger"
+<.page_header
+  eyebrow="Relay"
+  title={@relay_id}
+  crumbs={@breadcrumbs}
+  tabs={Layouts.relay_tabs(@ns, @relay_id, :live)}
+  tabs_label="Relay views"
+>
+  <:sentence>
+    <%= if @completion do %>
+      This relay has finished and is kept only until its retention window passes.
+    <% else %>
+      <%!-- One line: whitespace between the fragments would show before their commas. --%>
+      <span phx-no-format><%= for {text, testid} <- sentence_parts(assigns) do %><span :if={match?({:runner, true}, text)}>, bound to <.term key="runner" /></span><span :if={match?({:runner, false}, text)}>, with no <.term key="runner" /></span><span :if={is_binary(text)} data-testid={testid}>{text}</span><% end %></span>.
+      <%!-- A relay that failed to initialise never reads as healthy. --%>
+      <span
+        :if={@row && assigns[:init_error]}
+        data-testid="relay-health"
+        class="fui-tone-negative"
       >
-        Stop Relay
-      </button>
-    </:actions>
-  </.header>
-
-  <.relay_tabs ns={@ns} relay_id={@relay_id} current={:detail} />
-
-  <.runtime_error :if={is_nil(@completion)} error={@load_error} />
-
-  <.pipeline_graph topology={@topology}>
-    <:tap>
-      <aside
-        data-testid="topology-tap"
-        class="flz-panel lg:w-72 shrink-0 p-4 space-y-3"
-      >
-        <div class="flex items-center justify-between gap-2">
-          <p class="flz-label">Payload tap</p>
-          <button
-            :if={@tap}
-            type="button"
-            phx-click="graph_tap_close"
-            data-testid="tap-close"
-            class="flz-button flz-button--sm flz-button--ghost"
-            aria-label="Close tap"
-          >
-            <.icon name="hero-x-mark" class="w-4 h-4" />
-          </button>
-        </div>
-
-        <p :if={!@tap} class="text-xs text-th-muted">
-          Listens to this relay while open, and stops listening when you close it.
-        </p>
-
-        <div :if={!@tap} class="flex gap-2">
-          <.button
-            :for={direction <- ~w(input output)}
-            variant="secondary"
-            size="sm"
-            phx-click="graph_tap"
-            phx-value-direction={direction}
-            data-testid={"tap-#{direction}"}
-          >
-            Tap {direction}
-          </.button>
-        </div>
-
-        <div :if={@tap} class="space-y-2">
-          <p class="text-xs text-th-secondary">
-            Tapping
-            <.mono>{@tap.direction}</.mono>
-          </p>
-
-          <div :if={@tap.error} data-testid="tap-error">
-            <.runtime_error error={@tap.error} action="the payload tap" />
-          </div>
-
-          <dl data-testid="tap-figures" class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-            <dt class="text-th-muted">Messages</dt>
-            <dd class="text-th-secondary font-mono text-right">{@tap.count}</dd>
-            <dt class="text-th-muted">Total</dt>
-            <dd class="text-th-secondary font-mono text-right">{Format.bytes(@tap.bytes)}</dd>
-            <dt class="text-th-muted">Rate</dt>
-            <dd data-testid="tap-msg-rate" class="text-th-primary font-mono text-right">
-              {tap_rate(@tap, :count)}/s
-            </dd>
-            <dt class="text-th-muted">Throughput</dt>
-            <dd data-testid="tap-byte-rate" class="text-th-primary font-mono text-right">
-              {Format.bytes(round(tap_rate(@tap, :bytes)))}/s
-            </dd>
-          </dl>
-
-          <ul :if={@tap.recent != []} data-testid="tap-recent" class="space-y-1">
-            <li
-              :for={msg <- @tap.recent}
-              class="flz-chip block truncate"
-            >
-              {String.slice(msg.message, 0, 60)}
-            </li>
-          </ul>
-
-          <p :if={@tap.ended?} data-testid="tap-ended" class="text-xs text-th-muted">
-            The tap ended: the relay stopped or the controller let it go.
-          </p>
-
-          <p
-            :if={@tap.recent == [] and is_nil(@tap.error) and not @tap.ended?}
-            class="text-xs text-th-muted"
-          >
-            Waiting for a record to pass through.
-          </p>
-        </div>
-      </aside>
-    </:tap>
-  </.pipeline_graph>
-
-  <%!-- Info Panel --%>
-  <div class="flz-panel p-5 grid grid-cols-3 gap-4">
-    <div>
-      <p class="flz-label">Namespace</p>
-      <p class="text-th-primary font-mono mt-1">{@ns}</p>
-    </div>
-    <div>
-      <p class="flz-label">Factory ID</p>
-      <p class="text-th-primary font-mono mt-1">{@factory_id || "—"}</p>
-    </div>
-    <div>
-      <p class="flz-label">Runner</p>
-      <p data-testid="relay-runner" class="text-th-primary font-mono mt-1">
-        {@runner_id || "—"}
-      </p>
-    </div>
-    <div>
-      <p class="flz-label">Run</p>
-      <p data-testid="relay-run" class="text-th-primary font-mono mt-1">{@run}</p>
-    </div>
-    <div>
-      <p class="flz-label">Uptime</p>
-      <p data-testid="relay-uptime" class="text-th-primary font-mono mt-1">
-        {Format.duration(@uptime_ms)}
-      </p>
-    </div>
-    <div>
-      <p class="flz-label">Default Input Type</p>
-      <p class="text-th-primary font-mono mt-1">{format_input_type(@default_input_type)}</p>
-    </div>
-    <div>
-      <p class="flz-label">Health</p>
-      <p data-testid="relay-health" class="mt-1">
-        <.health_badge :if={@row} health={@row.health} />
-        <span :if={is_nil(@row)} class="text-th-muted font-mono">—</span>
-      </p>
-    </div>
-    <div>
-      <p class="flz-label">Node</p>
-      <p data-testid="relay-node" class="text-th-primary font-mono mt-1">
-        <span :if={@row && @row[:node]}>{@row[:node]}</span>
-        <span :if={@row && is_nil(@row[:node])} class="text-warning">unplaced</span>
-        <span :if={is_nil(@row)} class="text-th-muted">—</span>
-      </p>
-    </div>
-    <div :if={@row && @row[:partition]}>
-      <p class="flz-label">Partition</p>
-      <p data-testid="relay-partition" class="text-th-primary font-mono mt-1">
-        p{@row.partition.index}/{@row.partition.count}
-        <span class="text-th-secondary">
-          keys {elem(@row.partition.range, 0)}–{elem(@row.partition.range, 1)}
-        </span>
-      </p>
+        It failed to initialise; its State view says why.
+      </span>
+      <span :if={@row && !assigns[:init_error]} data-testid="relay-health">
+        It is
+        <.said kind={:health} value={@row.health} lower />{if @suspended and
+                                                                @row.health != :suspended,
+                                                              do:
+                                                                ", suspended at a committed boundary"}.
+      </span>
+      <span :if={is_nil(@row)} data-testid="relay-health">
+        Its health is not known{if @suspended, do: "; it is suspended at a committed boundary"}.
+      </span>
+    <% end %>
+  </:sentence>
+  <:figures :if={is_nil(@completion)}>
+    <span :if={@run == :steps} data-testid="relay-durable">
+      {if @durable_steps, do: "Durable", else: "Not durable"}{if @effectively_once,
+        do: ", effectively once"}.
       <.link
+        navigate={~p"/namespaces/#{@ns}/relays/#{@relay_id}/state" <> "#steps"}
+        data-testid="relay-steps-link"
+      >
+        Its steps facts are on State.
+      </.link>
+    </span>
+    <span :if={@run != :steps && @effectively_once} data-testid="relay-effectively-once">
+      Effectively once.
+    </span>
+    <span :if={@row && @row[:partition]} data-testid="relay-partition">
+      Partition p{@row.partition.index} of {@row.partition.count}, key groups {elem(
+        @row.partition.range,
+        0
+      )}–{elem(@row.partition.range, 1)}, in <.link
         navigate={~p"/namespaces/#{@ns}"}
         data-testid="relay-partition-group"
-        class="text-xs font-mono hover:underline"
-      >
-        group {@row.partition.group}
-      </.link>
+      >group {@row.partition.group}</.link>.
+    </span>
+    <span :if={@default_input_type}>
+      Default input: {Words.text(:input_type, @default_input_type)}.
+    </span>
+  </:figures>
+  <:actions>
+    <.button
+      :if={is_nil(@completion) and NodeManager.granted?(@operations, "Relay.send")}
+      variant="secondary"
+      icon="hero-paper-airplane"
+      phx-click="talk_open"
+      data-testid="talk-open-btn"
+    >
+      Send or call
+    </.button>
+    <.button
+      :if={is_nil(@completion) and NodeManager.granted?(@operations, "Relay.stop")}
+      variant="danger"
+      phx-click="confirm_stop"
+      data-testid="stop-relay-btn"
+    >
+      Stop relay
+    </.button>
+  </:actions>
+</.page_header>
+
+<.runtime_error :if={is_nil(@completion)} error={@load_error} />
+
+<.pipeline_graph topology={@topology}>
+  <:tap><.payload_tap tap={@tap} /></:tap>
+</.pipeline_graph>
+
+<%!-- Completion record: a finished relay is not in the registry at all --%>
+<.section :if={@completion} testid="completion-record">
+  <:title>Finished relay</:title>
+  <dl class="fui-facts">
+    <.stat label="Status"><.said kind={:completion} value={@completion[:status]} /></.stat>
+    <.stat label="Finished at">{Format.token_expiry(@completion[:finished_at])}</.stat>
+    <.stat :if={@completion[:error] not in [nil, ""]} label="Error" tone={:negative} mono>
+      {@completion[:error]}
+    </.stat>
+  </dl>
+  <p class="fui-figures mt-3">
+    Actions that need a live relay are not offered.
+  </p>
+</.section>
+
+<%!-- Diagnosis, on request --%>
+<.section
+  :if={is_nil(@completion)}
+  fold="diagnosis"
+  open={@sections["diagnosis"]}
+  forced={@diagnosis != nil or @diagnosis_error != nil}
+  testid="diagnose-panel"
+  digest={
+    cond do
+      @diagnosis -> Words.text(:diagnosis, @diagnosis.verdict)
+      @diagnosis_error -> "could not be asked"
+      true -> "not asked yet"
+    end
+  }
+>
+  <:title>Diagnosis</:title>
+  <:actions>
+    <.button
+      :if={NodeManager.granted?(@operations, "Relay.diagnose")}
+      variant="secondary"
+      size="sm"
+      icon="hero-magnifying-glass"
+      phx-click="diagnose"
+      data-testid="diagnose-btn"
+    >
+      {if @diagnosis || @diagnosis_error, do: "Run again", else: "Diagnose"}
+    </.button>
+  </:actions>
+  <p :if={is_nil(@diagnosis) and is_nil(@diagnosis_error)} class="fui-figures">
+    Ask the controller what is wrong with this relay and what to do about it.
+  </p>
+  <FlezhaUiWeb.Attention.diagnosis
+    :if={@diagnosis || @diagnosis_error}
+    diagnosis={@diagnosis}
+    error={@diagnosis_error}
+  />
+</.section>
+
+<%!-- Calls made to the relay from anywhere, as they happen --%>
+<.section
+  :if={is_nil(@completion) and NodeManager.granted?(@operations, "Relay.listen")}
+  fold="calls"
+  open={@sections["calls"]}
+  testid="calls-panel"
+  digest={calls_digest(@calls)}
+>
+  <:title>Calls</:title>
+  <div :if={@calls} class="space-y-3">
+    <div :if={@calls.error} data-testid="calls-error">
+      <.runtime_error error={@calls.error} action="listening to calls" />
     </div>
-    <div class="col-span-3 flex items-center gap-3">
-      <span
-        :if={@suspended}
-        data-testid="relay-suspended"
-        class="flz-badge"
+    <p :if={@calls.ended?} data-testid="calls-ended" class="fui-figures">
+      No longer listening: the relay stopped or the controller let the listen go.
+    </p>
+    <.button
+      :if={is_nil(@calls.feed)}
+      variant="ghost"
+      size="sm"
+      icon="hero-arrow-path"
+      phx-click="calls_reopen"
+      data-testid="calls-reopen"
+    >
+      Listen again
+    </.button>
+    <p
+      :if={is_pid(@calls.feed) and not @calls.attached?}
+      data-testid="calls-starting"
+      class="fui-figures"
+    >
+      Starting to listen…
+    </p>
+    <p
+      :if={@calls.entries == [] and @calls.attached?}
+      data-testid="calls-listening"
+      class="fui-figures"
+    >
+      Listening for calls to this relay from anywhere. Calls made before this section opened are not shown.
+    </p>
+    <ol :if={@calls.entries != []} class="fui-river-list">
+      <li
+        :for={entry <- @calls.entries}
+        data-testid={"call-entry-#{entry.seq}"}
+        data-call-id={entry.call_id}
+        class="fui-river-event block space-y-2"
       >
-        <.icon name="hero-pause-circle" class="w-3.5 h-3.5" /> Suspended
-      </span>
-      <span
-        :if={@effectively_once}
-        data-testid="relay-effectively-once"
-        class="flz-badge"
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="fui-river-time">{Format.time_of_day(entry.at)}</span>
+          <.chip testid={"call-source-#{entry.seq}"}>{call_source(entry.source)}</.chip>
+          <.ident :if={entry.caller} value={entry.caller} />
+          <span class="fui-ident">{entry.channel || "—"}</span>
+          <span class="fui-figures">{Format.bytes(entry.payload.bytes)}</span>
+          <.state_badge
+            kind={:call_outcome}
+            value={call_outcome_kind(entry)}
+            testid={"call-outcome-#{entry.seq}"}
+          />
+          <span :if={entry.outcome && entry.outcome.duration_ms} class="fui-figures">
+            {Format.duration(entry.outcome.duration_ms)}
+          </span>
+        </div>
+        <.code_block>{entry.payload.text}</.code_block>
+        <div :if={entry.outcome && entry.outcome.kind == :answered} class="space-y-1">
+          <p class="fui-figures">
+            Answer on <span class="fui-ident">{entry.outcome.channel || "—"}</span>
+          </p>
+          <.code_block>{entry.outcome.payload.text}</.code_block>
+        </div>
+        <.runtime_error :if={entry.outcome && entry.outcome.error} error={entry.outcome.error} />
+      </li>
+    </ol>
+  </div>
+</.section>
+
+<%!-- The relay's announced API --%>
+<.section
+  :if={is_nil(@completion)}
+  fold="api"
+  open={@sections["api"]}
+  testid="api-panel"
+  digest={Words.count(length(api_channels(@api)), "channel") <> " announced"}
+>
+  <:title>API</:title>
+  <div class="space-y-4">
+    <.runtime_error error={@api_error} action="the relay's API" />
+    <div :for={entry <- @api} class="space-y-3">
+      <p :if={entry[:description]}>{entry.description}</p>
+      <.notice :if={entry[:disagree]} testid="api-disagree">
+        This factory's runners announce different APIs; the latest announcement is shown.
+      </.notice>
+      <p :if={entry.channels == []} data-testid="api-none" class="fui-figures">
+        The factory <span class="fui-ident">{entry.factory}</span>
+        announces no API. The relay can still be sent a message or called.
+      </p>
+      <.grid
+        :if={entry.channels != []}
+        id={"api-#{entry.factory}"}
+        rows={entry.channels}
+        testid="api-channels"
+        row_testid={&"api-channel-#{&1.channel}"}
       >
-        <.icon name="hero-shield-check" class="w-3.5 h-3.5" /> Effectively once
-      </span>
+        <:col :let={channel} label="Channel">
+          <span class="fui-ident">{channel.channel}</span>
+        </:col>
+        <:col :let={channel} label="Format"><span class="fui-ident">{channel.codec}</span></:col>
+        <:col :let={channel} label="Answers">
+          {if channel[:answer_codec], do: "Yes, #{channel.answer_codec}", else: "No"}
+        </:col>
+        <:col :let={channel} label="Description">
+          {channel[:description] || "—"}
+          <details :if={channel[:schema]} data-testid={"api-schema-#{channel.channel}"}>
+            <summary>Input schema</summary>
+            <.code_block class="mt-1">{answer_text(channel.schema)}</.code_block>
+          </details>
+          <details :if={channel[:answer_schema]}>
+            <summary>Answer schema</summary>
+            <.code_block class="mt-1">{answer_text(channel.answer_schema)}</.code_block>
+          </details>
+        </:col>
+      </.grid>
     </div>
   </div>
+</.section>
 
-  <%!-- Diagnosis, on request --%>
-  <.panel testid="diagnose-panel" icon="hero-wrench-screwdriver">
-    <:title>
-      Diagnosis
-      <span
-        :if={@diagnosis}
-        data-testid="diagnose-verdict"
-        class={verdict_tone(@diagnosis.verdict)}
-      >
-        {@diagnosis.verdict}
+<%!-- Bindings --%>
+<.section
+  fold="plugins"
+  open={@sections["plugins"]}
+  testid="bindings-panel"
+  digest={Words.count(length(Enum.uniq_by(@bindings, & &1.plugin_id)), "plugin") <> " bound"}
+>
+  <:title>Plugins bound to it</:title>
+  <:actions>
+    <.button
+      :if={NodeManager.granted?(@operations, "PluginManager.enable")}
+      variant="secondary"
+      size="sm"
+      icon="hero-plus"
+      phx-click="plugin_form_open"
+      phx-value-mode="enable"
+      phx-value-namespace={@ns}
+      phx-value-relay={@relay_id}
+      data-testid="attach-plugin-btn"
+    >
+      Attach plugin
+    </.button>
+  </:actions>
+
+  <.empty_state
+    :if={@bindings == [] and @idle_bindings == []}
+    icon="hero-puzzle-piece"
+    testid="no-plugins-msg"
+  >
+    A plugin adds behaviour to a relay at a hook, such as reading its input or carrying its output.
+    None is bound to this relay.
+  </.empty_state>
+  <.grid
+    :if={@bindings != [] or @idle_bindings != []}
+    id="bindings"
+    rows={binding_rows(@bindings, @idle_bindings)}
+    testid="bindings-table"
+    row_testid={&"binding-row-#{&1.plugin_id}"}
+    row_tone={&(&1.idle? && "warning")}
+  >
+    <:col :let={row} label="Plugin"><span class="fui-ident">{row.plugin_id}</span></:col>
+    <:col :let={row} label="Hooks">
+      <span class="flex flex-wrap gap-1">
+        <.chip :for={hook <- row.hooks} mono>{hook}</.chip>
       </span>
-    </:title>
-    <:actions>
-      <button
-        :if={NodeManager.granted?(@operations, "Relay.diagnose")}
-        phx-click="diagnose"
-        data-testid="diagnose-btn"
-        class="flz-button flz-button--sm flz-button--secondary"
+    </:col>
+    <:col :let={row} label="Provider">
+      {Enum.map_join(row.providers, ", ", &Words.humanize/1)}
+    </:col>
+    <:col :let={row} label="Position">
+      <span
+        :if={row.idle?}
+        data-testid={"binding-idle-#{row.plugin_id}"}
+        class="fui-badge fui-badge--warning"
       >
-        <.icon name="hero-magnifying-glass" class="w-3.5 h-3.5" />
-        {if @diagnosis || @diagnosis_error, do: "Run again", else: "Diagnose"}
-      </button>
-    </:actions>
-    <div class="flz-panel-body space-y-3">
-      <div :if={@diagnosis_error} data-testid="diagnose-error">
-        <.runtime_error error={@diagnosis_error} action="the diagnosis" />
-      </div>
-      <p :if={is_nil(@diagnosis) and is_nil(@diagnosis_error)} class="text-sm text-th-muted">
-        Ask the controller what is wrong with this relay and what to do about it.
-      </p>
-      <p :if={@diagnosis && @diagnosis.findings == []} class="text-sm text-th-muted">
-        The controller found nothing to report.
-      </p>
-      <ol :if={@diagnosis} class="space-y-2">
-        <li
-          :for={finding <- @diagnosis.findings}
-          data-testid={"diagnose-finding-#{finding.code}"}
-          class="space-y-1"
+        Not running
+      </span>
+      <span :if={!row.idle?}>{Enum.join(row.positions, ", ")}</span>
+    </:col>
+    <:menu :let={row}>
+      <.row_menu
+        :if={NodeManager.granted?(@operations, "PluginManager.unbind")}
+        id={"binding-menu-#{row.plugin_id}"}
+        label={"Actions for #{row.plugin_id}"}
+        testid={"binding-menu-#{row.plugin_id}"}
+      >
+        <:item
+          click="confirm_unbind"
+          values={%{plugin_id: row.plugin_id}}
+          testid={"unbind-btn-#{row.plugin_id}"}
+          danger
         >
-          <span class="flz-label">{finding.level}</span>
-          <.runtime_error
-            error={finding}
-            kind={if finding.level == :note, do: :info, else: :error}
-          />
-        </li>
-      </ol>
-    </div>
-  </.panel>
-
-  <%!-- The relay's announced API --%>
-  <.panel
-    :if={is_nil(@completion)}
-    fold="api"
-    open={@sections["api"]}
-    testid="api-panel"
-    icon="hero-command-line"
-  >
-    <:title>API</:title>
-    <:actions>
-      <button
-        :if={NodeManager.granted?(@operations, "Relay.send")}
-        phx-click="talk_open"
-        data-testid="talk-open-btn"
-        class="flz-button flz-button--sm"
-      >
-        <.icon name="hero-paper-airplane" class="w-3.5 h-3.5" /> Send or call
-      </button>
-    </:actions>
-    <div class="flz-panel-body space-y-4">
-      <.runtime_error error={@api_error} action="the relay's API" />
-      <div :for={entry <- @api} class="space-y-3">
-        <p :if={entry[:description]} class="text-sm text-th-secondary">{entry.description}</p>
-        <.notice :if={entry[:disagree]} testid="api-disagree">
-          This factory's runners announce different APIs; the latest announcement is shown.
-        </.notice>
-        <p :if={entry.channels == []} data-testid="api-none" class="text-sm text-th-muted">
-          The factory <span class="font-mono">{entry.factory}</span>
-          announces no API. The relay can still be sent a message or called.
-        </p>
-        <table :if={entry.channels != []} data-testid="api-channels" class="flz-table">
-          <thead>
-            <tr>
-              <th>Channel</th>
-              <th>Format</th>
-              <th>Answers</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={channel <- entry.channels} data-testid={"api-channel-#{channel.channel}"}>
-              <td class="flz-num text-xs">{channel.channel}</td>
-              <td class="flz-num text-xs">{channel.codec}</td>
-              <td class="text-xs">
-                {if channel[:answer_codec], do: "yes, #{channel.answer_codec}", else: "no"}
-              </td>
-              <td class="text-xs">
-                {channel[:description] || "—"}
-                <details :if={channel[:schema]} data-testid={"api-schema-#{channel.channel}"}>
-                  <summary class="text-th-brand cursor-pointer">input schema</summary>
-                  <pre class="flz-code flz-code--wrap mt-1">{answer_text(channel.schema)}</pre>
-                </details>
-                <details :if={channel[:answer_schema]}>
-                  <summary class="text-th-brand cursor-pointer">answer schema</summary>
-                  <pre class="flz-code flz-code--wrap mt-1">{answer_text(channel.answer_schema)}</pre>
-                </details>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </.panel>
-
-  <%!-- Calls made to the relay from anywhere, as they happen --%>
-  <.panel
-    :if={is_nil(@completion) and NodeManager.granted?(@operations, "Relay.listen")}
-    fold="calls"
-    open={@sections["calls"]}
-    testid="calls-panel"
-    icon="hero-arrows-right-left"
-  >
-    <:title>Calls</:title>
-    <div :if={@calls} class="flz-panel-body space-y-3">
-      <div :if={@calls.error} data-testid="calls-error">
-        <.runtime_error error={@calls.error} action="listening to calls" />
-      </div>
-      <p :if={@calls.ended?} data-testid="calls-ended" class="text-xs text-th-muted">
-        No longer listening: the relay stopped or the controller let the listen go.
-      </p>
-      <button
-        :if={is_nil(@calls.feed)}
-        type="button"
-        phx-click="calls_reopen"
-        data-testid="calls-reopen"
-        class="flz-button flz-button--sm flz-button--ghost"
-      >
-        <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> Listen again
-      </button>
-      <p
-        :if={is_pid(@calls.feed) and not @calls.attached?}
-        data-testid="calls-starting"
-        class="text-sm text-th-muted"
-      >
-        Starting to listen…
-      </p>
-      <p
-        :if={@calls.entries == [] and @calls.attached?}
-        data-testid="calls-listening"
-        class="text-sm text-th-muted"
-      >
-        Listening for calls to this relay from anywhere. Calls made before this panel opened
-        are not shown.
-      </p>
-      <ol :if={@calls.entries != []} class="divide-y divide-brd-subtle">
-        <li
-          :for={{entry, {verdict, tone}} <- Enum.map(@calls.entries, &{&1, call_verdict(&1)})}
-          data-testid={"call-entry-#{entry.seq}"}
-          data-call-id={entry.call_id}
-          class="py-2 space-y-2"
-        >
-          <div class="flex flex-wrap items-center gap-2 text-xs">
-            <span class="flz-num text-th-muted">{Format.time_of_day(entry.at)}</span>
-            <span data-testid={"call-source-#{entry.seq}"} class="flz-badge">
-              {call_source(entry.source)}
-            </span>
-            <span :if={entry.caller} class="flz-num text-th-secondary">{entry.caller}</span>
-            <span class="flz-num">{entry.channel || "—"}</span>
-            <span class="flz-num text-th-muted">{Format.bytes(entry.payload.bytes)}</span>
-            <span data-testid={"call-outcome-#{entry.seq}"} class={tone}>{verdict}</span>
-            <span :if={entry.outcome && entry.outcome.duration_ms} class="flz-num text-th-muted">
-              {Format.duration(entry.outcome.duration_ms)}
-            </span>
-          </div>
-          <pre class="flz-code flz-code--wrap">{entry.payload.text}</pre>
-          <div :if={entry.outcome && entry.outcome.kind == :answered} class="space-y-1">
-            <p class="text-xs text-th-muted">
-              Answer on <span class="font-mono">{entry.outcome.channel || "—"}</span>
-            </p>
-            <pre class="flz-code flz-code--wrap">{entry.outcome.payload.text}</pre>
-          </div>
-          <.runtime_error :if={entry.outcome && entry.outcome.error} error={entry.outcome.error} />
-        </li>
-      </ol>
-    </div>
-  </.panel>
-
-  <%!-- Completion record: a finished relay is not in the registry at all --%>
-  <.panel :if={@completion} testid="completion-record" icon="hero-flag">
-    <:title>Finished relay</:title>
-    <div class="flz-panel-body space-y-2">
-      <dl class="grid grid-cols-3 gap-4 text-sm">
-        <.stat label="Status">{@completion[:status] || "—"}</.stat>
-        <.stat label="Finished at">{Format.token_expiry(@completion[:finished_at])}</.stat>
-        <.stat
-          :if={@completion[:error] not in [nil, ""]}
-          label="Error"
-          tone="text-danger-text font-mono"
-        >
-          {@completion[:error]}
-        </.stat>
-      </dl>
-      <p class="text-xs text-th-muted">
-        This relay has completed and is retained only until its window expires. Actions that
-        need a live relay are not offered.
-      </p>
-    </div>
-  </.panel>
-
-  <%!-- Steps facts --%>
-  <.panel
-    :if={@run == :steps and is_nil(@completion)}
-    testid="steps-panel"
-    icon="hero-arrow-path-rounded-square"
-  >
-    <:title>Steps</:title>
-    <div class="flz-panel-body">
-      <dl class="grid grid-cols-3 gap-4 text-sm">
-        <.stat label="Durable" testid="steps-durable">
-          {if @durable_steps, do: "yes", else: "no"}
-        </.stat>
-        <.stat label="Effectively once">{if @effectively_once, do: "yes", else: "no"}</.stat>
-        <.stat label="Correction window" testid="steps-correction-window">
-          {Format.duration(@correction_window_ms)}
-        </.stat>
-        <.stat label="Arrived via hotswap">
-          {if @arrived_via_hotswap?, do: "yes", else: "no"}
-        </.stat>
-        <.stat label="Suspended">{if @suspended, do: "yes", else: "no"}</.stat>
-      </dl>
-      <.notice :if={@init_error} kind={:error} testid="steps-init-error" class="mt-4">
-        This relay failed to initialise: {inspect(@init_error)}
-      </.notice>
-    </div>
-  </.panel>
-
-  <%!-- Task journal, durable steps relays only --%>
-  <.panel
-    :if={@journal}
-    fold="journal"
-    open={@sections["journal"]}
-    testid="task-journal-panel"
-    icon="hero-book-open"
-  >
-    <:title>Task journal</:title>
-    <:actions>
-      <button
-        :if={@committed_iterations != [] and NodeManager.granted?(@operations, "Steps.rewind")}
-        phx-click="open_rewind"
-        data-testid="open-rewind-btn"
-        class="flz-button flz-button--sm flz-button--secondary"
-      >
-        Rewind
-      </button>
-    </:actions>
-    <div class="px-5 py-3 text-xs text-th-secondary font-mono border-b border-brd-subtle space-y-1">
-      <p data-testid="task-journal-committed">
-        committed iterations: {Enum.join(@committed_iterations, ", ")}
-      </p>
-      <p data-testid="task-journal-leaves">
-        leaf tasklets: {Enum.join(@journal.leaf_tasks, ", ")} — {if @journal.complete,
-          do: "the in-flight iteration has committed every leaf",
-          else: "the in-flight iteration has not committed every leaf"}
-      </p>
-    </div>
-    <%= if @journal.entries == [] do %>
-      <.empty_state icon="hero-book-open">No journal entries yet.</.empty_state>
-    <% else %>
-      <table class="flz-table">
-        <thead>
-          <tr>
-            <th>Seq</th>
-            <th>Type</th>
-            <th>Iteration</th>
-            <th>Task</th>
-            <th>Detail</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            :for={entry <- @journal.entries}
-            data-testid={"journal-entry-#{entry[:seq]}"}
-          >
-            <td class="flz-num text-xs">{entry[:seq]}</td>
-            <td class="text-th-primary flz-num text-xs">{entry[:type]}</td>
-            <td class="flz-num text-xs">{entry[:iter]}</td>
-            <td class="flz-num text-xs">{entry[:task_idx]}</td>
-            <td class="flz-num text-xs">
-              <span
-                :if={entry[:type] == "dead_lettered"}
-                data-testid={"journal-dead-lettered-#{entry[:seq]}"}
-              >
-                tasklet {entry[:tasklet]} parked as {entry[:dlq_entry]}
-              </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    <% end %>
-  </.panel>
-
-  <%!-- Input log --%>
-  <.panel
-    :if={@input_log}
-    fold="input-log"
-    open={@sections["input-log"]}
-    testid="input-log-panel"
-    icon="hero-inbox"
-  >
-    <:title>Input log</:title>
-    <dl class="flz-panel-body grid grid-cols-3 gap-4 text-sm">
-      <.stat label="Undelivered" testid="input-log-undelivered">{@input_log.undelivered}</.stat>
-      <.stat label="Last offset" testid="input-log-last-offset">
-        {last_offset(@input_log.last_offset)}
-      </.stat>
-      <.stat label="Consumed offset">{@input_log.consumed_offset || "—"}</.stat>
-    </dl>
-    <div :if={@inbox_error} data-testid="inbox-error" class="px-5 pb-4">
-      <.runtime_error error={@inbox_error} action="the input log" />
-    </div>
-    <div :if={@inbox} data-testid="inbox-records">
-      <p data-testid="inbox-floor" class="px-5 pb-2 text-xs text-th-muted">
-        <span :if={@inbox.floor >= 0}>
-          Floor <span class="font-mono">{@inbox.floor}</span>: records at or below it are consumed.
-        </span>
-        <span :if={@inbox.floor < 0}>Floor: nothing is consumed yet.</span>
-        Payloads are not shown.
-      </p>
-      <p :if={@inbox.entries == []} class="flz-empty">The input log retains no records.</p>
-      <table :if={@inbox.entries != []} class="flz-table">
-        <thead>
-          <tr>
-            <th>Offset</th>
-            <th>State</th>
-            <th>Size</th>
-            <th>Channel</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={entry <- @inbox.entries} data-testid={"inbox-entry-#{entry.offset}"}>
-            <td class="flz-num text-xs">{entry.offset}</td>
-            <td class="text-xs">{if entry.consumed, do: "consumed", else: "pending"}</td>
-            <td class="flz-num text-xs">{Format.bytes(entry.bytes)}</td>
-            <td class="flz-num text-xs">{entry.channel || "—"}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </.panel>
-
-  <%!-- SDK State Panel --%>
-  <.panel fold="sdk-state" open={@sections["sdk-state"]} icon="hero-code-bracket">
-    <:title>SDK State</:title>
-    <:actions>
-      <button
-        phx-click="toggle_auto_refresh"
-        aria-pressed={to_string(@auto_refresh_state)}
-        data-testid="state-auto-refresh"
-        class={["flz-button flz-button--sm", !@auto_refresh_state && "flz-button--secondary"]}
-      >
-        {if @auto_refresh_state, do: "Auto-refresh ON", else: "Auto-refresh OFF"}
-      </button>
-      <button
-        phx-click="fetch_state"
-        data-testid="fetch-state-btn"
-        class="flz-button flz-button--sm flz-button--secondary"
-      >
-        <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> Fetch State
-      </button>
-    </:actions>
-    <div class="p-5 space-y-4">
-      <form phx-change="selector_change" class="grid grid-cols-2 gap-4">
-        <.input
-          type="text"
-          name="selector[tasklet]"
-          label="Tasklet"
-          value={@selector_form["tasklet"]}
-          placeholder="all tasklets"
-          data-testid="input-selector-tasklet"
-        />
-        <.input
-          type="text"
-          name="selector[cell_key]"
-          label="Cell Key"
-          value={@selector_form["cell_key"]}
-          placeholder="all cells"
-          data-testid="input-selector-cell-key"
-        />
-      </form>
-
-      <%= case @state_notice do %>
-        <% {:info, message} -> %>
-          <.notice testid="state-notice">{message}</.notice>
-        <% {:error, reason} -> %>
-          <.runtime_error error={reason} />
-        <% nil -> %>
-      <% end %>
-
-      <%= if @state_json do %>
-        <p :if={@state_seq} class="text-xs text-th-muted">
-          Serialized at change sequence <span data-testid="state-seq" class="font-mono">{@state_seq}</span>; this may be
-          ahead of what is durable.
-        </p>
-        <pre
-          data-testid="state-json"
-          class="flz-code flz-code--wrap"
-        ><%= @state_json %></pre>
-      <% else %>
-        <p :if={is_nil(@state_notice)} class="text-sm text-th-muted">
-          Click "Fetch State" to load the relay's current state.
-        </p>
-      <% end %>
-    </div>
-  </.panel>
-
-  <%!-- Bindings / Plugins Panel --%>
-  <.panel fold="plugins" open={@sections["plugins"]} icon="hero-puzzle-piece">
-    <:title>Plugins / Bindings</:title>
-    <:actions>
-      <button
-        :if={NodeManager.granted?(@operations, "PluginManager.enable")}
-        phx-click="plugin_form_open"
-        phx-value-mode="enable"
-        phx-value-namespace={@ns}
-        phx-value-relay={@relay_id}
-        data-testid="attach-plugin-btn"
-        class="flz-button flz-button--sm"
-      >
-        <.icon name="hero-plus" class="w-3.5 h-3.5" /> Attach Plugin
-      </button>
-    </:actions>
-
-    <%= if @bindings == [] and @idle_bindings == [] do %>
-      <.empty_state icon="hero-puzzle-piece" testid="no-plugins-msg">
-        No plugins attached.
-      </.empty_state>
-    <% else %>
-      <table data-testid="bindings-table" class="flz-table">
-        <thead>
-          <tr>
-            <th>Plugin</th>
-            <th>Hooks</th>
-            <th>Provider</th>
-            <th>Position</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            :for={row <- binding_rows(@bindings, @idle_bindings)}
-            data-testid={"binding-row-#{row.plugin_id}"}
-          >
-            <td class="flz-num text-xs">{row.plugin_id}</td>
-            <td class="text-xs">{Enum.join(row.hooks, ", ")}</td>
-            <td class="text-xs">{Enum.join(row.providers, ", ")}</td>
-            <td class="text-xs">
-              <span
-                :if={row.idle?}
-                data-testid={"binding-idle-#{row.plugin_id}"}
-                class="flz-badge flz-badge--warning"
-              >
-                Not running
-              </span>
-              <span :if={!row.idle?}>{Enum.join(row.positions, ", ")}</span>
-            </td>
-            <td class="text-right">
-              <button
-                :if={NodeManager.granted?(@operations, "PluginManager.unbind")}
-                phx-click="confirm_unbind"
-                phx-value-plugin_id={row.plugin_id}
-                data-testid={"unbind-btn-#{row.plugin_id}"}
-                class="flz-button flz-button--sm flz-button--ghost"
-              >
-                Unbind
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    <% end %>
-  </.panel>
-</div>
+          Unbind
+        </:item>
+      </.row_menu>
+    </:menu>
+  </.grid>
+</.section>
 
 <.confirm_dialog
   :if={@confirm_stop}
-  title="Stop Relay?"
+  title="Stop relay?"
   confirm_label="Stop"
   on_confirm="stop_relay"
   on_cancel="cancel_stop"
@@ -674,12 +352,12 @@
   cancel_testid="stop-cancel-btn"
   confirm_testid="stop-confirm-btn"
 >
-  Stop <.mono>{@relay_id}</.mono>? A steps relay finishes its in-flight work first.
+  Stop <.ident value={@relay_id} full />? A steps relay finishes its in-flight work first.
 </.confirm_dialog>
 
 <.confirm_dialog
   :if={@confirm_unbind}
-  title="Unbind Plugin?"
+  title="Unbind plugin?"
   confirm_label="Unbind"
   on_confirm="unbind_plugin"
   on_cancel="cancel_unbind"
@@ -688,9 +366,8 @@
   cancel_testid="unbind-cancel-btn"
   confirm_testid="unbind-confirm-btn"
 >
-  Unbind plugin
-  <.mono>{@confirm_unbind}</.mono>
-  from <.mono>{@relay_id}</.mono>? The plugin stays enabled for any other relay it is bound to.
+  Unbind plugin <.ident value={@confirm_unbind} full /> from <.ident value={@relay_id} full />?
+  The plugin stays enabled for any other relay it is bound to.
 </.confirm_dialog>
 
 <.plugin_form_dialog form={@plugin_form} />
@@ -705,27 +382,20 @@
 >
   <:title>Talk to {@relay_id}</:title>
 
-  <div class="flex gap-2 mb-4">
-    <.button
+  <.segmented label="What to send">
+    <:option
       :if={api_channels(@api) != []}
-      size="sm"
-      variant={if @talk.mode == :channel, do: "primary", else: "ghost"}
-      phx-click="talk_mode"
-      phx-value-mode="channel"
-      data-testid="talk-mode-channel"
+      click="talk_mode"
+      value="channel"
+      current={@talk.mode == :channel}
+      testid="talk-mode-channel"
     >
       API channel
-    </.button>
-    <.button
-      size="sm"
-      variant={if @talk.mode == :raw, do: "primary", else: "ghost"}
-      phx-click="talk_mode"
-      phx-value-mode="raw"
-      data-testid="talk-mode-raw"
-    >
+    </:option>
+    <:option click="talk_mode" value="raw" current={@talk.mode == :raw} testid="talk-mode-raw">
       Raw message
-    </.button>
-  </div>
+    </:option>
+  </.segmented>
 
   <.form_error error={@talk.error} action="the call" testid="talk-error" />
 
@@ -749,7 +419,7 @@
       options={Enum.map(api_channels(@api), & &1.channel)}
       data-testid="talk-channel-pick"
     />
-    <p class="text-xs text-th-muted" data-testid="talk-channel-facts">
+    <p class="text-xs fui-muted" data-testid="talk-channel-facts">
       {@talk.channel[:description] || "No description."} Takes <span class="font-mono">{@talk.channel.codec}</span>{if @talk.channel[
                                                                                                                          :answer_codec
                                                                                                                        ],
@@ -883,10 +553,10 @@
   </form>
 
   <div :if={@talk_results != []} data-testid="talk-results" class="mt-6 space-y-3">
-    <p class="flz-label">This session</p>
+    <p class="fui-eyebrow">This session</p>
     <ol class="space-y-3">
       <li :for={result <- @talk_results} data-testid="talk-result" class="space-y-2">
-        <p class="text-xs text-th-muted font-mono">{Format.time_of_day(result.at)}</p>
+        <p class="text-xs fui-muted font-mono">{Format.time_of_day(result.at)}</p>
         <%= case result do %>
           <% %{error: error} -> %>
             <.runtime_error
@@ -894,57 +564,33 @@
               action={if result.kind == :send, do: "the send", else: "the call"}
             />
           <% %{kind: :send, answer: %{verdict: :delivered} = sent} -> %>
-            <.notice icon="hero-check-circle">Delivered to <.mono>{sent.to}</.mono>.</.notice>
+            <.notice icon="hero-check-circle">
+              Delivered to <span class="fui-ident">{sent.to}</span>.
+            </.notice>
           <% %{kind: :send, answer: %{verdict: :absorbed} = sent} -> %>
             <.notice>
-              <.mono>{sent.to}</.mono>
+              <span class="fui-ident">{sent.to}</span>
               absorbed it as a duplicate: its input log already holds that message id.
             </.notice>
           <% %{kind: :send, answer: %{verdict: :suspended} = sent} -> %>
             <.notice>
-              <.mono>{sent.to}</.mono>
+              <span class="fui-ident">{sent.to}</span>
               is suspended; the message is journaled until the instance wakes.
             </.notice>
           <% %{kind: :call, answer: answer} -> %>
-            <p class="text-xs text-th-muted">
+            <p class="text-xs fui-muted">
               Answer on <span class="font-mono">{answer.channel || "—"}</span>
             </p>
-            <pre data-testid="talk-answer" class="flz-code flz-code--wrap">{answer_text(answer.payload)}</pre>
+            <pre data-testid="talk-answer" class="fui-code">{answer_text(answer.payload)}</pre>
           <% %{kind: :channel, answer: %{accepted: true}} -> %>
             <.notice icon="hero-check-circle">The relay accepted the input.</.notice>
           <% %{kind: :channel, answer: answer} -> %>
-            <p class="text-xs text-th-muted">
+            <p class="text-xs fui-muted">
               Answer, <span class="font-mono">{answer.answer_codec}</span>
             </p>
-            <pre data-testid="talk-answer" class="flz-code flz-code--wrap">{answer_text(answer.answer)}</pre>
+            <pre data-testid="talk-answer" class="fui-code">{answer_text(answer.answer)}</pre>
         <% end %>
       </li>
     </ol>
-  </div>
-</.dialog>
-
-<.dialog :if={@rewind_target} testid="rewind-modal" size="confirm">
-  <h3 class="flz-modal-title mb-3">Rewind relay</h3>
-  <.notice kind={:error} class="mb-4">
-    Rewinding discards every iteration after the one you choose. The relay resumes from that
-    boundary and the work in between is unwound.
-  </.notice>
-  <form phx-change="select_rewind" class="mb-4">
-    <.input
-      type="select"
-      name="rewind[iteration]"
-      label="Committed iteration"
-      value={@rewind_target}
-      options={@committed_iterations}
-      data-testid="rewind-iteration"
-    />
-  </form>
-  <div class="flex justify-end gap-3">
-    <.button variant="ghost" phx-click="cancel_rewind" data-testid="rewind-cancel-btn">
-      Cancel
-    </.button>
-    <.button variant="danger" phx-click="rewind" data-testid="rewind-confirm-btn">
-      Rewind to {@rewind_target}
-    </.button>
   </div>
 </.dialog>

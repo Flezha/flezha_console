@@ -1,4 +1,5 @@
 import {
+  menuAction,
   test,
   expect,
   expectHealthBadges,
@@ -43,8 +44,12 @@ test.describe('Relays index', () => {
     await expect(page.getByTestId('relays-count')).toContainText('across');
   });
 
-  test('a relay id navigates to its detail screen', async ({ page }) => {
-    await page.getByTestId('relay-index-row-testnet_store_1').getByRole('link').first().click();
+  test('a row opens its relay in the inspector, and its menu opens the relay', async ({ page }) => {
+    await page.getByTestId('relay-index-row-testnet_store_1').click();
+    await expect(page.getByTestId('inspector-relay')).toBeVisible();
+    await page.getByTestId('inspector-close').click();
+
+    await menuAction(page, 'relay-menu-testnet_store_1', 'view-relay-testnet_store_1');
 
     await expect(page).toHaveURL(/\/namespaces\/default\/relays\/testnet_store_1$/);
     await expect(page.getByTestId('relay-runner')).toBeVisible();

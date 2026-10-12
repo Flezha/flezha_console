@@ -17,7 +17,7 @@ defmodule FlezhaUiWeb.DisconnectedScreensTest do
   end
 
   for {route, name} <- [
-        {"/", "dashboard"},
+        {"/namespaces/default", "namespace home"},
         {"/namespaces", "namespaces"},
         {"/relays", "relays index"},
         {"/controller", "controller health"},
@@ -40,10 +40,17 @@ defmodule FlezhaUiWeb.DisconnectedScreensTest do
     end
   end
 
+  test "Home says no controller is connected rather than drawing an empty map", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+    assert html =~ ~s(data-testid="topology-disconnected")
+  end
+
   test "the cluster screen says it knows of no node", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/cluster")
 
     assert has_element?(view, ~s([data-testid="cluster-nodes-empty"]))
+    assert has_element?(view, ~s([data-testid="cluster-disconnected"]))
   end
 
   test "the start form still opens, asking for no run", %{conn: conn} do

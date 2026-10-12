@@ -13,7 +13,9 @@ defmodule FlezhaUiWeb.UserSessionControllerTest do
       conn = get(conn, ~p"/users/log-in")
       response = html_response(conn, 200)
       assert response =~ "Log in"
-      assert response =~ ~p"/users/register"
+
+      assert response =~
+               ~r/href="\/users\/register"[^>]*data-testid="register-link"|data-testid="register-link"[^>]*href="\/users\/register"/
     end
 
     test "renders login page with email filled in (sudo mode)", %{conn: conn, user: user} do
@@ -23,7 +25,7 @@ defmodule FlezhaUiWeb.UserSessionControllerTest do
         |> get(~p"/users/log-in")
         |> html_response(200)
 
-      assert html =~ "You need to reauthenticate"
+      assert html =~ "Confirm your password to change sensitive account settings."
       refute html =~ "Register"
 
       assert html =~
@@ -83,7 +85,7 @@ defmodule FlezhaUiWeb.UserSessionControllerTest do
       assert redirected_to(conn) == ~p"/"
 
       # Now do a logged in request and assert on the menu
-      conn = get(conn, ~p"/")
+      conn = get(conn, ~p"/users/settings")
       response = html_response(conn, 200)
       assert response =~ user.email
       assert response =~ ~p"/users/settings"
@@ -158,7 +160,7 @@ defmodule FlezhaUiWeb.UserSessionControllerTest do
       assert redirected_to(conn) == ~p"/"
 
       # Now do a logged in request and assert on the menu
-      conn = get(conn, ~p"/")
+      conn = get(conn, ~p"/users/settings")
       response = html_response(conn, 200)
       assert response =~ user.email
       assert response =~ ~p"/users/settings"
@@ -182,7 +184,7 @@ defmodule FlezhaUiWeb.UserSessionControllerTest do
       assert Accounts.get_user!(user.id).confirmed_at
 
       # Now do a logged in request and assert on the menu
-      conn = get(conn, ~p"/")
+      conn = get(conn, ~p"/users/settings")
       response = html_response(conn, 200)
       assert response =~ user.email
       assert response =~ ~p"/users/settings"

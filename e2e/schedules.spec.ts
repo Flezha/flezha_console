@@ -1,4 +1,5 @@
 import {
+  menuAction,
   test,
   expect,
   fillScheduleForm,
@@ -141,7 +142,7 @@ test.describe('Schedules', () => {
       await expect(page.getByTestId(`schedule-row-${name}`)).toBeVisible();
 
       // Dismissing the confirmation must leave the schedule active.
-      await page.getByTestId(`schedule-remove-${name}`).click();
+      await menuAction(page, `schedule-menu-${name}`, `schedule-remove-${name}`);
       await expect(page.getByTestId('schedule-remove-modal')).toBeVisible();
       await page.getByTestId('schedule-remove-cancel').click();
       await expect(page.getByTestId('schedule-remove-modal')).toHaveCount(0);
@@ -149,7 +150,7 @@ test.describe('Schedules', () => {
       await expect(page.getByTestId(`schedule-status-${name}`)).toHaveText('Active');
 
       // Confirming removes it.
-      await page.getByTestId(`schedule-remove-${name}`).click();
+      await menuAction(page, `schedule-menu-${name}`, `schedule-remove-${name}`);
       await page.getByTestId('schedule-remove-confirm').click();
       await expect(page.getByTestId(`schedule-row-${name}`)).toHaveCount(0);
     } finally {

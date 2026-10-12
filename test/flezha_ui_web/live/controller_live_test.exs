@@ -74,8 +74,8 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
 
       {:ok, view, html} = live(conn, ~p"/controller")
 
-      assert html =~ "s3"
-      assert html =~ "remote_tier"
+      assert html =~ "S3"
+      assert html =~ "shipped to a remote tier"
       assert view |> element(~s([data-testid="durability-superseded"])) |> render() =~ "1"
       assert view |> element(~s([data-testid="durability-breaches"])) |> render() =~ "2"
       refute html =~ ~s(data-testid="durability-local-only")
@@ -131,9 +131,10 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
     test "a controller running normally states so with its configuration", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/controller")
 
+      assert html =~ ~s(data-testid="controller-sentence")
       assert html =~ ~s(data-testid="shutdown-in-progress")
       assert html =~ ~s(data-testid="shutdown-phase")
-      assert html =~ "enabled"
+      assert html =~ "On, within"
     end
 
     test "a shutdown in progress shows its phase", %{conn: conn, node: node} do
@@ -141,7 +142,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/controller")
 
-      assert html =~ "draining"
+      assert html =~ "Draining"
     end
 
     test "boot status states the readiness verdict and each namespace's recovery", %{
@@ -165,8 +166,8 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       {:ok, view, _html} = live(conn, ~p"/controller")
 
       assert view |> element(~s([data-testid="boot-readiness"])) |> render() =~ "ready"
-      assert view |> element(~s([data-testid="boot-default"])) |> render() =~ "normal"
-      assert view |> element(~s([data-testid="boot-cold"])) |> render() =~ "unknown"
+      assert view |> element(~s([data-testid="boot-default"])) |> render() =~ "Serving"
+      assert view |> element(~s([data-testid="boot-cold"])) |> render() =~ "Unknown"
     end
   end
 
@@ -320,7 +321,8 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       assert view |> element(~s([data-testid="shipper-status"])) |> render() =~
                "authz.role_insufficient"
 
-      assert view |> element(~s([data-testid="durability-posture"])) |> render() =~ "remote_tier"
+      assert view |> element(~s([data-testid="durability-posture"])) |> render() =~
+               "shipped to a remote tier"
     end
   end
 
@@ -398,7 +400,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
 
       assert PeerNode.eventually(fn -> render(view) =~ "phase_started drain" end)
       assert view |> element(~s([data-testid="stop-progress"])) |> render() =~ "drain"
-      assert view |> element(~s([data-testid="stop-phase"])) |> render() =~ "drain"
+      assert view |> element(~s([data-testid="stop-phase"])) |> render() =~ "Draining"
 
       FakeController.set(
         node,
@@ -407,7 +409,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       )
 
       send(view.pid, :refresh)
-      assert view |> element(~s([data-testid="stop-phase"])) |> render() =~ "finalise"
+      assert view |> element(~s([data-testid="stop-phase"])) |> render() =~ "Finalising"
 
       FakeController.end_stream(node, {Controller, :stop}, {:ok, %{outcome: :clean}})
 

@@ -28,7 +28,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
   } do
     FakeController.set(node, {AuthZ, :enforcement_posture}, :bootstrap_pending)
 
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, _view, html} = live(conn, ~p"/cluster")
 
     assert html =~ "authz-bootstrap-pending"
     assert html =~ "flz auth bootstrap"
@@ -41,7 +41,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
     FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
     FakeController.set(node, {TokenStore, :verify}, FakeController.error("authz.token_unknown"))
 
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, _view, html} = live(conn, ~p"/cluster")
 
     assert html =~ "authz-unbound"
     assert html =~ "will be refused"
@@ -57,7 +57,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
       FakeController.error("authz.token_revoked", "the token has been revoked")
     )
 
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, _view, html} = live(conn, ~p"/cluster")
 
     assert html =~ "authz-unbound"
     assert html =~ "revoked"
@@ -72,7 +72,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
       {:ok, %{principal: "alice", namespace: "acme", role: :ops, expires_at: :never}}
     )
 
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, _view, html} = live(conn, ~p"/cluster")
 
     assert html =~ "authz-identity"
     assert html =~ "alice"
@@ -84,7 +84,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
   test "an open controller says nothing on an ordinary screen", %{conn: conn, node: node} do
     FakeController.set(node, {AuthZ, :enforcement_posture}, :open)
 
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, _view, html} = live(conn, ~p"/cluster")
 
     refute html =~ "authz-unbound"
     refute html =~ "authz-bootstrap-pending"
@@ -99,12 +99,12 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
       {:ok, %{principal: "alice", namespace: "acme", role: :ops, expires_at: :never}}
     )
 
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, _view, html} = live(conn, ~p"/cluster")
 
     refute html =~ token
   end
 
-  test "the namespace switcher offers only what the token can reach", %{conn: conn, node: node} do
+  test "the namespace picker offers only what the token can reach", %{conn: conn, node: node} do
     FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
     # The controller narrows its catalog to the caller, so a token bound to
     # acme is answered acme alone.
@@ -116,11 +116,10 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
       {:ok, %{principal: "alice", namespace: "acme", role: :ops, expires_at: :never}}
     )
 
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, _view, html} = live(conn, ~p"/cluster")
 
-    assert html =~ "topology-namespace-scope"
-    assert html =~ "scoped to acme"
-    refute html =~ ">other<"
+    assert html =~ ~s(data-testid="namespace-picker-acme")
+    refute html =~ ~s(data-testid="namespace-picker-other")
   end
 
   test "a _system token is offered every namespace", %{conn: conn, node: node} do
@@ -133,10 +132,9 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
       {:ok, %{principal: "root", namespace: "_system", role: :admin, expires_at: :never}}
     )
 
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, _view, html} = live(conn, ~p"/cluster")
 
-    refute html =~ "topology-namespace-scope"
-    assert html =~ ">acme<" or html =~ "acme"
-    assert html =~ "other"
+    assert html =~ ~s(data-testid="namespace-picker-acme")
+    assert html =~ ~s(data-testid="namespace-picker-other")
   end
 end

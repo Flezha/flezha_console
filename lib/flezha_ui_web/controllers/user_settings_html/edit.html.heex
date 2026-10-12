@@ -1,12 +1,13 @@
-<div class="max-w-xl space-y-6">
-  <.header>
-    Account settings
-    <:subtitle>Manage your account email address and password settings</:subtitle>
-  </.header>
+<div class="max-w-2xl">
+  <.page_header eyebrow="Account" title="Settings">
+    <:sentence>
+      Your console account, and the flezha token every controller call is made with.
+    </:sentence>
+  </.page_header>
 
-  <.panel icon="hero-envelope">
+  <.section flush testid="email-settings">
     <:title>Email</:title>
-    <div class="flz-panel-body">
+    <div>
       <.form :let={f} for={@email_changeset} action={~p"/users/settings"} id="update_email">
         <input type="hidden" name="action" value="update_email" />
 
@@ -19,14 +20,14 @@
           required
         />
 
-        <.button class="mt-4" phx-disable-with="Changing...">Change Email</.button>
+        <.button class="mt-4" phx-disable-with="Changing…">Change email</.button>
       </.form>
     </div>
-  </.panel>
+  </.section>
 
-  <.panel icon="hero-lock-closed">
+  <.section testid="password-settings">
     <:title>Password</:title>
-    <div class="flz-panel-body">
+    <div>
       <.form :let={f} for={@password_changeset} action={~p"/users/settings"} id="update_password">
         <input type="hidden" name="action" value="update_password" />
 
@@ -46,50 +47,34 @@
           spellcheck="false"
           required
         />
-        <.button class="mt-4" phx-disable-with="Changing...">
-          Save Password
-        </.button>
+        <.button class="mt-4" phx-disable-with="Changing…">Save password</.button>
       </.form>
     </div>
-  </.panel>
+  </.section>
 
-  <.panel testid="flezha-token-settings" icon="hero-key">
+  <.section testid="flezha-token-settings">
     <:title>Flezha token</:title>
-    <div class="flz-panel-body space-y-4">
-      <p class="text-sm text-th-secondary">
-        The credential this UI presents to the controller. Stored encrypted and never shown again —
-        issue one with <code class="font-mono">flz token issue</code>.
+    <div class=" space-y-4">
+      <p>
+        The credential this console presents to the controller, as which <.term key="principal" />
+        it acts. Stored encrypted and never shown again — issue one with <code>flz token issue</code>.
       </p>
 
-      <dl class="text-sm space-y-1" data-testid="flezha-token-binding">
-        <div class="flex gap-2">
-          <dt class="text-th-secondary w-32">Stored for you</dt>
-          <dd>{if @user_token_stored?, do: "yes", else: "no — using the service token"}</dd>
-        </div>
-        <div :if={@authz.principal} class="flex gap-2">
-          <dt class="text-th-secondary w-32">Principal</dt>
-          <dd class="flz-num">{@authz.principal}</dd>
-        </div>
-        <div :if={@authz.namespace} class="flex gap-2">
-          <dt class="text-th-secondary w-32">Namespace</dt>
-          <dd class="flz-num">{@authz.namespace}</dd>
-        </div>
-        <div :if={@authz.role} class="flex gap-2">
-          <dt class="text-th-secondary w-32">Role</dt>
-          <dd class="flz-num">{@authz.role}</dd>
-        </div>
-        <div :if={@authz.expires_at} class="flex gap-2">
-          <dt class="text-th-secondary w-32">Expires</dt>
-          <dd class="flz-num">{Format.token_expiry(@authz.expires_at)}</dd>
-        </div>
-        <div :if={is_nil(@authz.principal)} class="flex gap-2">
-          <dt class="text-th-secondary w-32">Bound identity</dt>
-          <dd>
-            none — {if @authz.reason,
-              do: FlezhaUiWeb.CoreComponents.error_message(@authz.reason),
-              else: "no token is presented."}
-          </dd>
-        </div>
+      <dl class="fui-facts" data-testid="flezha-token-binding">
+        <.stat label="Stored for you">
+          {if @user_token_stored?, do: "Yes", else: "No — the service token is used"}
+        </.stat>
+        <.stat :if={@authz.principal} label="Principal" mono>{@authz.principal}</.stat>
+        <.stat :if={@authz.namespace} label="Namespace" mono>{@authz.namespace}</.stat>
+        <.stat :if={@authz.role} label="Role" mono>{@authz.role}</.stat>
+        <.stat :if={@authz.expires_at} label="Expires">
+          {Format.token_expiry(@authz.expires_at)}
+        </.stat>
+        <.stat :if={is_nil(@authz.principal)} label="Bound identity">
+          None — {if @authz.reason,
+            do: FlezhaUiWeb.CoreComponents.error_message(@authz.reason),
+            else: "no token is presented."}
+        </.stat>
       </dl>
 
       <.form
@@ -108,7 +93,7 @@
           label={if @user_token_stored?, do: "Replace token", else: "Token"}
           autocomplete="off"
           spellcheck="false"
-          placeholder="flz_..."
+          placeholder="flz_…"
         />
         <.button class="mt-4">Save token</.button>
       </.form>
@@ -130,11 +115,11 @@
       <div
         :if={@authz.posture == :bootstrap_pending}
         data-testid="bootstrap-claim"
-        class="border-t border-brd-subtle pt-4 space-y-3"
+        class="pt-4 space-y-3"
       >
-        <p class="text-sm text-th-secondary">
+        <p>
           No admin has claimed this controller yet. Claim it with the one-time bootstrap token
-          from its <code class="font-mono">bootstrap.token</code>
+          from its <code>bootstrap.token</code>
           file; the admin token it mints is stored as yours and not shown.
         </p>
         <.runtime_error error={@bootstrap_error} action="the bootstrap claim" />
@@ -159,5 +144,5 @@
         </.form>
       </div>
     </div>
-  </.panel>
+  </.section>
 </div>

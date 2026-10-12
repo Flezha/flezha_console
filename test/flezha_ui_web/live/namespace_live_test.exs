@@ -79,7 +79,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       {:ok, view, _html} = live(conn, ~p"/namespaces")
 
       assert view |> element(~s([data-testid="namespace-state-staging"])) |> render() =~
-               "declared, no hub"
+               "Declared, no hub running"
 
       assert view |> element(~s([data-testid="namespace-relays-staging"])) |> render() =~ "0"
       # A namespace with no hub is not asked what runs in it.
@@ -90,7 +90,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       {:ok, _view, html} = live(conn, ~p"/namespaces")
 
       assert html =~ ~s(data-testid="namespaces-empty")
-      assert html =~ "No namespaces found"
+      assert html =~ "None is reachable with this console"
     end
 
     test "a namespace whose relays cannot be counted still lists", %{conn: conn, node: node} do
@@ -122,15 +122,30 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     end
   end
 
+  # A relay's lane on Home's map, as its accessible name reads it.
+  defp lane(html, id) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(~s([data-testid="map-lane-#{id}"]))
+    |> LazyHTML.attribute("aria-label")
+    |> List.first()
+  end
+
   describe "the show page" do
-    test "lists the relays running in the namespace", %{conn: conn, node: node} do
+    test "draws the relays running in the namespace on its map", %{conn: conn, node: node} do
       with_relays(node, ["relay_a", "relay_b"])
 
       {:ok, _view, html} = live(conn, ~p"/namespaces/default")
 
-      assert html =~ ~s(data-testid="relays-table")
-      assert html =~ ~s(data-testid="relay-row-relay_a")
-      assert html =~ ~s(data-testid="relay-row-relay_b")
+      assert html =~ ~s(data-testid="namespace-map")
+      assert lane(html, "relay_a")
+      assert lane(html, "relay_b")
+
+      # Below the map: the river, empty until something happens, and the
+      # folded access section.
+      assert html =~ ~s(data-testid="home-river")
+      assert html =~ ~s(data-testid="river-empty")
+      assert html =~ ~s(data-testid="access-panel")
     end
 
     test "explains an empty namespace", %{conn: conn, node: node} do
@@ -138,16 +153,16 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/namespaces/default")
 
-      assert html =~ ~s(data-testid="no-relays-msg")
+      assert html =~ ~s(data-testid="topology-empty")
     end
 
     test "states each relay's run, read from the registry", %{conn: conn, node: node} do
       with_relays(node, ["relay_flow", "relay_steps"], runs: %{"relay_steps" => :steps})
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
 
-      assert view |> element(~s([data-testid="relay-run-relay_steps"])) |> render() =~ "steps"
-      assert view |> element(~s([data-testid="relay-run-relay_flow"])) |> render() =~ "flow"
+      assert lane(html, "relay_steps") =~ "steps"
+      assert lane(html, "relay_flow") =~ "flow"
     end
   end
 
@@ -160,7 +175,8 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       {:ok, _view, html} = live(conn, ~p"/namespaces/default")
 
       for health <- verdicts do
-        assert html =~ ~s(data-health="#{health}")
+        words = health |> then(&FlezhaUiWeb.Words.text(:health, &1)) |> String.downcase()
+        assert lane(html, "relay_#{health}") =~ words, "#{health} does not read #{words}"
       end
     end
 
@@ -173,8 +189,8 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/namespaces/default")
 
-      assert html =~ ~s(data-health="unknown")
-      refute html =~ ~s(data-health="healthy")
+      assert lane(html, "relay_new") =~ "unknown"
+      refute lane(html, "relay_new") =~ "healthy"
     end
 
     test "a relay with no live node is named as unplaced", %{conn: conn, node: node} do
@@ -182,8 +198,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/namespaces/default")
 
-      assert html =~ ~s(data-testid="unplaced-relay_a")
-      assert html =~ "unplaced"
+      assert lane(html, "relay_a") =~ "unplaced"
     end
 
     test "the node, factory and runner come from the same rows", %{conn: conn, node: node} do
@@ -191,11 +206,15 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
         %{id: "relay_a", node: :"flezha@node-b", factory: "compare_filter", runner: "runner-z"}
       ])
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      FakeController.set(node, {Fleet, :runners}, {:ok, [%{id: "runner-z", pid: nil}]})
 
-      assert html =~ "flezha@node-b"
-      assert html =~ "compare_filter"
+      {:ok, view, html} = live(conn, ~p"/namespaces/default")
+
+      assert lane(html, "relay_a") =~ "compare_filter"
       assert html =~ "runner-z"
+
+      html = render_click(view, "inspect", %{"kind" => "relay", "id" => "relay_a"})
+      assert html =~ "flezha@node-b"
     end
 
     test "a listing tick costs the same whether the namespace holds two or fifty", %{
@@ -424,9 +443,9 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "the chosen factory's run is shown read-only", %{conn: conn} do
       view = open_launcher(conn)
 
-      render_change(view, "launcher_change", %{"start" => %{"factory_id" => "chat_loop_steps"}})
+      html = render_click(view, "launcher_pick", %{"factory" => "chat_loop_steps"})
 
-      assert view |> element(~s([data-testid="factory-run"])) |> render() =~ "steps"
+      assert html =~ "which runs as steps"
       refute has_element?(view, ~s([name="start[kind]"]))
       refute has_element?(view, ~s([name="start[run]"]))
     end
@@ -434,8 +453,12 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "the factory selector reports the runners serving each factory", %{conn: conn} do
       html = conn |> open_launcher() |> render()
 
-      assert html =~ "store_input — stores its input"
-      refute html =~ "(no runner)"
+      choice =
+        text_of(html, ~s([data-testid="factory-choice-store_input"]))
+
+      assert choice =~ "stores its input"
+      assert choice =~ ~r/Served by \d+ runners?\./
+      refute html =~ "Unavailable: no runner serves it"
     end
 
     test "a factory no runner serves is marked at the point of choosing", %{
@@ -446,13 +469,14 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
 
       html = conn |> open_launcher() |> render()
 
-      assert html =~ "(no runner)"
+      assert html =~ "Unavailable: no runner serves it right now."
     end
 
     test "a namespace with no factories says so and blocks the start", %{conn: conn, node: node} do
       FakeController.set(node, {Fleet, :factories}, {:ok, []})
 
       view = open_launcher(conn)
+      assert render(view) =~ ~s(data-testid="start-no-factories")
       assert render(view) =~ "No factories are registered in this namespace"
 
       html = render_submit(view, "launcher_submit", %{"start" => start_form()})
@@ -466,7 +490,10 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
 
       view = open_launcher(conn)
 
-      assert render(view) =~ "The choices could not be read"
+      html = render(view)
+      assert html =~ "authz.no_role_binding"
+      assert html =~ ~s(data-testid="input-factory-id")
+      assert html =~ ~s(data-testid="start-typed-factory")
 
       render_submit(view, "launcher_submit", %{"start" => start_form()})
 
@@ -529,11 +556,11 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       # A row appearing under an open form is exactly what pausing prevents.
       with_relays(node, ["relay_late"])
       send(view.pid, :refresh)
-      refute render(view) =~ ~s(data-testid="relay-row-relay_late")
+      refute render(view) =~ ~s(data-testid="map-lane-relay_late")
 
       render_click(view, "launcher_close", %{})
       send(view.pid, :refresh)
-      assert render(view) =~ ~s(data-testid="relay-row-relay_late")
+      assert render(view) =~ ~s(data-testid="map-lane-relay_late")
     end
 
     test "the listing tick reads no factories", %{conn: conn, node: node} do
@@ -559,7 +586,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
 
       html = render_click(view, "cancel_stop", %{})
       refute html =~ ~s(data-testid="stop-confirm-modal")
-      assert html =~ ~s(data-testid="relay-row-relay_a")
+      assert html =~ ~s(data-testid="map-lane-relay_a")
 
       assert FakeController.calls(node, {Relay, :stop}) == []
     end

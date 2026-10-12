@@ -34,8 +34,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert html =~ ~s(data-testid="relay-health")
-      assert html =~ ~s(data-health="degraded")
+      assert text_of(html, ~s([data-testid="relay-health"])) =~ "It is degraded"
       assert html =~ ~s(data-testid="relay-node")
       assert html =~ "flezha@node-b"
     end
@@ -59,7 +58,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       {:ok, _view, html} = live(conn, @url)
 
       assert html =~ ~s(data-testid="relay-partition")
-      assert html =~ "p1/4"
+      assert text_of(html, ~s([data-testid="relay-partition"])) =~ "Partition p1 of 4"
       assert html =~ "64–127"
       assert html =~ ~s(data-testid="relay-partition-group")
       assert html =~ "orders"
@@ -114,11 +113,25 @@ defmodule FlezhaUiWeb.RelayLiveTest do
     } do
       overwatch(node, %{factory_id: "store_input", builder: %{run: :steps, opts: []}})
       {:ok, _view, html} = live(conn, @url)
-      assert html =~ ~r/data-testid="relay-run"[^>]*>\s*steps/
+      assert text_of(html, ~s([data-testid="relay-run"])) == "A steps relay"
+
+      # Its steps facts are on State, and the header says so.
+      assert html =~
+               ~r/href="\/namespaces\/default\/relays\/relay_a\/state#steps"[^>]*data-testid="relay-steps-link"|data-testid="relay-steps-link"[^>]*href="\/namespaces\/default\/relays\/relay_a\/state#steps"/
 
       overwatch(node, %{factory_id: "store_input", builder: %{opts: []}})
       {:ok, _view, html} = live(conn, @url)
-      assert html =~ ~r/data-testid="relay-run"[^>]*>\s*flow/
+      assert text_of(html, ~s([data-testid="relay-run"])) == "A flow relay"
+    end
+
+    test "a relay that failed to initialise does not read as healthy", %{conn: conn, node: node} do
+      overwatch(node, %{factory_id: "store_input", init_error: :boom})
+      registry_row(node, %{health: :healthy})
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert text_of(html, ~s([data-testid="relay-health"])) =~ "failed to initialise"
+      refute text_of(html, ~s([data-testid="relay-health"])) =~ "healthy"
     end
 
     test "marks a suspended relay", %{conn: conn, node: node} do
@@ -126,7 +139,8 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert html =~ ~s(data-testid="relay-suspended")
+      assert text_of(html, ~s([data-testid="relay-health"])) =~
+               "suspended at a committed boundary"
     end
 
     test "renders a controller refusal with its code instead of crashing", %{
@@ -176,7 +190,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       {:ok, _view, html} = live(conn, @url)
 
       assert html =~ ~s(data-testid="completion-record")
-      assert html =~ "completed"
+      assert html =~ "Completed"
       refute html =~ ~s(data-testid="stop-relay-btn")
       refute html =~ ~s(data-testid="calls-panel")
 
@@ -198,6 +212,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
       html = open_section(view, "plugins")
 
+      assert html =~ ~s(data-testid="bindings-panel")
       assert html =~ ~s(data-testid="bindings-table")
       assert html =~ ~s(data-testid="binding-row-plug_1")
       assert html =~ "Flezha.Plugin.Provider.StdOut"
@@ -506,10 +521,10 @@ defmodule FlezhaUiWeb.RelayLiveTest do
     test "is confirm-gated, and cancelling reaches nothing", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, @url)
 
-      assert render_click(view, "confirm_stop", %{}) =~ "Stop Relay?"
+      assert render_click(view, "confirm_stop", %{}) =~ "Stop relay?"
 
       html = render_click(view, "cancel_stop", %{})
-      refute html =~ "Stop Relay?"
+      refute html =~ "Stop relay?"
       assert FakeController.calls(node, {Relay, :stop}) == []
     end
 
@@ -554,6 +569,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
     end
   end
 
+  # The SDK state read sits on the State tab.
   describe "reading cell state" do
     setup %{node: node} do
       overwatch(node, %{factory_id: "store_input"})
@@ -563,10 +579,11 @@ defmodule FlezhaUiWeb.RelayLiveTest do
     test "renders the state the controller returned", %{conn: conn, node: node} do
       FakeController.set(node, {Relay, :cell_state}, {:ok, ~s({"balance":42}), 7})
 
-      {:ok, view, _html} = live(conn, @url)
+      {:ok, view, _html} = live(conn, @url <> "/state")
       open_section(view, "sdk-state")
       html = render_click(view, "fetch_state", %{})
 
+      assert html =~ ~s(data-testid="sdk-state-panel")
       assert html =~ ~s(data-testid="state-json")
       assert html =~ "balance"
     end
@@ -575,7 +592,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       conn: conn,
       node: node
     } do
-      {:ok, view, _html} = live(conn, @url)
+      {:ok, view, _html} = live(conn, @url <> "/state")
 
       render_change(view, "selector_change", %{
         "selector" => %{"tasklet" => "charge", "cell_key" => "cust-9"}
@@ -588,7 +605,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
     end
 
     test "no tasklet reads every cell", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, @url)
+      {:ok, view, _html} = live(conn, @url <> "/state")
       render_click(view, "fetch_state", %{})
 
       assert [["default", "relay_a", nil, %{source: :ui}]] =
@@ -596,7 +613,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
     end
 
     test "a cell key without a tasklet makes no read", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, @url)
+      {:ok, view, _html} = live(conn, @url <> "/state")
       open_section(view, "sdk-state")
 
       render_change(view, "selector_change", %{"selector" => %{"cell_key" => "cust-9"}})
@@ -613,7 +630,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
         FakeController.error("state.persistence_off")
       )
 
-      {:ok, view, _html} = live(conn, @url)
+      {:ok, view, _html} = live(conn, @url <> "/state")
       open_section(view, "sdk-state")
 
       html = render_click(view, "fetch_state", %{})
@@ -624,7 +641,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
     test "explains cells that are not held in memory", %{conn: conn, node: node} do
       FakeController.set(node, {Relay, :cell_state}, FakeController.error("state.not_resident"))
 
-      {:ok, view, _html} = live(conn, @url)
+      {:ok, view, _html} = live(conn, @url <> "/state")
       open_section(view, "sdk-state")
 
       assert render_click(view, "fetch_state", %{}) =~ "not held in memory"

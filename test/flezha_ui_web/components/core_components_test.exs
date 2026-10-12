@@ -103,8 +103,8 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
 
       assert html =~ "<textarea"
       assert html =~ ~s({&quot;seed&quot;: 7})
-      assert html =~ "min-h-[8rem]"
-      assert html =~ "form-field--mono"
+      # Its height is the form baseline's own, so only the mono face is asked for.
+      assert html =~ "fui-input--mono"
     end
 
     test "a hint is rendered with the field, not beside it" do
@@ -115,7 +115,7 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
         <.input type="text" name="schedule[name]" label="Name" value="" hint="max 11 characters" />
         """)
 
-      assert html =~ "flz-field-hint"
+      assert html =~ "fui-hint"
       assert html =~ "max 11 characters"
     end
 
@@ -127,7 +127,7 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
         <.input type="text" name="schedule[cron]" label="Cron" value="" />
         """)
 
-      refute html =~ "flz-field-hint"
+      refute html =~ "fui-hint"
     end
 
     test "a disabled control says so" do
@@ -181,7 +181,7 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
         <.dialog testid="stop-confirm-modal" size="confirm">stop?</.dialog>
         """)
 
-      assert html =~ "max-w-md"
+      assert html =~ "fui-dialog-panel--confirm"
     end
 
     test "a form dialog is wider than a confirmation" do
@@ -192,7 +192,7 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
         <.dialog testid="start-modal" size="form">fields</.dialog>
         """)
 
-      assert html =~ "max-w-xl"
+      assert html =~ "fui-dialog-panel--form"
     end
 
     test "an inspection panel is the widest" do
@@ -203,7 +203,7 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
         <.dialog testid="dlq-inspect-modal" size="wide">payload</.dialog>
         """)
 
-      assert html =~ "max-w-3xl"
+      assert html =~ "fui-dialog-panel--wide"
     end
 
     test "a caller that names no role gets the confirmation width" do
@@ -214,7 +214,7 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
         <.dialog testid="plain-modal">anything</.dialog>
         """)
 
-      assert html =~ "max-w-md"
+      assert html =~ "fui-dialog-panel--confirm"
     end
 
     test "the content sits in the scrolling body, so a tall form stays reachable" do
@@ -225,9 +225,9 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
         <.dialog testid="tall-modal" size="form">fields</.dialog>
         """)
 
-      # `.flz-modal-body` is what carries `overflow-y: auto` under a surface
+      # `.fui-dialog-body` is what carries `overflow-y: auto` under a surface
       # capped at the viewport; content rendered outside it would be cut off.
-      assert html =~ ~s(<div class="flz-modal-body">fields</div>)
+      assert html =~ ~s(<div class="fui-dialog-body">fields</div>)
     end
   end
 

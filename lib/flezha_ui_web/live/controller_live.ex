@@ -260,10 +260,8 @@ defmodule FlezhaUiWeb.ControllerLive do
         phx-submit="confirm_stop"
         class="space-y-4"
       >
-        <p class="text-sm">
-          This drains
-          <.mono>{@stop.node}</.mono>
-          and stops it. Its relays move to the other
+        <p>
+          This drains <.ident value={@stop.node} full /> and stops it. Its relays move to the other
           controllers, or stop if there are none. The console loses this controller until it is
           started again.
         </p>
@@ -294,24 +292,20 @@ defmodule FlezhaUiWeb.ControllerLive do
         />
       </form>
 
-      <div :if={@stop.step in [:running, :stopped]} class="space-y-3 text-sm">
+      <div :if={@stop.step in [:running, :stopped]} class="space-y-3">
         <p data-testid="stop-state">
           <%= if @stop.step == :running do %>
-            Stopping
-            <.mono>{@stop.node}</.mono>
-            — phase
-            <span data-testid="stop-phase" class="font-mono">{@stop.phase || "starting"}</span>
+            Stopping <.ident value={@stop.node} full />:
+            <span data-testid="stop-phase">
+              {(@stop.phase && Words.text(:shutdown_phase, @stop.phase)) || "Starting"}
+            </span>
           <% else %>
-            <.mono>{@stop.node}</.mono>
-            stopped ({@stop.outcome}) after {Format.duration(@stop.elapsed_ms)}, last phase <span
-              data-testid="stop-phase"
-              class="font-mono"
-            >{@stop.phase || "—"}</span>.
+            <.ident value={@stop.node} full />
+            stopped ({Words.humanize(@stop.outcome) |> String.downcase()})
+            after {Format.duration(@stop.elapsed_ms)}; its last phase was <span data-testid="stop-phase">{(@stop.phase && Words.text(:shutdown_phase, @stop.phase)) || "—"}</span>.
           <% end %>
         </p>
-        <ol :if={@stop.events != []} data-testid="stop-progress" class="flz-code flz-code--wrap">
-          <li :for={event <- @stop.events}>{progress_line(event)}</li>
-        </ol>
+        <pre :if={@stop.events != []} data-testid="stop-progress" class="fui-code"><span :for={event <- @stop.events} class="block">{progress_line(event)}</span></pre>
       </div>
 
       <div :if={@stop.step == :failed} data-testid="stop-failed">
@@ -350,8 +344,25 @@ defmodule FlezhaUiWeb.ControllerLive do
     """
   end
 
-  @doc "A backend name as text, whether it is an atom or a `{module, opts}` pair."
-  def backend_label({module, _opts}), do: inspect(module)
-  def backend_label(backend) when is_atom(backend), do: to_string(backend)
-  def backend_label(other), do: inspect(other)
+  @doc "A backend name in words, whether it is an atom or a `{module, opts}` pair."
+  def backend_label({module, _opts}), do: Words.humanize(module)
+  def backend_label(nil), do: "None"
+  def backend_label(backend), do: Words.humanize(backend)
+
+  @doc "The controller's condition in one sentence: readiness, authorization, durability."
+  def sentence(boot, authz, status) do
+    readiness = boot && Words.text(:readiness, boot.readiness)
+    posture = authz.posture && Words.text(:authz_posture, authz.posture)
+    durability = status && Words.text(:durability_posture, status[:durability_posture])
+
+    [
+      readiness && "It is #{String.downcase(readiness)}.",
+      posture && "Authorization is #{lower_first(posture)}.",
+      durability && "#{durability}."
+    ]
+    |> Enum.filter(& &1)
+    |> Enum.join(" ")
+  end
+
+  defp lower_first(<<first::utf8, rest::binary>>), do: String.downcase(<<first::utf8>>) <> rest
 end

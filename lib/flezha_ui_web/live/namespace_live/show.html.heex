@@ -1,502 +1,401 @@
-<div class="space-y-6">
-  <.header mono>
-    {@ns}
-    <:actions>
-      <.button
-        :if={NodeManager.granted?(@operations, "Relay.start")}
-        phx-click="launcher_open"
-        data-testid="start-relay-btn"
-        icon="hero-plus"
-      >
-        Start Relay
-      </.button>
-    </:actions>
-  </.header>
-
-  <.runtime_error error={@load_error} />
-
-  <.fleet_summary topology={@topology} />
-
-  <%!-- Quotas --%>
-  <.panel
-    fold="quotas"
-    open={@sections["quotas"] or @quota_breached}
-    forced={@quota_breached}
-    testid="quota-panel"
-    icon="hero-chart-bar"
-    class="overflow-hidden"
-  >
-    <:title>
-      Quotas <span :if={@quota_breached} class="flz-badge flz-badge--negative">breached</span>
-    </:title>
-    <:actions>
-      <button
-        :if={@declared != nil and NodeManager.granted?(@operations, "Namespace.set_quotas")}
-        phx-click="open_quotas"
-        data-testid="edit-quotas-btn"
-        class="flz-button flz-button--sm flz-button--secondary"
-      >
-        Edit
-      </button>
-    </:actions>
-    <p
-      :if={is_nil(@declared)}
-      data-testid="namespace-undeclared"
-      class="px-5 py-3 text-xs text-th-muted"
+<% {condition, headline} =
+  headline(@topology || %{state: :loading}, @items, @topology_state.rates, @ns) %>
+<.page_header eyebrow="Namespace" title={@ns} headline>
+  <:sentence>
+    <span data-testid="home-headline" data-condition={condition}>{headline}</span>
+  </:sentence>
+  <:figures :if={@loaded? and condition not in [:unreachable]}>
+    <span data-testid="home-figures">
+      {figures(@topology || %{}, @rows, @topology_state.rates)}
+    </span>
+  </:figures>
+  <:actions>
+    <.button
+      :if={NodeManager.granted?(@operations, "Relay.start")}
+      phx-click="launcher_open"
+      data-testid="start-relay-btn"
+      icon="hero-plus"
     >
-      This namespace has a running hub but no declaration, so no limits apply to its counters.
-    </p>
-    <table class="flz-table">
-      <tbody>
-        <tr
-          :for={row <- @quotas}
-          data-testid={"quota-#{row.kind}"}
-          class="last:border-b-0"
-        >
-          <td class="flz-num text-xs w-48">{row.kind}</td>
-          <td class="text-th-primary flz-num text-xs w-32">{row.value || "—"}</td>
-          <td>
-            <div :if={row.limit} class="flex items-center gap-2">
-              <div class={["flz-meter w-40", row.breached? && "flz-meter--negative"]}>
-                <div
-                  class="flz-meter-fill"
-                  style={"width: #{min(100, round((row.value || 0) * 100 / max(row.limit, 1)))}%"}
-                >
-                </div>
-              </div>
-              <span class="text-xs text-th-muted font-mono">of {row.limit}</span>
-              <span
-                :if={row.breached?}
-                data-testid={"quota-breached-#{row.kind}"}
-                class="flz-badge flz-badge--negative"
-              >
-                breached
-              </span>
-            </div>
-            <span
-              :if={is_nil(row.limit)}
-              data-testid={"quota-unset-#{row.kind}"}
-              class="text-xs text-th-muted"
-            >
-              no limit applies
-            </span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </.panel>
+      Start relay
+    </.button>
+  </:actions>
+</.page_header>
 
-  <%!-- Role bindings --%>
-  <.panel
-    fold="role-bindings"
-    open={@sections["role-bindings"]}
-    testid="role-bindings"
-    icon="hero-key"
-    class="overflow-hidden"
-  >
-    <:title>Role bindings ({length(@role_bindings)})</:title>
-    <:actions>
-      <button
-        :if={NodeManager.granted?(@operations, "Namespace.bind_role")}
-        phx-click="open_bind"
-        data-testid="bind-role-btn"
-        class="flz-button flz-button--sm flz-button--secondary"
-      >
-        <.icon name="hero-plus" class="w-3.5 h-3.5" /> Bind
-      </button>
-    </:actions>
-    <%= if @role_bindings == [] do %>
-      <.empty_state icon="hero-key" testid="role-bindings-empty">
-        No principal is bound to this namespace.
-        <:detail :if={NodeManager.granted?(@operations, "Namespace.bind_role")}>
-          <button phx-click="open_bind" data-testid="bind-role-empty-btn" class="underline">
-            Bind one
-          </button>
-        </:detail>
+<.runtime_error error={@load_error} action="the relay listing" />
+
+<%!-- The namespace's problems, worst first --%>
+<.problem_list
+  :if={@items != []}
+  items={@items}
+  operations={@operations}
+  diagnoses={@diagnoses}
+  limit={3}
+  testid="home-problems"
+/>
+
+<%!-- The live map, or what stands in for it --%>
+<div class="mt-6">
+  <.skeleton :if={!@loaded?} rows={6} testid="map-loading" />
+  <%= cond do %>
+    <% !@loaded? -> %>
+    <% condition == :unreachable -> %>
+      <div data-testid="topology-disconnected">
+        <.runtime_error error={:node_not_connected} />
+      </div>
+    <% condition == :empty -> %>
+      <.empty_state icon="hero-squares-plus" testid="topology-empty">
+        A <.term key="runner" /> is an SDK process that serves factories, and a
+        <.term key="relay" /> is started from one of those factories and runs on its runner.
+        Nothing runs in {@ns} yet: a runner must connect before a relay can run.
+        <:action :if={NodeManager.granted?(@operations, "Relay.start")}>
+          <.button phx-click="launcher_open" size="sm" data-testid="start-relay-empty-btn">
+            Start relay
+          </.button>
+        </:action>
       </.empty_state>
-    <% else %>
-      <table class="flz-table">
-        <tbody>
-          <tr
-            :for={binding <- @role_bindings}
-            data-testid={"role-binding-#{binding[:principal]}"}
-            class="last:border-b-0"
-          >
-            <td class="text-th-primary flz-num text-xs">{binding[:principal]}</td>
-            <td class="flz-num text-xs">
-              <span
-                :for={role <- binding[:roles] || []}
-                class="inline-flex items-center gap-1 mr-2"
-                data-testid={"role-#{binding[:principal]}-#{role}"}
-              >
-                {role}
-                <button
-                  :if={NodeManager.granted?(@operations, "Namespace.unbind_role")}
-                  phx-click="confirm_unbind"
-                  phx-value-principal={binding[:principal]}
-                  phx-value-namespace={binding[:namespace]}
-                  phx-value-role={role}
-                  data-testid={"unbind-role-#{binding[:principal]}-#{role}"}
-                  class="text-danger-text hover:text-danger"
-                  aria-label={"Unbind #{role}"}
-                >
-                  <.icon name="hero-x-mark" class="w-3 h-3" />
-                </button>
-              </span>
-            </td>
-            <td class="text-right">
-              <button
-                :if={NodeManager.granted?(@operations, "Namespace.unbind_role")}
-                phx-click="confirm_unbind"
-                phx-value-principal={binding[:principal]}
-                phx-value-namespace={binding[:namespace]}
-                data-testid={"unbind-binding-#{binding[:principal]}"}
-                class="flz-button flz-button--sm flz-button--ghost"
-              >
-                Remove binding
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    <% end %>
-  </.panel>
+    <% @map -> %>
+      <.namespace_map map={@map} />
+    <% true -> %>
+  <% end %>
+</div>
 
-  <%!-- Tokens; never the token itself --%>
-  <.panel
-    fold="tokens"
-    open={@sections["tokens"]}
-    testid="tokens-panel"
-    icon="hero-identification"
-    class="overflow-hidden"
-  >
-    <:title>Tokens ({length(@tokens)})</:title>
-    <:actions>
-      <button
-        :if={NodeManager.granted?(@operations, "Namespace.issue_token")}
-        phx-click="open_issue"
-        data-testid="issue-token-btn"
-        class="flz-button flz-button--sm flz-button--secondary"
+<%!-- What this console saw happen --%>
+<.section testid="home-river">
+  <:title>What happened</:title>
+  <.river events={@river} error={@river_error} />
+</.section>
+
+<%!-- Limits --%>
+<.section
+  fold="quotas"
+  open={@sections["quotas"] or @quota_breached}
+  forced={@quota_breached}
+  testid="quota-panel"
+  digest={limits_digest(@quotas, @declared)}
+>
+  <:title>
+    Limits <.state_badge :if={@quota_breached} kind={:quota} value={:breached} />
+  </:title>
+  <:actions>
+    <.button
+      :if={@declared != nil and NodeManager.granted?(@operations, "Namespace.set_quotas")}
+      variant="secondary"
+      size="sm"
+      phx-click="open_quotas"
+      data-testid="edit-quotas-btn"
+    >
+      Edit
+    </.button>
+  </:actions>
+  <p :if={is_nil(@declared)} data-testid="namespace-undeclared" class="fui-figures mb-3">
+    This namespace has a running hub but no declaration, so no
+    <.term key="quota">limits</.term>
+    apply to its counters.
+  </p>
+  <.grid id="quota-rows" rows={@quotas} row_testid={&"quota-#{&1.kind}"} row_tone={&quota_tone/1}>
+    <:col :let={row} label="Counter">{Words.humanize(row.kind)}</:col>
+    <:col :let={row} label="In use" num>{row.value || "—"}</:col>
+    <:col :let={row} label="Limit">
+      <div :if={row.limit} class="flex items-center gap-3">
+        <span class="w-40">
+          <.meter
+            value={row.value}
+            max={row.limit}
+            tone={row.breached? && :negative}
+            label={"#{row.value || 0} of #{row.limit}"}
+          />
+        </span>
+        <span class="fui-ident">of {row.limit}</span>
+        <.state_badge
+          :if={row.breached?}
+          kind={:quota}
+          value={:breached}
+          testid={"quota-breached-#{row.kind}"}
+        />
+      </div>
+      <span :if={is_nil(row.limit)} data-testid={"quota-unset-#{row.kind}"} class="fui-figures">
+        No limit applies
+      </span>
+    </:col>
+  </.grid>
+</.section>
+
+<%!-- Access: who may act here, and the tokens they act with --%>
+<.section
+  fold="access"
+  open={@sections["access"]}
+  testid="access-panel"
+  digest={access_digest(@role_bindings, @tokens)}
+>
+  <:title>Access</:title>
+  <div class="space-y-8">
+    <div data-testid="role-bindings" class="space-y-3">
+      <div class="flex items-center justify-between gap-3">
+        <h3 class="fui-eyebrow">Role bindings</h3>
+        <.button
+          :if={NodeManager.granted?(@operations, "Namespace.bind_role")}
+          variant="secondary"
+          size="sm"
+          icon="hero-plus"
+          phx-click="open_bind"
+          data-testid="bind-role-btn"
+        >
+          Bind
+        </.button>
+      </div>
+      <.empty_state :if={@role_bindings == []} icon="hero-key" testid="role-bindings-empty">
+        A <.term key="role" /> binding lets a <.term key="principal" />
+        act in this namespace. None is bound yet.
+        <:action :if={NodeManager.granted?(@operations, "Namespace.bind_role")}>
+          <.button size="sm" phx-click="open_bind" data-testid="bind-role-empty-btn">
+            Bind one
+          </.button>
+        </:action>
+      </.empty_state>
+      <.grid
+        :if={@role_bindings != []}
+        id="role-bindings-grid"
+        rows={@role_bindings}
+        row_testid={&"role-binding-#{&1[:principal]}"}
       >
-        <.icon name="hero-plus" class="w-3.5 h-3.5" /> Issue
-      </button>
-    </:actions>
-    <.runtime_error error={@tokens_error} action="the token listing" />
-    <.empty_state :if={@tokens == [] and is_nil(@tokens_error)} icon="hero-identification">
-      No token is issued for this namespace.
-    </.empty_state>
-    <table :if={@tokens != []} class="flz-table">
-      <thead>
-        <tr>
-          <th>Id</th>
-          <th>Principal</th>
-          <th>Role</th>
-          <th>Label</th>
-          <th>Status</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr :for={row <- @tokens} data-testid={"token-#{row.id}"}>
-          <td class="flz-num text-xs">{row.id}</td>
-          <td class="flz-num text-xs">{row.principal}</td>
-          <td class="text-xs">{row.role}</td>
-          <td class="text-xs">{row[:label] || "—"}</td>
-          <td class="text-xs" data-testid={"token-status-#{row.id}"}>{row.status}</td>
-          <td class="text-right">
-            <button
-              :if={
-                row.status == :active and
-                  NodeManager.granted?(@operations, "Namespace.revoke_token")
+        <:col :let={binding} label="Principal"><.ident value={binding[:principal]} full /></:col>
+        <:col :let={binding} label="Roles">
+          <span class="flex flex-wrap gap-1">
+            <.chip
+              :for={role <- binding[:roles] || []}
+              mono
+              testid={"role-#{binding[:principal]}-#{role}"}
+            >
+              {role}
+            </.chip>
+          </span>
+        </:col>
+        <:col :let={binding} label="Scope">
+          {if binding[:namespace] == "_system", do: "Cluster-wide", else: binding[:namespace]}
+        </:col>
+        <:menu :let={binding}>
+          <.row_menu
+            :if={NodeManager.granted?(@operations, "Namespace.unbind_role")}
+            id={"binding-menu-#{binding[:principal]}"}
+            label={"Actions for #{binding[:principal]}"}
+            testid={"binding-menu-#{binding[:principal]}"}
+          >
+            <:item
+              :for={role <- binding[:roles] || []}
+              click="confirm_unbind"
+              values={
+                %{principal: binding[:principal], namespace: binding[:namespace], role: role}
               }
-              phx-click="confirm_revoke"
-              phx-value-id={row.id}
-              data-testid={"revoke-token-#{row.id}"}
-              class="flz-button flz-button--sm flz-button--ghost"
+              testid={"unbind-role-#{binding[:principal]}-#{role}"}
+              danger
+            >
+              Unbind {role}
+            </:item>
+            <:item
+              click="confirm_unbind"
+              values={%{principal: binding[:principal], namespace: binding[:namespace]}}
+              testid={"unbind-binding-#{binding[:principal]}"}
+              danger
+            >
+              Remove binding
+            </:item>
+          </.row_menu>
+        </:menu>
+      </.grid>
+    </div>
+
+    <%!-- Tokens; never the token itself --%>
+    <div data-testid="tokens-panel" class="space-y-3">
+      <div class="flex items-center justify-between gap-3">
+        <h3 class="fui-eyebrow">Tokens</h3>
+        <.button
+          :if={NodeManager.granted?(@operations, "Namespace.issue_token")}
+          variant="secondary"
+          size="sm"
+          icon="hero-plus"
+          phx-click="open_issue"
+          data-testid="issue-token-btn"
+        >
+          Issue
+        </.button>
+      </div>
+      <.runtime_error error={@tokens_error} action="the token listing" />
+      <.empty_state :if={@tokens == [] and is_nil(@tokens_error)} icon="hero-identification">
+        A token is how a principal proves who it is. None is issued for this namespace.
+      </.empty_state>
+      <.grid :if={@tokens != []} id="tokens-grid" rows={@tokens} row_testid={&"token-#{&1.id}"}>
+        <:col :let={row} label="Token"><.ident value={row.id} /></:col>
+        <:col :let={row} label="Principal"><.ident value={row.principal} full /></:col>
+        <:col :let={row} label="Role">{row.role}</:col>
+        <:col :let={row} label="Label">{row[:label] || "—"}</:col>
+        <:col :let={row} label="Status">
+          <.state_badge kind={:token_status} value={row.status} testid={"token-status-#{row.id}"} />
+        </:col>
+        <:menu :let={row}>
+          <.row_menu
+            :if={
+              row.status == :active and
+                NodeManager.granted?(@operations, "Namespace.revoke_token")
+            }
+            id={"token-menu-#{row.id}"}
+            label={"Actions for token #{row.id}"}
+            testid={"token-menu-#{row.id}"}
+          >
+            <:item
+              click="confirm_revoke"
+              values={%{id: row.id}}
+              testid={"revoke-token-#{row.id}"}
+              danger
             >
               Revoke
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </.panel>
-
-  <%!-- Relays panel --%>
-  <.panel icon="hero-cpu-chip" class="overflow-hidden">
-    <:title>Relays ({length(@relays)})</:title>
-    <%= if @relays == [] do %>
-      <.empty_state icon="hero-cpu-chip" testid="no-relays-msg">
-        No relays running.
-      </.empty_state>
-    <% else %>
-      <table data-testid="relays-table" class="flz-table">
-        <thead>
-          <tr>
-            <th>Relay ID</th>
-            <th>Health</th>
-            <th>Node</th>
-            <th>Factory</th>
-            <th>Run</th>
-            <th>Runner</th>
-            <th>Plugins</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <%= for relay <- @relays do %>
-            <tr data-testid={"relay-row-#{relay.id}"}>
-              <td class="text-th-primary flz-num text-xs">
-                {relay.id}
-                <span :if={relay[:partitions]} class="flz-badge ml-1">
-                  group {relay.partitions}
-                </span>
-              </td>
-              <td>
-                <.health_badge health={relay.health} />
-              </td>
-              <td class="flz-num text-xs">
-                <span :if={relay[:node]}>{relay[:node]}</span>
-                <span
-                  :if={is_nil(relay[:node])}
-                  data-testid={"unplaced-#{relay.id}"}
-                  class="text-warning"
-                >
-                  unplaced
-                </span>
-              </td>
-              <td class="flz-num text-xs">
-                {relay[:factory] || "—"}
-              </td>
-              <td class="flz-num text-xs" data-testid={"relay-run-#{relay.id}"}>
-                {Map.get(@runs, to_string(relay.id), "—")}
-              </td>
-              <td class="flz-num text-xs">
-                {relay[:runner] || "—"}
-              </td>
-              <td class="flz-num text-xs">
-                {Map.get(@plugin_counts, to_string(relay.id), 0)}
-              </td>
-              <td class="text-right flex items-center justify-end gap-3">
-                <%!-- A group row is not a relay of its own; its members are
-                      listed under the partition groups. --%>
-                <a
-                  :if={is_nil(relay[:partitions])}
-                  data-testid={"view-relay-#{relay.id}"}
-                  href={~p"/namespaces/#{@ns}/relays/#{relay.id}"}
-                  class="flz-button flz-button--sm flz-button--ghost"
-                >
-                  View
-                </a>
-                <button
-                  :if={NodeManager.granted?(@operations, "Relay.stop")}
-                  data-testid={"stop-relay-#{relay.id}"}
-                  phx-click="confirm_stop"
-                  phx-value-relay_id={relay.id}
-                  class="flz-button flz-button--sm flz-button--ghost"
-                >
-                  Stop
-                </button>
-              </td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    <% end %>
-  </.panel>
-
-  <%!-- Partition groups panel --%>
-  <.panel
-    :if={@groups != []}
-    fold="partition-groups"
-    open={@sections["partition-groups"]}
-    testid="partition-groups"
-    icon="hero-squares-plus"
-    class="overflow-hidden"
-  >
-    <:title>Partition groups ({length(@groups)})</:title>
-    <div :for={group <- @groups} class="border-b border-brd-subtle last:border-b-0">
-      <details data-testid={"partition-group-#{group.id}"} class="group">
-        <summary class="px-5 py-3 flex items-center gap-3 cursor-pointer hover:bg-surface-hover transition-colors">
-          <.icon
-            name="hero-chevron-right"
-            class="w-3.5 h-3.5 text-th-muted group-open:rotate-90 transition-transform"
-          />
-          <span class="font-mono text-xs text-th-primary">{group.id}</span>
-          <.health_badge health={group.health} />
-          <span
-            class="text-xs text-th-secondary font-mono"
-            data-testid={"group-members-#{group.id}"}
-          >
-            {group.partitions} members
-          </span>
-          <span
-            :if={is_map(group.coverage)}
-            data-testid={"group-faulted-#{group.id}"}
-            class="flz-badge flz-badge--negative"
-          >
-            <.icon name="hero-exclamation-triangle" class="w-3 h-3" /> coverage faulted
-          </span>
-          <span :if={group.coverage == :unavailable} class="text-xs text-th-muted">
-            coverage unavailable on this controller
-          </span>
-          <button
-            :if={NodeManager.granted?(@operations, "Steps.rescale")}
-            type="button"
-            phx-click="open_rescale"
-            phx-value-group={group.id}
-            data-testid={"rescale-#{group.id}"}
-            class="flz-button flz-button--sm flz-button--secondary ml-auto"
-          >
-            Rescale
-          </button>
-        </summary>
-
-        <div :if={is_map(group.coverage)} class="px-5 pb-3">
-          <.notice kind={:error} testid={"group-coverage-#{group.id}"}>
-            Key-group coverage is broken — traffic for the named groups is lost.
-            <span :for={{from, to} <- group.coverage.gaps} class="block font-mono text-xs">
-              gap: key groups {from}–{to} are owned by no member
-            </span>
-            <span
-              :for={{key_group, owners} <- group.coverage.overlaps}
-              class="block font-mono text-xs"
-            >
-              overlap: key group {key_group} is claimed by {Enum.join(owners, ", ")}
-            </span>
-          </.notice>
-        </div>
-
-        <table class="flz-table">
-          <thead>
-            <tr>
-              <th>Partition</th>
-              <th>Relay</th>
-              <th>Key groups</th>
-              <th>Runner</th>
-              <th>Health</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={member <- group.members}>
-              <td class="flz-num text-xs">
-                p{member.partition.index}
-              </td>
-              <td class="flz-num text-xs">
-                <.link
-                  navigate={~p"/namespaces/#{@ns}/relays/#{member.id}"}
-                  class="hover:underline"
-                >
-                  {member.id}
-                </.link>
-              </td>
-              <td class="flz-num text-xs">
-                {elem(member.partition.range, 0)}–{elem(member.partition.range, 1)}
-              </td>
-              <td class="flz-num text-xs">
-                {member[:runner] || "—"}
-              </td>
-              <td><.health_badge health={member.health} /></td>
-            </tr>
-          </tbody>
-        </table>
-      </details>
+            </:item>
+          </.row_menu>
+        </:menu>
+      </.grid>
     </div>
-  </.panel>
+  </div>
+</.section>
 
-  <%!-- Finished relays: retained completions, not live relays --%>
-  <.panel
-    fold="finished-relays"
-    open={@sections["finished-relays"]}
-    testid="finished-relays"
-    icon="hero-flag"
-    class="overflow-hidden"
-  >
-    <:title>Finished relays ({length(@finished)})</:title>
-    <:actions>
-      <button
-        phx-click="reload_finished"
-        data-testid="reload-finished"
-        disabled={@finished_loading?}
-        class="flz-button flz-button--sm flz-button--secondary"
+<%!-- Partition groups --%>
+<.section
+  :if={@groups != []}
+  fold="partition-groups"
+  open={@sections["partition-groups"]}
+  testid="partition-groups"
+  digest={groups_digest(@groups)}
+>
+  <:title>Partition groups</:title>
+  <div class="space-y-6">
+    <div :for={group <- @groups} data-testid={"partition-group-#{group.id}"} class="space-y-3">
+      <div class="flex flex-wrap items-center gap-3">
+        <span class="fui-ident">{group.id}</span>
+        <.state_badge value={group.health} />
+        <span class="fui-figures" data-testid={"group-members-#{group.id}"}>
+          {group.partitions} members
+        </span>
+        <span :if={is_map(group.coverage)} data-testid={"group-faulted-#{group.id}"}>
+          <span class="fui-badge fui-badge--negative">
+            <span class="fui-shape" data-shape="cross" aria-hidden="true"></span>
+            <.term key="coverage" id={"coverage-#{group.id}"}>Coverage</.term>
+            faulted
+          </span>
+        </span>
+        <span :if={group.coverage == :unavailable} class="fui-figures">
+          Coverage is unavailable on this controller.
+        </span>
+        <.button
+          :if={NodeManager.granted?(@operations, "Steps.rescale")}
+          variant="secondary"
+          size="sm"
+          phx-click="open_rescale"
+          phx-value-group={group.id}
+          data-testid={"rescale-#{group.id}"}
+          class="ml-auto"
+        >
+          Rescale
+        </.button>
+      </div>
+      <.notice :if={is_map(group.coverage)} kind={:error} testid={"group-coverage-#{group.id}"}>
+        <p>Key-group coverage is broken: traffic for the named key groups is lost.</p>
+        <p :for={{from, to} <- group.coverage.gaps} class="fui-ident">
+          Key groups {from}–{to} are owned by no member.
+        </p>
+        <p :for={{key_group, owners} <- group.coverage.overlaps} class="fui-ident">
+          Key group {key_group} is claimed by {Enum.join(owners, ", ")}.
+        </p>
+      </.notice>
+      <.grid
+        id={"group-#{group.id}-members"}
+        rows={group.members}
+        row_tone={&Words.tone(:health, &1.health)}
       >
-        Reload
-      </button>
-    </:actions>
-    <.runtime_error
-      :if={@finished_error}
-      error={@finished_error}
-      action="the finished-relay listing"
-      class="m-5"
-    />
-    <p
-      :if={@finished_loading?}
-      data-testid="finished-loading"
-      class="px-5 py-3 text-xs text-th-muted"
+        <:col :let={member} label="Partition">p{member.partition.index}</:col>
+        <:col :let={member} label="Relay">
+          <.link navigate={~p"/namespaces/#{@ns}/relays/#{member.id}"}>{member.id}</.link>
+        </:col>
+        <:col :let={member} label="Key groups" num>
+          {elem(member.partition.range, 0)}–{elem(member.partition.range, 1)}
+        </:col>
+        <:col :let={member} label="Runner">
+          <.ident :if={member[:runner]} value={member[:runner]} />
+        </:col>
+        <:col :let={member} label="Health"><.state_badge value={member.health} /></:col>
+      </.grid>
+    </div>
+  </div>
+</.section>
+
+<%!-- Finished relays: retained completions, not live relays --%>
+<.section
+  fold="finished-relays"
+  open={@sections["finished-relays"]}
+  testid="finished-relays"
+  digest={finished_digest(@finished, @finished_loading?)}
+>
+  <:title>Finished relays</:title>
+  <:actions>
+    <.button
+      variant="secondary"
+      size="sm"
+      phx-click="reload_finished"
+      data-testid="reload-finished"
+      disabled={@finished_loading?}
     >
-      Reading finished relays from the controller…
-    </p>
-    <%= if @finished == [] and is_nil(@finished_error) and not @finished_loading? do %>
-      <.empty_state icon="hero-check-circle">
-        No steps relay has finished inside its retention window.
-      </.empty_state>
-    <% else %>
-      <table class="flz-table">
-        <thead>
-          <tr>
-            <th>Relay</th>
-            <th>Status</th>
-            <th>Finished at</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            :for={relay <- @finished}
-            data-testid={"finished-row-#{relay.id}"}
-          >
-            <td class="flz-num text-xs">
-              <.link
-                navigate={~p"/namespaces/#{@ns}/relays/#{relay.id}"}
-                class="hover:underline"
-              >
-                {relay.id}
-              </.link>
-            </td>
-            <td class="flz-num text-xs">{relay[:status] || "—"}</td>
-            <td class="flz-num text-xs">
-              {Format.token_expiry(relay[:finished_at])}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    <% end %>
-  </.panel>
-
-  <%!-- Runners panel --%>
-  <.panel
-    fold="runners"
-    open={@sections["runners"]}
-    testid="runners-panel"
-    icon="hero-server-stack"
-    class="overflow-hidden"
+      Reload
+    </.button>
+  </:actions>
+  <.runtime_error
+    :if={@finished_error}
+    error={@finished_error}
+    action="the finished-relay listing"
+  />
+  <.skeleton :if={@finished_loading?} rows={2} testid="finished-loading" />
+  <.empty_state
+    :if={@finished == [] and is_nil(@finished_error) and not @finished_loading?}
+    icon="hero-check-circle"
   >
-    <:title>Runners ({length(@runners)})</:title>
-    <div class="p-5">
-      <.runner_table
-        namespace={@ns}
-        runners={@runners}
-        marks={@runner_marks}
-        can_drop={NodeManager.granted?(@operations, "Fleet.drop_runner")}
-        can_readmit={NodeManager.granted?(@operations, "Fleet.readmit_runner")}
-        error={FlezhaUiWeb.Live.RunnerActions.error_for(@runner_error, @ns)}
-      >
-        <:empty>
-          <.empty_state icon="hero-server-stack">No runners connected.</.empty_state>
-        </:empty>
-      </.runner_table>
-    </div>
-  </.panel>
-</div>
+    A steps relay that completes is kept here until its retention window passes. None has finished
+    inside it.
+  </.empty_state>
+  <.grid
+    :if={@finished != []}
+    id="finished"
+    rows={@finished}
+    row_testid={&"finished-row-#{&1.id}"}
+  >
+    <:col :let={relay} label="Relay">
+      <.link navigate={~p"/namespaces/#{@ns}/relays/#{relay.id}"}>{relay.id}</.link>
+    </:col>
+    <:col :let={relay} label="Status"><.said kind={:completion} value={relay[:status]} /></:col>
+    <:col :let={relay} label="Finished at" num>{Format.token_expiry(relay[:finished_at])}</:col>
+  </.grid>
+</.section>
+
+<%!-- Runners --%>
+<.section
+  fold="runners"
+  open={@sections["runners"]}
+  testid="runners-panel"
+  digest={runners_digest(@runners, @runner_marks)}
+>
+  <:title>Runners</:title>
+  <.runner_table
+    namespace={@ns}
+    runners={@runners}
+    marks={@runner_marks}
+    can_drop={NodeManager.granted?(@operations, "Fleet.drop_runner")}
+    can_readmit={NodeManager.granted?(@operations, "Fleet.readmit_runner")}
+    error={FlezhaUiWeb.Live.RunnerActions.error_for(@runner_error, @ns)}
+  >
+    <:empty>
+      <.empty_state icon="hero-server-stack">
+        A runner serves this namespace's factories. None is connected.
+      </.empty_state>
+    </:empty>
+  </.runner_table>
+</.section>
+
+<.inspector inspected={@inspected} operations={@operations} />
 
 <.launcher_dialog launcher={@launcher} />
 
@@ -504,7 +403,7 @@
 
 <.confirm_dialog
   :if={@confirm_stop}
-  title="Stop Relay?"
+  title="Stop relay?"
   confirm_label="Stop"
   on_confirm="stop_relay"
   on_cancel="cancel_stop"
@@ -513,16 +412,16 @@
   cancel_testid="stop-cancel-btn"
   confirm_testid="stop-confirm-btn"
 >
-  Are you sure you want to stop <.mono>{@confirm_stop}</.mono>?
+  Stop <.ident value={@confirm_stop} full />? A steps relay finishes its in-flight work first.
 </.confirm_dialog>
 
-<.dialog :if={@rescale} testid="rescale-modal" size="confirm">
-  <h3 class="flz-modal-title mb-3">Rescale partition group</h3>
-  <p class="text-sm text-th-secondary mb-4">
-    Set the member count for <.mono>{@rescale.group}</.mono>. Key ranges are redistributed across
-    the new member set, and the group re-renders on the next tick.
+<.dialog :if={@rescale} testid="rescale-modal" size="confirm" on_close="cancel_rescale">
+  <:title>Rescale partition group</:title>
+  <p>
+    Set the member count for <.ident value={@rescale.group} full />. Key ranges are redistributed
+    across the new member set, and the group re-renders on the next tick.
   </p>
-  <form phx-change="select_rescale" class="mb-4">
+  <form phx-change="select_rescale">
     <.input
       type="number"
       name="rescale[target]"
@@ -532,35 +431,33 @@
       data-testid="rescale-target"
     />
   </form>
-  <div class="flex justify-end gap-3">
+  <:actions>
     <.button variant="ghost" phx-click="cancel_rescale" data-testid="rescale-cancel-btn">
       Cancel
     </.button>
     <.button phx-click="rescale" data-testid="rescale-confirm-btn">
       Rescale to {@rescale.target}
     </.button>
-  </div>
+  </:actions>
 </.dialog>
 
 <.dialog :if={@quota_form} testid="quota-modal" size="form" on_close="close_quotas">
-  <:title>Edit quotas</:title>
-
+  <:title>Edit limits</:title>
   <.form_error error={@quota_error} action="the quota change" testid="quota-error" />
-
-  <form phx-change="quota_change" class="space-y-3">
+  <form phx-change="quota_change" class="grid gap-3 sm:grid-cols-2">
     <.input
       :for={row <- @quotas}
       type="number"
       name={"quota[#{row.limit_key}]"}
-      label={to_string(row.limit_key)}
+      label={Words.humanize(row.limit_key)}
       value={@quota_form[to_string(row.limit_key)]}
       data-testid={"quota-input-#{row.limit_key}"}
     />
   </form>
-  <div class="flex justify-end gap-3 pt-4">
+  <:actions>
     <.button variant="ghost" phx-click="close_quotas" data-testid="quota-cancel">Cancel</.button>
     <.button phx-click="save_quotas" data-testid="quota-save">Save</.button>
-  </div>
+  </:actions>
 </.dialog>
 
 <.dialog
@@ -577,19 +474,17 @@
       <.notice icon="hero-exclamation-triangle">
         This token is shown once and kept nowhere. Copy it now; closing this dialog drops it.
       </.notice>
-      <p class="text-xs text-th-muted">
-        For <span class="font-mono">{@token_issue.issued.principal}</span>
-        as {@token_issue.issued.role}, id <span data-testid="issued-token-id" class="font-mono">{@token_issue.issued.id}</span>.
+      <p class="fui-figures">
+        For <.ident value={@token_issue.issued.principal} full />
+        as {@token_issue.issued.role}, id <span data-testid="issued-token-id" class="fui-ident">{@token_issue.issued.id}</span>.
       </p>
-      <pre
-        id="issued-token-value"
-        data-testid="issued-token-value"
-        class="flz-code flz-code--wrap"
-      >{@token_issue.issued.token}</pre>
+      <.code_block id="issued-token-value" testid="issued-token-value">
+        {@token_issue.issued.token}
+      </.code_block>
       <div class="flex justify-end gap-3">
         <.button
           variant="secondary"
-          phx-click={JS.dispatch("flz:copy", to: "#issued-token-value")}
+          data-fui-copy-from="#issued-token-value"
           data-testid="issued-token-copy"
           icon="hero-clipboard"
         >
@@ -604,18 +499,20 @@
       <.input
         type="text"
         name="token[principal]"
-        label="Principal *"
+        label="Principal"
         value={@token_issue.form["principal"]}
         mono
+        required
         data-testid="issue-token-principal"
       />
       <.input
         type="text"
         name="token[role]"
-        label="Role *"
+        label="Role"
         hint="admin, ops, app, viewer or runner"
         value={@token_issue.form["role"]}
         mono
+        required
         data-testid="issue-token-role"
       />
       <.input
@@ -656,9 +553,8 @@
   cancel_testid="revoke-token-cancel"
   confirm_testid="revoke-token-confirm"
 >
-  Revoke token
-  <.mono>{@confirm_revoke.id}</.mono>
-  of <.mono>{@confirm_revoke.principal}</.mono>? Whoever holds it can no longer use it.
+  Revoke token <.ident value={@confirm_revoke.id} full /> of
+  <.ident value={@confirm_revoke.principal} full />? Whoever holds it can no longer use it.
 </.confirm_dialog>
 
 <.dialog :if={@role_bind} testid="bind-role-modal" size="form" on_close="close_bind">
@@ -668,18 +564,20 @@
     <.input
       type="text"
       name="binding[principal]"
-      label="Principal *"
+      label="Principal"
       value={@role_bind.form["principal"]}
       mono
+      required
       data-testid="bind-role-principal"
     />
     <.input
       type="text"
       name="binding[role]"
-      label="Role *"
+      label="Role"
       hint="admin, ops, app or viewer"
       value={@role_bind.form["role"]}
       mono
+      required
       data-testid="bind-role-role"
     />
     <div class="flex justify-end gap-3 pt-2">
@@ -703,15 +601,12 @@
   confirm_testid="unbind-role-confirm"
 >
   <%= if @confirm_unbind.role do %>
-    Take
-    <.mono>{@confirm_unbind.role}</.mono>
-    away from
-    <.mono>{@confirm_unbind.principal}</.mono>
-    in <.mono>{@confirm_unbind.namespace}</.mono>? Its other roles stay.
+    Take <.ident value={@confirm_unbind.role} full /> away from
+    <.ident value={@confirm_unbind.principal} full /> in
+    <.ident value={@confirm_unbind.namespace} full />? Its other roles stay.
   <% else %>
-    Remove every role
-    <.mono>{@confirm_unbind.principal}</.mono>
-    holds in <.mono>{@confirm_unbind.namespace}</.mono>? It can no longer act on this
+    Remove every role <.ident value={@confirm_unbind.principal} full /> holds in
+    <.ident value={@confirm_unbind.namespace} full />? It can no longer act on this
     controller until it is bound again.
   <% end %>
   <span

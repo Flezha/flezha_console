@@ -1,176 +1,237 @@
-<div class="space-y-6">
-  <.header>
-    {screen_name(@scoped_namespace)}
-    <:subtitle :if={@scoped_namespace}>
-      Every relay in <span class="flz-num">{@scoped_namespace}</span>.
-    </:subtitle>
-    <:actions>
-      <span class="text-sm text-th-secondary font-mono" data-testid="relays-count">
-        <span :if={@scoped_namespace}>{length(@rows)} in {@scoped_namespace}</span>
-        <span :if={!@scoped_namespace}>
-          {length(@rows)} across {length(@namespaces)} namespaces
-        </span>
-      </span>
-      <.button
-        :if={NodeManager.granted?(@operations, "Relay.start")}
-        phx-click="launcher_open"
-        data-testid="start-relay-btn"
-        icon="hero-plus"
+<.page_header
+  eyebrow="Relays"
+  title={(@scoped_namespace && "Relays in #{@scoped_namespace}") || "Every relay"}
+>
+  <:sentence>
+    <span data-testid="relays-count">
+      <%= cond do %>
+        <% !@loaded? -> %>
+          Reading the relays you can reach…
+        <% @scoped_namespace -> %>
+          {Words.count(length(@rows), "relay")} in {@scoped_namespace}, with their
+          <.term key="health" />, <.term key="run" /> and measured rate.
+        <% true -> %>
+          {Words.count(length(@rows), "relay")} across {Words.count(
+            length(@namespaces),
+            "namespace"
+          )}, with their <.term key="health" />, <.term key="run" /> and measured rate.
+      <% end %>
+    </span>
+  </:sentence>
+  <:actions>
+    <.segmented label="Scope" testid="scope-switch">
+      <:option
+        :if={@shell_namespace}
+        patch={~p"/namespaces/#{@shell_namespace}/relays"}
+        current={@scoped_namespace != nil}
+        testid="scope-namespace"
       >
-        Start Relay
-      </.button>
-    </:actions>
-  </.header>
+        {@shell_namespace}
+      </:option>
+      <:option patch={~p"/relays"} current={is_nil(@scoped_namespace)} testid="scope-all">
+        All namespaces
+      </:option>
+    </.segmented>
+    <.button
+      :if={NodeManager.granted?(@operations, "Relay.start")}
+      phx-click="launcher_open"
+      data-testid="start-relay-btn"
+      icon="hero-plus"
+    >
+      Start relay
+    </.button>
+  </:actions>
+</.page_header>
 
-  <.runtime_error error={@load_error} action="the relay listing" />
+<.runtime_error error={@load_error} action="the relay listing" />
 
-  <form phx-change="filter" class="flex flex-wrap items-end gap-3">
-    <%!-- Scoped by the route, the namespace is the screen rather than one of
-          its controls, so it is stated rather than offered. --%>
-    <div :if={@scoped_namespace} class="flz-field">
-      <span class="flz-field-label">Namespace</span>
-      <p data-testid="fixed-namespace" class="flz-num text-sm text-th-primary py-2">
-        {@scoped_namespace}
-      </p>
-    </div>
-    <div :if={!@scoped_namespace}>
-      <.dropdown
-        label="Namespace"
-        id="filter-namespace"
-        name="filters[namespace]"
-        value={@filters["namespace"]}
-        testid="filter-namespace"
-        prompt="all"
-        class="w-40"
+<form phx-change="filter" class="flex flex-wrap items-end gap-3 mb-5">
+  <.combobox
+    :if={!@scoped_namespace}
+    label="Namespace"
+    id="filter-namespace"
+    name="filters[namespace]"
+    value={@filters["namespace"]}
+    testid="filter-namespace"
+    prompt="All"
+    class="w-44"
+  >
+    <:option value="">All</:option>
+    <:option :for={ns <- @namespaces} value={ns}>{ns}</:option>
+  </.combobox>
+  <.combobox
+    label="Health"
+    id="filter-health"
+    name="filters[health]"
+    value={@filters["health"]}
+    testid="filter-health"
+    prompt="All"
+    class="w-40"
+  >
+    <:option value="">All</:option>
+    <:option :for={health <- health_options()} value={to_string(health)}>
+      {Words.text(:health, health)}
+    </:option>
+  </.combobox>
+  <.combobox
+    label="Run"
+    id="filter-run"
+    name="filters[run]"
+    value={@filters["run"]}
+    testid="filter-run"
+    prompt="All"
+    class="w-32"
+  >
+    <:option value="">All</:option>
+    <:option :for={run <- @run_options} value={to_string(run)}>{run}</:option>
+  </.combobox>
+  <div :if={@filters["runner"] != ""} class="fui-field" data-testid="filter-runner">
+    <span class="fui-label">Runner</span>
+    <span class="flex items-center gap-2 h-8">
+      <.ident value={@filters["runner"]} />
+      <.link
+        patch={filtered_path(@scoped_namespace, Map.put(@filters, "runner", ""))}
+        data-testid="filter-runner-clear"
       >
-        <:option value="">all</:option>
-        <:option :for={ns <- @namespaces} value={ns}>{ns}</:option>
-      </.dropdown>
-    </div>
-    <div>
-      <.dropdown
-        label="Health"
-        id="filter-health"
-        name="filters[health]"
-        value={@filters["health"]}
-        testid="filter-health"
-        prompt="all"
-        class="w-36"
-      >
-        <:option value="">all</:option>
-        <:option :for={health <- health_options()} value={to_string(health)}>{health}</:option>
-      </.dropdown>
-    </div>
-    <div>
-      <.dropdown
-        label="Run"
-        id="filter-run"
-        name="filters[run]"
-        value={@filters["run"]}
-        testid="filter-run"
-        prompt="all"
-        class="w-32"
-      >
-        <:option value="">all</:option>
-        <:option :for={run <- @run_options} value={to_string(run)}>{run}</:option>
-      </.dropdown>
-    </div>
-  </form>
-
-  <div class="flz-panel overflow-hidden">
-    <%= if @rows == [] do %>
-      <.empty_state icon="hero-cpu-chip" testid="relays-empty">
-        <%= cond do %>
-          <% filtered?(@filters, @scoped_namespace) -> %>
-            No running relay matches these filters.
-          <% @scoped_namespace -> %>
-            No relays are running in {@scoped_namespace}.
-          <% true -> %>
-            No relays are running in any reachable namespace.
-        <% end %>
-      </.empty_state>
-    <% else %>
-      <table data-testid="relays-index-table" class="flz-table">
-        <thead>
-          <tr>
-            <th>Relay ID</th>
-            <th>Namespace</th>
-            <th>Factory</th>
-            <th>Health</th>
-            <th>Run</th>
-            <th>Node</th>
-            <th>Runner</th>
-            <th>Plugins</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            :for={row <- @rows}
-            data-testid={"relay-index-row-#{row.id}"}
-          >
-            <td class="flz-num text-xs">
-              <.link
-                :if={is_nil(row[:partitions])}
-                navigate={~p"/namespaces/#{row.namespace}/relays/#{row.id}"}
-                class="hover:underline"
-              >
-                {row.id}
-              </.link>
-              <.link
-                :if={row[:partitions]}
-                navigate={~p"/namespaces/#{row.namespace}"}
-                class="hover:underline"
-              >
-                {row.id} <span class="flz-badge">group {row.partitions}</span>
-              </.link>
-            </td>
-            <td class="flz-num text-xs">{row.namespace}</td>
-            <td class="flz-num text-xs">{row[:factory] || "—"}</td>
-            <td><.health_badge health={row.health} /></td>
-            <td class="flz-num text-xs">
-              {row.run || "—"}
-            </td>
-            <td class="flz-num text-xs">
-              <span :if={row[:node]}>{row[:node]}</span>
-              <span :if={is_nil(row[:node])} class="text-warning">unplaced</span>
-            </td>
-            <td class="flz-num text-xs">{row[:runner] || "—"}</td>
-            <td class="flz-num text-xs">{row.plugins}</td>
-          </tr>
-        </tbody>
-      </table>
-    <% end %>
+        Show every runner
+      </.link>
+    </span>
   </div>
+</form>
 
-  <%!-- Relay lifecycle, as it happens --%>
-  <.panel testid="lifecycle-feed" icon="hero-signal">
-    <:title>Lifecycle ({length(@lifecycle)})</:title>
-    <div :if={@lifecycle_error} data-testid="lifecycle-error" class="px-5 pt-3">
-      <.runtime_error error={@lifecycle_error} action="the relay lifecycle feed" />
-    </div>
-    <p :if={@lifecycle == []} class="flz-empty">
-      Relays starting, stopping and losing their runner appear here as it happens.
-    </p>
-    <ol :if={@lifecycle != []} class="divide-y divide-brd-subtle">
-      <li
-        :for={{entry, index} <- Enum.with_index(@lifecycle)}
-        data-testid={"lifecycle-entry-#{index}"}
-        class="px-5 py-2 text-xs flex gap-3"
+<.skeleton :if={!@loaded?} rows={6} testid="relays-loading" />
+
+<.empty_state :if={@loaded? and @rows == []} icon="hero-cpu-chip" testid="relays-empty">
+  <%= cond do %>
+    <% filtered?(@filters, @scoped_namespace) -> %>
+      No running relay matches these filters.
+    <% @scoped_namespace -> %>
+      A relay is started from a factory a runner serves. None is running in {@scoped_namespace}.
+    <% true -> %>
+      A relay is started from a factory a runner serves. None is running in any namespace you can reach.
+  <% end %>
+  <:action :if={NodeManager.granted?(@operations, "Relay.start")}>
+    <.button size="sm" phx-click="launcher_open" data-testid="start-relay-empty-btn">
+      Start relay
+    </.button>
+  </:action>
+</.empty_state>
+
+<.grid
+  :if={@loaded? and @rows != []}
+  id="relay-rows"
+  rows={@rows}
+  testid="relays-index-table"
+  row_id={&"relay-row-#{&1.namespace}-#{&1.id}"}
+  row_testid={&"relay-index-row-#{&1.id}"}
+  row_tone={&Words.tone(:health, &1.health)}
+  row_label={&"Inspect #{&1.id}"}
+  row_selected={
+    &(@inspected != nil and @inspected.kind == "relay" and
+        @inspected.id == inspect_id(&1, @scoped_namespace))
+  }
+  row_activate={
+    &(is_nil(&1[:partitions]) &&
+        JS.push("inspect", value: %{kind: "relay", id: inspect_id(&1, @scoped_namespace)}))
+  }
+>
+  <:col :let={row} label="Relay">
+    <span class="fui-num">{row.id}</span>
+    <span :if={row[:partitions]} class="fui-badge ml-1">group {row.partitions}</span>
+  </:col>
+  <:col :let={row} :if={!@scoped_namespace} label="Namespace">
+    <span class="fui-num">{row.namespace}</span>
+  </:col>
+  <:col :let={row} label="Factory"><span class="fui-num">{row[:factory] || "—"}</span></:col>
+  <:col :let={row} label="Health"><.state_badge value={row.health} /></:col>
+  <:col :let={row} label="Run">{row.run || "—"}</:col>
+  <:col :let={row} label="Node">
+    <span :if={row[:node]} class="fui-num">{row[:node]}</span>
+    <span :if={is_nil(row[:node])} class="fui-tone-warning">Unplaced</span>
+  </:col>
+  <:col :let={row} label="Runner"><.ident :if={row[:runner]} value={row[:runner]} /></:col>
+  <:col :let={row} label="Plugins" num>{row.plugins}</:col>
+  <:col :let={row} label="Rate in" num>
+    <span class="inline-flex items-center gap-2" data-testid={"relay-rate-#{row.id}"}>
+      <.sparkline
+        samples={@topology_state.history |> Map.get(to_string(row.id), []) |> Enum.reverse()}
+        key={:in}
+        width={56}
+        height={16}
+        testid={"relay-spark-#{row.id}"}
+      />
+      <span class="fui-rate">
+        {case Map.get(@topology_state.rates, to_string(row.id)) do
+          nil -> "—"
+          rate -> "#{rate.in}/s"
+        end}
+      </span>
+    </span>
+  </:col>
+  <:menu :let={row}>
+    <.row_menu
+      id={"relay-menu-#{row.namespace}-#{row.id}"}
+      label={"Actions for #{row.id}"}
+      testid={"relay-menu-#{row.id}"}
+    >
+      <:item
+        :if={is_nil(row[:partitions])}
+        click="inspect"
+        values={%{kind: "relay", id: inspect_id(row, @scoped_namespace)}}
+        icon="hero-eye"
+        testid={"inspect-relay-#{row.id}"}
       >
-        <span class="flz-num text-th-muted">{Format.time_of_day(entry.at)}</span>
-        <span class="flz-num text-th-secondary">{entry.namespace}</span>
-        <.link
-          navigate={~p"/namespaces/#{entry.namespace}/relays/#{entry.relay}"}
-          class="flz-num hover:underline"
-        >
-          {entry.relay}
-        </.link>
-        <span data-testid={"lifecycle-what-#{index}"} class="text-th-secondary">
-          {lifecycle_text(entry)}
-        </span>
-      </li>
-    </ol>
-  </.panel>
-</div>
+        Inspect
+      </:item>
+      <:item
+        :if={is_nil(row[:partitions])}
+        navigate={~p"/namespaces/#{row.namespace}/relays/#{row.id}"}
+        icon="hero-arrow-right"
+        testid={"view-relay-#{row.id}"}
+      >
+        Open
+      </:item>
+      <:item
+        :if={row[:partitions]}
+        navigate={~p"/namespaces/#{row.namespace}"}
+        icon="hero-arrow-right"
+      >
+        Open its namespace
+      </:item>
+      <:item
+        :if={is_nil(row[:partitions]) and NodeManager.granted?(@operations, "Relay.stop")}
+        click="confirm_stop"
+        values={%{relay_id: row.id, namespace: row.namespace}}
+        testid={"stop-relay-#{row.id}"}
+        danger
+      >
+        Stop
+      </:item>
+    </.row_menu>
+  </:menu>
+</.grid>
+
+<%!-- What this console saw happen --%>
+<.section testid="lifecycle-feed">
+  <:title>What happened</:title>
+  <.river events={@river} error={@river_error} />
+</.section>
+
+<.inspector inspected={@inspected} operations={@operations} />
 
 <.launcher_dialog launcher={@launcher} />
+
+<.confirm_dialog
+  :if={@confirm_stop}
+  title="Stop relay?"
+  confirm_label="Stop"
+  on_confirm="stop_relay"
+  on_cancel="cancel_stop"
+  testid="stop-confirm-modal"
+  cancel_testid="stop-cancel-btn"
+  confirm_testid="stop-confirm-btn"
+>
+  Stop <.ident value={@confirm_stop.relay} full /> in
+  <.ident value={@confirm_stop.namespace} full />?
+  A steps relay finishes its in-flight work first.
+</.confirm_dialog>

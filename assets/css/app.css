@@ -1,21 +1,32 @@
 /*
  * flezha_ui stylesheet.
  *
- * Colour, type and component skins all come from flezha_stylebook; nothing
- * here declares a colour literal.
+ * The console's component kit lives in `console/`; its colours are the
+ * stylebook's palette by role, and nothing here declares a colour literal.
  *
  * Order is load-bearing. Tailwind preflight lands first — every `border`
- * utility in these templates depends on its `border-style: solid` default.
- * The stylebook's three layers land next, so its reset and form baseline win
- * the overlap with preflight. Tailwind's utilities land last, so
- * `class="flz-panel mt-6"` still gets its margin.
+ * utility depends on its `border-style: solid` default. The console's layers
+ * land next, so its reset and form baseline win the overlap with preflight.
+ * The stylebook's tokens follow — the palette the console's roles name — with
+ * its recipes for the shell's rail and topbar and for the relay pipeline
+ * graph.
+ * Tailwind's utilities land last, so `class="fui-section mt-6"` still gets
+ * its margin.
  */
 @import "tailwindcss/base";
+@import "./console/tokens.css";
+@import "./console/base.css";
+@import "./console/components.css";
 @import "@flezha/stylebook/css/tokens.css";
-@import "@flezha/stylebook/css/base.css";
 @import "@flezha/stylebook/css/components.css";
 @import "tailwindcss/components";
 @import "tailwindcss/utilities";
+
+/* The graph's labels read the stylebook's mono role; it takes the console's
+   face, the one served. After the stylebook's tokens, so this wins. */
+:root {
+  --font-mono: var(--fui-font-mono);
+}
 
 /* ---- Topology graph ----
  * Nodes, wires and the legend wear the stylebook's relay-graph recipe. What
@@ -54,6 +65,12 @@
 .flz-graph-node .topo-sub { fill: var(--text-muted); font-size: 10px; }
 .topo-rate   { fill: var(--text-brand);   font-size: 10px; font-family: var(--font-mono); }
 .topo-rate.is-muted { fill: var(--text-muted); opacity: 0.55; }
+
+/* The graph's own inks and rule, on the stylebook tokens it keeps. */
+.topo-primary   { color: var(--text-primary); }
+.topo-secondary { color: var(--text-secondary); }
+.topo-muted     { color: var(--text-muted); }
+.topo-rule      { border-top: 1px solid var(--border-subtle); }
 
 .topo-spark-in  { fill: none; stroke: var(--brand-solid); stroke-width: 1.5; }
 .topo-spark-out { fill: none; stroke: var(--positive);    stroke-width: 1.5; }

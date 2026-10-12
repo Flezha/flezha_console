@@ -11,6 +11,7 @@ defmodule FlezhaUiWeb.DlqLive do
   use FlezhaUiWeb, :live_view
 
   use FlezhaUiWeb.Live.Refresh, every: 5_000
+  use FlezhaUiWeb.Inspect, kinds: ~w(entry)
 
   alias FlezhaUi.Service.NodeManager
 
@@ -21,41 +22,43 @@ defmodule FlezhaUiWeb.DlqLive do
       |> start_refresh()
       |> assign(
         page_title: "Dead-letter queue",
-        filter: "",
+        filter: nil,
         groups: [],
-        selected: nil,
+        entries: [],
+        stats: [],
+        load_error: nil,
         confirm: nil,
         replay_outcome: nil
       )
-      |> refresh()
 
     {:ok, socket}
+  end
+
+  # `?class=` narrows the listing to one relay class, which is how an open
+  # problem about parked entries links here. A parked entry opens in the
+  # inspector from `?inspect=entry:<ref>`.
+  @impl true
+  def handle_params(params, _uri, socket) do
+    filter = params["class"] || ""
+
+    socket =
+      if filter == socket.assigns.filter,
+        do: socket,
+        else: socket |> assign(filter: filter) |> refresh()
+
+    {:noreply, inspect_params(socket, params)}
   end
 
   # Holding still while a modal is open keeps a row from moving underneath the
   # operator between reading it and confirming.
   @impl FlezhaUiWeb.Live.Refresh
-  def refresh_paused?(socket), do: socket.assigns.confirm != nil or socket.assigns.selected != nil
+  def refresh_paused?(socket),
+    do: socket.assigns.confirm != nil or socket.assigns[:inspected] != nil
 
   @impl true
   def handle_event("filter", %{"filter" => %{"relay_class" => value}}, socket) do
-    {:noreply, socket |> assign(filter: value) |> refresh()}
-  end
-
-  @impl true
-  def handle_event("inspect", %{"ref" => ref}, socket) do
-    case NodeManager.dlq_get(ref, socket.assigns.flezha_token) do
-      {:ok, entry, payload} ->
-        {:noreply, assign(socket, selected: %{ref: ref, entry: entry, payload: payload})}
-
-      {:error, reason} ->
-        {:noreply, socket |> put_flash(:error, error_message(reason)) |> refresh()}
-    end
-  end
-
-  @impl true
-  def handle_event("close_inspect", _params, socket) do
-    {:noreply, assign(socket, selected: nil)}
+    query = if value == "", do: %{}, else: %{class: value}
+    {:noreply, push_patch(socket, to: ~p"/dlq?#{query}")}
   end
 
   @impl true
@@ -75,9 +78,10 @@ defmodule FlezhaUiWeb.DlqLive do
       :ok ->
         {:noreply,
          socket
-         |> assign(confirm: nil, selected: nil)
+         |> assign(confirm: nil)
          |> put_flash(:info, "Entry dropped. Its payload is gone.")
-         |> refresh()}
+         |> refresh()
+         |> push_patch(to: inspect_path(socket, nil))}
 
       {:error, reason} ->
         {:noreply, socket |> assign(confirm: nil) |> put_flash(:error, error_message(reason))}
@@ -93,6 +97,7 @@ defmodule FlezhaUiWeb.DlqLive do
     {:noreply,
      socket
      |> assign(confirm: nil, replay_outcome: {:pending, ref})
+     |> push_patch(to: inspect_path(socket, nil))
      |> start_async(:replay, fn -> {ref, NodeManager.dlq_replay(ref, token)} end)}
   end
 

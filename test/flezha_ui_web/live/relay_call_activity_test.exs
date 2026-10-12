@@ -100,7 +100,7 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
       open_section(view, "calls")
       assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
       assert render(view) =~ ~s(data-testid="call-entry-1")
-      assert outcome_of(render(view), 1) == "outcome not heard"
+      assert outcome_of(render(view), 1) == "Outcome not heard"
       assert length(FakeController.calls(node, @listen)) == 2
     end
 
@@ -121,13 +121,13 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
       view = open_calls(conn, node)
       call(node, "c1")
       assert shows?(view, ~s(data-testid="call-entry-1"))
-      assert outcome_of(render(view), 1) == "waiting"
+      assert outcome_of(render(view), 1) == "Waiting"
 
       FakeController.end_stream(node, @listen, {:ok, :relay_ended})
 
       assert shows?(view, ~s(data-testid="calls-ended"))
       html = render(view)
-      assert outcome_of(html, 1) == "outcome not heard"
+      assert outcome_of(html, 1) == "Outcome not heard"
       assert html =~ ~s(data-testid="calls-reopen")
     end
 
@@ -146,14 +146,14 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
       html = render(view)
       refute html =~ ~s(data-testid="calls-ended")
       refute html =~ ~s(data-testid="calls-reopen")
-      assert outcome_of(html, 1) == "outcome not heard"
+      assert outcome_of(html, 1) == "Outcome not heard"
 
       # An outcome the new listen hears for an earlier call changes nothing.
       outcome(node, :answered, "c1", "late answer")
       call(node, "c2")
       assert shows?(view, ~s(data-testid="call-entry-2"))
       html = render(view)
-      assert outcome_of(html, 1) == "outcome not heard"
+      assert outcome_of(html, 1) == "Outcome not heard"
       refute html =~ "late answer"
     end
 
@@ -191,18 +191,18 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
 
       assert shows?(view, ~s(data-call-id="c1"))
       html = render(view)
-      assert outcome_of(html, 1) == "waiting"
+      assert outcome_of(html, 1) == "Waiting"
       assert html =~ "BTC-EUR"
       assert html =~ "18 B"
       refute html =~ ~s(data-testid="calls-listening")
 
       outcome(node, :answered, "c1", ~s({"status":"placed"}), channel: "placed", ms: 1_500)
 
-      assert PeerNode.eventually(fn -> outcome_of(render(view), 1) == "answered" end)
+      assert PeerNode.eventually(fn -> outcome_of(render(view), 1) == "Answered" end)
       html = render(view)
       assert html =~ "status"
       assert html =~ "1s"
-      assert html =~ ~s(<span class="font-mono">placed</span>)
+      assert html =~ ~s(<span class="fui-ident">placed</span>)
     end
 
     test "calls are listed newest first", %{conn: conn, node: node} do
@@ -238,8 +238,8 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
       assert shows?(view, ~s(data-testid="call-entry-2"))
       html = render(view)
       refute html =~ "stray answer"
-      assert outcome_of(html, 1) == "waiting"
-      assert outcome_of(html, 2) == "waiting"
+      assert outcome_of(html, 1) == "Waiting"
+      assert outcome_of(html, 2) == "Waiting"
     end
 
     test "a large payload is kept bounded", %{conn: conn, node: node} do
@@ -261,11 +261,11 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
 
       assert PeerNode.eventually(fn ->
                html = render(view)
-               html =~ ~s(data-testid="call-entry-2") and outcome_of(html, 2) == "answered"
+               html =~ ~s(data-testid="call-entry-2") and outcome_of(html, 2) == "Answered"
              end)
 
       html = render(view)
-      assert outcome_of(html, 1) == "refused"
+      assert outcome_of(html, 1) == "Refused"
       assert html =~ "call.unavailable"
       assert html =~ "second time lucky"
     end
@@ -281,17 +281,17 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
 
       assert PeerNode.eventually(fn ->
                html = render(view)
-               html =~ ~s(data-testid="call-outcome-3") and outcome_of(html, 3) == "refused"
+               html =~ ~s(data-testid="call-outcome-3") and outcome_of(html, 3) == "Refused"
              end)
 
       html = render(view)
-      assert outcome_of(html, 1) == "answered"
-      assert outcome_of(html, 2) == "timed out"
+      assert outcome_of(html, 1) == "Answered"
+      assert outcome_of(html, 2) == "Timed out"
       assert html =~ "no answer in 500ms (call.timeout)"
       assert html =~ "too many callers (call.busy)"
-      assert html =~ ~r/data-testid="call-outcome-1" class="flz-badge flz-badge--positive"/
-      assert html =~ ~r/data-testid="call-outcome-2" class="flz-badge flz-badge--warning"/
-      assert html =~ ~r/data-testid="call-outcome-3" class="flz-badge flz-badge--negative"/
+      assert html =~ ~r/data-testid="call-outcome-1"[^>]*class="fui-badge fui-badge--positive"/
+      assert html =~ ~r/data-testid="call-outcome-2"[^>]*class="fui-badge fui-badge--warning"/
+      assert html =~ ~r/data-testid="call-outcome-3"[^>]*class="fui-badge fui-badge--negative"/
     end
 
     test "each source reads as its badge, a relay naming its caller", %{conn: conn, node: node} do
@@ -307,8 +307,9 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
 
       labels = for seq <- 1..9, do: badge(html, "source", seq)
 
-      assert labels == ~w(UI CLI SDK HTTP MCP plugin internal relay something_new)
-      assert html =~ ~s(<span class="flz-num text-th-secondary">orders</span>)
+      # A source this console does not know is shown as the sender spelled it.
+      assert labels == ~w(UI CLI SDK HTTP MCP Plugin Internal Relay something_new)
+      assert html =~ ~r/data-testid="call-entry-8".*?orders/s
     end
 
     test "a call naming no channel shows a dash", %{conn: conn, node: node} do
@@ -321,7 +322,7 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
       )
 
       assert shows?(view, ~s(data-testid="call-entry-1"))
-      assert render(view) =~ ~s(<span class="flz-num">—</span>)
+      assert render(view) =~ ~s(<span class="fui-ident">—</span>)
     end
   end
 
@@ -338,7 +339,7 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
       assert shows?(view, "an output")
       html = render(view)
       refute html =~ ~s(data-testid="call-entry-2")
-      assert html =~ ~r/<dt class="text-th-muted">Messages<\/dt>\s*<dd[^>]*>\s*1\s*</
+      assert html =~ ~r/<dt class="topo-muted">Messages<\/dt>\s*<dd[^>]*>\s*1\s*</
     end
   end
 end

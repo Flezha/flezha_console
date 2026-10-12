@@ -1,0 +1,91 @@
+{
+  "tokens": "tokens.css",
+  "own": "--fui-",
+  "light": ":root",
+  "dark": "[data-theme='dark']",
+  "parity": [],
+  "surfaces": [
+    "--fui-page",
+    "--fui-canvas",
+    "--fui-surface",
+    "--fui-raised",
+    "--fui-hover"
+  ],
+  "inks": [
+    "--fui-ink-1",
+    "--fui-ink-2",
+    "--fui-ink-3",
+    "--fui-accent",
+    "--fui-signal",
+    "--fui-positive",
+    "--fui-warning",
+    "--fui-negative",
+    "--fui-brand"
+  ],
+  "fills": [
+    "--fui-accent",
+    "--fui-negative",
+    "--fui-signal"
+  ],
+  "chromeSurfaces": [],
+  "chromeInks": [],
+  "solidPairs": [
+    [
+      "--fui-accent",
+      "--fui-on-accent"
+    ],
+    [
+      "--fui-signal",
+      "--fui-on-signal"
+    ],
+    [
+      "--fui-positive",
+      "--fui-on-positive"
+    ],
+    [
+      "--fui-warning",
+      "--fui-on-warning"
+    ],
+    [
+      "--fui-negative",
+      "--fui-on-negative"
+    ],
+    [
+      "--fui-accent-subtle",
+      "--fui-accent"
+    ],
+    [
+      "--fui-accent-subtle",
+      "--fui-ink-1"
+    ],
+    [
+      "--fui-signal-subtle",
+      "--fui-signal"
+    ],
+    [
+      "--fui-positive-subtle",
+      "--fui-positive"
+    ],
+    [
+      "--fui-warning-subtle",
+      "--fui-warning"
+    ],
+    [
+      "--fui-negative-subtle",
+      "--fui-negative"
+    ],
+    [
+      "--fui-negative-subtle",
+      "--fui-ink-1"
+    ],
+    [
+      "--fui-brand-subtle",
+      "--fui-ink-1"
+    ]
+  ],
+  "base": {
+    "tokens": "../../node_modules/@flezha/stylebook/css/tokens.css",
+    "light": ":root",
+    "dark": "[data-theme='dark']"
+  }
+}

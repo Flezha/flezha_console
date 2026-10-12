@@ -24,7 +24,7 @@ defmodule FlezhaUiWeb.Topology do
     * the view model — `pipeline/1`, `summary/1`, `rates/3`, `push_history/2`,
       `speed_bucket/1`. Pure, so the delta arithmetic and the joins are
       testable without a controller.
-    * the rendering — `pipeline_graph/1` and `fleet_summary/1`, server-rendered
+    * the rendering — `pipeline_graph/1` and `namespace_map/1`, server-rendered
       SVG and HEEx whose flow animation is CSS keyed to a speed bucket.
 
   Rates are `Δcount / Δt` between this UI's own ticks, not controller-side
@@ -73,7 +73,7 @@ defmodule FlezhaUiWeb.Topology do
     events = @events
 
     quote do
-      import FlezhaUiWeb.Topology, only: [pipeline_graph: 1, fleet_summary: 1]
+      import FlezhaUiWeb.Topology, only: [pipeline_graph: 1, payload_tap: 1, namespace_map: 1]
 
       @impl Phoenix.LiveView
       def handle_event(event, params, socket) when event in unquote(events) do
@@ -88,7 +88,7 @@ defmodule FlezhaUiWeb.Topology do
   def init(socket) do
     assign(socket,
       topology: nil,
-      topology_state: %{prev: nil, prev_at: nil, history: %{}, selected: nil}
+      topology_state: %{prev: nil, prev_at: nil, history: %{}, rates: %{}, selected: nil}
     )
   end
 
@@ -180,12 +180,29 @@ defmodule FlezhaUiWeb.Topology do
             runners: runner_ids(namespace, token),
             snapshot: snapshot,
             rates: rates,
-            dlq: NodeManager.ok_or(NodeManager.dlq_stats(token), []),
+            dlq: parked_in(ids, token),
             verdicts: verdicts,
             stall_notice: stall_notice,
             skew: skew
           })
         )
+    end
+  end
+
+  @doc """
+  Measures the rates of `ids` from one liveness snapshot, for a host that
+  shows rates without a graph: the rates and their history land in
+  `:topology_state`, read the same way the map reads them.
+  """
+  def load_rates(socket, ids) do
+    state = socket.assigns.topology_state
+
+    if NodeManager.connected_node() do
+      {snapshot, _skew} = snapshot(socket.assigns[:flezha_token])
+      {_rates, state} = advance(state, snapshot, ids)
+      assign(socket, topology_state: state)
+    else
+      assign(socket, topology_state: %{state | prev: nil, prev_at: nil, rates: %{}})
     end
   end
 
@@ -223,7 +240,7 @@ defmodule FlezhaUiWeb.Topology do
   defp disconnected(socket, state) do
     assign_topology(
       socket,
-      %{state | prev: nil, prev_at: nil},
+      %{state | prev: nil, prev_at: nil, rates: %{}},
       %{kind: :disconnected, state: :disconnected}
     )
   end
@@ -239,6 +256,7 @@ defmodule FlezhaUiWeb.Topology do
      %{
        state
        | history: history,
+         rates: rates,
          prev: snapshot || state.prev,
          prev_at: (snapshot && now) || state.prev_at
      }}
@@ -263,13 +281,20 @@ defmodule FlezhaUiWeb.Topology do
     |> Enum.map(&NodeManager.identifier_id/1)
   end
 
-  defp parked_for(facts, token) do
+  # The dead-letter statistics are kept per relay class across the cluster; a
+  # namespace's share is its own relays' classes.
+  defp parked_in(relay_ids, token) do
+    classes = MapSet.new(relay_ids, &to_string/1)
+
     token
     |> NodeManager.dlq_stats()
     |> NodeManager.ok_or([])
-    |> Enum.filter(&(to_string(Map.get(&1, :relay_class)) == facts.relay_class))
-    |> Enum.reduce(0, &(&2 + Map.get(&1, :entries, 0)))
+    |> Enum.filter(&(to_string(Map.get(&1, :relay_class)) in classes))
   end
+
+  defp parked_for(facts, token), do: [facts.relay_class] |> parked_in(token) |> entries()
+
+  defp entries(stats), do: Enum.reduce(stats, 0, &(&2 + Map.get(&1, :entries, 0)))
 
   @doc """
   Recent stall verdicts, and why there are none when there are none.
@@ -548,26 +573,7 @@ defmodule FlezhaUiWeb.Topology do
 
     rows = Map.get(input, :rows, [])
     faulted = Map.get(input, :faulted_groups, [])
-
-    # Surfaced whatever their throughput: a relay that is unhealthy,
-    # unplaced, or owning a broken key range is exactly the one whose counters
-    # have stopped moving, so a ranking by throughput would bury it.
-    attention =
-      rows
-      |> Enum.filter(fn row ->
-        NodeManager.row_health(row) != :healthy or is_nil(row[:node]) or
-          (row[:partition] && row.partition.group in faulted)
-      end)
-      |> Enum.map(fn row ->
-        %{
-          id: to_string(row.id),
-          health: NodeManager.row_health(row),
-          unplaced?: is_nil(row[:node]),
-          faulted_group: row[:partition] && row.partition.group in faulted && row.partition.group,
-          href: ~p"/namespaces/#{input.namespace}/relays/#{row.id}"
-        }
-      end)
-      |> Enum.sort_by(& &1.id)
+    attention = FlezhaUiWeb.Attention.relay_items(input.namespace, rows, faulted)
 
     summary_view(%{
       state: ((input.relay_ids == [] and input.runners == []) && :empty) || :ok,
@@ -588,7 +594,7 @@ defmodule FlezhaUiWeb.Topology do
         Enum.filter(input.runners, fn runner ->
           channels |> Map.get(runner, []) |> Enum.any?(&credit_exhausted?/1)
         end),
-      parked: Enum.reduce(input.dlq, 0, &(&2 + Map.get(&1, :entries, 0))),
+      parked: entries(input.dlq),
       stall: List.first(input.verdicts),
       busiest: busiest,
       skew: input.skew
@@ -739,7 +745,7 @@ defmodule FlezhaUiWeb.Topology do
       title="Pipeline"
     >
       <:header>
-        <span :if={@topology && @topology.kind == :pipeline} class="text-xs text-th-muted">
+        <span :if={@topology && @topology.kind == :pipeline} class="text-xs topo-muted">
           {@topology.plugin_count} plugin{if @topology.plugin_count == 1, do: "", else: "s"} attached
         </span>
       </:header>
@@ -770,9 +776,101 @@ defmodule FlezhaUiWeb.Topology do
     """
   end
 
-  # Both graphs are the same frame around a different body: the panel chrome, an
-  # honest word when the controller is unreachable, and the notices neither of
-  # them may go without.
+  @doc """
+  The relay page's payload tap, beside its pipeline: a listen on the relay's
+  input or output while it is open, with what passed through. It belongs to
+  the graph and keeps the graph's recipe until the graph's own redesign.
+  """
+  attr :tap, :any, required: true
+
+  def payload_tap(assigns) do
+    ~H"""
+    <aside
+      data-testid="topology-tap"
+      class="flz-panel lg:w-72 shrink-0 p-4 space-y-3"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <p class="flz-label">Payload tap</p>
+        <button
+          :if={@tap}
+          type="button"
+          phx-click="graph_tap_close"
+          data-testid="tap-close"
+          class="flz-button flz-button--sm flz-button--ghost"
+          aria-label="Close tap"
+        >
+          <.icon name="hero-x-mark" class="w-4 h-4" />
+        </button>
+      </div>
+
+      <p :if={!@tap} class="text-xs topo-muted">
+        Listens to this relay while open, and stops listening when you close it.
+      </p>
+
+      <div :if={!@tap} class="flex gap-2">
+        <.button
+          :for={direction <- ~w(input output)}
+          variant="secondary"
+          size="sm"
+          phx-click="graph_tap"
+          phx-value-direction={direction}
+          data-testid={"tap-#{direction}"}
+        >
+          Tap {direction}
+        </.button>
+      </div>
+
+      <div :if={@tap} class="space-y-2">
+        <p class="text-xs topo-secondary">
+          Tapping <span class="font-mono">{@tap.direction}</span>
+        </p>
+
+        <div :if={@tap.error} data-testid="tap-error">
+          <.runtime_error error={@tap.error} action="the payload tap" />
+        </div>
+
+        <dl data-testid="tap-figures" class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+          <dt class="topo-muted">Messages</dt>
+          <dd class="topo-secondary font-mono text-right">{@tap.count}</dd>
+          <dt class="topo-muted">Total</dt>
+          <dd class="topo-secondary font-mono text-right">{Format.bytes(@tap.bytes)}</dd>
+          <dt class="topo-muted">Rate</dt>
+          <dd data-testid="tap-msg-rate" class="topo-primary font-mono text-right">
+            {FlezhaUiWeb.RelayLive.tap_rate(@tap, :count)}/s
+          </dd>
+          <dt class="topo-muted">Throughput</dt>
+          <dd data-testid="tap-byte-rate" class="topo-primary font-mono text-right">
+            {Format.bytes(round(FlezhaUiWeb.RelayLive.tap_rate(@tap, :bytes)))}/s
+          </dd>
+        </dl>
+
+        <ul :if={@tap.recent != []} data-testid="tap-recent" class="space-y-1">
+          <li
+            :for={msg <- @tap.recent}
+            class="flz-chip block truncate"
+          >
+            {String.slice(msg.message, 0, 60)}
+          </li>
+        </ul>
+
+        <p :if={@tap.ended?} data-testid="tap-ended" class="text-xs topo-muted">
+          The tap ended: the relay stopped or the controller let it go.
+        </p>
+
+        <p
+          :if={@tap.recent == [] and is_nil(@tap.error) and not @tap.ended?}
+          class="text-xs topo-muted"
+        >
+          Waiting for a record to pass through.
+        </p>
+      </div>
+    </aside>
+    """
+  end
+
+  # The pipeline's frame, in the stylebook's panel recipe the graph keeps until
+  # its own redesign: an honest word when the controller is unreachable, and the
+  # notices the graph may not go without.
   attr :topology, :any, required: true
   attr :kind, :atom, required: true, doc: "the topology kind whose body this frame holds"
   attr :testid, :string, required: true
@@ -783,9 +881,11 @@ defmodule FlezhaUiWeb.Topology do
 
   defp graph_frame(assigns) do
     ~H"""
-    <.panel testid={@testid} icon={@icon} class="overflow-hidden">
-      <:title>{@title}</:title>
-      <:actions :if={@header != []}>{render_slot(@header)}</:actions>
+    <div data-testid={@testid} class="flz-panel overflow-hidden">
+      <div class="flz-panel-head">
+        <h2 class="flz-panel-title"><.icon name={@icon} class="w-4 h-4" />{@title}</h2>
+        <div :if={@header != []} class="flex items-center gap-3">{render_slot(@header)}</div>
+      </div>
 
       <div
         :if={@topology && @topology.state == :disconnected}
@@ -799,13 +899,13 @@ defmodule FlezhaUiWeb.Topology do
         <.graph_notices topology={@topology} />
         {render_slot(@inner_block)}
       </div>
-    </.panel>
+    </div>
     """
   end
 
   defp legend(assigns) do
     ~H"""
-    <ul data-testid="topology-legend" class="flz-graph-legend mt-4 border-t border-brd-subtle">
+    <ul data-testid="topology-legend" class="flz-graph-legend mt-4 topo-rule">
       <li><span class="flz-graph-legend-plugin" aria-hidden="true"></span>A plugin</li>
       <li><span class="flz-graph-legend-tasklet" aria-hidden="true"></span>The relay's own code</li>
       <.legend_item swatch="topo-flow-medium">Records flowing; speed tracks the rate</.legend_item>
@@ -992,7 +1092,7 @@ defmodule FlezhaUiWeb.Topology do
       <div class="flex items-start justify-between gap-2">
         <div>
           <p class="flz-label">{@node.kind}</p>
-          <p class="text-sm font-mono text-th-primary break-all">{@node.label}</p>
+          <p class="text-sm font-mono topo-primary break-all">{@node.label}</p>
         </div>
         <button
           type="button"
@@ -1049,7 +1149,7 @@ defmodule FlezhaUiWeb.Topology do
       </.fact>
     </dl>
 
-    <.sparkline :if={@node.history != []} samples={@node.history} />
+    <.pipeline_sparkline :if={@node.history != []} samples={@node.history} />
     """
   end
 
@@ -1062,7 +1162,7 @@ defmodule FlezhaUiWeb.Topology do
       <.fact label="Backpressure">{if @node.backpressure?, do: "yes", else: "no"}</.fact>
     </dl>
 
-    <p :if={is_nil(@node.channel)} class="text-xs text-th-muted">
+    <p :if={is_nil(@node.channel)} class="text-xs topo-muted">
       No channel counters reported for this runner.
     </p>
 
@@ -1103,8 +1203,8 @@ defmodule FlezhaUiWeb.Topology do
   defp fact(assigns) do
     ~H"""
     <div class="flex justify-between gap-3">
-      <dt class="text-th-muted">{@label}</dt>
-      <dd class="text-th-secondary font-mono text-right break-all">{render_slot(@inner_block)}</dd>
+      <dt class="topo-muted">{@label}</dt>
+      <dd class="topo-secondary font-mono text-right break-all">{render_slot(@inner_block)}</dd>
     </div>
     """
   end
@@ -1117,7 +1217,7 @@ defmodule FlezhaUiWeb.Topology do
 
   attr :samples, :list, required: true
 
-  defp sparkline(assigns) do
+  defp pipeline_sparkline(assigns) do
     peak = Enum.max([0 | Enum.flat_map(assigns.samples, &[&1.in, &1.out])])
 
     assigns =
@@ -1134,7 +1234,7 @@ defmodule FlezhaUiWeb.Topology do
         <polyline points={@in_points} class="topo-spark-in" />
         <polyline points={@out_points} class="topo-spark-out" />
       </svg>
-      <p class="text-xs text-th-muted text-right">peak {@peak}/s</p>
+      <p class="text-xs topo-muted text-right">peak {@peak}/s</p>
     </div>
     """
   end
@@ -1153,120 +1253,708 @@ defmodule FlezhaUiWeb.Topology do
     end)
   end
 
-  # ---- Summary rendering ----
+  # ---- Namespace map ----
+
+  @map_w 900
+  @map_src_w 176
+  @map_band_x 236
+  @map_band_w 428
+  @map_out_x 724
+  @map_out_w 176
+  @map_top 34
+  @map_node_h 40
+  @map_node_gap 12
+  @map_band_head 40
+  @map_lane_h 40
+  @map_lane_gap 8
+  @map_band_gap 18
+  @map_lane_cap 12
+  @map_stack_min 4
+  @map_spark_w 72
+  @map_spark_h 18
 
   @doc """
-  A namespace's data plane at a glance. The `:controls` slot is where the
-  dashboard puts its namespace selector; the namespace page leaves it empty.
+  A namespace's data plane as a map, drawn by the console rather than by the
+  relay graph: sources, one band per runner holding the lanes of the relays
+  bound to it, a zone for relays with no runner, outputs, and a dead-letter
+  drain.
+
+  Pure: built from the summary's reads plus one `relay_plugins/2`, so it
+  costs no call per relay. `input` holds `:namespace`, `:rows`
+  (`relay_rows/2`), `:runners` (`[%{id:, pid:}]`), `:plugins` (the
+  `relay_plugins/2` pairs), `:runs` (`%{id => run}`), `:rates` and `:history`
+  (the topology state's), `:parked`, and optionally `:faulted_groups`,
+  `:expanded` (the stack keys opened) and `:selected` (`{kind, id}`).
+
+  Within a band, lanes needing attention come first, then by measured
+  throughput, then by id; more than three relays of one factory collapse into
+  a stack lane, and a band draws at most twelve lanes and then "+N more".
+  Wires animate at their lane's speed bucket, and not at all before two
+  snapshots exist.
   """
-  attr :topology, :any, required: true
-  slot :controls
+  def map(input) do
+    rows = Map.get(input, :rows, [])
+    runners = Map.get(input, :runners, [])
+    plugins = Map.get(input, :plugins, [])
+    rates = Map.get(input, :rates, %{})
+    selected = Map.get(input, :selected)
+    faulted = Map.get(input, :faulted_groups, [])
+    expanded = Map.get(input, :expanded, MapSet.new())
 
-  def fleet_summary(assigns) do
+    bindings = Map.new(rows, &{to_string(&1.id), relay_bindings(plugins, to_string(&1.id))})
+    runner_ids = MapSet.new(runners, &to_string(&1.id))
+
+    {bound, unbound} =
+      Enum.split_with(rows, &(&1[:runner] && MapSet.member?(runner_ids, to_string(&1.runner))))
+
+    by_runner = Enum.group_by(bound, &to_string(&1.runner))
+    lane = &map_lane(&1, input, rates, faulted, bindings)
+
+    sources = map_sources(bindings, selected)
+    outputs = map_outputs(bindings, selected)
+
+    {bands, y} =
+      runners
+      |> Enum.sort_by(&to_string(&1.id))
+      |> Enum.map_reduce(@map_top, fn runner, y ->
+        id = to_string(runner.id)
+
+        lanes =
+          by_runner
+          |> Map.get(id, [])
+          |> Enum.map(lane)
+          |> stack(id, expanded)
+          |> order_lanes()
+
+        {shown, more} = Enum.split(lanes, @map_lane_cap)
+        band = map_band(input.namespace, runner, shown, more, y, selected)
+        {band, y + band.h + @map_band_gap}
+      end)
+
+    zone =
+      case unbound |> Enum.map(lane) |> order_lanes() do
+        [] -> nil
+        lanes -> map_zone(lanes, y)
+      end
+
+    bands_bottom = if zone, do: zone.y + zone.h, else: y - @map_band_gap
+    drain = map_drain(Map.get(input, :parked, 0), length(outputs))
+    all_lanes = Enum.flat_map(bands, & &1.lanes) ++ ((zone && zone.lanes) || [])
+    lanes = Enum.map(all_lanes, &mark_selected(&1, selected))
+
+    height =
+      Enum.max([
+        bands_bottom,
+        column_bottom(sources),
+        column_bottom(outputs ++ List.wrap(drain))
+      ]) + @map_node_gap
+
+    %{
+      namespace: input.namespace,
+      width: @map_w,
+      height: max(height, @map_top + @map_node_h + @map_node_gap),
+      animated?: rates != %{},
+      sources: sources,
+      outputs: outputs,
+      drain: drain,
+      bands:
+        Enum.map(bands, fn band ->
+          %{band | lanes: Enum.map(band.lanes, &mark_selected(&1, selected))}
+        end),
+      zone: zone && %{zone | lanes: Enum.map(zone.lanes, &mark_selected(&1, selected))},
+      wires: map_wires(lanes, sources, outputs, rates)
+    }
+  end
+
+  # A relay's declared plugin bindings, as `{plugin_id, [hook]}`.
+  defp relay_bindings(pairs, relay_id) do
+    for row <- NodeManager.declared_bindings(pairs, relay_id), do: {row.plugin_id, row.hooks}
+  end
+
+  defp bound_on(bindings, hook) do
+    for {plugin_id, hooks} <- bindings, hook in hooks, do: plugin_id
+  end
+
+  defp map_sources(bindings, selected) do
+    plugins =
+      bindings
+      |> Map.values()
+      |> Enum.flat_map(&bound_on(&1, "on_input"))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    ([%{id: "calls", kind: :calls, label: "Calls and sends", sub: "from clients", inspect: nil}] ++
+       Enum.map(
+         plugins,
+         &%{id: "in-#{&1}", kind: :plugin, label: &1, sub: "on_input", inspect: {:plugin, &1}}
+       ))
+    |> place_column(0, @map_src_w, selected)
+  end
+
+  defp map_outputs(bindings, selected) do
+    plugins =
+      bindings
+      |> Map.values()
+      |> Enum.flat_map(&bound_on(&1, "on_output"))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    (Enum.map(
+       plugins,
+       &%{id: "out-#{&1}", kind: :plugin, label: &1, sub: "on_output", inspect: {:plugin, &1}}
+     ) ++
+       [
+         %{
+           id: "stream",
+           kind: :runner_stream,
+           label: "Runner stream",
+           sub: "to its clients",
+           inspect: nil
+         }
+       ])
+    |> place_column(@map_out_x, @map_out_w, selected)
+  end
+
+  defp place_column(nodes, x, w, selected) do
+    nodes
+    |> Enum.with_index()
+    |> Enum.map(fn {node, index} ->
+      Map.merge(node, %{
+        x: x,
+        y: @map_top + index * (@map_node_h + @map_node_gap),
+        w: w,
+        h: @map_node_h,
+        selected?: node.inspect != nil and node.inspect == selected
+      })
+    end)
+  end
+
+  defp column_bottom([]), do: @map_top
+  defp column_bottom(nodes), do: nodes |> Enum.map(&(&1.y + &1.h)) |> Enum.max()
+
+  defp map_drain(parked, _outputs) when parked in [nil, 0], do: nil
+
+  defp map_drain(parked, outputs) do
+    %{
+      id: "drain",
+      kind: :drain,
+      label: "Dead letter",
+      sub: "#{parked} parked",
+      parked: parked,
+      x: @map_out_x,
+      y: @map_top + outputs * (@map_node_h + @map_node_gap) + @map_node_gap,
+      w: @map_out_w,
+      h: @map_node_h,
+      href: ~p"/dlq"
+    }
+  end
+
+  defp map_lane(row, input, rates, faulted, bindings) do
+    id = to_string(row.id)
+    health = NodeManager.row_health(row)
+    said = FlezhaUiWeb.Words.say(:health, health)
+    rate = Map.get(rates, id)
+    unplaced? = is_nil(row[:node])
+    group_faulted? = row[:partition] && row.partition.group in faulted
+    runner = row[:runner] && to_string(row.runner)
+    run = input |> Map.get(:runs, %{}) |> Map.get(id)
+
+    history =
+      input |> Map.get(:history, %{}) |> Map.get(id, []) |> Enum.reverse() |> Enum.map(& &1.in)
+
+    %{
+      key: "relay-#{id}",
+      kind: :relay,
+      id: id,
+      factory: row[:factory] && to_string(row.factory),
+      label: id,
+      state:
+        [
+          (is_nil(runner) or input_runner_missing?(input, runner)) && "waiting for a runner",
+          String.downcase(said.text),
+          unplaced? && "unplaced",
+          group_faulted? && "coverage faulted"
+        ]
+        |> Enum.filter(& &1)
+        |> Enum.join(" · "),
+      sub:
+        [run && to_string(run), row[:factory] && to_string(row.factory)]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join(" · "),
+      health: health,
+      tone: if(unplaced? or group_faulted?, do: worse_tone(said.tone), else: said.tone),
+      shape: said.shape,
+      attention?: health != :healthy or unplaced? or group_faulted? == true,
+      rate: rate,
+      throughput: (rate && rate.in + rate.out) || 0,
+      spark: if(length(history) >= 2, do: spark_points(history, @map_spark_w, @map_spark_h)),
+      inputs: bound_on(Map.get(bindings, id, []), "on_input"),
+      outputs: bound_on(Map.get(bindings, id, []), "on_output"),
+      bound?: runner != nil and not input_runner_missing?(input, runner),
+      inspect: {:relay, id},
+      members: []
+    }
+  end
+
+  defp input_runner_missing?(input, runner),
+    do: not Enum.any?(Map.get(input, :runners, []), &(to_string(&1.id) == runner))
+
+  defp worse_tone(:positive), do: :warning
+  defp worse_tone(tone), do: tone
+
+  # More than three relays of one factory share one lane, until opened.
+  defp stack(lanes, runner, expanded) do
+    lanes
+    |> Enum.group_by(& &1.factory)
+    |> Enum.flat_map(fn
+      {factory, members} when length(members) >= @map_stack_min and not is_nil(factory) ->
+        key = "#{runner}/#{factory}"
+
+        if MapSet.member?(expanded, key), do: members, else: [stack_lane(key, factory, members)]
+
+      {_factory, members} ->
+        members
+    end)
+  end
+
+  defp stack_lane(key, factory, members) do
+    counts = members |> Enum.map(& &1.health) |> Enum.frequencies()
+    worst = members |> Enum.map(& &1.tone) |> FlezhaUiWeb.Words.worst()
+    rate_in = members |> Enum.map(&((&1.rate && &1.rate.in) || 0)) |> Enum.sum()
+    rate_out = members |> Enum.map(&((&1.rate && &1.rate.out) || 0)) |> Enum.sum()
+    any_rate? = Enum.any?(members, & &1.rate)
+
+    %{
+      key: "stack-#{key}",
+      kind: :stack,
+      id: key,
+      factory: factory,
+      label: "#{factory} ×#{length(members)}",
+      state: "stack, open to show its relays",
+      sub:
+        counts
+        |> Enum.sort_by(fn {health, _} -> health end)
+        |> Enum.map_join(" · ", fn {health, count} ->
+          "#{count} #{String.downcase(FlezhaUiWeb.Words.text(:health, health))}"
+        end),
+      health: if(worst == :positive, do: :healthy, else: nil),
+      tone: worst,
+      shape: if(worst == :positive, do: "dot", else: "triangle"),
+      attention?: Enum.any?(members, & &1.attention?),
+      rate:
+        if(any_rate?, do: %{in: Float.round(rate_in / 1, 1), out: Float.round(rate_out / 1, 1)}),
+      throughput: rate_in + rate_out,
+      spark: nil,
+      inputs: members |> Enum.flat_map(& &1.inputs) |> Enum.uniq(),
+      outputs: members |> Enum.flat_map(& &1.outputs) |> Enum.uniq(),
+      bound?: true,
+      inspect: nil,
+      members: Enum.map(members, & &1.id)
+    }
+  end
+
+  defp order_lanes(lanes) do
+    Enum.sort_by(lanes, &{if(&1.attention?, do: 0, else: 1), -&1.throughput, &1.id})
+  end
+
+  defp map_band(namespace, runner, lanes, more, y, selected) do
+    id = to_string(runner.id)
+    head = y + @map_band_head
+
+    placed =
+      lanes
+      |> Enum.with_index()
+      |> Enum.map(fn {lane, index} ->
+        Map.merge(lane, %{
+          x: @map_band_x + 12,
+          y: head + index * (@map_lane_h + @map_lane_gap),
+          w: @map_band_w - 24,
+          h: @map_lane_h
+        })
+      end)
+
+    rows = length(placed) + if(more == [], do: 0, else: 1)
+
+    %{
+      id: id,
+      short: short_id(id),
+      pid: Map.get(runner, :pid),
+      x: @map_band_x,
+      y: y,
+      w: @map_band_w,
+      h: @map_band_head + max(rows, 1) * (@map_lane_h + @map_lane_gap) + 4,
+      lanes: placed,
+      more:
+        if more != [] do
+          %{
+            count: Enum.reduce(more, 0, &(&2 + max(length(&1.members), 1))),
+            href: ~p"/namespaces/#{namespace}/relays?#{[runner: id]}",
+            y: head + length(placed) * (@map_lane_h + @map_lane_gap) + 24
+          }
+        end,
+      selected?: selected == {:runner, id}
+    }
+  end
+
+  defp map_zone(lanes, y) do
+    head = y + 30
+
+    placed =
+      lanes
+      |> Enum.with_index()
+      |> Enum.map(fn {lane, index} ->
+        Map.merge(lane, %{
+          x: @map_band_x + 12,
+          y: head + index * (@map_lane_h + @map_lane_gap),
+          w: @map_band_w - 24,
+          h: @map_lane_h
+        })
+      end)
+
+    %{
+      x: @map_band_x,
+      y: y,
+      w: @map_band_w,
+      h: 30 + length(placed) * (@map_lane_h + @map_lane_gap) + 4,
+      lanes: placed
+    }
+  end
+
+  defp mark_selected(lane, selected),
+    do: Map.put(lane, :selected?, lane.inspect != nil and lane.inspect == selected)
+
+  # Each lane is wired from the sources it is bound to — calls and sends when
+  # no input plugin feeds it — and to its outputs, the runner stream when no
+  # output plugin carries it. A lane with no runner has no stream to reach.
+  defp map_wires(lanes, sources, outputs, rates) do
+    source = Map.new(sources, &{&1.id, &1})
+    output = Map.new(outputs, &{&1.id, &1})
+
+    Enum.flat_map(lanes, fn lane ->
+      ins = if lane.inputs == [], do: ["calls"], else: Enum.map(lane.inputs, &"in-#{&1}")
+
+      outs =
+        if lane.outputs == [],
+          do: if(lane.bound?, do: ["stream"], else: []),
+          else: Enum.map(lane.outputs, &"out-#{&1}")
+
+      in_bucket = if rates == %{}, do: :idle, else: speed_bucket(lane.rate && lane.rate.in)
+      out_bucket = if rates == %{}, do: :idle, else: speed_bucket(lane.rate && lane.rate.out)
+
+      Enum.map(ins, fn id ->
+        node = Map.fetch!(source, id)
+
+        wire(
+          "#{id}->#{lane.key}",
+          node.x + node.w,
+          node.y + div(node.h, 2),
+          lane.x,
+          lane.y + div(lane.h, 2),
+          in_bucket
+        )
+      end) ++
+        Enum.map(outs, fn id ->
+          node = Map.fetch!(output, id)
+
+          wire(
+            "#{lane.key}->#{id}",
+            lane.x + lane.w,
+            lane.y + div(lane.h, 2),
+            node.x,
+            node.y + div(node.h, 2),
+            out_bucket
+          )
+        end)
+    end)
+  end
+
+  defp wire(id, x1, y1, x2, y2, bucket) do
+    mid = div(x1 + x2, 2)
+    %{id: id, d: "M#{x1},#{y1} C#{mid},#{y1} #{mid},#{y2} #{x2},#{y2}", bucket: bucket}
+  end
+
+  # A runner id reads by its last seven characters past sixteen, as every
+  # identifier does.
+  defp short_id(id) do
+    if String.length(id) > 16, do: "…" <> String.slice(id, -7, 7), else: id
+  end
+
+  # ---- Namespace map rendering ----
+
+  @doc """
+  The namespace map, server-rendered as SVG on the `fui-map-*` recipes. Every
+  lane, runner band heading and plugin node is a control: activating one
+  sends `inspect` with its kind and id, and a stack lane sends `map_expand`.
+  """
+  attr :map, :map, required: true
+
+  def namespace_map(assigns) do
     ~H"""
-    <.graph_frame
-      topology={@topology}
-      kind={:summary}
-      testid="topology-summary"
-      icon="hero-signal"
-      title="Data plane"
-    >
-      <:header :if={@controls != []}>{render_slot(@controls)}</:header>
-
-      <div :if={@topology.state == :empty} data-testid="topology-empty" class="py-8 text-center">
-        <p class="text-sm text-th-muted">Nothing running in {@topology.namespace} yet.</p>
+    <div class="fui-map" data-testid="namespace-map">
+      <div class="fui-map-head">
+        <p class="fui-eyebrow">Data plane</p>
+        <p class="fui-map-legend">
+          <span>Lanes needing attention come first</span>
+          <span>
+            {if @map.animated?,
+              do: "Dots move at the measured rate",
+              else: "Rates appear after the second reading"}
+          </span>
+          <span :if={@map.animated?} class="fui-live">Live</span>
+        </p>
       </div>
+      <div class="fui-map-scroll">
+        <svg
+          class="fui-map-svg"
+          viewBox={"0 0 #{@map.width} #{@map.height}"}
+          role="group"
+          aria-label={"Data plane of #{@map.namespace}"}
+        >
+          <text class="fui-map-col" x="0" y="14">Sources</text>
+          <text class="fui-map-col" x={band_x()} y="14">Runners and their relays</text>
+          <text class="fui-map-col" x={out_x()} y="14">Outputs</text>
 
-      <div :if={@topology.state == :ok} class="space-y-4">
-        <dl class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <.stat boxed testid="summary-relays" label="Relays">
-            {@topology.relay_count}
-          </.stat>
-          <.stat boxed testid="summary-runners" label="Runners">{@topology.runner_count}</.stat>
-          <.stat
-            boxed
-            testid="summary-backpressure"
-            label="Backpressured"
-            tone={alert_tone(@topology.backpressured != [])}
+          <g>
+            <path
+              :for={wire <- @map.wires}
+              d={wire.d}
+              class={["fui-map-wire", wire.bucket != :idle && "topo-flow-#{wire.bucket}"]}
+              data-testid={"map-wire-#{wire.id}"}
+              data-bucket={wire.bucket}
+            />
+          </g>
+
+          <.map_node :for={node <- @map.sources ++ @map.outputs} node={node} />
+
+          <.link
+            :if={@map.drain}
+            navigate={@map.drain.href}
+            class="fui-map-drain"
+            data-testid="map-drain"
+            aria-label={"Dead letter: #{@map.drain.sub}"}
           >
-            {length(@topology.backpressured)}
-          </.stat>
-          <.stat boxed testid="summary-parked" label="Parked" tone={alert_tone(@topology.parked > 0)}>
-            {@topology.parked}
-          </.stat>
-        </dl>
+            <rect x={@map.drain.x} y={@map.drain.y} width={@map.drain.w} height={@map.drain.h} rx="8" />
+            <text x={@map.drain.x + 12} y={@map.drain.y + 17}>{@map.drain.label}</text>
+            <text class="fui-map-sub" x={@map.drain.x + 12} y={@map.drain.y + 32}>
+              {@map.drain.sub}
+            </text>
+          </.link>
 
-        <div :if={@topology.health != []} data-testid="summary-health">
-          <h3 class="flz-label mb-2">Health</h3>
-          <div class="flex flex-wrap gap-2">
+          <g :for={band <- @map.bands} class="fui-map-band" data-testid={"map-band-#{band.id}"}>
+            <rect
+              class="fui-map-band-box"
+              x={band.x}
+              y={band.y}
+              width={band.w}
+              height={band.h}
+              rx="10"
+            />
+            <g
+              class="fui-map-band-head fui-map-hit"
+              role="button"
+              tabindex="0"
+              aria-pressed={to_string(band.selected?)}
+              aria-label={"Runner #{band.id}, pid #{band.pid || "unknown"}"}
+              phx-click="inspect"
+              phx-value-kind="runner"
+              phx-value-id={band.id}
+              phx-keydown="inspect"
+              phx-key="Enter"
+              data-testid={"map-runner-#{band.id}"}
+            >
+              <rect
+                class="fui-map-hitbox"
+                x={band.x + 6}
+                y={band.y + 5}
+                width={band.w - 12}
+                height="28"
+                rx="6"
+              />
+              <text class="fui-map-band-title" x={band.x + 14} y={band.y + 24}>{band.short}</text>
+              <text class="fui-map-sub" x={band.x + 140} y={band.y + 24}>
+                {if band.pid, do: "pid #{band.pid} · ", else: ""}{FlezhaUiWeb.Words.count(
+                  length(band.lanes),
+                  "lane"
+                )}
+              </text>
+            </g>
+            <.map_lane :for={lane <- band.lanes} lane={lane} />
             <.link
-              :for={bucket <- @topology.health}
-              navigate={bucket.href}
-              data-testid={"summary-health-#{bucket.health}"}
-              class="hover:opacity-80 transition-opacity"
+              :if={band.more}
+              navigate={band.more.href}
+              class="fui-map-more"
+              data-testid={"map-more-#{band.id}"}
             >
-              <.health_badge health={bucket.health} count={bucket.count} />
+              <text x={band.x + 14} y={band.more.y}>+{band.more.count} more</text>
             </.link>
-          </div>
-        </div>
+          </g>
 
-        <div :if={@topology.attention != []} data-testid="summary-attention">
-          <h3 class="flz-label mb-2">
-            Needs attention ({length(@topology.attention)})
-          </h3>
-          <ul class="divide-y divide-brd-subtle">
-            <li
-              :for={row <- @topology.attention}
-              data-testid={"summary-attention-#{row.id}"}
-              class="py-2 flex items-center gap-3 text-xs"
-            >
-              <.link
-                navigate={row.href}
-                class="font-mono truncate hover:underline"
-              >
-                {row.id}
-              </.link>
-              <.health_badge health={row.health} />
-              <span :if={row.unplaced?} class="text-warning">unplaced</span>
-              <span :if={row.faulted_group} class="text-danger-text">
-                group {row.faulted_group} coverage faulted
-              </span>
-            </li>
-          </ul>
-        </div>
-
-        <div>
-          <h3 class="flz-label mb-2">Busiest relays</h3>
-          <p
-            :if={@topology.busiest == []}
-            data-testid="summary-busiest-empty"
-            class="text-xs text-th-muted"
-          >
-            No throughput measured yet — rates need two ticks.
-          </p>
-          <ul
-            :if={@topology.busiest != []}
-            data-testid="summary-busiest"
-            class="divide-y divide-brd-subtle"
-          >
-            <li :for={row <- @topology.busiest} class="py-2 flex items-center gap-3 text-xs">
-              <.link
-                navigate={row.href}
-                data-testid={"summary-relay-#{row.id}"}
-                class="font-mono truncate hover:underline"
-              >
-                {row.id}
-              </.link>
-              <span class="ml-auto font-mono text-th-secondary shrink-0">
-                {row.in}/s in · {row.out}/s out
-              </span>
-            </li>
-          </ul>
-        </div>
+          <g :if={@map.zone} class="fui-map-unbound" data-testid="map-unbound">
+            <rect x={@map.zone.x} y={@map.zone.y} width={@map.zone.w} height={@map.zone.h} rx="10" />
+            <text class="fui-map-zone-label" x={@map.zone.x + 14} y={@map.zone.y + 20}>
+              Waiting for a runner
+            </text>
+            <.map_lane :for={lane <- @map.zone.lanes} lane={lane} />
+          </g>
+        </svg>
       </div>
-    </.graph_frame>
+    </div>
     """
   end
+
+  defp band_x, do: @map_band_x
+  defp out_x, do: @map_out_x
+
+  attr :node, :map, required: true
+
+  defp map_node(%{node: %{inspect: {kind, id}}} = assigns) do
+    assigns = assign(assigns, kind: kind, id: id)
+
+    ~H"""
+    <g
+      class="fui-map-node fui-map-hit"
+      role="button"
+      tabindex="0"
+      aria-pressed={to_string(@node.selected?)}
+      aria-label={"Plugin #{@node.label}, #{@node.sub}"}
+      phx-click="inspect"
+      phx-value-kind={@kind}
+      phx-value-id={@id}
+      phx-keydown="inspect"
+      phx-key="Enter"
+      data-testid={"map-node-#{@node.id}"}
+    >
+      <.map_node_body node={@node} />
+    </g>
+    """
+  end
+
+  defp map_node(assigns) do
+    ~H"""
+    <g class="fui-map-node" data-testid={"map-node-#{@node.id}"}>
+      <.map_node_body node={@node} />
+    </g>
+    """
+  end
+
+  attr :node, :map, required: true
+
+  defp map_node_body(assigns) do
+    ~H"""
+    <rect x={@node.x} y={@node.y} width={@node.w} height={@node.h} rx="8" />
+    <svg x={@node.x} y={@node.y} width={@node.w - 6} height={@node.h} overflow="hidden">
+      <text class={@node.kind == :plugin && "fui-map-mono"} x="12" y="17">{@node.label}</text>
+      <text class="fui-map-sub" x="12" y="32">{@node.sub}</text>
+    </svg>
+    """
+  end
+
+  attr :lane, :map, required: true
+
+  defp map_lane(assigns) do
+    ~H"""
+    <g
+      class="fui-map-lane fui-map-hit"
+      role="button"
+      tabindex="0"
+      data-tone={@lane.tone}
+      data-kind={@lane.kind}
+      aria-pressed={to_string(@lane.selected?)}
+      aria-label={lane_name(@lane)}
+      phx-click={if @lane.kind == :stack, do: "map_expand", else: "inspect"}
+      phx-value-kind="relay"
+      phx-value-id={@lane.id}
+      phx-keydown={if @lane.kind == :stack, do: "map_expand", else: "inspect"}
+      phx-key="Enter"
+      data-testid={"map-lane-#{@lane.id}"}
+    >
+      <rect class="fui-map-lane-box" x={@lane.x} y={@lane.y} width={@lane.w} height={@lane.h} rx="7" />
+      <.map_glyph shape={@lane.shape} cx={@lane.x + 14} cy={@lane.y + 13} />
+      <title>{lane_name(@lane)}</title>
+      <svg x={@lane.x} y={@lane.y} width="226" height={@lane.h} overflow="hidden">
+        <text class="fui-map-mono" x="26" y="17">{@lane.label}</text>
+        <text class="fui-map-sub" x="26" y="32">
+          <tspan class="fui-map-health">{@lane.state}</tspan>{if @lane.sub != "",
+            do: " · " <> @lane.sub}
+        </text>
+      </svg>
+      <polyline
+        :if={@lane.spark}
+        class="fui-map-spark"
+        transform={"translate(#{@lane.x + 236}, #{@lane.y + 11})"}
+        points={@lane.spark}
+        data-testid={"map-spark-#{@lane.id}"}
+      />
+      <text
+        :if={@lane.rate}
+        class="fui-map-rate"
+        x={@lane.x + @lane.w - 12}
+        y={@lane.y + 24}
+        text-anchor="end"
+        data-testid={"map-rate-#{@lane.id}"}
+      >
+        {@lane.rate.in}/s
+      </text>
+    </g>
+    """
+  end
+
+  defp lane_name(%{kind: :stack} = lane),
+    do: "#{lane.label}: #{lane.sub}. Expand to show its relays"
+
+  defp lane_name(lane),
+    do:
+      "Relay #{lane.id}, #{lane.state}, #{lane.sub}" <>
+        if(lane.rate, do: ", #{lane.rate.in} per second in", else: "")
+
+  attr :shape, :string, required: true
+  attr :cx, :integer, required: true
+  attr :cy, :integer, required: true
+
+  # The same shapes the state badges use, drawn in SVG.
+  defp map_glyph(%{shape: "dot"} = assigns),
+    do: ~H|<circle class="fui-map-glyph" cx={@cx} cy={@cy} r="4" />|
+
+  defp map_glyph(%{shape: "ring"} = assigns),
+    do: ~H|<circle class="fui-map-glyph-ring" cx={@cx} cy={@cy} r="3.5" />|
+
+  defp map_glyph(%{shape: "triangle"} = assigns),
+    do: ~H|<path
+  class="fui-map-glyph"
+  d={"M#{@cx},#{@cy - 5} L#{@cx + 5},#{@cy + 4} L#{@cx - 5},#{@cy + 4} Z"}
+/>|
+
+  defp map_glyph(%{shape: "diamond"} = assigns),
+    do: ~H|<path
+  class="fui-map-glyph"
+  d={"M#{@cx},#{@cy - 5} L#{@cx + 5},#{@cy} L#{@cx},#{@cy + 5} L#{@cx - 5},#{@cy} Z"}
+/>|
+
+  defp map_glyph(%{shape: "square"} = assigns),
+    do: ~H|<rect class="fui-map-glyph" x={@cx - 4} y={@cy - 4} width="8" height="8" rx="1" />|
+
+  defp map_glyph(%{shape: "cross"} = assigns),
+    do: ~H|<path
+  class="fui-map-glyph-ring"
+  d={"M#{@cx - 4},#{@cy - 4} L#{@cx + 4},#{@cy + 4} M#{@cx + 4},#{@cy - 4} L#{@cx - 4},#{@cy + 4}"}
+  stroke-width="2.5"
+/>|
+
+  defp map_glyph(%{shape: "bars"} = assigns) do
+    ~H"""
+    <rect class="fui-map-glyph" x={@cx - 4} y={@cy - 4} width="3" height="8" />
+    <rect class="fui-map-glyph" x={@cx + 1} y={@cy - 4} width="3" height="8" />
+    """
+  end
+
+  defp map_glyph(%{shape: "half"} = assigns) do
+    ~H"""
+    <circle class="fui-map-glyph-ring" cx={@cx} cy={@cy} r="4" />
+    <path class="fui-map-glyph" d={"M#{@cx},#{@cy - 4} A4,4 0 0 0 #{@cx},#{@cy + 4} Z"} />
+    """
+  end
+
+  defp map_glyph(assigns), do: ~H|<circle class="fui-map-glyph" cx={@cx} cy={@cy} r="4" />|
 
   # The notices both graphs carry: clock skew, a stall verdict, and — when
   # there is no verdict because nobody was allowed to look — why. One component
@@ -1282,10 +1970,9 @@ defmodule FlezhaUiWeb.Topology do
 
     <.notice :if={@topology.stall} kind={:error} testid="topology-stall">
       Data-plane stall localized at
-      <.mono>{Format.humanize(@topology.stall.layer)}</.mono>
+      <span class="font-mono">{Format.humanize(@topology.stall.layer)}</span>
       <span :if={@topology.stall.subject}>
-        on
-        <.mono>{@topology.stall.subject}</.mono>
+        on <span class="font-mono">{@topology.stall.subject}</span>
       </span>
     </.notice>
 
@@ -1309,9 +1996,4 @@ defmodule FlezhaUiWeb.Topology do
     </.notice>
     """
   end
-
-  # A summary figure the operator should look at reads in the warning colour;
-  # every other one keeps the stat's own ink.
-  defp alert_tone(true), do: "text-warning"
-  defp alert_tone(false), do: nil
 end

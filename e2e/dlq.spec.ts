@@ -6,7 +6,7 @@ import {
   stopRelay,
   uniqueId,
   visitLive,
-  confirmEach,
+  menuAction,
   type Page,
 } from './fixtures';
 
@@ -24,6 +24,16 @@ const TASKLET = 'poison_probe_tasklet';
 
 function statTerm(page: Page, relay: string) {
   return page.getByTestId('dlq-stats').getByText(`${relay}/${TASKLET}`, { exact: true });
+}
+
+/** The ref of each entry `relay`'s group still lists. */
+async function refs(page: Page, relay: string): Promise<string[]> {
+  return page
+    .getByTestId(`dlq-group-${relay}-${TASKLET}`)
+    .locator('[data-testid^="dlq-row-"]')
+    .evaluateAll((rows) =>
+      rows.map((row) => (row.getAttribute('data-testid') ?? '').slice('dlq-row-'.length)),
+    );
 }
 
 /** Starts a poison probe relay, parks one entry in it, and runs `body`. */
@@ -53,12 +63,11 @@ async function withParked(
   } finally {
     // Only this relay's group is ever touched: the queue is shared.
     await visitLive(page, '/dlq');
-    await confirmEach(
-      page,
-      page.getByTestId(`dlq-group-${relay}-${TASKLET}`).locator('[data-testid^="dlq-drop-"]'),
-      'dlq-confirm-submit',
-    );
-    await visitLive(page, '/namespaces/default');
+    for (const ref of await refs(page, relay)) {
+      await menuAction(page, `dlq-menu-${ref}`, `dlq-drop-${ref}`);
+      await page.getByTestId('dlq-confirm-submit').click();
+      await expect(page.getByTestId(`dlq-row-${ref}`)).toHaveCount(0);
+    }
     await stopRelay(page, relay);
   }
 }
@@ -80,7 +89,7 @@ test.describe('Dead-letter queue', () => {
     await withParked(page, async (relay) => {
       await page.getByTestId('dlq-filter').fill('no_such_relay_class');
       await expect(page.getByTestId('dlq-empty')).toContainText(
-        'No parked entries for that relay class',
+        'None is parked for that relay class.',
       );
       await expect(page.getByTestId(`dlq-group-${relay}-${TASKLET}`)).toHaveCount(0);
 
@@ -90,14 +99,14 @@ test.describe('Dead-letter queue', () => {
     });
   });
 
-  test('inspecting an entry shows its payload, and the dialog closes', async ({ page }) => {
+  test('inspecting an entry shows its payload, and the drawer closes', async ({ page }) => {
     await withParked(page, async (_relay, ref) => {
-      await page.getByTestId(`dlq-inspect-${ref}`).click();
-      await expect(page.getByTestId('dlq-inspect-modal')).toBeVisible();
-      await expect(page.getByTestId('dlq-payload')).toContainText('poison');
+      await menuAction(page, `dlq-menu-${ref}`, `dlq-inspect-${ref}`);
+      await expect(page.getByTestId('inspector-entry')).toBeVisible();
+      await expect(page.getByTestId('inspector-payload')).toContainText('poison');
 
-      await page.getByTestId('dlq-inspect-close').click();
-      await expect(page.getByTestId('dlq-inspect-modal')).toHaveCount(0);
+      await page.getByTestId('inspector-close').click();
+      await expect(page.getByTestId('inspector-entry')).toHaveCount(0);
     });
   });
 
@@ -105,14 +114,14 @@ test.describe('Dead-letter queue', () => {
     page,
   }) => {
     await withParked(page, async (_relay, ref) => {
-      await page.getByTestId(`dlq-replay-${ref}`).click();
+      await menuAction(page, `dlq-menu-${ref}`, `dlq-replay-${ref}`);
       await expect(page.getByTestId('dlq-confirm-modal')).toContainText('Re-send');
       await page.getByTestId('dlq-confirm-cancel').click();
       await expect(page.getByTestId('dlq-confirm-modal')).toHaveCount(0);
       await expect(page.getByTestId('replay-pending')).toHaveCount(0);
       await expect(page.getByTestId(`dlq-row-${ref}`)).toBeVisible();
 
-      await page.getByTestId(`dlq-replay-${ref}`).click();
+      await menuAction(page, `dlq-menu-${ref}`, `dlq-replay-${ref}`);
       await page.getByTestId('dlq-confirm-submit').click();
       await expect(page.getByTestId('replay-reparked')).toContainText('generation 2', {
         timeout: 30_000,
@@ -122,18 +131,18 @@ test.describe('Dead-letter queue', () => {
 
   test('a drop is confirm-gated, and confirming removes the entry for good', async ({ page }) => {
     await withParked(page, async (relay, ref) => {
-      await page.getByTestId(`dlq-drop-${ref}`).click();
+      await menuAction(page, `dlq-menu-${ref}`, `dlq-drop-${ref}`);
       await expect(page.getByTestId('dlq-confirm-modal')).toContainText('permanent');
       await page.getByTestId('dlq-confirm-cancel').click();
       await expect(page.getByTestId('dlq-confirm-modal')).toHaveCount(0);
       await expect(page.getByTestId(`dlq-row-${ref}`)).toBeVisible();
       await expect(page.getByTestId(`dlq-group-count-${relay}-${TASKLET}`)).toHaveText('1 parked');
 
-      await page.getByTestId(`dlq-drop-${ref}`).click();
+      await menuAction(page, `dlq-menu-${ref}`, `dlq-drop-${ref}`);
       await page.getByTestId('dlq-confirm-submit').click();
       await expect(page.getByTestId(`dlq-row-${ref}`)).toHaveCount(0);
       await expect(page.getByTestId('dlq-empty')).toContainText(
-        'No parked entries for that relay class',
+        'None is parked for that relay class.',
       );
 
       // An emptied tasklet leaves the statistics with its last entry.

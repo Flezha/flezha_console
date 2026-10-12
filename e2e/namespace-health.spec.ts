@@ -1,7 +1,7 @@
 import { test, expect, expectHealthBadges, healthBadge } from './fixtures';
 
 /**
- * Relay health on the namespace screen.
+ * Relay health on a namespace's relays screen.
  *
  * A partition group with broken key-range coverage cannot be arranged against
  * a live controller — the UI cannot start partitioned members, and a healthy
@@ -11,19 +11,19 @@ import { test, expect, expectHealthBadges, healthBadge } from './fixtures';
  */
 test.describe('Namespace relay health', () => {
   test.beforeEach(async ({ live }) => {
-    await live('/namespaces/default');
+    await live('/namespaces/default/relays');
   });
 
   test('every relay row carries a health the loop classified', async ({ page }) => {
-    await expect(page.getByTestId('relays-table')).toBeVisible();
+    await expect(page.getByTestId('relays-index-table')).toBeVisible();
 
     // Never blank, and never silently absent: an unobserved row reads
     // `unknown` rather than defaulting to healthy.
-    await expectHealthBadges(page, 'relay-row-');
+    await expectHealthBadges(page, 'relay-index-row-');
   });
 
   test('rows carry the node, factory and runner from the same registry read', async ({ page }) => {
-    const row = page.getByTestId('relay-row-testnet_store_1');
+    const row = page.getByTestId('relay-index-row-testnet_store_1');
 
     await expect(row).toContainText('store_input');
     await expect(row).toContainText('flezha@');

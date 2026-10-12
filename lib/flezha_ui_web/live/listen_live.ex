@@ -46,7 +46,7 @@ defmodule FlezhaUiWeb.ListenLive do
   end
 
   @impl true
-  def handle_event("switch_direction", %{"direction" => direction}, socket)
+  def handle_event("switch_direction", %{"value" => direction}, socket)
       when direction in ~w(input output) do
     {:noreply, socket |> assign(direction: direction, messages: [], message_count: 0) |> listen()}
   end

@@ -17,7 +17,8 @@ defmodule FlezhaUiWeb.Router do
     plug :accepts, ["json"]
   end
 
-  # Enable LiveDashboard and Swoosh mailbox preview in development
+  # Enable LiveDashboard, the Swoosh mailbox preview and the component kit
+  # page in development
   if Application.compile_env(:flezha_ui, :dev_routes) do
     import Phoenix.LiveDashboard.Router
 
@@ -26,6 +27,18 @@ defmodule FlezhaUiWeb.Router do
 
       live_dashboard "/dashboard", metrics: FlezhaUiWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview
+    end
+
+    scope "/dev", FlezhaUiWeb do
+      pipe_through [:browser, :require_authenticated_user]
+
+      live_session :dev_kit,
+        on_mount: [
+          {FlezhaUiWeb.UserAuth, :ensure_authenticated},
+          {FlezhaUiWeb.Layouts, :current_path}
+        ] do
+        live "/kit", KitLive
+      end
     end
   end
 
@@ -52,6 +65,7 @@ defmodule FlezhaUiWeb.Router do
   scope "/", FlezhaUiWeb do
     pipe_through [:browser, :require_authenticated_user]
 
+    get "/", LandingController, :show
     get "/users/settings", UserSettingsController, :edit
     put "/users/settings", UserSettingsController, :update
     get "/users/settings/confirm-email/:token", UserSettingsController, :confirm_email
@@ -61,7 +75,6 @@ defmodule FlezhaUiWeb.Router do
         {FlezhaUiWeb.UserAuth, :ensure_authenticated},
         {FlezhaUiWeb.Layouts, :current_path}
       ] do
-      live "/", DashboardLive
       live "/namespaces", NamespaceLive.Index
       live "/relays", RelayIndexLive
       live "/namespaces/:ns", NamespaceLive.Show
@@ -79,6 +92,7 @@ defmodule FlezhaUiWeb.Router do
       live "/plugins", PluginLive
       live "/cluster", ClusterLive
       live "/schedules", ScheduleLive
+      live "/problems", ProblemsLive
       live "/dlq", DlqLive
       live "/audit", AuditLive
     end

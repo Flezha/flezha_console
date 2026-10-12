@@ -46,6 +46,8 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       {:ok, _view, html} = live(conn, ~p"/plugins")
 
       assert html =~ ~s(data-testid="plugins-empty")
+      assert html =~ ~s(data-testid="enable-plugin-empty-btn")
+      assert html =~ ~s(data-testid="scope-switch")
       refute html =~ ~s(data-testid="plugin-row-)
     end
 
@@ -54,14 +56,34 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       node: node
     } do
       with_namespaces(node, %{"default" => {:ok, [plugin("plug_1")]}})
+      describe_provider(node, "relay_stdout", :relay, [:on_output])
 
       {:ok, view, _html} = live(conn, ~p"/plugins")
 
       row = view |> element(~s([data-testid="plugin-row-plug_1"])) |> render()
-      assert row =~ "std_out"
+      assert row =~ ~s(data-testid="plugin-menu-plug_1")
+
+      assert view |> element(~s([data-testid="plugin-description-plug_1"])) |> render() =~
+               "relay_stdout options"
+
+      assert row =~ "Relay Stdout"
       assert row =~ "default"
       assert row =~ "relay_a"
       assert row =~ "on_output"
+    end
+
+    test "a plugin opens in the inspector with its provider's help", %{conn: conn, node: node} do
+      with_namespaces(node, %{"default" => {:ok, [plugin("plug_1")]}})
+      describe_provider(node, "relay_stdout", :relay, [:on_output])
+
+      {:ok, view, _html} = live(conn, ~p"/plugins")
+      view |> element(~s([data-testid="plugin-inspect-plug_1"])) |> render_click()
+      html = render(view)
+
+      assert html =~ ~s(data-testid="inspector-plugin")
+
+      assert view |> element(~s([data-testid="inspector-provider-help"])) |> render() =~
+               "relay_stdout options"
     end
 
     test "reads each reachable namespace with its own call", %{conn: conn, node: node} do
@@ -135,10 +157,15 @@ defmodule FlezhaUiWeb.PluginLiveTest do
          }}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/plugins")
+      {:ok, view, _html} = live(conn, ~p"/plugins")
+      html = open_section(view, "providers")
 
+      assert html =~ ~s(data-testid="providers-panel")
       assert html =~ ~s(data-testid="provider-relay_stdout")
       assert html =~ ~s(data-testid="provider-relay_websocket")
+
+      assert view |> element(~s([data-testid="provider-module-relay_stdout"])) |> render() =~
+               "Flezha.Plugin.Provider.StdOut"
     end
 
     test "a refused provider listing is stated", %{conn: conn, node: node} do
@@ -148,7 +175,8 @@ defmodule FlezhaUiWeb.PluginLiveTest do
         FakeController.error("authz.role_insufficient")
       )
 
-      {:ok, _view, html} = live(conn, ~p"/plugins")
+      {:ok, view, _html} = live(conn, ~p"/plugins")
+      html = open_section(view, "providers")
 
       assert html =~ "authz.role_insufficient"
     end
@@ -220,7 +248,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       assert html =~ ~s(data-testid="installed-kafka")
       assert html =~ "1.2.0"
-      assert view |> element(~s([data-testid="installed-status-s3"])) |> render() =~ "refused"
+      assert view |> element(~s([data-testid="installed-status-s3"])) |> render() =~ "Refused"
       assert html =~ "digest mismatch"
     end
 
@@ -286,6 +314,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       html = open_enable(view)
 
+      assert html =~ ~s(data-testid="plugin-steps")
       assert html =~ ~s(data-testid="provider-btn-relay_stdout")
       assert length(Regex.scan(~r/data-testid="provider-btn-/, html)) == 1
     end
@@ -315,7 +344,8 @@ defmodule FlezhaUiWeb.PluginLiveTest do
     test "the provider listing states how many packages were refused", %{conn: conn, node: node} do
       providers(node, [provider("relay_stdout", :relay)], 2)
 
-      {:ok, _view, html} = live(conn, ~p"/plugins")
+      {:ok, view, _html} = live(conn, ~p"/plugins")
+      html = open_section(view, "providers")
 
       assert html =~ ~s(data-testid="providers-refused")
       assert html =~ "refused 2 installed packages"
@@ -725,7 +755,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
     end
 
     defp option(name), do: ~s([data-testid="input-option-#{name}"])
-    defp option_error(name), do: option(name) <> " ~ .flz-field-error"
+    defp option_error(name), do: option(name) <> " ~ .fui-error"
 
     defp enable(view, opts, extra \\ %{}) do
       render_submit(view, "plugin_form_submit", %{
@@ -739,7 +769,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       assert has_element?(view, option("url") <> ~s([type="text"]))
       assert html =~ "url *"
-      assert has_element?(view, option("url") <> " ~ .flz-field-hint", "Where to send")
+      assert has_element?(view, option("url") <> " ~ .fui-hint", "Where to send")
 
       assert has_element?(
                view,
@@ -749,7 +779,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       assert has_element?(
                view,
-               option("timeout_ms") <> " ~ .flz-field-hint",
+               option("timeout_ms") <> " ~ .fui-hint",
                "Budget for one request"
              )
 
@@ -764,11 +794,11 @@ defmodule FlezhaUiWeb.PluginLiveTest do
              )
 
       assert has_element?(view, option("channel") <> ~s([type="text"][placeholder="a, b"]))
-      assert has_element?(view, option("channel") <> " ~ .flz-field-hint", "comma-separated")
+      assert has_element?(view, option("channel") <> " ~ .fui-hint", "comma-separated")
 
       assert has_element?(
                view,
-               option("channel_out") <> " ~ .flz-field-hint",
+               option("channel_out") <> " ~ .fui-hint",
                ~r/^\s*Names, comma-separated\s*$/
              )
 
@@ -882,7 +912,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       enable(view, %{"url" => "http://hooks.test"})
 
       assert has_element?(view, ~s([data-testid="attach-error"]), "plugin.unknown_options")
-      refute has_element?(view, ".flz-field-error")
+      refute has_element?(view, ".fui-error")
 
       FakeController.set(node, {PluginManager, :enable}, FakeController.error("plugin.id_taken"))
       enable(view, %{"url" => "http://hooks.test"})
@@ -901,11 +931,11 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       assert has_element?(
                view,
-               option("url") <> " ~ .flz-field-hint",
+               option("url") <> " ~ .fui-hint",
                "a change restarts the plugin"
              )
 
-      assert has_element?(view, option("timeout_ms") <> " ~ .flz-field-hint", "changed in place")
+      assert has_element?(view, option("timeout_ms") <> " ~ .fui-hint", "changed in place")
       assert has_element?(view, option("headers"))
 
       html =
@@ -1044,7 +1074,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       assert has_element?(
                view,
-               ~s([data-testid="input-option-url"] ~ .flz-field-error),
+               ~s([data-testid="input-option-url"] ~ .fui-error),
                "is required"
              )
 
@@ -1065,7 +1095,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       assert has_element?(
                view,
-               ~s([data-testid="input-option-api_key"] ~ .flz-field-error),
+               ~s([data-testid="input-option-api_key"] ~ .fui-error),
                "The controller refused this value (plugin.option_invalid)."
              )
 
@@ -1127,7 +1157,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       assert html =~
                ~r/data-testid="plugin-controllers-hooks_1"[^>]*>\s*flezha@node-a, flezha@node-b/
 
-      assert html =~ ~r/data-testid="plugin-lagging-hooks_1"[^>]*>\s*lagging on flezha@node-b/
+      assert html =~ ~r/data-testid="plugin-lagging-hooks_1"[^>]*>\s*Lagging on flezha@node-b/
     end
 
     test "nothing lagging shows no lag warning", %{conn: conn, node: node} do

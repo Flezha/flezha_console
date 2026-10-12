@@ -1,4 +1,5 @@
 import {
+  menuAction,
   test,
   expect,
   openSection,
@@ -21,7 +22,9 @@ import {
  */
 /** The cell row of the relay's one cell, once it has been persisted. */
 function cellRow(page: Page) {
-  return page.locator('[data-testid^="cell-"]:not([data-testid^="cell-lagging-"])').first();
+  return page
+    .locator('[data-testid^="cell-"]:not([data-testid^="cell-lagging-"]):not([data-testid^="cell-menu-"])')
+    .first();
 }
 
 test.describe('Relay state tools', () => {
@@ -41,12 +44,12 @@ test.describe('Relay state tools', () => {
       const walSeq = (await row.locator('td').nth(1).innerText()).trim();
 
       // Selecting it reads its outbox.
-      await page.getByTestId(`select-${cell}`).click();
+      await menuAction(page, `cell-menu-${cell}`, `select-${cell}`);
       await expect(page.getByTestId('outbox').getByTestId('outbox-durable-seq')).toContainText(/\d+/);
 
       // Each write asks first; cancelling one does nothing.
       for (const control of [`rotate-${cell}`, `delete-${cell}`]) {
-        await page.getByTestId(control).click();
+        await menuAction(page, `cell-menu-${cell}`, control);
         await expect(page.getByTestId('state-confirm-modal')).toContainText(cell);
         await page.getByTestId('state-confirm-cancel').click();
         await expect(page.getByTestId('state-confirm-modal')).toHaveCount(0);
@@ -55,13 +58,13 @@ test.describe('Relay state tools', () => {
       await expect(page.getByText(`Compaction requested for ${cell}.`)).toHaveCount(0);
 
       // Rotation asks first, naming the cell.
-      await page.getByTestId(`rotate-${cell}`).click();
+      await menuAction(page, `cell-menu-${cell}`, `rotate-${cell}`);
       await expect(page.getByTestId('state-confirm-modal')).toContainText(cell);
       await page.getByTestId('state-confirm-btn').click();
       await expect(page.getByText(`Compaction requested for ${cell}.`)).toBeVisible();
 
       // Replay takes time travel's target.
-      await page.getByTestId(`select-${cell}`).click();
+      await menuAction(page, `cell-menu-${cell}`, `select-${cell}`);
       await page.getByTestId('travel-value').fill(walSeq);
       await page.getByTestId('replay-open').click();
       await expect(page.getByTestId('state-confirm-modal')).toContainText('run again');
@@ -72,7 +75,7 @@ test.describe('Relay state tools', () => {
       await expect(page.getByTestId('replay-result')).toContainText(cell);
 
       // Deletion says it cannot be undone, and the row goes.
-      await page.getByTestId(`delete-${cell}`).click();
+      await menuAction(page, `cell-menu-${cell}`, `delete-${cell}`);
       await expect(page.getByTestId('state-confirm-modal')).toContainText('cannot be recovered');
       await page.getByTestId('state-confirm-btn').click();
       await expect(page.getByTestId(`cell-${cell}`)).toHaveCount(0, { timeout: 15_000 });
@@ -114,6 +117,7 @@ test.describe('Relay state tools', () => {
     await withStepsRelay(page, async (id) => {
       await live(`/namespaces/default/relays/${id}`);
       await sendToRelay(page, 'an input to retain');
+      await live(`/namespaces/default/relays/${id}/state`);
       await openSection(page, 'input-log');
 
       const records = page.getByTestId('inbox-records');

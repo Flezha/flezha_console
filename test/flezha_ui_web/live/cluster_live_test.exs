@@ -62,7 +62,9 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
       assert html =~ ~s(data-testid="cluster-nodes")
-      assert html =~ "connected to this UI"
+      assert html =~ ~s(data-testid="cluster-nodes-panel")
+      assert html =~ ~s(data-testid="cluster-connected")
+      assert html =~ "Connected to this console"
       assert html =~ to_string(node)
     end
 
@@ -127,13 +129,16 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
-      [_before, fleet] = String.split(html, ~s(data-testid="runners-default"), parts: 2)
-      [fleet, _after] = String.split(fleet, "</table>", parts: 2)
-      [_prefix, runner_a, runner_b] = String.split(fleet, ~s(data-testid="runner-))
+      runner_a =
+        text_of(html, ~s([data-testid="runners-default"] [data-testid="runner-runner-a"]))
+
+      runner_b =
+        text_of(html, ~s([data-testid="runners-default"] [data-testid="runner-runner-b"]))
 
       assert runner_a =~ "store_input"
       refute runner_a =~ "compare_filter"
-      assert runner_b =~ "compare_filter, store_input"
+      assert runner_b =~ "compare_filter"
+      assert runner_b =~ "store_input"
     end
 
     test "each factory states its run", %{conn: conn, node: node} do
@@ -207,10 +212,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       {:ok, view, _html} = live(conn, ~p"/cluster")
 
       html =
-        render_click(view, "select_factory", %{
-          "namespace" => "default",
-          "factory" => "store_input"
-        })
+        view |> element(~s([data-testid="factory-store_input"])) |> render_click()
 
       assert html =~ ~s(data-testid="factory-runners")
       assert html =~ "is served by"
@@ -221,10 +223,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       {:ok, view, _html} = live(conn, ~p"/cluster")
 
       html =
-        render_click(view, "select_factory", %{
-          "namespace" => "default",
-          "factory" => "store_input"
-        })
+        view |> element(~s([data-testid="factory-store_input"])) |> render_click()
 
       assert html =~ ~s(data-testid="factory-runners-empty")
     end
@@ -233,7 +232,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       {:ok, view, _html} = live(conn, ~p"/cluster")
       before = length(FakeController.calls(node, {Fleet, :runners_for_factory}))
 
-      render_click(view, "select_factory", %{"namespace" => "default", "factory" => "store_input"})
+      view |> element(~s([data-testid="factory-store_input"])) |> render_click()
 
       assert length(FakeController.calls(node, {Fleet, :runners_for_factory})) == before
     end
@@ -241,9 +240,9 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
     test "clearing the selection removes the result", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/cluster")
 
-      render_click(view, "select_factory", %{"namespace" => "default", "factory" => "store_input"})
+      view |> element(~s([data-testid="factory-store_input"])) |> render_click()
 
-      html = render_click(view, "clear_factory", %{})
+      html = view |> element(~s([data-testid="clear-factory"])) |> render_click()
 
       refute html =~ ~s(data-testid="factory-runners")
     end
@@ -325,8 +324,8 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
       assert html =~ ~s(data-testid="recovery-flezha@node-a")
-      assert html =~ "replaying"
-      refute html =~ "serving"
+      assert html =~ "Replaying"
+      refute html =~ "Serving"
     end
 
     test "an unreachable node's recovery is stated, and the rest still renders", %{
@@ -394,10 +393,10 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       view |> element(~s([data-testid="open-recovery-default"])) |> render_click()
 
       assert view |> element(~s([data-testid="recovery-hub-id"])) |> render() =~ "hub_default"
-      assert view |> element(~s([data-testid="recovery-local"])) |> render() =~ "serving"
+      assert view |> element(~s([data-testid="recovery-local"])) |> render() =~ "Serving"
 
       assert view |> element(~s([data-testid="recovery-node-flezha@node-b"])) |> render() =~
-               "replaying"
+               "Replaying"
 
       assert [["default", nodes, _ctx]] =
                FakeController.calls(node, {Controller, :recovery_per_node})
@@ -418,9 +417,9 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       view |> element(~s([data-testid="open-recovery-default"])) |> render_click()
 
       assert view |> element(~s([data-testid="recovery-node-flezha@node-b"])) |> render() =~
-               "could not be reached"
+               "Could not be reached"
 
-      assert view |> element(~s([data-testid="recovery-node-#{node}"])) |> render() =~ "serving"
+      assert view |> element(~s([data-testid="recovery-node-#{node}"])) |> render() =~ "Serving"
     end
 
     test "a node that finishes recovering shows it on the next tick", %{conn: conn, node: node} do
@@ -444,7 +443,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       send(view.pid, :refresh)
 
       assert view |> element(~s([data-testid="recovery-node-flezha@node-b"])) |> render() =~
-               "serving"
+               "Serving"
     end
 
     test "a node hosting no hub for the namespace is not asked for one", %{
@@ -457,7 +456,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       view |> element(~s([data-testid="open-recovery-default"])) |> render_click()
 
       assert view |> element(~s([data-testid="recovery-local"])) |> render() =~
-               "no hub on this node"
+               "No hub on this node"
 
       assert FakeController.calls(node, {Controller, :recovery_state}) == []
       assert has_element?(view, ~s([data-testid="recovery-node-flezha@node-b"]))
@@ -475,7 +474,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       {:ok, view, _html} = live(conn, ~p"/cluster")
       view |> element(~s([data-testid="open-recovery-default"])) |> render_click()
 
-      assert view |> element(~s([data-testid="recovery-local"])) |> render() =~ "serving"
+      assert view |> element(~s([data-testid="recovery-local"])) |> render() =~ "Serving"
 
       assert view |> element(~s([data-testid="recovery-per-node-error"])) |> render() =~
                "authz.role_insufficient"

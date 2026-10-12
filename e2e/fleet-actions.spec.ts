@@ -1,4 +1,5 @@
 import {
+  menuAction,
   test,
   expect,
   fillScheduleForm,
@@ -44,7 +45,9 @@ test.describe('Fleet actions', () => {
       const lastFire = page.getByTestId(`schedule-last-fire-${name}`);
       const firedBefore = (await lastFire.innerText()).trim();
 
-      await page.getByTestId(`schedule-run-${name}`).click();
+      await menuAction(page, `schedule-menu-${name}`, `schedule-run-${name}`);
+      await expect(page.getByTestId('schedule-run-modal')).toContainText(name);
+      await page.getByTestId('schedule-run-confirm').click();
 
       const link = page.getByTestId('schedule-ran-link');
       await expect(page.getByTestId('schedule-ran')).toContainText(name);
@@ -75,7 +78,7 @@ test.describe('Fleet actions', () => {
   test('the audit log rotates and the closed file is listed', async ({ page, live }) => {
     await live('/audit');
 
-    const files = page.locator('[data-testid="audit-files"] li');
+    const files = page.getByTestId('audit-file');
     const before = await files.count();
 
     await page.getByTestId('audit-rotate-btn').click();

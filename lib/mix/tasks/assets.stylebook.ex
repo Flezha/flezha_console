@@ -1,14 +1,13 @@
 defmodule Mix.Tasks.Assets.Stylebook do
-  @shortdoc "Copies the flezha_stylebook fonts, logo, favicons and mascots into priv/static"
+  @shortdoc "Copies the flezha_stylebook logo, favicons and mascots into priv/static"
 
   @moduledoc """
-  Places the `flezha_stylebook` static assets the console serves into
-  `priv/static`.
+  Places the `flezha_stylebook` brand assets the console serves into
+  `priv/static`: the Flezha UI lockup, the favicons and the two mascot poses.
 
-  The stylebook's `@font-face` rules resolve `../fonts/*.woff2` relative to the
-  served stylesheet, so the faces have to exist at `priv/static/fonts/`. The
-  `web` container has no Node, so nothing can fetch them at boot — this task
-  runs on the host and its output is committed.
+  The `web` container has no Node, so nothing can fetch them at boot — this
+  task runs on the host and its output is committed. The console's typefaces
+  are its own and live in `priv/static/fonts` already.
 
   Fails when the stylebook is not installed, rather than leaving the console to
   render unstyled with no explanation.
@@ -17,7 +16,6 @@ defmodule Mix.Tasks.Assets.Stylebook do
   use Mix.Task
 
   @package "assets/node_modules/@flezha/stylebook"
-  @fonts ~w(Inter-latin.woff2 JetBrainsMono-latin.woff2 SpaceGrotesk-latin.woff2)
   @images %{
     "logo/flezha-ui-badger-line-text-white.svg" => "flezha-ui-badger-line-text-white.svg",
     "honey-badger/laptop.webp" => "badger-laptop.webp",
@@ -36,7 +34,7 @@ defmodule Mix.Tasks.Assets.Stylebook do
       Mix.raise("""
       flezha_stylebook is not installed at #{@package}.
 
-      The console's typefaces, logo, favicon and mascots all come from
+      The console's logo, favicon and mascots all come from
       the flezha_stylebook repository, which this project depends on as an npm
       `file:` dependency and expects alongside itself at:
 
@@ -45,19 +43,10 @@ defmodule Mix.Tasks.Assets.Stylebook do
       Clone it there, then run `mix assets.setup`.
       """)
 
-    copy_fonts(package)
     copy(package, @images, "priv/static/images")
     copy(package, @favicons, "priv/static")
 
     Mix.shell().info("stylebook assets copied into priv/static")
-  end
-
-  defp copy_fonts(package) do
-    File.mkdir_p!("priv/static/fonts")
-
-    for font <- @fonts do
-      File.cp!(Path.join([package, "fonts", font]), Path.join("priv/static/fonts", font))
-    end
   end
 
   defp copy(package, files, dir) do

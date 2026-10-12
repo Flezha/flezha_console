@@ -147,7 +147,7 @@ test.describe('Listen', () => {
     await expect(page.getByTestId('listen-message').first()).toBeVisible({ timeout: ADVANCE_WINDOW_MS });
 
     await page.getByTestId('listen-clear').click();
-    await expect(count(page)).toContainText(/^\s*0 messages received/);
+    await expect(count(page)).toContainText(/^\s*0\s+messages received/);
     await expect(page.getByTestId('listen-empty')).toBeVisible();
 
     await expectAdvances(count(page), 'the count after clearing');
@@ -186,7 +186,7 @@ test.describe('Listen', () => {
   });
 
   test('navigates back to the relay', async ({ page }) => {
-    await page.getByTestId('relay-tab-detail').click();
+    await page.getByTestId('relay-tab-live').click();
     await expect(page).toHaveURL(/\/namespaces\/default\/relays\/testnet_store_1$/);
     await expect(page.getByTestId('topology-graph')).toBeVisible();
   });

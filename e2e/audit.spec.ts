@@ -70,7 +70,7 @@ test.describe('Audit log', () => {
     await expect(page.locator('body')).toContainText('Audit log rotated');
     const file = page.getByTestId('audit-file').last();
     const filename = (await file.locator('span').first().innerText()).trim();
-    const recorded = await readFigure(file.locator('span').nth(1));
+    const recorded = await readFigure(file.locator('td').nth(1));
 
     await page.getByTestId('audit-filter-file').fill(filename);
     await page.getByTestId('audit-filter-limit').fill('1000');
@@ -86,7 +86,7 @@ test.describe('Audit log', () => {
 
   test('the tail shows an administration action as it is audited', async ({ page }) => {
     await page.getByTestId('audit-tail-toggle').click();
-    await expect(page.getByTestId('audit-tail-toggle')).toContainText('Tailing');
+    await expect(page.getByTestId('audit-tail-toggle')).toHaveAttribute('aria-checked', 'true');
 
     await page.getByTestId('audit-rotate-btn').click();
     await expect(page.locator('body')).toContainText('Audit log rotated');
@@ -100,10 +100,10 @@ test.describe('Audit log', () => {
   test('starts the tail paused, streams, and stops cleanly', async ({ page }) => {
     // Paused by default: an idle tab must not hold a controller subscription.
     await expect(page.getByTestId('audit-tail-idle')).toBeVisible();
-    await expect(page.getByTestId('audit-tail-toggle')).toContainText('Start tail');
+    await expect(page.getByTestId('audit-tail-toggle')).toHaveAttribute('aria-checked', 'false');
 
     await page.getByTestId('audit-tail-toggle').click();
-    await expect(page.getByTestId('audit-tail-toggle')).toContainText('Tailing');
+    await expect(page.getByTestId('audit-tail-toggle')).toHaveAttribute('aria-checked', 'true');
 
     // Any audited action produces a record; reading is one.
     await page.getByTestId('audit-read-btn').click();

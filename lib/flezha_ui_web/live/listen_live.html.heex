@@ -1,146 +1,110 @@
-<div class="flex flex-col h-full space-y-4">
-  <.header class="flex-shrink-0">
-    Listen: <span class="font-mono text-base">{@relay_id}</span>
-    <:actions>
-      <%!-- IO type tabs --%>
-      <div class="flex items-center gap-2">
-        <%= if @status == :connecting do %>
-          <span class="text-xs text-th-muted mr-1">Connecting...</span>
-        <% end %>
-        <div class="flz-segmented">
-          <button
-            :for={direction <- ~w(input output)}
-            data-testid={"listen-direction-#{direction}"}
-            phx-click="switch_direction"
-            phx-value-direction={direction}
-            disabled={@status == :connecting}
-            aria-pressed={to_string(@direction == direction)}
-            class="flz-segmented-option"
-          >
-            {String.capitalize(direction)}
-          </button>
-        </div>
-      </div>
-    </:actions>
-  </.header>
+<.page_header
+  eyebrow="Relay"
+  title={@relay_id}
+  crumbs={@breadcrumbs}
+  tabs={Layouts.relay_tabs(@ns, @relay_id, :listen)}
+  tabs_label="Relay views"
+>
+  <:sentence>
+    Listening to {@relay_id}'s
+    <.term :if={@direction == "output"} key="output">outputs</.term>
+    <span :if={@direction != "output"}>inputs</span>
+    as they happen. The listen holds only while this view is open.
+  </:sentence>
+  <:actions>
+    <span :if={@status == :connecting} class="fui-figures self-center">Connecting…</span>
+    <.segmented label="Direction">
+      <:option
+        :for={direction <- ~w(input output)}
+        click="switch_direction"
+        value={direction}
+        current={@direction == direction}
+        testid={"listen-direction-#{direction}"}
+      >
+        {String.capitalize(direction)}
+      </:option>
+    </.segmented>
+  </:actions>
+</.page_header>
 
-  <.relay_tabs ns={@ns} relay_id={@relay_id} current={:listen} />
-
-  <%!-- Controls bar --%>
-  <div class="flex items-center gap-3 flex-shrink-0">
-    <button
-      data-testid="listen-pause"
-      phx-click="toggle_pause"
-      aria-pressed={to_string(@paused)}
-      class={[
-        "flz-button flz-button--sm",
-        !@paused && "flz-button--secondary",
-        @paused && "flz-button--warning"
-      ]}
-    >
-      <%= if @paused do %>
-        <.icon name="hero-play" class="w-3.5 h-3.5" /> Resume
-      <% else %>
-        <.icon name="hero-pause" class="w-3.5 h-3.5" /> Pause
-      <% end %>
-    </button>
-    <button
-      data-testid="listen-clear"
-      phx-click="clear"
-      class="flz-button flz-button--md flz-button--secondary"
-    >
-      <.icon name="hero-trash" class="w-3.5 h-3.5" /> Clear
-    </button>
-    <form phx-change="set_filter" class="flex-1 max-w-xs">
-      <.input
-        type="text"
-        name="filter"
-        value={@filter}
-        placeholder="Filter regex..."
-        compact
-        mono
-        data-testid="listen-filter"
-      />
-      <p :if={@filter_error} data-testid="listen-filter-error" class="flz-field-error mt-1">
-        {@filter_error}
-      </p>
-    </form>
-    <span data-testid="listen-count" class="ml-auto text-xs text-th-secondary">
-      {@message_count} messages received {if @paused, do: " (paused)"}
-    </span>
-  </div>
-
-  <%!-- Message feed --%>
-  <div
-    data-testid="listen-feed"
-    class="flz-panel flex-1 overflow-y-auto font-mono text-xs"
-    id="listen-feed"
-    phx-hook="ScrollBottom"
+<%!-- Controls --%>
+<div class="flex flex-wrap items-start gap-3 mb-4">
+  <.button
+    variant="secondary"
+    icon={if @paused, do: "hero-play", else: "hero-pause"}
+    phx-click="toggle_pause"
+    aria-pressed={to_string(@paused)}
+    data-testid="listen-pause"
   >
-    <%= case @status do %>
-      <% :connecting -> %>
-        <div data-testid="listen-connecting" class="p-6 text-center">
-          <div class="inline-flex items-center gap-2 text-th-secondary">
-            <svg
-              class="animate-spin h-4 w-4"
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                class="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                stroke-width="4"
-              >
-              </circle>
-              <path
-                class="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              >
-              </path>
-            </svg>
-            <span>Attaching a listener to the relay's {@direction}s...</span>
-          </div>
-        </div>
-      <% :error -> %>
-        <div data-testid="listen-error" class="p-6">
-          <.runtime_error error={@error} action={"listening to this relay's #{@direction}s"} />
-        </div>
-      <% :ended -> %>
-        <div data-testid="listen-ended" class="p-6 text-center text-th-muted">
-          The relay ended, so the listen is over.
-        </div>
-      <% :connected -> %>
-        <% display_messages = filtered_messages(@messages, @filter_regex) %>
-        <%= if display_messages == [] do %>
-          <div data-testid="listen-empty" class="p-6 text-th-muted text-center">
-            Waiting for the relay's {@direction}s...
-          </div>
-        <% else %>
-          <%= for msg <- Enum.reverse(display_messages) do %>
-            <div
-              data-testid="listen-message"
-              data-kind={msg.kind}
-              class="flex gap-3 px-4 py-2 border-b border-brd-subtle hover:bg-surface-hover transition-colors"
-            >
-              <span class="text-th-muted flex-shrink-0 w-28">
-                {Format.time_of_day(msg.timestamp)}
-              </span>
-              <span class="text-th-primary flex-1 break-all whitespace-pre-wrap">
-                {msg.message}
-              </span>
-              <%= if msg.metadata && msg.metadata != %{} do %>
-                <span class="text-th-muted flex-shrink-0 text-xs">
-                  {Enum.map_join(msg.metadata, ", ", fn {k, v} -> "#{k}=#{inspect(v)}" end)}
-                </span>
-              <% end %>
-            </div>
-          <% end %>
-        <% end %>
-    <% end %>
-  </div>
+    {if @paused, do: "Resume", else: "Pause"}
+  </.button>
+  <.button variant="ghost" icon="hero-trash" phx-click="clear" data-testid="listen-clear">
+    Clear
+  </.button>
+  <form phx-change="set_filter" class="flex-1 min-w-[12rem] max-w-xs">
+    <.input
+      type="text"
+      name="filter"
+      value={@filter}
+      placeholder="Filter by a regular expression"
+      aria-label="Filter by a regular expression"
+      compact
+      mono
+      data-testid="listen-filter"
+    />
+    <p :if={@filter_error} data-testid="listen-filter-error" class="fui-error mt-1">
+      {@filter_error}
+    </p>
+  </form>
+  <span data-testid="listen-count" class="ml-auto fui-figures self-center">
+    <.live_value id="listen-count-value" value={@message_count} />
+    messages received{if @paused, do: " (paused)"}
+  </span>
+</div>
+
+<%!-- Message feed --%>
+<div
+  data-testid="listen-feed"
+  id="listen-feed"
+  phx-hook="ScrollBottom"
+  class="fui-code max-h-[60vh]"
+>
+  <%= case @status do %>
+    <% :connecting -> %>
+      <p data-testid="listen-connecting" class="fui-muted">
+        Attaching a listener to the relay's {@direction}s…
+      </p>
+    <% :error -> %>
+      <div data-testid="listen-error">
+        <.runtime_error error={@error} action={"listening to this relay's #{@direction}s"} />
+      </div>
+    <% :ended -> %>
+      <p data-testid="listen-ended" class="fui-muted">The relay ended, so the listen is over.</p>
+    <% :connected -> %>
+      <% display_messages = filtered_messages(@messages, @filter_regex) %>
+      <div :if={display_messages == []} data-testid="listen-empty" class="fui-muted space-y-2">
+        <p>
+          Waiting for the relay's {@direction}s. Nothing has passed through since this view opened.
+        </p>
+        <.link
+          :if={NodeManager.granted?(@operations, "Relay.send")}
+          navigate={~p"/namespaces/#{@ns}/relays/#{@relay_id}?do=talk"}
+          data-testid="listen-send"
+        >
+          Send or call {@relay_id} to see something arrive.
+        </.link>
+      </div>
+      <div
+        :for={msg <- Enum.reverse(display_messages)}
+        data-testid="listen-message"
+        data-kind={msg.kind}
+        class="flex flex-wrap gap-x-3 py-1"
+      >
+        <span class="fui-muted shrink-0 w-28">{Format.time_of_day(msg.timestamp)}</span>
+        <code class="flex-1 break-all whitespace-pre-wrap">{msg.message}</code>
+        <code :if={msg.metadata && msg.metadata != %{}} class="fui-muted shrink-0">
+          {Enum.map_join(msg.metadata, ", ", fn {k, v} -> "#{k}=#{inspect(v)}" end)}
+        </code>
+      </div>
+  <% end %>
 </div>

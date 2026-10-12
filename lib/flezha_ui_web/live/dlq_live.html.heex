@@ -1,188 +1,152 @@
-<div class="space-y-6">
-  <.header>
-    Dead-letter queue
-    <:actions>
-      <form phx-change="filter" class="w-64">
-        <.input
-          type="text"
-          name="filter[relay_class]"
-          value={@filter}
-          placeholder="Filter by relay class"
-          compact
-          data-testid="dlq-filter"
-        />
-      </form>
-    </:actions>
-  </.header>
-
-  <.runtime_error error={@load_error} />
-
-  <%= case @replay_outcome do %>
-    <% {:pending, ref} -> %>
-      <.notice testid="replay-pending" icon="hero-arrow-path">
-        Replaying
-        <.mono>{ref}</.mono>
-        — the controller is waiting to see whether it parks again.
-      </.notice>
-    <% {:replayed, ref} -> %>
-      <.notice testid="replay-succeeded" icon="hero-check-circle">
-        Replayed <.mono>{ref}</.mono>: the payload was accepted and the entry left the queue.
-      </.notice>
-    <% {:reparked, ref, generation} -> %>
-      <.notice kind={:error} testid="replay-reparked">
-        <.mono>{ref}</.mono>
-        failed again and was parked as generation {generation}; its new error is on the row.
-      </.notice>
-    <% {:refused, _ref, reason} -> %>
-      <div data-testid="replay-refused">
-        <.runtime_error error={reason} action="the replay" />
-      </div>
-    <% nil -> %>
-  <% end %>
-
-  <%!-- Stats --%>
-  <div :if={@stats != []} class="flz-panel p-5">
-    <h2 class="flz-panel-title mb-3">
-      Statistics
-    </h2>
-    <dl data-testid="dlq-stats" class="flz-stats">
-      <.stat
-        :for={stat <- @stats}
-        label={"#{stat[:relay_class]}/#{stat[:tasklet_id]}"}
-        boxed
-        identifier
-      >
-        {stat[:entries]}
-      </.stat>
-    </dl>
-  </div>
-
-  <%!-- Entries --%>
-  <.panel icon="hero-inbox-stack" class="overflow-hidden">
-    <:title>Parked entries ({length(@entries)})</:title>
-
-    <%= if @entries == [] do %>
-      <.empty_state icon="hero-check-circle" testid="dlq-empty">
-        {if @filter == "",
-          do: "The dead-letter queue is empty.",
-          else: "No parked entries for that relay class."}
-      </.empty_state>
-    <% else %>
-      <div
-        :for={group <- @groups}
-        data-testid={"dlq-group-#{group.relay_class}-#{group.tasklet_id}"}
-        class="border-b border-brd last:border-b-0"
-      >
-        <div class="px-5 py-3 flex items-center gap-3 bg-surface-input">
-          <.icon name="hero-folder" class="w-3.5 h-3.5 text-th-secondary" />
-          <span class="font-mono text-xs text-th-primary">
-            {group.relay_class}/{group.tasklet_id}
-          </span>
-          <span
-            data-testid={"dlq-group-count-#{group.relay_class}-#{group.tasklet_id}"}
-            class="text-xs text-th-secondary font-mono"
-          >
-            {group.parked} parked
-          </span>
-        </div>
-        <div class="overflow-x-auto">
-          <table data-testid="dlq-table" class="flz-table">
-            <thead>
-              <tr>
-                <th>Entry</th>
-                <th>Cell</th>
-                <th>Channel</th>
-                <th>Gen</th>
-                <th>Age</th>
-                <th>Error</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                :for={entry <- group.entries}
-                data-testid={"dlq-row-#{entry.ref}"}
-              >
-                <td class="text-th-primary flz-num text-xs">{entry.ref}</td>
-                <td class="flz-num text-xs">
-                  {entry.cell_key || "—"}
-                </td>
-                <td class="text-xs">{entry.channel || "—"}</td>
-                <td class="text-xs">{entry.generation}</td>
-                <td class="text-xs">{Format.age(entry.age_s)}</td>
-                <td
-                  class="text-xs max-w-xs truncate"
-                  title={entry.error}
-                >
-                  {entry.error || "—"}
-                </td>
-                <td class="text-right whitespace-nowrap">
-                  <button
-                    phx-click="inspect"
-                    phx-value-ref={entry.ref}
-                    data-testid={"dlq-inspect-#{entry.ref}"}
-                    class="flz-button flz-button--sm flz-button--ghost"
-                  >
-                    Inspect
-                  </button>
-                  <button
-                    :if={NodeManager.granted?(@operations, "Dlq.replay")}
-                    phx-click="confirm"
-                    phx-value-action="replay"
-                    phx-value-ref={entry.ref}
-                    data-testid={"dlq-replay-#{entry.ref}"}
-                    class="flz-button flz-button--sm flz-button--ghost"
-                  >
-                    Replay
-                  </button>
-                  <button
-                    :if={NodeManager.granted?(@operations, "Dlq.drop")}
-                    phx-click="confirm"
-                    phx-value-action="drop"
-                    phx-value-ref={entry.ref}
-                    data-testid={"dlq-drop-#{entry.ref}"}
-                    class="flz-button flz-button--sm flz-button--ghost"
-                  >
-                    Drop
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+<.page_header eyebrow="Problems" title="Dead-letter queue">
+  <:sentence>
+    <%= cond do %>
+      <% @entries == [] and @filter in [nil, ""] -> %>
+        Nothing is parked: every record reached its tasklet.
+      <% @entries == [] -> %>
+        Nothing is parked for {@filter}.
+      <% true -> %>
+        {Words.count(length(@entries), "record")} could not be processed and wait here as <.term key="dead letter">dead letters</.term>, to be replayed or dropped.
     <% end %>
-  </.panel>
+  </:sentence>
+  <:actions>
+    <form phx-change="filter" class="w-64">
+      <.input
+        type="text"
+        name="filter[relay_class]"
+        value={@filter}
+        placeholder="Filter by relay class"
+        aria-label="Filter by relay class"
+        compact
+        phx-debounce="300"
+        data-testid="dlq-filter"
+      />
+    </form>
+  </:actions>
+</.page_header>
+
+<.runtime_error error={@load_error} />
+
+<%= case @replay_outcome do %>
+  <% {:pending, ref} -> %>
+    <.notice testid="replay-pending" icon="hero-arrow-path">
+      Replaying <span class="fui-ident">{ref}</span>
+      — the controller is waiting to see whether it parks again.
+    </.notice>
+  <% {:replayed, ref} -> %>
+    <.notice testid="replay-succeeded" icon="hero-check-circle">
+      Replayed <span class="fui-ident">{ref}</span>: the payload was accepted and the entry left the queue.
+    </.notice>
+  <% {:reparked, ref, generation} -> %>
+    <.notice kind={:error} testid="replay-reparked">
+      <span class="fui-ident">{ref}</span>
+      failed again and was parked as generation {generation}; its new error is on the row.
+    </.notice>
+  <% {:refused, _ref, reason} -> %>
+    <div data-testid="replay-refused">
+      <.runtime_error error={reason} action="the replay" />
+    </div>
+  <% nil -> %>
+<% end %>
+
+<%!-- Statistics: parked counts per tasklet --%>
+<dl :if={@stats != []} data-testid="dlq-stats" class="fui-facts mb-6">
+  <.stat :for={stat <- @stats} label={"#{stat[:relay_class]}/#{stat[:tasklet_id]}"}>
+    <span class="fui-figure">{stat[:entries]}</span> parked
+  </.stat>
+</dl>
+
+<.empty_state :if={@entries == []} icon="hero-check-circle" testid="dlq-empty">
+  A record a tasklet cannot process is parked here, so it can be inspected, replayed or dropped. {if @filter in [
+                                                                                                       nil,
+                                                                                                       ""
+                                                                                                     ],
+                                                                                                     do:
+                                                                                                       "The queue is empty.",
+                                                                                                     else:
+                                                                                                       "None is parked for that relay class."}
+</.empty_state>
+
+<div :if={@entries != []} class="space-y-8">
+  <div
+    :for={group <- @groups}
+    data-testid={"dlq-group-#{group.relay_class}-#{group.tasklet_id}"}
+    class="space-y-2"
+  >
+    <h3 class="flex items-center gap-3">
+      <span class="fui-num font-medium">{group.relay_class}/{group.tasklet_id}</span>
+      <span
+        data-testid={"dlq-group-count-#{group.relay_class}-#{group.tasklet_id}"}
+        class="fui-figures"
+      >
+        {group.parked} parked
+      </span>
+    </h3>
+    <.grid
+      id={"dlq-#{group.relay_class}-#{group.tasklet_id}"}
+      rows={group.entries}
+      testid="dlq-table"
+      row_testid={&"dlq-row-#{&1.ref}"}
+      row_tone={&((&1.generation > 1 && "negative") || "warning")}
+      row_label={&"Inspect #{&1.ref}"}
+      row_activate={&JS.push("inspect", value: %{kind: "entry", id: &1.ref})}
+      row_selected={&(@inspected != nil and @inspected.id == &1.ref)}
+    >
+      <:col :let={entry} label="Entry"><.ident value={entry.ref} /></:col>
+      <:col :let={entry} label="Cell"><span class="fui-num">{entry.cell_key || "—"}</span></:col>
+      <:col :let={entry} label="Channel">
+        <span class="fui-num">{entry.channel || "—"}</span>
+      </:col>
+      <:col :let={entry} label="Generation" num>{entry.generation}</:col>
+      <:col :let={entry} label="Age" num>{Format.age(entry.age_s)}</:col>
+      <:col :let={entry} label="Error">
+        <code class="block max-w-xs truncate" title={entry.error}>{entry.error || "—"}</code>
+      </:col>
+      <:menu :let={entry}>
+        <.row_menu
+          id={"dlq-menu-#{entry.ref}"}
+          label={"Actions for #{entry.ref}"}
+          testid={"dlq-menu-#{entry.ref}"}
+        >
+          <:item
+            click="inspect"
+            values={%{kind: "entry", id: entry.ref}}
+            icon="hero-eye"
+            testid={"dlq-inspect-#{entry.ref}"}
+          >
+            Inspect
+          </:item>
+          <:item
+            :if={NodeManager.granted?(@operations, "Dlq.replay")}
+            click="confirm"
+            values={%{action: "replay", ref: entry.ref}}
+            icon="hero-arrow-path"
+            testid={"dlq-replay-#{entry.ref}"}
+          >
+            Replay
+          </:item>
+          <:item
+            :if={NodeManager.granted?(@operations, "Dlq.drop")}
+            click="confirm"
+            values={%{action: "drop", ref: entry.ref}}
+            testid={"dlq-drop-#{entry.ref}"}
+            danger
+          >
+            Drop
+          </:item>
+        </.row_menu>
+      </:menu>
+    </.grid>
+  </div>
 </div>
 
-<%!-- Inspect --%>
-<.dialog :if={@selected} testid="dlq-inspect-modal" size="wide">
-  <div class="flex items-center justify-between mb-4">
-    <h3 class="flz-modal-title flz-num">{@selected.ref}</h3>
-    <button
-      phx-click="close_inspect"
-      data-testid="dlq-inspect-close"
-      class="flz-button flz-button--sm flz-button--ghost"
-    >
-      <.icon name="hero-x-mark" class="w-5 h-5" />
-    </button>
-  </div>
-
-  <p class="text-xs text-th-muted uppercase tracking-wider mb-2">Metadata</p>
-  <pre class="flz-code flz-code--wrap mb-4"><%= inspect(@selected.entry, pretty: true) %></pre>
-
-  <p class="text-xs text-th-muted uppercase tracking-wider mb-2">Payload preview</p>
-  <pre
-    data-testid="dlq-payload"
-    class="flz-code flz-code--wrap"
-  ><%= Format.printable(@selected.payload, limit: 2_000) %></pre>
-</.dialog>
+<.inspector inspected={@inspected} operations={@operations} />
 
 <.confirm_dialog
   :if={@confirm}
   title={if @confirm.action == "replay", do: "Replay entry?", else: "Drop entry?"}
   confirm_label={if @confirm.action == "replay", do: "Replay", else: "Drop"}
-  variant={if @confirm.action == "replay", do: "accent", else: "danger"}
+  variant={if @confirm.action == "replay", do: "primary", else: "danger"}
   on_confirm={@confirm.action}
   on_cancel="cancel_confirm"
   values={%{"ref" => @confirm.ref}}
@@ -191,13 +155,11 @@
   confirm_testid="dlq-confirm-submit"
 >
   <%= if @confirm.action == "replay" do %>
-    Re-send
-    <.mono>{@confirm.ref}</.mono>
+    Re-send <span class="fui-ident">{@confirm.ref}</span>
     to its relay as a new input. If it fails again it is
     parked again, and the outcome is reported here.
   <% else %>
-    Discard
-    <.mono>{@confirm.ref}</.mono>
+    Discard <span class="fui-ident">{@confirm.ref}</span>
     and its payload. This is permanent and cannot be undone.
   <% end %>
 </.confirm_dialog>

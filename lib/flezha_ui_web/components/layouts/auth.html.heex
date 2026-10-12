@@ -1,18 +1,16 @@
-<div class="min-h-screen flex flex-col items-center justify-center px-4 py-10">
-  <.link navigate={~p"/"} class="mb-8">
-    <.brand_lockup on={:canvas} />
-  </.link>
-
-  <div class="flex items-center justify-center gap-10 w-full">
-    <%!-- Decorative: a mascot only where nobody is working. --%>
-    <img :if={assigns[:mascot]} src={@mascot} alt="" class="flz-hide-mobile w-80 shrink" />
-    <div class="flz-panel w-full max-w-sm p-8">
-      <.flash_group flash={@flash} />
-      <%= if assigns[:inner_block] do %>
-        {render_slot(@inner_block)}
-      <% else %>
-        {@inner_content}
-      <% end %>
-    </div>
+<main class="fui-auth" data-testid="auth-canvas">
+  <div class="fui-auth-form">
+    <.link navigate={~p"/"} class="justify-self-start">
+      <.brand_lockup on={:canvas} />
+    </.link>
+    <%= if assigns[:inner_block] do %>
+      {render_slot(@inner_block)}
+    <% else %>
+      {@inner_content}
+    <% end %>
   </div>
-</div>
+  <%!-- Decorative: a mascot only where nobody is working, and not on a phone. --%>
+  <img :if={assigns[:mascot]} src={@mascot} alt="" class="fui-auth-mascot" />
+</main>
+
+<.flash_group flash={@flash} />

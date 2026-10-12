@@ -67,7 +67,7 @@ defmodule FlezhaUiWeb.BrandTest do
     } do
       html = conn |> get(~p"/users/log-in") |> html_response(200)
 
-      assert html =~ ~s(class="flz-brand text-th-brand")
+      assert html =~ ~s(class="fui-brand fui-brand--canvas")
       assert html =~ "mask-image: url(/images/flezha-ui-badger-line-text-white.svg)"
       assert html =~ ~s(role="img" aria-label="Flezha UI")
       refute html =~ "flezha-ui-purple"
@@ -80,11 +80,11 @@ defmodule FlezhaUiWeb.BrandTest do
       assert svg =~ "<title>Flezha UI</title>"
     end
 
-    test "the sidebar shows the same lockup in the chrome's ink", %{conn: conn} do
+    test "the rail shows the same lockup in the chrome's ink", %{conn: conn} do
       conn = log_in_user(conn, user_fixture())
-      {:ok, _live, html} = live(conn, ~p"/")
+      {:ok, _live, html} = live(conn, ~p"/cluster")
 
-      assert html =~ ~r/<span class="flz-brand\s*">/
+      assert html =~ ~s(<span class="flz-brand">)
       assert html =~ "mask-image: url(/images/flezha-ui-badger-line-text-white.svg)"
       assert html =~ ~s(aria-label="Flezha UI")
       refute html =~ "flezha-ui-gold"
@@ -94,7 +94,8 @@ defmodule FlezhaUiWeb.BrandTest do
       html = conn |> get(~p"/users/log-in") |> html_response(200)
 
       assert html =~ ~s(src="/images/badger-laptop.webp")
-      assert html =~ ~s(alt="" class="flz-hide-mobile)
+      # The kit's mascot recipe hides it below 800 px.
+      assert html =~ ~s(alt="" class="fui-auth-mascot")
     end
   end
 
@@ -105,17 +106,23 @@ defmodule FlezhaUiWeb.BrandTest do
 
       assert html =~ ~s(aria-current="page")
 
-      # Exactly one destination, or the rail marks two places at once.
+      # One destination in the rail, never a second place.
       assert html |> String.split(~s(aria-current="page")) |> length() == 2
     end
 
-    test "the theme control is the stylebook's toggle", %{conn: conn} do
+    test "the theme control is the stylebook's toggle, in the topbar's account menu", %{
+      conn: conn
+    } do
       conn = log_in_user(conn, user_fixture())
-      {:ok, _live, html} = live(conn, ~p"/")
+      {:ok, _live, html} = live(conn, ~p"/cluster")
 
-      assert html =~ "data-flz-theme-toggle"
-      assert html =~ "flz-sidebar"
-      assert html =~ "flz-topbar"
+      assert [_toggle] =
+               html
+               |> LazyHTML.from_document()
+               |> LazyHTML.query(~s(.flz-topbar #account-menu [data-flz-theme-toggle]))
+               |> Enum.to_list()
+
+      assert html =~ ~s(class="flz-sidebar")
     end
   end
 end

@@ -166,7 +166,7 @@ defmodule FlezhaUiWeb.AuditLive do
       {"Records", stats[:record_count] || 0},
       {"Files", stats[:total_files] || 0},
       {"Size", FlezhaUi.Format.bytes(stats[:total_bytes] || 0)},
-      {"Fsync", inspect(stats[:fsync_mode] || :unknown)}
+      {"Fsync", Words.humanize(stats[:fsync_mode])}
     ]
   end
 

@@ -76,7 +76,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
     FakeController.set(node, {Relay, :api}, {:ok, [entry]})
   end
 
-  defp field_error(name), do: ~s([data-testid="talk-field-#{name}"] ~ .flz-field-error)
+  defp field_error(name), do: ~s([data-testid="talk-field-#{name}"] ~ .fui-error)
 
   defp talk(view), do: view |> element(~s([data-testid="talk-open-btn"])) |> render_click()
 
@@ -96,7 +96,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       refute html =~ ~s(data-testid="diagnose-verdict")
       html = diagnose(view)
 
-      assert html =~ ~r/data-testid="diagnose-verdict"[^>]*>\s*ok/
+      assert html =~ ~r/data-testid="diagnose-verdict"[^>]*>\s*Nothing wrong/
       assert html =~ ~s(data-testid="diagnose-finding-diagnose.healthy")
       assert html =~ "diagnose.healthy said so (diagnose.healthy)"
       assert html =~ ~s(href="https://docs.flezha.com/errors.html#diagnose")
@@ -110,7 +110,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       {:ok, view, _html} = live(conn, @url)
       html = diagnose(view)
 
-      assert html =~ ~r/data-testid="diagnose-verdict"[^>]*>\s*problem/
+      assert html =~ ~r/data-testid="diagnose-verdict"[^>]*>\s*A problem/
       assert html =~ "flz runner list --namespace default"
     end
 
@@ -164,7 +164,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
 
       assert html =~ ~s(data-testid="api-channel-place")
       assert html =~ "Places an order"
-      assert html =~ "yes, json"
+      assert html =~ "Yes, json"
       assert html =~ ~s(data-testid="api-schema-place")
       assert html =~ ~s(data-testid="api-channel-audit")
       refute html =~ ~s(data-testid="api-schema-audit")
@@ -226,6 +226,19 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       assert html =~ "name *"
       assert html =~ ~s(<option value="sell")
       refute html =~ ~s(data-testid="talk-json")
+    end
+
+    test "the dialog switches between the channel and a raw message", %{conn: conn, node: node} do
+      api(node, [@place])
+      {:ok, view, _html} = live(conn, @url)
+      assert talk(view) =~ ~s(data-testid="talk-channel-form")
+
+      html = view |> element(~s([data-testid="talk-mode-raw"])) |> render_click()
+      assert html =~ ~s(data-testid="talk-raw-form")
+      refute html =~ ~s(data-testid="talk-channel-form")
+
+      html = view |> element(~s([data-testid="talk-mode-channel"])) |> render_click()
+      assert html =~ ~s(data-testid="talk-channel-form")
     end
 
     test "calls the channel with the value built from the fields", %{conn: conn, node: node} do

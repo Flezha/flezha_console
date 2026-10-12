@@ -21,6 +21,9 @@ defmodule FlezhaUiWeb.ListenLiveTest do
     render(view)
   end
 
+  # The count is a live value, so its figure sits in its own element.
+  defp received(count), do: ~r/id="listen-count-value"[^>]*data-value="#{count}"/
+
   defp listening(conn) do
     {:ok, view, _html} = live(conn, @url)
     eventually_renders(view, ~s(data-testid="listen-empty"))
@@ -38,6 +41,12 @@ defmodule FlezhaUiWeb.ListenLiveTest do
       assert html =~ "relay_a"
 
       eventually_renders(view, ~s(data-testid="listen-empty"))
+
+      # Nothing has arrived yet, so it offers to send something that would.
+      assert has_element?(
+               view,
+               ~s(a[data-testid="listen-send"][href="/namespaces/default/relays/relay_a?do=talk"])
+             )
 
       assert [["default", "relay_a", :output, [], %{source: :ui}]] =
                FakeController.calls(node, @listen)
@@ -85,7 +94,7 @@ defmodule FlezhaUiWeb.ListenLiveTest do
       html = eventually_renders(view, "hello from the relay")
 
       assert html =~ ~s(data-testid="listen-message")
-      assert html =~ "1 messages received"
+      assert html =~ received(1)
     end
 
     test "a dead-letter notice is shown with the error's message", %{view: view, node: node} do
@@ -103,7 +112,7 @@ defmodule FlezhaUiWeb.ListenLiveTest do
       render_click(view, "toggle_pause", %{})
 
       FakeController.emit(node, @listen, {:output, "arrived while paused", %{}})
-      html = eventually_renders(view, "1 messages received")
+      html = eventually_renders(view, received(1))
 
       assert html =~ "(paused)"
       refute html =~ "arrived while paused"
@@ -116,7 +125,7 @@ defmodule FlezhaUiWeb.ListenLiveTest do
       html = render_click(view, "clear", %{})
 
       refute html =~ "first"
-      assert html =~ "0 messages received"
+      assert html =~ received(0)
     end
 
     test "the filter narrows what is rendered without dropping the count", %{
@@ -125,14 +134,14 @@ defmodule FlezhaUiWeb.ListenLiveTest do
     } do
       FakeController.emit(node, @listen, {:output, "keep me", %{}})
       FakeController.emit(node, @listen, {:output, "drop me", %{}})
-      eventually_renders(view, "2 messages received")
+      eventually_renders(view, received(2))
 
       html = render_change(view, "set_filter", %{"filter" => "keep"})
 
       assert html =~ "keep me"
       refute html =~ "drop me"
       # Filtering is a view concern; the messages are still there.
-      assert html =~ "2 messages received"
+      assert html =~ received(2)
     end
 
     test "an invalid filter regex is reported and shows everything", %{view: view, node: node} do
@@ -155,7 +164,7 @@ defmodule FlezhaUiWeb.ListenLiveTest do
       FakeController.emit(node, @listen, {:output, "an output", %{}})
       eventually_renders(view, "an output")
 
-      html = render_click(view, "switch_direction", %{"direction" => "input"})
+      html = view |> element(~s([data-testid="listen-direction-input"])) |> render_click()
 
       # A stale frame from the other direction would misattribute it.
       refute html =~ "an output"

@@ -21,13 +21,14 @@ test.describe('Steps relays', () => {
   test('a durable steps relay shows its steps panel', async ({ page, live }) => {
     await withStepsRelay(page, async (id) => {
       await live(`/namespaces/default/relays/${id}`);
+      await expect(page.getByTestId('relay-run')).toHaveText('A steps relay');
 
-    const panel = page.getByTestId('steps-panel');
-    await expect(panel).toBeVisible();
-    await expect(page.getByTestId('steps-durable')).toHaveText('yes');
-    await expect(panel).toContainText('Effectively once');
-    await expect(panel).toContainText('Arrived via hotswap');
-    await expect(page.getByTestId('relay-run')).toHaveText('steps');
+      // Its steps facts are sentences on State.
+      await live(`/namespaces/default/relays/${id}/state`);
+      const panel = page.getByTestId('steps-panel');
+      await expect(panel).toBeVisible();
+      await expect(page.getByTestId('steps-durable')).toContainText('It is durable');
+      await expect(panel).toContainText(/exactly once|at least once/);
 
       // It initialised, so no init error is shown.
       await expect(page.getByTestId('steps-init-error')).toHaveCount(0);
@@ -39,12 +40,12 @@ test.describe('Steps relays', () => {
     live,
   }) => {
     await withStepsRelay(page, async (id) => {
-      await live(`/namespaces/default/relays/${id}`);
+      await live(`/namespaces/default/relays/${id}/state`);
       await openSection(page, 'journal');
 
       await expect(page.getByTestId('task-journal-panel')).toBeVisible();
       await expect(page.getByTestId('task-journal-committed')).toContainText(
-        'committed iterations',
+        'Committed iterations',
       );
       await expect(page.getByTestId('task-journal-leaves')).toContainText('leaf tasklets');
     });
@@ -54,6 +55,7 @@ test.describe('Steps relays', () => {
     await withStepsRelay(page, async (id) => {
       await live(`/namespaces/default/relays/${id}`);
       await sendToRelay(page, 'hello');
+      await live(`/namespaces/default/relays/${id}/state`);
       await openSection(page, 'journal');
 
       const open = page.getByTestId('open-rewind-btn');
@@ -75,7 +77,7 @@ test.describe('Steps relays', () => {
 
   test('the input log reports its depth and offsets', async ({ page, live }) => {
     await withStepsRelay(page, async (id) => {
-      await live(`/namespaces/default/relays/${id}`);
+      await live(`/namespaces/default/relays/${id}/state`);
       await openSection(page, 'input-log');
 
       await expect(page.getByTestId('input-log-panel')).toBeVisible();
@@ -87,7 +89,7 @@ test.describe('Steps relays', () => {
   });
 
   test('a flow relay gets no steps, task journal or input log panel', async ({ page, live }) => {
-    await live('/namespaces/default/relays/testnet_store_1');
+    await live('/namespaces/default/relays/testnet_store_1/state');
 
     await expect(page.getByTestId('steps-panel')).toHaveCount(0);
     await expect(page.getByTestId('task-journal-panel')).toHaveCount(0);
@@ -105,6 +107,7 @@ test.describe('Steps relays', () => {
     // A steps relay stops cooperatively and completes as cancelled.
     await stopRelay(page, id);
 
+    await live('/namespaces/default');
     await openSection(page, 'finished-relays');
     const row = page.getByTestId(`finished-row-${id}`);
     await expect
@@ -118,14 +121,14 @@ test.describe('Steps relays', () => {
         { timeout: 30_000, intervals: [3_000] },
       )
       .toBe(1);
-    await expect(row).toContainText('cancelled');
+    await expect(row).toContainText('Cancelled');
 
     await row.getByRole('link').click();
     await expect(page).toHaveURL(new RegExp(`/relays/${id}$`));
 
     const record = page.getByTestId('completion-record');
     await expect(record).toBeVisible();
-    await expect(record).toContainText('cancelled');
+    await expect(record).toContainText('Cancelled');
 
     // Actions that need a live relay are absent rather than failing.
     await expect(page.getByTestId('task-journal-panel')).toHaveCount(0);

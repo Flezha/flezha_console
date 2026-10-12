@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, menuAction } from './fixtures';
 
 /**
  * The cluster and fleet screen.
@@ -21,7 +21,7 @@ test.describe('Cluster and fleet', () => {
     const nodes = page.getByTestId('cluster-nodes');
     await expect(nodes).toBeVisible();
     await expect(nodes.locator('li')).not.toHaveCount(0);
-    await expect(nodes).toContainText('connected to this UI');
+    await expect(nodes).toContainText('Connected to this console');
   });
 
   test('shows hub placement for each running namespace', async ({ page }) => {
@@ -83,7 +83,7 @@ test.describe('Cluster and fleet', () => {
     const modal = page.getByTestId('recovery-modal');
     await expect(modal).toBeVisible();
     await expect(page.getByTestId('recovery-hub-id')).toHaveText(/\S/);
-    await expect(page.getByTestId('recovery-local')).toContainText('serving');
+    await expect(page.getByTestId('recovery-local')).toContainText('Serving');
     await expect(
       page.getByTestId('recovery-per-node').locator('[data-testid^="recovery-node-"]'),
     ).not.toHaveCount(0);
@@ -99,31 +99,33 @@ test.describe('Cluster and fleet', () => {
     const runnerId = (await row.getAttribute('data-testid'))!.replace('runner-', '');
 
     // Cancelling asks the controller nothing.
-    await page.getByTestId(`drop-runner-${runnerId}`).click();
+    await menuAction(page, `runner-menu-${runnerId}`, `drop-runner-${runnerId}`);
     await expect(page.getByTestId('drop-runner-modal')).toContainText('refuses this same');
     await page.getByTestId('drop-runner-cancel').click();
     await expect(page.getByTestId(`runner-${runnerId}`)).toBeVisible();
 
-    await page.getByTestId(`drop-runner-${runnerId}`).click();
+    await menuAction(page, `runner-menu-${runnerId}`, `drop-runner-${runnerId}`);
     await page.getByTestId('drop-runner-confirm').click();
 
     const marks = page.getByTestId('runner-marks-default');
     await expect(marks).toBeVisible();
-    await expect(marks).toContainText('dropped');
+    await expect(marks).toContainText('Dropped');
     await expect(page.getByTestId(`runner-${runnerId}`)).toHaveCount(0);
 
     // The same process keeps retrying and keeps being refused.
     await page.waitForTimeout(5_000);
     await expect(runners.locator('tbody tr')).toHaveCount(0);
 
-    const readmit = marks.locator('[data-testid^="readmit-runner-"]').first();
-    await readmit.click();
+    const mark = (await marks.locator('[data-testid^="runner-mark-"]').first().getAttribute('data-testid'))!;
+    const stableId = mark.replace('runner-mark-', '');
+    const readmit = () => menuAction(page, `mark-menu-${stableId}`, `readmit-runner-${stableId}`);
+    await readmit();
     await expect(page.getByTestId('readmit-runner-modal')).toBeVisible();
     await page.getByTestId('readmit-runner-cancel').click();
     await expect(page.getByTestId('readmit-runner-modal')).toHaveCount(0);
-    await expect(marks).toContainText('dropped');
+    await expect(marks).toContainText('Dropped');
 
-    await readmit.click();
+    await readmit();
     await page.getByTestId('readmit-runner-confirm').click();
     await expect(marks).toHaveCount(0);
 

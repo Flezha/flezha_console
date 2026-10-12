@@ -42,7 +42,7 @@ test.describe('Calls to a relay', () => {
     const row = callRow(page, pair).first();
     await expect(row.locator('[data-testid^="call-source-"]')).toHaveText('CLI');
     await expect(row).toContainText('place');
-    await expect(row.locator('[data-testid^="call-outcome-"]')).toHaveText('answered', {
+    await expect(row.locator('[data-testid^="call-outcome-"]')).toHaveText('Answered', {
       timeout: 20_000,
     });
     await expect(row).toContainText('"status":"placed"');
@@ -74,7 +74,7 @@ test.describe('Calls to a relay', () => {
     for (const pair of pairs) {
       const row = callRow(page, pair).first();
       await expect(row.locator('[data-testid^="call-source-"]')).toHaveText('UI');
-      await expect(row.locator('[data-testid^="call-outcome-"]')).toHaveText('answered');
+      await expect(row.locator('[data-testid^="call-outcome-"]')).toHaveText('Answered');
     }
   });
 
@@ -94,7 +94,7 @@ test.describe('Calls to a relay', () => {
     await page.getByTestId('talk-close-btn').click();
 
     const row = callRow(page, line).first();
-    await expect(row.locator('[data-testid^="call-outcome-"]')).toHaveText('timed out', {
+    await expect(row.locator('[data-testid^="call-outcome-"]')).toHaveText('Timed out', {
       timeout: 20_000,
     });
     await expect(row).toContainText('call.timeout');

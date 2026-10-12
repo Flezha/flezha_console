@@ -16,13 +16,14 @@ test.describe('Login', () => {
     await expect(page).toHaveURL(/\/users\/log-in$/);
   });
 
-  test('the seeded dev credentials land on the dashboard', async ({ page }) => {
+  test('the seeded dev credentials land on a Home', async ({ page }) => {
     await page.goto('/users/log-in');
 
     await submitLogin(page, { email: DEV_EMAIL, password: DEV_PASSWORD });
 
-    await expect(page).toHaveURL(/localhost:4000\/$/);
-    await expect(page.locator('body')).toContainText('Dashboard');
+    // `/` opens the Home of the namespace last worked in, or the list.
+    await expect(page).toHaveURL(/\/namespaces(\/[^/?#]+)?$/);
+    await expect(page.getByTestId('topbar')).toBeVisible();
   });
 
   test('a wrong password does not authenticate', async ({ page }) => {

@@ -19,23 +19,27 @@ defmodule FlezhaUiWeb.RelayIndexLive do
   screen renders it as fixed rather than as something to clear.
 
   Relays starting, stopping and losing their runner arrive on the event feed
-  as they happen; each one reloads the rows and is kept, newest first, in a
-  bounded lifecycle list narrowed to the namespaces the token reaches.
+  as they happen; each one reloads the rows and goes on the event river,
+  narrowed to the namespaces the token reaches.
+
+  Each row carries its measured inbound rate and a sparkline, from the same
+  liveness snapshot the Home map reads, and activating a row inspects the
+  relay in place.
   """
 
   use FlezhaUiWeb, :live_view
 
   use FlezhaUiWeb.Live.Refresh,
     every: 5_000,
-    on_events: [:runner_connected, :runner_disconnected]
+    on_events: [:runner_connected, :runner_disconnected, :runner_dropped, :runner_readmitted]
 
   use FlezhaUiWeb.Live.Launcher
+  use FlezhaUiWeb.River
+  use FlezhaUiWeb.Inspect, kinds: ~w(relay)
 
-  alias FlezhaUi.Service.EventFeed
+  alias FlezhaUi.Format
   alias FlezhaUi.Service.NodeManager
-
-  @lifecycle_events [:relay_started, :relay_stopped, :relay_exited]
-  @lifecycle_max 50
+  alias FlezhaUiWeb.Topology
 
   @impl true
   def mount(_params, _session, socket) do
@@ -43,48 +47,18 @@ defmodule FlezhaUiWeb.RelayIndexLive do
      socket
      |> start_refresh()
      |> launcher_init(nil)
+     |> Topology.init()
+     |> river_init()
      |> assign(
        page_title: "Relays",
-       filters: %{"namespace" => "", "health" => "", "run" => ""},
+       loaded?: false,
+       filters: %{"namespace" => "", "health" => "", "run" => "", "runner" => ""},
        rows: [],
        run_options: [],
        namespaces: [],
        load_error: nil,
-       lifecycle: [],
-       lifecycle_error: subscribe_lifecycle(socket)
+       confirm_stop: nil
      )}
-  end
-
-  # Subscribes to the relay lifecycle feed and answers why it is refused, if it
-  # is. Only once connected: the dead render has no feed to hear from.
-  defp subscribe_lifecycle(socket) do
-    if connected?(socket) do
-      Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventFeed.topic(:flezha_relay))
-      EventFeed.error(EventFeed.signal_feed(:flezha_relay))
-    end
-  end
-
-  @impl true
-  def handle_info({:flezha_event, event, {namespace, entry}}, socket)
-      when event in @lifecycle_events do
-    if shown?(socket, namespace) do
-      socket = update(socket, :lifecycle, &Enum.take([entry | &1], @lifecycle_max))
-      {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_info({:flezha_feed, _feed, error}, socket),
-    do: {:noreply, assign(socket, lifecycle_error: error)}
-
-  # A signal is shown only for a namespace the token reaches, and on a scoped
-  # screen only for its own.
-  defp shown?(socket, namespace) do
-    namespace = to_string(namespace)
-
-    namespace in socket.assigns.namespaces and
-      socket.assigns.scoped_namespace in [nil, namespace]
   end
 
   # The start form offers the namespaces this screen already listed, so asking
@@ -101,19 +75,21 @@ defmodule FlezhaUiWeb.RelayIndexLive do
     scope = socket.assigns.scoped_namespace
 
     filters =
-      ~w(namespace health run)
+      ~w(namespace health run runner)
       |> Map.new(fn key -> {key, to_string(params[key] || "")} end)
       |> then(&if(scope, do: Map.put(&1, "namespace", scope), else: &1))
 
+    # Opening or closing an inspector patches the address too; it changes no
+    # filter, so it reads nothing.
     socket =
-      socket
-      |> assign(
-        filters: filters,
-        page_title: Layouts.scoped_title(screen_name(scope), scope)
-      )
-      |> refresh()
+      if filters == socket.assigns.filters and socket.assigns.loaded?,
+        do: socket,
+        else:
+          socket
+          |> assign(filters: filters, page_title: Layouts.scoped_title("Relays", scope))
+          |> refresh_when_connected()
 
-    {:noreply, socket}
+    {:noreply, inspect_params(socket, params)}
   end
 
   @impl true
@@ -123,10 +99,73 @@ defmodule FlezhaUiWeb.RelayIndexLive do
     {:noreply, push_patch(socket, to: filtered_path(socket.assigns.scoped_namespace, filters))}
   end
 
+  @impl true
+  def handle_event("confirm_stop", %{"relay_id" => id} = params, socket) do
+    row = Enum.find(socket.assigns.rows, &(to_string(&1.id) == id))
+    namespace = params["namespace"] || (row && row.namespace)
+    {:noreply, assign(socket, confirm_stop: namespace && %{relay: id, namespace: namespace})}
+  end
+
+  @impl true
+  def handle_event("cancel_stop", _params, socket),
+    do: {:noreply, assign(socket, confirm_stop: nil)}
+
+  @impl true
+  def handle_event("stop_relay", _params, %{assigns: %{confirm_stop: %{} = stop}} = socket) do
+    socket = assign(socket, confirm_stop: nil)
+
+    case NodeManager.stop_relay(stop.namespace, stop.relay, socket.assigns.flezha_token) do
+      {:ok, answer} ->
+        {:noreply,
+         socket
+         |> refresh()
+         |> put_flash(:info, Format.relay_stopped(stop.relay, answer))
+         |> push_patch(to: inspect_path(socket, nil))}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, error_message(reason, "the stop"))}
+    end
+  end
+
+  def handle_event("stop_relay", _params, socket), do: {:noreply, socket}
+
+  @impl FlezhaUiWeb.Live.Refresh
+  def refresh_paused?(socket),
+    do: FlezhaUiWeb.Live.Launcher.open?(socket) or socket.assigns.confirm_stop != nil
+
+  @impl FlezhaUiWeb.Inspect
+  def inspect_context(socket, {"relay", key}) do
+    {namespace, id} = row_key(socket, key)
+    row = Enum.find(socket.assigns.rows, &(to_string(&1.id) == id and &1.namespace == namespace))
+    state = socket.assigns.topology_state
+
+    %{
+      row: row,
+      rate: Map.get(state.rates, id),
+      history: state.history |> Map.get(id, []) |> Enum.reverse()
+    }
+  end
+
+  def inspect_context(_socket, _selection), do: %{}
+
+  defp row_key(%{assigns: %{scoped_namespace: scope}}, id) when is_binary(scope), do: {scope, id}
+
+  defp row_key(_socket, key) do
+    case String.split(key, "/", parts: 2) do
+      [namespace, id] -> {namespace, id}
+      [id] -> {nil, id}
+    end
+  end
+
+  @doc "How a row is named in `?inspect=`: its id, with its namespace on an unscoped screen."
+  def inspect_id(row, nil), do: "#{row.namespace}/#{row.id}"
+  def inspect_id(row, _scope), do: to_string(row.id)
+
   # A blank filter is left out entirely, and a scoped screen's namespace is
   # already a path segment — repeating it in the query string would give the
   # same scope two places to disagree from.
-  defp filtered_path(scope, filters) do
+  @doc false
+  def filtered_path(scope, filters) do
     query =
       filters
       |> then(&if(scope, do: Map.delete(&1, "namespace"), else: &1))
@@ -151,12 +190,15 @@ defmodule FlezhaUiWeb.RelayIndexLive do
       |> listed(socket.assigns.scoped_namespace)
       |> Enum.flat_map(&namespace_rows(&1, token))
 
-    assign(socket,
+    socket
+    |> assign(
+      loaded?: true,
       namespaces: Enum.sort(namespaces),
       rows: filter(rows, socket.assigns.filters),
       run_options: run_options(rows),
       load_error: load_error
     )
+    |> Topology.load_rates(Enum.map(rows, &to_string(&1.id)))
   end
 
   defp listed(namespaces, nil), do: namespaces
@@ -200,33 +242,13 @@ defmodule FlezhaUiWeb.RelayIndexLive do
     Enum.filter(rows, fn row ->
       matches?(filters["namespace"], to_string(row.namespace)) and
         matches?(filters["health"], to_string(row.health)) and
-        matches?(filters["run"], to_string(row.run))
+        matches?(filters["run"], to_string(row.run)) and
+        matches?(filters["runner"], to_string(row[:runner]))
     end)
   end
 
   defp matches?(value, _actual) when value in [nil, ""], do: true
   defp matches?(value, actual), do: value == actual
-
-  @doc "What a lifecycle entry says happened."
-  def lifecycle_text(%{event: :relay_started} = entry),
-    do: "started from #{entry.factory || "an unnamed factory"}"
-
-  def lifecycle_text(%{event: :relay_stopped} = entry), do: "stopped: #{reason(entry.reason)}"
-
-  def lifecycle_text(%{event: :relay_exited} = entry),
-    do: "exited on runner #{entry.runner || "—"}: #{reason(entry.reason)}"
-
-  defp reason(nil), do: "no reason given"
-  defp reason(reason), do: Format.printable(reason)
-
-  @doc """
-  What this screen is called at the scope it is showing.
-
-  Unscoped it is the whole Fleet; scoped it is that namespace's Relays —
-  said here so the heading and the page title cannot disagree about it.
-  """
-  def screen_name(nil), do: "Fleet"
-  def screen_name(_scope), do: "Relays"
 
   @doc """
   The health values offered as filters, so the list cannot drift from the badge.

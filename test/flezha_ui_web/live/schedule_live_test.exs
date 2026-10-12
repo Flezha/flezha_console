@@ -63,6 +63,8 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
       {:ok, _view, html} = live(conn, ~p"/schedules")
 
       assert html =~ ~s(data-testid="schedule-empty")
+      assert html =~ ~s(data-testid="schedule-new-empty-btn")
+      assert html =~ ~s(data-testid="scope-switch")
     end
 
     test "an entry a node fires reads as active, with its next fire", %{conn: conn, node: node} do
@@ -71,6 +73,7 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
       {:ok, view, html} = live(conn, ~p"/schedules")
 
       assert html =~ ~s(data-testid="schedule-row-nightly")
+      assert html =~ ~s(data-testid="schedule-menu-nightly")
       status = view |> element(~s([data-testid="schedule-status-nightly"])) |> render()
       assert status =~ ~r/>\s*Active\s*</
       assert status =~ "A node holds this schedule"
@@ -125,6 +128,7 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
   describe "creating" do
     test "stores and arms it in one call, and reports it", %{conn: conn, node: node} do
       view = open_form(conn)
+      assert has_element?(view, ~s([data-testid="schedule-steps"]))
 
       html = render_submit(view, "create", %{"schedule" => valid_form()})
 
@@ -379,6 +383,20 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
   end
 
   describe "running a schedule now" do
+    test "asks first, and a cancelled run starts nothing", %{conn: conn, node: node} do
+      with_entries(node, [entry()])
+
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+
+      assert view |> element(~s([data-testid="schedule-run-nightly"])) |> render_click() =~
+               ~s(data-testid="schedule-run-modal")
+
+      html = view |> element(~s([data-testid="schedule-run-cancel"])) |> render_click()
+
+      refute html =~ ~s(data-testid="schedule-run-modal")
+      assert FakeController.calls(node, {Schedule, :run}) == []
+    end
+
     test "names the relay it started and links to it", %{conn: conn, node: node} do
       with_entries(node, [entry()])
 
@@ -389,7 +407,11 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/schedules")
-      html = view |> element(~s([data-testid="schedule-run-nightly"])) |> render_click()
+      view |> element(~s([data-testid="schedule-run-nightly"])) |> render_click()
+      html = view |> element(~s([data-testid="schedule-run-confirm"])) |> render_click()
+
+      # A second click finds the confirmation closed and fires nothing more.
+      render_click(view, "run_now", %{"name" => "nightly"})
 
       assert [["nightly", _ctx]] = FakeController.calls(node, {Schedule, :run})
       assert html =~ ~r{href="/namespaces/default/relays/nightly(@|%40)manual-1"}
@@ -409,7 +431,8 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/schedules")
-      html = view |> element(~s([data-testid="schedule-run-nightly"])) |> render_click()
+      view |> element(~s([data-testid="schedule-run-nightly"])) |> render_click()
+      html = view |> element(~s([data-testid="schedule-run-confirm"])) |> render_click()
 
       assert html =~ "has an instance running already, so none was started"
       refute html =~ ~s(data-testid="schedule-ran-link")
@@ -426,7 +449,8 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/schedules")
-      html = view |> element(~s([data-testid="schedule-run-nightly"])) |> render_click()
+      view |> element(~s([data-testid="schedule-run-nightly"])) |> render_click()
+      html = view |> element(~s([data-testid="schedule-run-confirm"])) |> render_click()
 
       assert html =~ "schedule.not_found"
       assert html =~ "flz schedule list"

@@ -106,7 +106,10 @@ defmodule FlezhaUiWeb.Live.Refresh do
               when event in @refresh_events do
             # The palette's relay index goes stale on exactly these events,
             # and this is the only place the console hears them.
-            socket = FlezhaUiWeb.CommandPalette.invalidate(socket)
+            socket =
+              socket
+              |> FlezhaUiWeb.CommandPalette.invalidate()
+              |> FlezhaUiWeb.River.runner(event, data)
 
             if FlezhaUiWeb.Live.Refresh.concerns?(socket, data),
               do: {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket)},
@@ -150,6 +153,15 @@ defmodule FlezhaUiWeb.Live.Refresh do
         end
 
         socket
+      end
+
+      @doc """
+      `refresh/1` on a connected socket only, for a screen's first read: the
+      dead render shows the screen's skeleton rather than a read the connected
+      mount repeats at once.
+      """
+      def refresh_when_connected(socket) do
+        if Phoenix.LiveView.connected?(socket), do: refresh(socket), else: socket
       end
 
       @impl Phoenix.LiveView

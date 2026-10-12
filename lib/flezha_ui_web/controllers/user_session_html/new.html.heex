@@ -3,47 +3,48 @@
   current_scope={@current_scope}
   mascot={~p"/images/badger-laptop.webp"}
 >
-  <div class="space-y-6">
-    <.header>
-      Log in
-      <:subtitle :if={@current_scope}>
-        You need to reauthenticate to perform sensitive actions on your account.
-      </:subtitle>
-      <:subtitle :if={!@current_scope}>
-        No account?
-        <.link navigate={~p"/users/register"} class="hover:underline">
-          Register
-        </.link>
-      </:subtitle>
-    </.header>
+  <.page_header eyebrow="Flezha UI" title="Log in">
+    <:sentence :if={@current_scope}>
+      Confirm your password to change sensitive account settings.
+    </:sentence>
+    <:sentence :if={!@current_scope}>
+      The console for a flezha controller. No account?
+      <.link navigate={~p"/users/register"} data-testid="register-link">Register</.link>
+    </:sentence>
+  </.page_header>
 
-    <.form :let={f} for={@form} as={:user} id="login_form_password" action={~p"/users/log-in"}>
-      <div class="space-y-4">
-        <.input
-          field={f[:email]}
-          type="email"
-          label="Email"
-          autocomplete="username"
-          spellcheck="false"
-          required
-          phx-mounted={JS.focus()}
-          readonly={!!@current_scope}
-        />
-        <.input
-          field={f[:password]}
-          type="password"
-          label="Password"
-          autocomplete="current-password"
-          spellcheck="false"
-        />
-      </div>
-      <.button
-        name={@form[:remember_me].name}
-        value="true"
-        class="w-full mt-6"
-      >
-        Log in <span aria-hidden="true">&rarr;</span>
-      </.button>
-    </.form>
-  </div>
+  <.form
+    :let={f}
+    for={@form}
+    as={:user}
+    id="login_form_password"
+    action={~p"/users/log-in"}
+    class="space-y-4"
+  >
+    <.input
+      field={f[:email]}
+      type="email"
+      label="Email"
+      autocomplete="username"
+      spellcheck="false"
+      required
+      phx-mounted={JS.focus()}
+      readonly={!!@current_scope}
+    />
+    <.input
+      field={f[:password]}
+      type="password"
+      label="Password"
+      autocomplete="current-password"
+      spellcheck="false"
+    />
+    <.button
+      name={@form[:remember_me].name}
+      value="true"
+      class="w-full"
+      icon_right="hero-arrow-right"
+    >
+      Log in
+    </.button>
+  </.form>
 </Layouts.auth>

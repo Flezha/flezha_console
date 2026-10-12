@@ -1,9 +1,16 @@
 defmodule FlezhaUiWeb.RelayLive do
+  @moduledoc """
+  A relay's Live view: what it is doing. Its sentence header, its pipeline
+  graph and payload tap, and on request its diagnosis, the calls made to it,
+  its API and its plugin bindings. What it has kept — its cells, task journal,
+  input log and steps facts — is on its State view.
+  """
+
   use FlezhaUiWeb, :live_view
 
   # The pipeline graph reads its rates from snapshot deltas, so this screen
-  # ticks whether or not the operator armed the cell-state panel. A runner
-  # flip is the one state change worth showing before the next tick.
+  # ticks at the rate those deltas are worth measuring over. A runner flip is
+  # the one state change worth showing before the next tick.
   use FlezhaUiWeb.Live.Refresh,
     every: 2_000,
     on_events: [:runner_connected, :runner_disconnected]
@@ -11,16 +18,14 @@ defmodule FlezhaUiWeb.RelayLive do
   use FlezhaUiWeb.Topology
   use FlezhaUiWeb.Live.PluginForm
 
-  # The graph and the relay's own facts are what the screen is for; the API,
-  # the calls, the task journal, the input log, the SDK state and the bindings
-  # are what an operator goes looking for, so they start folded away.
+  # The graph and the relay's own facts are what the screen is for; the
+  # diagnosis, the calls, the API and the bindings are what an operator goes
+  # looking for, so they start folded away.
   use FlezhaUiWeb.Live.Sections,
     open: %{
+      "diagnosis" => false,
       "api" => false,
       "calls" => false,
-      "journal" => false,
-      "input-log" => false,
-      "sdk-state" => false,
       "plugins" => false
     }
 
@@ -42,22 +47,11 @@ defmodule FlezhaUiWeb.RelayLive do
         ns: ns,
         relay_id: id,
         page_title: id,
-        state_json: nil,
-        state_seq: nil,
-        state_notice: nil,
         load_error: nil,
-        selector_form: %{"tasklet" => "", "cell_key" => ""},
-        auto_refresh_state: false,
         confirm_stop: false,
         confirm_unbind: nil,
         idle_bindings: [],
-        rewind_target: nil,
         completion: nil,
-        journal: nil,
-        committed_iterations: [],
-        input_log: nil,
-        inbox: nil,
-        inbox_error: nil,
         tap: nil,
         diagnosis: nil,
         diagnosis_error: nil,
@@ -78,15 +72,45 @@ defmodule FlezhaUiWeb.RelayLive do
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
     socket
-    |> maybe_fetch_state()
     |> load_data()
     |> Topology.load_pipeline()
   end
 
-  # The cell-state panel reloads only when the operator armed it; the graph
-  # ticks regardless, because a rate needs two snapshots to exist at all.
-  defp maybe_fetch_state(socket) do
-    if socket.assigns.auto_refresh_state, do: fetch_state(socket), else: socket
+  # `?do=` lands an action from the command palette on the screen that owns
+  # it: a stop opens this screen's own confirmation, and a diagnosis is asked
+  # for once and shown open.
+  @impl true
+  def handle_params(%{"do" => "stop"}, _uri, socket) do
+    if is_nil(socket.assigns.completion) and
+         NodeManager.granted?(socket.assigns.operations, "Relay.stop"),
+       do: {:noreply, socket |> assign(confirm_stop: true) |> done_with_action()},
+       else: {:noreply, done_with_action(socket)}
+  end
+
+  def handle_params(%{"do" => "diagnose"}, _uri, socket) do
+    if connected?(socket) and NodeManager.granted?(socket.assigns.operations, "Relay.diagnose"),
+      do: {:noreply, socket |> diagnose() |> done_with_action()},
+      else: {:noreply, done_with_action(socket)}
+  end
+
+  def handle_params(%{"do" => "talk"}, _uri, socket) do
+    if is_nil(socket.assigns.completion) and
+         NodeManager.granted?(socket.assigns.operations, "Relay.send"),
+       do: {:noreply, socket |> open_talk() |> done_with_action()},
+       else: {:noreply, done_with_action(socket)}
+  end
+
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
+  # Once applied, the action leaves the address, so a reload or a reconnect
+  # does not open it again. The dead render has no client to patch.
+  defp done_with_action(socket) do
+    if connected?(socket),
+      do:
+        push_patch(socket,
+          to: ~p"/namespaces/#{socket.assigns.ns}/relays/#{socket.assigns.relay_id}"
+        ),
+      else: socket
   end
 
   # ---- Payload tap ----
@@ -126,62 +150,6 @@ defmodule FlezhaUiWeb.RelayLive do
     if socket.assigns.sections["calls"],
       do: {:noreply, open_calls(socket)},
       else: {:noreply, socket}
-  end
-
-  @impl true
-  def handle_event("fetch_state", _params, socket) do
-    {:noreply, fetch_state(socket)}
-  end
-
-  @impl true
-  def handle_event("selector_change", %{"selector" => params}, socket) do
-    {:noreply, assign(socket, selector_form: Map.merge(socket.assigns.selector_form, params))}
-  end
-
-  @impl true
-  def handle_event("toggle_auto_refresh", _params, socket) do
-    {:noreply, assign(socket, auto_refresh_state: !socket.assigns.auto_refresh_state)}
-  end
-
-  @impl true
-  def handle_event("open_rewind", _params, socket) do
-    {:noreply, assign(socket, rewind_target: List.first(socket.assigns.committed_iterations))}
-  end
-
-  @impl true
-  def handle_event("cancel_rewind", _params, socket) do
-    {:noreply, assign(socket, rewind_target: nil)}
-  end
-
-  @impl true
-  def handle_event("select_rewind", %{"rewind" => %{"iteration" => value}}, socket) do
-    {:noreply, assign(socket, rewind_target: parse_iteration(value))}
-  end
-
-  @impl true
-  def handle_event("rewind", _params, socket) do
-    %{ns: ns, relay_class: class, rewind_target: target, flezha_token: token} = socket.assigns
-
-    # Only an iteration the journal reported as committed is ever a target, so
-    # a stale form cannot ask for one the controller would refuse.
-    if target in socket.assigns.committed_iterations do
-      case NodeManager.rewind(ns, class, target, token) do
-        {:error, reason} ->
-          {:noreply,
-           socket
-           |> assign(rewind_target: nil)
-           |> put_flash(:error, error_message(reason, "the rewind"))}
-
-        _ok ->
-          {:noreply,
-           socket
-           |> assign(rewind_target: nil)
-           |> load_data()
-           |> put_flash(:info, "Rewound to iteration #{target}.")}
-      end
-    else
-      {:noreply, assign(socket, rewind_target: nil)}
-    end
   end
 
   @impl true
@@ -252,14 +220,7 @@ defmodule FlezhaUiWeb.RelayLive do
   # the input log to answer it, so it never rides the tick.
 
   @impl true
-  def handle_event("diagnose", _params, socket) do
-    %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
-
-    case NodeManager.diagnose_relay(ns, id, token) do
-      {:ok, diagnosis} -> {:noreply, assign(socket, diagnosis: diagnosis, diagnosis_error: nil)}
-      {:error, reason} -> {:noreply, assign(socket, diagnosis: nil, diagnosis_error: reason)}
-    end
-  end
+  def handle_event("diagnose", _params, socket), do: {:noreply, diagnose(socket)}
 
   # ---- Talking to the relay ----
   #
@@ -268,28 +229,7 @@ defmodule FlezhaUiWeb.RelayLive do
   # task: the screen keeps refreshing, and closing the dialog cancels the wait.
 
   @impl true
-  def handle_event("talk_open", _params, socket) do
-    mode = if api_channels(socket.assigns.api) == [], do: :raw, else: :channel
-
-    talk = %{
-      mode: mode,
-      channel: socket.assigns.api |> api_channels() |> List.first(),
-      fields: %{
-        "payload" => "",
-        "channel" => "",
-        "key" => "",
-        "msg_id" => "",
-        "deadline_ms" => "30000",
-        "json" => "",
-        "value" => %{}
-      },
-      error: nil,
-      field_errors: [],
-      waiting: nil
-    }
-
-    {:noreply, assign(socket, talk: talk)}
-  end
+  def handle_event("talk_open", _params, socket), do: {:noreply, open_talk(socket)}
 
   @impl true
   def handle_event("talk_close", _params, socket) do
@@ -301,7 +241,7 @@ defmodule FlezhaUiWeb.RelayLive do
       do: {:noreply, socket}
 
   @impl true
-  def handle_event("talk_mode", %{"mode" => mode}, socket) when mode in ~w(channel raw) do
+  def handle_event("talk_mode", %{"value" => mode}, socket) when mode in ~w(channel raw) do
     {:noreply, update(socket, :talk, &%{&1 | mode: String.to_existing_atom(mode), error: nil})}
   end
 
@@ -353,6 +293,29 @@ defmodule FlezhaUiWeb.RelayLive do
      talk_result(socket, %{kind: socket.assigns.talk.waiting, error: {:remote_error, reason}})}
   end
 
+  defp open_talk(socket) do
+    mode = if api_channels(socket.assigns.api) == [], do: :raw, else: :channel
+
+    talk = %{
+      mode: mode,
+      channel: socket.assigns.api |> api_channels() |> List.first(),
+      fields: %{
+        "payload" => "",
+        "channel" => "",
+        "key" => "",
+        "msg_id" => "",
+        "deadline_ms" => "30000",
+        "json" => "",
+        "value" => %{}
+      },
+      error: nil,
+      field_errors: [],
+      waiting: nil
+    }
+
+    assign(socket, talk: talk)
+  end
+
   # Kept outside `@talk`, so closing the dialog keeps this session's results.
   @talk_results_max 10
 
@@ -371,7 +334,6 @@ defmodule FlezhaUiWeb.RelayLive do
   # Core audits every listen, so none is held while nobody looks.
 
   def section_opened(socket, "api"), do: load_api(socket)
-  def section_opened(socket, "input-log"), do: load_inbox(socket)
   def section_opened(socket, "calls"), do: open_calls(socket)
   def section_opened(socket, "plugins"), do: assign_idle_bindings(socket)
   def section_opened(socket, _key), do: socket
@@ -512,27 +474,11 @@ defmodule FlezhaUiWeb.RelayLive do
   defp call_at(ms) when is_integer(ms), do: DateTime.from_unix!(ms, :millisecond)
   defp call_at(_absent), do: DateTime.utc_now()
 
-  @call_sources %{
-    "ui" => "UI",
-    "cli" => "CLI",
-    "sdk" => "SDK",
-    "http" => "HTTP",
-    "mcp" => "MCP",
-    "plugin" => "plugin",
-    "relay" => "relay",
-    "internal" => "internal"
-  }
-
   # A source the console does not know reads as sent.
-  defp call_source(source), do: Map.get(@call_sources, source, to_string(source || "unknown"))
+  defp call_source(source), do: Words.text(:call_source, source || "unknown")
 
-  defp call_verdict(%{outcome: nil}), do: {"waiting", "flz-badge"}
-  defp call_verdict(%{outcome: %{kind: :answered}}), do: {"answered", verdict_tone(:ok)}
-  defp call_verdict(%{outcome: %{kind: :timed_out}}), do: {"timed out", verdict_tone(:warning)}
-  defp call_verdict(%{outcome: %{kind: :refused}}), do: {"refused", verdict_tone(:problem)}
-
-  defp call_verdict(%{outcome: %{kind: :not_heard}}),
-    do: {"outcome not heard", verdict_tone(:warning)}
+  defp call_outcome_kind(%{outcome: nil}), do: nil
+  defp call_outcome_kind(%{outcome: %{kind: kind}}), do: kind
 
   # Read when the screen opens and when the API section opens, never on the
   # tick: the answer changes only when a runner announces again. The dead
@@ -550,17 +496,6 @@ defmodule FlezhaUiWeb.RelayLive do
     end
   end
 
-  # The retained records, read when the input log section opens, never on the
-  # tick; payloads are never read.
-  defp load_inbox(%{assigns: %{input_log: nil}} = socket), do: socket
-
-  defp load_inbox(socket) do
-    case NodeManager.inbox(socket.assigns.relay_id, socket.assigns.flezha_token) do
-      {:ok, inbox} -> assign(socket, inbox: inbox, inbox_error: nil)
-      {:error, reason} -> assign(socket, inbox: nil, inbox_error: reason)
-    end
-  end
-
   defp load_data(socket) do
     %{ns: ns, relay_id: relay_id, flezha_token: token} = socket.assigns
 
@@ -575,7 +510,7 @@ defmodule FlezhaUiWeb.RelayLive do
           socket |> assign(load_error: reason) |> assign_facts(NodeManager.overwatch_facts())
       end
 
-    socket |> assign_idle_bindings() |> load_durability()
+    assign_idle_bindings(socket)
   end
 
   # Bindings the controller declares for this relay that its hook table does
@@ -642,31 +577,6 @@ defmodule FlezhaUiWeb.RelayLive do
 
   defp load_completion(socket), do: assign(socket, completion: nil)
 
-  # The task journal and input log exist only for a durable steps relay.
-  # Reading them for a flow relay would answer empty, which renders as "there
-  # is nothing here" rather than "this does not apply".
-  defp load_durability(%{assigns: %{run: :steps, durable_steps: true}} = socket) do
-    %{relay_id: id, flezha_token: token} = socket.assigns
-
-    assign(socket,
-      journal: NodeManager.ok_or(NodeManager.task_journal(id, token), nil),
-      committed_iterations:
-        id |> NodeManager.committed_iterations(token) |> NodeManager.ok_or([]) |> Enum.sort(:desc),
-      input_log: %{
-        undelivered: length(NodeManager.ok_or(NodeManager.input_log_undelivered(id, token), [])),
-        last_offset: integer_or_nil(NodeManager.input_log_last_offset(id, token)),
-        consumed_offset: integer_or_nil(NodeManager.consumed_offset(id, token))
-      }
-    )
-  end
-
-  defp load_durability(socket) do
-    assign(socket, journal: nil, committed_iterations: [], input_log: nil)
-  end
-
-  defp integer_or_nil({:ok, value}) when is_integer(value), do: value
-  defp integer_or_nil(_value), do: nil
-
   # Health, live node and partition identity are registry facts, not overwatch
   # ones — they come from the same namespace-wide read the listing makes, so
   # this screen agrees with the listing it was reached from.
@@ -684,13 +594,6 @@ defmodule FlezhaUiWeb.RelayLive do
     socket |> assign(facts) |> assign(overwatch: facts)
   end
 
-  defp parse_iteration(value) do
-    case Integer.parse(to_string(value)) do
-      {int, ""} -> int
-      _ -> nil
-    end
-  end
-
   @doc """
   A tap's `field` per second, measured over the tap's own window.
 
@@ -701,51 +604,6 @@ defmodule FlezhaUiWeb.RelayLive do
     elapsed = max(System.monotonic_time(:millisecond) - tap.started_at, 1) / 1_000
 
     Float.round(Map.fetch!(tap, field) / elapsed, 1)
-  end
-
-  defp fetch_state(socket) do
-    %{ns: ns, relay_id: id, selector_form: form, flezha_token: token} = socket.assigns
-
-    with {:ok, cell} <- selector(form),
-         {:ok, json, change_seq} <- NodeManager.cell_state(ns, id, cell, token) do
-      assign(socket, state_json: json, state_seq: change_seq, state_notice: nil)
-    else
-      {:error, reason} ->
-        assign(socket, state_json: nil, state_seq: nil, state_notice: state_notice(reason))
-    end
-  end
-
-  # No tasklet reads every cell; a tasklet alone narrows to its cells; both
-  # narrow to one cell. A cell key is unique only within its tasklet, so it is
-  # never sent alone.
-  defp selector(form) do
-    tasklet = String.trim(form["tasklet"] || "")
-    cell_key = String.trim(form["cell_key"] || "")
-
-    cond do
-      tasklet == "" and cell_key != "" -> {:error, :cell_key_without_tasklet}
-      tasklet == "" -> {:ok, nil}
-      cell_key == "" -> {:ok, tasklet}
-      true -> {:ok, "#{tasklet}/#{cell_key}"}
-    end
-  end
-
-  # These are explanations, not failures: the relay is healthy, the state just
-  # is not there to read.
-  defp state_notice(:cell_key_without_tasklet),
-    do: {:info, "A cell key is unique only within its tasklet, so name the tasklet too."}
-
-  defp state_notice(reason) do
-    case NodeManager.error(reason) do
-      %{code: "state.persistence_off"} ->
-        {:info, "This relay declares persistence off, so it keeps no cell state to read."}
-
-      %{code: "state.not_resident", message: message} ->
-        {:info, "#{message} This relay's cells are not held in memory."}
-
-      _failure ->
-        {:error, reason}
-    end
   end
 
   @doc "The entry channels the relay's API announces, across its factory entries."
@@ -897,18 +755,46 @@ defmodule FlezhaUiWeb.RelayLive do
   def answer_text(value) when is_binary(value), do: Format.printable(value)
   def answer_text(value), do: Jason.encode!(value, pretty: true)
 
-  defp verdict_tone(:ok), do: "flz-badge flz-badge--positive"
-  defp verdict_tone(:warning), do: "flz-badge flz-badge--warning"
-  defp verdict_tone(_problem), do: "flz-badge flz-badge--negative"
+  # On request only: the controller reads verdicts, runners, dead letters and
+  # the input log to answer it, so it never rides the tick. The answer opens
+  # its section.
+  defp diagnose(socket) do
+    %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
 
-  # The controller answers `-1` for an input log that holds no records.
-  defp last_offset(-1), do: "no records"
-  defp last_offset(nil), do: "—"
-  defp last_offset(offset), do: offset
+    socket =
+      case NodeManager.diagnose_relay(ns, id, token) do
+        {:ok, diagnosis} -> assign(socket, diagnosis: diagnosis, diagnosis_error: nil)
+        {:error, reason} -> assign(socket, diagnosis: nil, diagnosis_error: reason)
+      end
 
-  defp format_input_type("1"), do: "Binary (1)"
-  defp format_input_type("2"), do: "Text (2)"
-  defp format_input_type("3"), do: "Custom (3)"
-  defp format_input_type(other) when is_binary(other), do: "Unknown (#{other})"
-  defp format_input_type(_), do: "—"
+    assign(socket, sections: Map.put(socket.assigns.sections, "diagnosis", true))
+  end
+
+  @doc """
+  The relay's header sentence: what it is, where it runs and its condition,
+  as `[{fragment, testid}]` so each fact stays addressable.
+  """
+  def sentence_parts(assigns) do
+    %{run: run, factory_id: factory, runner_id: runner, uptime_ms: uptime, row: row} = assigns
+
+    [
+      {if(run, do: "A #{run} relay", else: "A relay"), "relay-run"},
+      {factory && " from #{factory}", "relay-factory"},
+      {{:runner, runner != nil}, nil},
+      {runner && " #{short(runner)}", "relay-runner"},
+      {(row && row[:node] && " on #{row.node}") || (row && " — unplaced"), "relay-node"},
+      {uptime && ", up for #{Format.duration(uptime)}", "relay-uptime"}
+    ]
+    |> Enum.reject(fn {text, _testid} -> is_nil(text) or text == false end)
+  end
+
+  defp short(id) do
+    id = to_string(id)
+    if String.length(id) > 16, do: "…" <> String.slice(id, -7, 7), else: id
+  end
+
+  @doc "A folded section's digest for the calls it has heard."
+  def calls_digest(nil), do: "not listening"
+  def calls_digest(%{entries: []}), do: "none heard yet"
+  def calls_digest(%{entries: entries}), do: Words.count(length(entries), "call") <> " heard"
 end

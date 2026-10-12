@@ -118,8 +118,14 @@ defmodule FlezhaUiWeb.Live.Target do
   Distinct from a catalog that could not be read: that one still accepts a typed
   id, this one has nothing to aim at at all.
   """
-  def no_factories?(%{factories: [], factories_error: nil}), do: true
-  def no_factories?(_target), do: false
+  def no_factories?(target), do: target.factories == [] and is_nil(catalog_error(target))
+
+  @doc """
+  Why the factory catalog could not be read, or `nil`. A namespace list that
+  could not be read leaves no namespace to read a catalog from, so it is the
+  catalog's refusal too.
+  """
+  def catalog_error(target), do: target.factories_error || target.namespaces_error
 
   # ---- Rendering ----
 
@@ -163,7 +169,7 @@ defmodule FlezhaUiWeb.Live.Target do
       options={factory_options(@target.factories)}
       prompt="Select a factory..."
       empty={no_factories_message()}
-      error={@target.factories_error}
+      error={catalog_error(@target)}
       hint={factory_hint(@target.factories, @value)}
       placeholder="store_input"
       mono
@@ -208,7 +214,7 @@ defmodule FlezhaUiWeb.Live.Target do
     assigns = assign(assigns, :run, factory_run_of(assigns.target.factories, assigns.value))
 
     ~H"""
-    <p :if={@run} class="text-xs text-th-secondary" data-testid={@testid}>
+    <p :if={@run} class="text-xs fui-quiet" data-testid={@testid}>
       Runs as <span class="font-mono">{@run}</span>, as this factory's runners announce it.
     </p>
     """

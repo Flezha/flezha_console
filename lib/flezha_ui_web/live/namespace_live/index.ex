@@ -21,6 +21,8 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
      |> start_refresh()
      |> assign(
        page_title: "Namespaces",
+       namespaces: [],
+       load_error: nil,
        declarations_unavailable?: false,
        show_create: false,
        create_form: %{"name" => "", "max_relays" => "", "max_runners" => ""},
@@ -136,14 +138,18 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
     name = to_string(name)
     record = Map.get(records, name)
 
+    # A namespace with no hub has nothing running in it, which is zero rather
+    # than unknown. One registry read gives both the count and the health.
+    rows =
+      if running?, do: name |> NodeManager.relay_rows(token) |> NodeManager.ok_or([]), else: []
+
     %{
       name: name,
       declared?: record != nil,
       running?: running?,
       quotas: record && record.quotas,
-      # A namespace with no hub has nothing running in it, which is zero
-      # rather than unknown.
-      relay_count: if(running?, do: count(NodeManager.list_relays(name, token)), else: 0),
+      relay_count: length(rows),
+      health: NodeManager.health_counts(rows),
       runner_count: if(running?, do: count(NodeManager.runners(name, token)), else: 0),
       breaches: breaches(name, record, token)
     }

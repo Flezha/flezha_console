@@ -1,33 +1,25 @@
-<Layouts.auth flash={@flash} current_scope={@current_scope}>
-  <div class="space-y-6">
-    <.header>
-      Create account
-      <:subtitle>
-        Already have one?
-        <.link navigate={~p"/users/log-in"} class="hover:underline">
-          Log in
-        </.link>
-      </:subtitle>
-    </.header>
+<Layouts.auth
+  flash={@flash}
+  current_scope={@current_scope}
+  mascot={~p"/images/badger-laptop.webp"}
+>
+  <.page_header eyebrow="Flezha UI" title="Create an account">
+    <:sentence>
+      Already have one?
+      <.link navigate={~p"/users/log-in"} data-testid="login-link">Log in</.link>
+    </:sentence>
+  </.page_header>
 
-    <.form :let={f} for={@changeset} action={~p"/users/register"}>
-      <div class="space-y-4">
-        <.input
-          field={f[:email]}
-          type="email"
-          label="Email"
-          autocomplete="username"
-          spellcheck="false"
-          required
-          phx-mounted={JS.focus()}
-        />
-      </div>
-      <.button
-        phx-disable-with="Creating account..."
-        class="w-full mt-6"
-      >
-        Create account
-      </.button>
-    </.form>
-  </div>
+  <.form :let={f} for={@changeset} action={~p"/users/register"} class="space-y-4">
+    <.input
+      field={f[:email]}
+      type="email"
+      label="Email"
+      autocomplete="username"
+      spellcheck="false"
+      required
+      phx-mounted={JS.focus()}
+    />
+    <.button phx-disable-with="Creating account…" class="w-full">Create account</.button>
+  </.form>
 </Layouts.auth>

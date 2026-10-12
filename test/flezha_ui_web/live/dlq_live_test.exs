@@ -46,7 +46,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
     test "renders the empty state when nothing is parked", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/dlq")
 
-      assert html =~ "The dead-letter queue is empty"
+      assert html =~ "The queue is empty."
       refute html =~ ~s(data-testid="dlq-table")
     end
 
@@ -60,7 +60,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       assert html =~ "orders/charge/18"
       assert html =~ "upstream refused"
       assert html =~ "cust-9"
-      assert html =~ "Parked entries (2)"
+      assert html =~ ~r/data-testid="dlq-group-count-orders-charge"[^>]*>\s*2 parked/
     end
 
     test "renders the statistics per parked tasklet", %{conn: conn, node: node} do
@@ -79,7 +79,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
       stats = view |> element(~s([data-testid="dlq-stats"])) |> render()
-      assert stats =~ ~s(<dt class="flz-num">orders/charge</dt>)
+      assert stats =~ "<dt>orders/charge</dt>"
       assert stats =~ "3"
       refute stats =~ "refunds/settle"
     end
@@ -97,7 +97,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       {:ok, _view, html} = live(conn, ~p"/dlq")
 
       refute html =~ ~s(data-testid="dlq-stats")
-      assert html =~ "The dead-letter queue is empty"
+      assert html =~ "The queue is empty."
     end
 
     test "filtering by relay class narrows what the controller is asked for", %{
@@ -134,18 +134,34 @@ defmodule FlezhaUiWeb.DlqLiveTest do
   end
 
   describe "inspecting an entry" do
-    test "opens and closes the payload modal", %{conn: conn, node: node} do
+    test "opens and closes the payload in the inspector", %{conn: conn, node: node} do
       with_entries(node, [entry()])
       FakeController.set(node, {Dlq, :get}, {:ok, entry(), "the parked payload"})
 
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      html = render_click(view, "inspect", %{"ref" => @ref})
-      assert html =~ ~s(data-testid="dlq-inspect-modal")
-      assert html =~ "the parked payload"
+      view |> element(~s([data-testid="dlq-inspect-#{@ref}"])) |> render_click()
+      assert_patch(view, ~p"/dlq?#{[inspect: "entry:#{@ref}"]}")
 
-      html = render_click(view, "close_inspect", %{})
-      refute html =~ ~s(data-testid="dlq-inspect-modal")
+      html = render(view)
+      assert html =~ ~s(data-testid="dlq-menu-#{@ref}")
+      assert html =~ ~s(data-testid="inspector-entry")
+      assert html =~ ~s(data-testid="inspector-entry-meta")
+
+      assert view |> element(~s([data-testid="inspector-payload"])) |> render() =~
+               "the parked payload"
+
+      assert html =~ ~s(data-testid="inspector-replay")
+      assert html =~ ~s(data-testid="inspector-drop")
+
+      html = render_click(view, "inspect_close", %{})
+      refute html =~ ~s(data-testid="inspector-entry")
+    end
+
+    test "an address naming a kind this screen does not inspect opens nothing", %{conn: conn} do
+      {:ok, _view, html} = live(conn, "/dlq?inspect=relay:default/orders")
+
+      refute html =~ ~s(data-testid="inspector-relay")
     end
 
     test "reports an entry that has since left the queue", %{conn: conn, node: node} do
@@ -159,7 +175,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      assert render_click(view, "inspect", %{"ref" => @ref}) =~ "is not parked"
+      assert render_click(view, "inspect", %{"kind" => "entry", "id" => @ref}) =~ "is not parked"
     end
   end
 
