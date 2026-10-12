@@ -52,7 +52,7 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
           aria-current={nav_current?(current_path, entry.path) && "page"}
           class="flz-sidebar-link"
         >
-          <.icon name={entry.icon} class="w-4 h-4 shrink-0" />{entry.label}
+          <.icon name={entry.icon} class="w-[18px] h-[18px] shrink-0" />{entry.label}
           <span
             :if={entry.count == :problems and problems not in [nil, []]}
             class={"fui-count fui-count--#{FlezhaUiWeb.Attention.worst(problems)} ml-auto"}
@@ -103,7 +103,7 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
             aria-expanded="false"
             phx-mounted={JS.ignore_attributes(["aria-expanded"])}
           >
-            <.icon name="hero-rectangle-stack" class="w-4 h-4" />
+            <.icon name="hero-rectangle-stack" class="w-[18px] h-[18px]" />
             <span class="flz-num">{scope || "no namespace"}</span>
             <.icon name="hero-chevron-down-micro" class="shrink-0" />
           </button>
@@ -154,15 +154,15 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
               if assigns[:refresh_paused], do: "Resume refreshing", else: "Pause refreshing"
             }
           >
-            <.icon :if={assigns[:refresh_paused]} name="hero-play" class="w-4 h-4" />
-            <.icon :if={!assigns[:refresh_paused]} name="hero-pause" class="w-4 h-4" />
+            <.icon :if={assigns[:refresh_paused]} name="hero-play" class="w-[18px] h-[18px]" />
+            <.icon :if={!assigns[:refresh_paused]} name="hero-pause" class="w-[18px] h-[18px]" />
           </button>
         </div>
 
         <span
           :if={authz.principal}
           data-testid="authz-identity"
-          class="flz-num flz-topbar-muted flex items-center gap-1.5 text-xs"
+          class="flz-num flz-topbar-muted flex items-center gap-1.5"
           title={"flezha principal #{authz.principal}"}
         >
           <.icon name="hero-key" class="w-3.5 h-3.5" />

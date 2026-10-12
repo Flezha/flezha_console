@@ -41,28 +41,37 @@ defmodule FlezhaUiWeb.BrandTest do
   end
 
   describe "the favicon" do
-    test "both the vector icon and its raster fallback are linked", %{conn: conn} do
+    test "the adaptive vector icon and a background-free PNG per scheme are linked", %{
+      conn: conn
+    } do
       html = conn |> get(~p"/users/log-in") |> html_response(200)
 
       assert html =~ ~s(href="/favicon.svg")
-      assert html =~ ~s(href="/favicon.ico")
+
+      assert html =~
+               ~r{href="/images/favicon-mark-dark-32.png"\s+media="\(prefers-color-scheme: light\)"}
+
+      assert html =~
+               ~r{href="/images/favicon-mark-white-32.png"\s+media="\(prefers-color-scheme: dark\)"}
+
+      refute html =~ "favicon.ico"
     end
 
-    test "the served icons are the stylebook's badger, not the framework default" do
+    test "the served icons are the stylebook's badger with a transparent ground" do
       svg = File.read!("priv/static/favicon.svg")
       assert svg =~ "prefers-color-scheme"
       refute svg =~ "linearGradient"
 
-      # An ICO container: reserved 0, type 1 (icon), several sizes.
-      assert <<0, 0, 1, 0, count::little-16, _rest::binary>> =
-               File.read!("priv/static/favicon.ico")
-
-      assert count > 1
+      for png <- ~w(favicon-mark-dark-32.png favicon-mark-white-32.png) do
+        # A PNG whose colour type 6 carries an alpha channel.
+        assert <<0x89, "PNG", _::binary-size(20), 8, 6, _rest::binary>> =
+                 File.read!("priv/static/images/#{png}")
+      end
     end
   end
 
   describe "the brand lockup" do
-    test "the login screen shows the Flezha UI lockup mask, in the brand ink", %{
+    test "the login screen shows the Flezha UI lockup mask, in the logo ink", %{
       conn: conn
     } do
       html = conn |> get(~p"/users/log-in") |> html_response(200)

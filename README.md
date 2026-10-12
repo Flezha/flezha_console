@@ -283,7 +283,7 @@ the content of every screen is drawn with the console's own component kit.
   by a shape. The accent marks interaction; the signal marks live data — flow,
   rates, change marks — and never a status.
 - **The shell is the stylebook's**: the rail and topbar in the chrome, which is
-  pale in light and deep plum in dark, and the content on a rounded sheet set
+  pale in light and deep plum in dark, and the content on a square-cornered sheet set
   into the chrome, the only part that scrolls.
 - **The content kit** is `assets/css/console/` (`tokens.css`, `base.css`,
   `components.css`) with one function component per element in
@@ -295,12 +295,13 @@ the content of every screen is drawn with the console's own component kit.
   condition, its actions and its tabs — and its sections are separated by space
   and hairlines rather than nested cards. In dev, `/dev/kit` shows every
   component in every state.
-- **Type**: Bricolage Grotesque for display, IBM Plex Sans for the interface
-  and IBM Plex Mono for identifiers and figures, self-hosted under
-  `priv/static/fonts` with their OFL licences.
+- **Type**: flezha.com's faces — Space Grotesk for display, Inter for the
+  interface and JetBrains Mono for identifiers and figures — from the
+  stylebook's `fonts.css`, served from `priv/static/fonts`.
 - **Theme contract**: attribute `data-theme="light|dark"` on `<html>`, storage
   key `flezha-theme`, set before the first paint by the stylebook's inlined
-  `theme-hydrate.js`. The toggle is in the account menu.
+  `theme-hydrate.js`. The toggle sits in the topbar and on the signed-out
+  pages, with flezha.com's sun and moon.
 - **The relay pipeline graph** draws nodes, wires and dots with the
   stylebook's relay-graph recipe (`.flz-graph-*`). What is the console's own
   stays here as `topo-*` rules: lanes, ports and their listener counts,

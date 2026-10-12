@@ -285,7 +285,7 @@ defmodule FlezhaUiWeb.CoreComponents do
     do: ["fui-btn", "fui-btn--#{variant}", size == "sm" && "fui-btn--sm", class]
 
   defp icon_size("sm"), do: "w-4 h-4"
-  defp icon_size("md"), do: "w-4 h-4"
+  defp icon_size("md"), do: "w-5 h-5"
 
   @doc """
   The one labelled form control: label, control, hint, errors.

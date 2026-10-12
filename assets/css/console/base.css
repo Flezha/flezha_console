@@ -1,57 +1,9 @@
 /*
- * The console's base layer: its faces, the page ground, type, the form
+ * The console's base layer: the page ground, type, the form
  * baseline and the focus ring. Plain elements look like the console before a
  * single kit class is applied; the kit's recipes in components.css build on
  * this, and Tailwind's utilities still win both.
  */
-
-@font-face {
-  font-family: "Bricolage Grotesque";
-  font-style: normal;
-  font-weight: 200 800;
-  font-display: swap;
-  src: url("/fonts/BricolageGrotesque-latin.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/fonts/IBMPlexSans-latin-400.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("/fonts/IBMPlexSans-latin-500.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url("/fonts/IBMPlexSans-latin-600.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/fonts/IBMPlexMono-latin-400.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("/fonts/IBMPlexMono-latin-500.woff2") format("woff2");
-}
 
 html {
   background: var(--fui-page);
@@ -75,6 +27,7 @@ h2,
 h3,
 h4 {
   color: var(--fui-ink-1);
+  font-family: var(--fui-font-display);
   font-weight: 600;
   line-height: var(--fui-leading-tight);
 }
@@ -112,51 +65,54 @@ td {
 }
 
 /* ---- Form baseline ----
- * One box for every typed control. `:where()` keeps it at zero specificity so
- * a kit modifier wins without `!important`.
+ * One box for every typed control. It weighs one element, exactly as much as
+ * Tailwind's preflight (`input { padding: 0 }`) and later than it, so it wins
+ * that overlap, while any kit class still wins over it without `!important`.
  */
-:where(
-    input[type="text"],
-    input[type="number"],
-    input[type="email"],
-    input[type="password"],
-    input[type="search"],
-    input[type="tel"],
-    input[type="url"],
+:is(input, select, textarea):where(
+    [type="text"],
+    [type="number"],
+    [type="email"],
+    [type="password"],
+    [type="search"],
+    [type="tel"],
+    [type="url"],
     input:not([type]),
     select,
     textarea
   ) {
-  background-color: var(--fui-surface);
+  background-color: var(--fui-field);
   border: 1px solid var(--fui-line-strong);
   border-radius: var(--fui-radius-control);
   color: var(--fui-ink-1);
   font: inherit;
   font-size: var(--fui-text-md);
   min-height: var(--fui-control-h);
-  padding: var(--fui-space-1) var(--fui-space-3);
+  padding: var(--fui-space-2) var(--fui-space-4);
   transition:
     border-color var(--fui-fast) var(--fui-ease),
     box-shadow var(--fui-fast) var(--fui-ease);
   width: 100%;
 }
 
-:where(input, select, textarea)::placeholder {
+/* As heavy as preflight's own placeholder rule, so this one, later, wins. */
+:is(input, textarea)::placeholder {
   color: var(--fui-ink-3);
+  opacity: 1;
 }
 
-:where(select) {
+select {
   appearance: none;
   background-image:
     linear-gradient(45deg, transparent 50%, var(--fui-ink-3) 50%),
     linear-gradient(135deg, var(--fui-ink-3) 50%, transparent 50%);
   background-position:
-    calc(100% - 15px) 50%,
-    calc(100% - 10px) 50%;
+    calc(100% - 22px) 50%,
+    calc(100% - 16px) 50%;
   background-repeat: no-repeat;
-  background-size: 5px 5px;
+  background-size: 6px 6px;
   cursor: pointer;
-  padding-right: var(--fui-space-7);
+  padding-right: var(--fui-space-8);
 }
 
 :where(select) option {
@@ -184,22 +140,22 @@ td {
   border-color: var(--fui-negative);
 }
 
-:where(textarea) {
+textarea {
   min-height: 8rem;
-  padding: var(--fui-space-2) var(--fui-space-3);
+  padding: var(--fui-space-3) var(--fui-space-4);
   resize: vertical;
 }
 
 :where(input[type="checkbox"], input[type="radio"]) {
   accent-color: var(--fui-accent);
   cursor: pointer;
-  height: 1rem;
-  width: 1rem;
+  height: 1.25rem;
+  width: 1.25rem;
 }
 
 /* A phone keeps typed controls at 16 px so iOS does not zoom on focus. */
 @media (width <= 599px) {
-  :where(input:not([type="checkbox"], [type="radio"]), select, textarea) {
+  :is(input, select, textarea):where(:not([type="checkbox"], [type="radio"])) {
     font-size: max(16px, var(--fui-text-md));
   }
 }

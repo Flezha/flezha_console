@@ -14,6 +14,7 @@
  * its margin.
  */
 @import "tailwindcss/base";
+@import "@flezha/stylebook/css/fonts.css";
 @import "./console/tokens.css";
 @import "./console/base.css";
 @import "./console/components.css";
@@ -21,12 +22,6 @@
 @import "@flezha/stylebook/css/components.css";
 @import "tailwindcss/components";
 @import "tailwindcss/utilities";
-
-/* The graph's labels read the stylebook's mono role; it takes the console's
-   face, the one served. After the stylebook's tokens, so this wins. */
-:root {
-  --font-mono: var(--fui-font-mono);
-}
 
 /* ---- Topology graph ----
  * Nodes, wires, dots and the legend wear the stylebook's relay-graph recipe.

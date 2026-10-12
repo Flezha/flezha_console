@@ -26,7 +26,7 @@
 }
 
 .fui-brand--canvas {
-  color: var(--fui-brand);
+  color: var(--fui-logo);
 }
 
 .fui-logo {
@@ -43,7 +43,7 @@
 
 .fui-count {
   align-items: center;
-  border-radius: var(--fui-radius-round);
+  border-radius: var(--fui-radius-control);
   display: inline-flex;
   font-family: var(--fui-font-mono);
   font-size: var(--fui-text-xs);
@@ -60,7 +60,7 @@
 }
 
 .fui-count--negative {
-  background: var(--fui-negative);
+  background: var(--fui-negative-solid);
   color: var(--fui-on-negative);
 }
 
@@ -72,7 +72,7 @@
 /* A namespace's health, as one strip of segments sized by count. */
 .fui-strip {
   background: var(--fui-hover);
-  border-radius: var(--fui-radius-round);
+  border-radius: var(--fui-radius-control);
   display: flex;
   gap: 1px;
   grid-column: 1 / -1;
@@ -191,19 +191,23 @@
   }
 }
 
+/* Scrolls sideways on a narrow screen; the tab's -1px overlap of the line
+   must not make it scroll vertically too. */
 .fui-tabs {
   border-bottom: 1px solid var(--fui-line);
   display: flex;
   gap: var(--fui-space-1);
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .fui-tab {
-  border-bottom: 2px solid transparent;
+  border-bottom: 3px solid transparent;
   color: var(--fui-ink-2);
-  font-weight: 500;
+  font-size: var(--fui-text-lg);
+  font-weight: 600;
   margin-bottom: -1px;
-  padding: var(--fui-space-2) var(--fui-space-3);
+  padding: var(--fui-space-3) var(--fui-space-4);
   white-space: nowrap;
 }
 
@@ -301,11 +305,11 @@
   display: inline-flex;
   flex: none;
   font-size: var(--fui-text-md);
-  font-weight: 500;
+  font-weight: 600;
   gap: var(--fui-space-2);
   height: var(--fui-control-h);
   justify-content: center;
-  padding: 0 var(--fui-space-3);
+  padding: 0 var(--fui-space-4);
   transition:
     background-color var(--fui-fast) var(--fui-ease),
     border-color var(--fui-fast) var(--fui-ease),
@@ -321,7 +325,7 @@
   font-size: var(--fui-text-sm);
   gap: var(--fui-space-1);
   height: var(--fui-control-h-sm);
-  padding: 0 var(--fui-space-2);
+  padding: 0 var(--fui-space-3);
 }
 
 .fui-btn--primary {
@@ -330,7 +334,7 @@
 }
 
 .fui-btn--primary:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--fui-accent) 88%, var(--fui-ink-1));
+  background: var(--fui-accent-hover);
 }
 
 .fui-btn--secondary {
@@ -359,9 +363,9 @@
   color: var(--fui-ink-2);
   cursor: pointer;
   display: inline-flex;
-  height: 2rem;
+  height: var(--fui-control-h);
   justify-content: center;
-  min-width: 2rem;
+  min-width: var(--fui-control-h);
   padding: 0 var(--fui-space-1);
 }
 
@@ -376,12 +380,12 @@
 }
 
 .fui-btn--danger {
-  background: var(--fui-negative);
+  background: var(--fui-negative-solid);
   color: var(--fui-on-negative);
 }
 
 .fui-btn--danger:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--fui-negative) 88%, var(--fui-ink-1));
+  background: color-mix(in oklab, var(--fui-negative-solid) 88%, var(--fui-ink-1));
 }
 
 .fui-btn[aria-pressed="true"] {
@@ -416,14 +420,14 @@
 }
 
 .fui-label {
-  color: var(--fui-ink-2);
-  font-size: var(--fui-text-sm);
-  font-weight: 500;
+  color: var(--fui-ink-1);
+  font-size: var(--fui-text-md);
+  font-weight: 600;
 }
 
 .fui-hint {
-  color: var(--fui-ink-3);
-  font-size: var(--fui-text-xs);
+  color: var(--fui-ink-2);
+  font-size: var(--fui-text-sm);
 }
 
 .fui-error {
@@ -462,7 +466,7 @@
 
 .fui-switch-track {
   background: var(--fui-line-strong);
-  border-radius: var(--fui-radius-round);
+  border-radius: var(--fui-radius-control);
   display: inline-block;
   flex: none;
   height: 1.125rem;
@@ -473,7 +477,7 @@
 
 .fui-switch-track::after {
   background: var(--fui-surface);
-  border-radius: var(--fui-radius-round);
+  border-radius: var(--fui-radius-control);
   box-shadow: 0 1px 2px var(--fui-shadow);
   content: "";
   height: 0.875rem;
@@ -682,7 +686,7 @@ button.fui-menu-item--danger:hover {
   align-items: center;
   background: var(--fui-surface);
   border: 1px solid var(--fui-line);
-  border-radius: var(--fui-radius-round);
+  border-radius: var(--fui-radius-control);
   color: var(--fui-ink-2);
   display: inline-flex;
   font-size: var(--fui-text-xs);
@@ -703,7 +707,7 @@ button.fui-menu-item--danger:hover {
 .fui-live {
   align-items: center;
   background: var(--fui-signal);
-  border-radius: var(--fui-radius-round);
+  border-radius: var(--fui-radius-control);
   color: var(--fui-on-signal);
   display: inline-flex;
   font-size: var(--fui-text-xs);
@@ -718,7 +722,7 @@ button.fui-menu-item--danger:hover {
 .fui-badge {
   align-items: center;
   background: var(--fui-hover);
-  border-radius: var(--fui-radius-round);
+  border-radius: var(--fui-radius-control);
   color: var(--fui-ink-2);
   display: inline-flex;
   flex: none;
@@ -926,7 +930,7 @@ button.fui-menu-item--danger:hover {
 
 .fui-meter {
   background: var(--fui-hover);
-  border-radius: var(--fui-radius-round);
+  border-radius: var(--fui-radius-control);
   display: block;
   height: 6px;
   overflow: hidden;
@@ -1503,7 +1507,7 @@ dialog.fui-dialog-panel::backdrop {
 
 .fui-river-track {
   background: var(--fui-hover);
-  border-radius: var(--fui-radius-round);
+  border-radius: var(--fui-radius-control);
   height: 0.5rem;
   position: relative;
 }

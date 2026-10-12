@@ -1,13 +1,15 @@
 defmodule Mix.Tasks.Assets.Stylebook do
-  @shortdoc "Copies the flezha_stylebook logo, favicons and mascots into priv/static"
+  @shortdoc "Copies the flezha_stylebook logo, favicons, mascot and typefaces into priv/static"
 
   @moduledoc """
   Places the `flezha_stylebook` brand assets the console serves into
-  `priv/static`: the Flezha UI lockup, the favicons and the two mascot poses.
+  `priv/static`: the Flezha UI lockup, the favicons, the not-found mascot and
+  the three typefaces flezha.com sets type in.
 
   The `web` container has no Node, so nothing can fetch them at boot — this
-  task runs on the host and its output is committed. The console's typefaces
-  are its own and live in `priv/static/fonts` already.
+  task runs on the host and its output is committed. The fonts land in
+  `priv/static/fonts`, where the stylebook's `fonts.css` finds them relative to
+  the compiled `/assets/app.css`.
 
   Fails when the stylebook is not installed, rather than leaving the console to
   render unstyled with no explanation.
@@ -17,14 +19,13 @@ defmodule Mix.Tasks.Assets.Stylebook do
 
   @package "assets/node_modules/@flezha/stylebook"
   @images %{
-    "logo/flezha-ui-badger-line-text-white.svg" => "flezha-ui-badger-line-text-white.svg",
-    "honey-badger/laptop.webp" => "badger-laptop.webp",
-    "honey-badger/not-found.webp" => "badger-not-found.webp"
+    "assets/logo/flezha-ui-badger-line-text-white.svg" => "flezha-ui-badger-line-text-white.svg",
+    "assets/logo/flezha-favicon-badger-mark-dark-32.png" => "favicon-mark-dark-32.png",
+    "assets/logo/flezha-favicon-badger-mark-white-32.png" => "favicon-mark-white-32.png",
+    "assets/honey-badger/not-found.webp" => "badger-not-found.webp"
   }
-  @favicons %{
-    "logo/flezha-favicon-badger-adaptive.svg" => "favicon.svg",
-    "logo/flezha-favicon-badger.ico" => "favicon.ico"
-  }
+  @favicons %{"assets/logo/flezha-favicon-badger-adaptive.svg" => "favicon.svg"}
+  @fonts ~w(Inter-latin.woff2 JetBrainsMono-latin.woff2 SpaceGrotesk-latin.woff2)
 
   @impl Mix.Task
   def run(_args) do
@@ -34,7 +35,7 @@ defmodule Mix.Tasks.Assets.Stylebook do
       Mix.raise("""
       flezha_stylebook is not installed at #{@package}.
 
-      The console's logo, favicon and mascots all come from
+      The console's logo, favicon, mascot and typefaces all come from
       the flezha_stylebook repository, which this project depends on as an npm
       `file:` dependency and expects alongside itself at:
 
@@ -45,6 +46,7 @@ defmodule Mix.Tasks.Assets.Stylebook do
 
     copy(package, @images, "priv/static/images")
     copy(package, @favicons, "priv/static")
+    copy(package, Map.new(@fonts, &{"fonts/#{&1}", &1}), "priv/static/fonts")
 
     Mix.shell().info("stylebook assets copied into priv/static")
   end
@@ -53,7 +55,7 @@ defmodule Mix.Tasks.Assets.Stylebook do
     File.mkdir_p!(dir)
 
     for {from, to} <- files do
-      File.cp!(Path.join([package, "assets", from]), Path.join(dir, to))
+      File.cp!(Path.join(package, from), Path.join(dir, to))
     end
   end
 end

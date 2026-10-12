@@ -21,17 +21,18 @@
 
 :root {
   /* Type */
-  --fui-font-display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
-  --fui-font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --fui-font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  /* Type: the stylebook's faces, the ones flezha.com sets */
+  --fui-font-display: var(--font-display);
+  --fui-font-sans: var(--font-body);
+  --fui-font-mono: var(--font-mono);
 
-  --fui-text-xs: 0.75rem;
-  --fui-text-sm: 0.8125rem;
-  --fui-text-md: 0.875rem;
-  --fui-text-lg: 1rem;
+  --fui-text-xs: 0.8125rem;
+  --fui-text-sm: 0.9375rem;
+  --fui-text-md: 0.96875rem;
+  --fui-text-lg: 1.0625rem;
   --fui-text-xl: 1.25rem;
   --fui-text-2xl: 1.625rem;
-  --fui-text-3xl: 2.125rem;
+  --fui-text-3xl: 2rem;
 
   --fui-leading-tight: 1.2;
   --fui-leading-normal: 1.5;
@@ -47,15 +48,18 @@
   --fui-space-8: 2.5rem;
   --fui-space-9: 3rem;
 
-  /* Radius: controls, surfaces, chips */
-  --fui-radius-control: 6px;
-  --fui-radius-surface: 12px;
+  /* Radius: the stylebook's softened controls and square surfaces; round only
+     for dots and the numbered step marks */
+  --fui-radius-control: var(--radius-control);
+  --fui-radius-surface: var(--radius-surface);
   --fui-radius-round: 999px;
 
   /* Sizes the shell is laid out on */
-  --fui-control-h: 2rem;
-  --fui-control-h-sm: 1.625rem;
+  --fui-control-h: 2.5rem;
+  --fui-control-h-sm: 2.25rem;
   --fui-drawer-w: 30rem;
+  /* Clear of the stylebook's 64px topbar, for what floats just under it */
+  --fui-topbar-clear: 4rem;
 
   /* Motion: one easing curve, three durations */
   --fui-ease: cubic-bezier(0.2, 0, 0, 1);
@@ -78,14 +82,17 @@
   --fui-hover: var(--surface-hover);
   --fui-line: var(--border-default);
   --fui-line-strong: var(--field-border);
+  --fui-field: var(--field-bg);
 
   --fui-ink-1: var(--text-primary);
   --fui-ink-2: var(--text-secondary);
   --fui-ink-3: var(--text-muted);
 
-  --fui-accent: var(--text-brand);
+  /* flezha.com's accent: plum in light, gold in dark */
+  --fui-accent: var(--accent-solid);
+  --fui-accent-hover: var(--accent-solid-hover);
   --fui-accent-subtle: color-mix(in oklab, var(--fui-accent) 10%, var(--fui-surface));
-  --fui-on-accent: var(--text-on-brand);
+  --fui-on-accent: var(--text-on-accent);
 
   --fui-positive: var(--positive);
   --fui-positive-subtle: color-mix(in oklab, var(--fui-positive) 10%, var(--fui-surface));
@@ -97,9 +104,10 @@
 
   --fui-negative: var(--negative);
   --fui-negative-subtle: color-mix(in oklab, var(--fui-negative) 9%, var(--fui-surface));
+  --fui-negative-solid: var(--negative-solid);
   --fui-on-negative: var(--text-on-negative);
 
-  --fui-brand: var(--text-brand);
+  --fui-logo: var(--logo-ink);
   --fui-brand-subtle: color-mix(in oklab, var(--accent-plum) 7%, var(--fui-surface));
 
   /* What the stylebook has no token for */
@@ -115,7 +123,6 @@
  * laid on the console's light dark-theme fills, and its own colours, change.
  */
 [data-theme='dark'] {
-  --fui-on-accent: var(--text-on-gold);
   --fui-accent-subtle: color-mix(in oklab, var(--fui-accent) 16%, var(--fui-surface));
   --fui-brand-subtle: color-mix(in oklab, var(--accent-plum) 30%, var(--fui-surface));
 

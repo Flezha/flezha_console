@@ -20,11 +20,12 @@
     "--fui-positive",
     "--fui-warning",
     "--fui-negative",
-    "--fui-brand"
+    "--fui-logo"
   ],
   "fills": [
     "--fui-accent",
     "--fui-negative",
+    "--fui-negative-solid",
     "--fui-signal"
   ],
   "chromeSurfaces": [],
@@ -47,7 +48,7 @@
       "--fui-on-warning"
     ],
     [
-      "--fui-negative",
+      "--fui-negative-solid",
       "--fui-on-negative"
     ],
     [

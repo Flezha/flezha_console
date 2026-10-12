@@ -21,6 +21,15 @@ module.exports = {
         mono: "var(--fui-font-mono)",
         display: "var(--fui-font-display)",
       },
+      // The size utilities a template reaches for land on the console's own
+      // type scale, so a `text-xs` hint is as legible as the kit's.
+      fontSize: {
+        xs: "var(--fui-text-xs)",
+        sm: "var(--fui-text-sm)",
+        base: "var(--fui-text-md)",
+        lg: "var(--fui-text-lg)",
+        xl: "var(--fui-text-xl)",
+      },
     },
   },
   plugins: [
