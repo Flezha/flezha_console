@@ -60,6 +60,10 @@
 .topo-wire { transition: stroke 6s ease-out, stroke-opacity 6s ease-out, opacity 0.15s; }
 /* Scoped to the canvas so it outranks the still wire above. */
 .topo-canvas .topo-wire.is-lit { stroke: var(--accent-solid); stroke-opacity: 1; transition: none; }
+.topo-canvas .flz-graph-node rect { transition: fill 0.5s ease-out; }
+.topo-canvas .flz-graph-node.is-lit rect {
+  fill: color-mix(in oklab, var(--accent-solid) 30%, var(--surface-raised)); transition: none;
+}
 
 /* A stream is a band under its marching wire, as wide as its volume; a full
    runner stops it in the warning colour. */
@@ -75,8 +79,13 @@
 #topology-dots .topo-dot:not([data-flying]) { display: none; }
 .topo-dot--counted { fill: var(--surface-raised); stroke: var(--accent-solid); stroke-width: 1.5; }
 .topo-dot--filtered { stroke: var(--text-muted); }
-.topo-lane-label { fill: var(--text-muted); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
-.topo-dot-preview { fill: var(--text-secondary); font-size: 9px; font-family: var(--font-mono); }
+.topo-lane-label { fill: var(--text-muted); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.topo-lane-label .topo-lane-empty { font-size: 13px; font-weight: 400; letter-spacing: normal; text-transform: none; }
+
+/* Drawn at its own size, so its text never shrinks to fit: centred when it
+   fits the canvas, scrolled sideways when it does not. */
+.topo-svg { display: block; height: auto; margin-inline: auto; max-width: none; }
+.topo-dot-preview { fill: var(--text-secondary); font-size: 10px; font-family: var(--font-mono); }
 
 /* A port: where a listener watches the record path, and where a tap opens. */
 .topo-port { cursor: pointer; outline: none; }
@@ -87,9 +96,9 @@
 .topo-port:focus-visible .topo-port-ring { stroke-width: 2.5; }
 .topo-port.is-tapped .topo-port-ring { fill: var(--accent-solid); stroke: var(--accent-solid); }
 .topo-port.is-tapped .topo-port-core { fill: var(--surface-raised); }
-.topo-port-state { fill: var(--text-muted); font-size: 10px; font-family: var(--font-mono); }
-.topo-observers { fill: var(--text-brand); font-size: 10px; font-family: var(--font-mono); }
-.topo-observer-ids { fill: var(--text-secondary); font-size: 9px; font-family: var(--font-mono); display: none; }
+.topo-port-state { fill: var(--text-muted); font-size: 11px; font-family: var(--font-mono); }
+.topo-observers { fill: var(--text-brand); font-size: 11px; font-family: var(--font-mono); }
+.topo-observer-ids { fill: var(--text-secondary); font-size: 10px; font-family: var(--font-mono); display: none; }
 .topo-port:hover .topo-observer-ids,
 .topo-port:focus-visible .topo-observer-ids { display: inline; }
 .topo-legend-badge {
@@ -126,8 +135,8 @@
 .topo-backpressure { fill: var(--warning); animation: topo-pulse 2s ease-in-out infinite; }
 
 .topo-label  { font-size: 12px; font-family: var(--font-mono); }
-.flz-graph-node .topo-sub { fill: var(--text-muted); font-size: 10px; }
-.topo-rate   { fill: var(--text-brand);   font-size: 10px; font-family: var(--font-mono); }
+.flz-graph-node .topo-sub { fill: var(--text-muted); font-size: 11px; }
+.topo-rate   { fill: var(--text-brand);   font-size: 11px; font-family: var(--font-mono); }
 .topo-rate.is-muted { fill: var(--text-muted); opacity: 0.55; }
 
 /* The graph's own inks and rule, on the stylebook tokens it keeps. */
@@ -146,7 +155,7 @@
 .topo-state-word.is-stuck   { color: var(--warning); }
 
 .topo-timeline-row { display: grid; grid-template-columns: 5.5rem 1fr; align-items: end; gap: 0.5rem; }
-.topo-timeline-label { color: var(--text-muted); font-size: 11px; }
+.topo-timeline-label { color: var(--text-muted); font-size: 13px; }
 .topo-timeline-bars { width: 100%; border-bottom: 1px solid var(--border-subtle); }
 .topo-timeline-bars.is-in rect       { fill: var(--brand-solid); }
 .topo-timeline-bars.is-out rect      { fill: var(--positive); }

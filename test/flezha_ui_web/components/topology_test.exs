@@ -391,6 +391,30 @@ defmodule FlezhaUiWeb.TopologyTest do
       refute on_dlq.(node(graph, "output").routes)
       refute on_dlq.(port(graph, "out").routes)
     end
+
+    test "each box says where a dot's route crosses it, so the dot passes through it" do
+      bindings = [
+        binding("guard", "on_input", 0),
+        binding("fan", "on_output", 0),
+        binding("ticker", "on_interval")
+      ]
+
+      graph = Topology.pipeline(pipeline_input(%{facts: facts(%{bindings: bindings})}))
+      crossing = &Map.take(node(graph, &1), [:flow, :at, :until])
+
+      assert crossing.("ingest") == %{flow: "in", at: 0.0, until: 0.0}
+      assert %{flow: "in", at: at, until: until} = crossing.("plugin-guard-on_input")
+      assert 0 < at and at < until and until < 1
+      assert crossing.("relay_a") == %{flow: "in", at: 1.0, until: 1.0}
+      assert %{flow: "out", at: at, until: until} = crossing.("plugin-fan-on_output")
+      assert 0 < at and at < until and until < 1
+      assert crossing.("output") == %{flow: "out", at: 1.0, until: 1.0}
+      assert crossing.("dead-letter") == %{flow: "dlq", at: 1.0, until: 1.0}
+      assert crossing.("plugin-ticker") == %{}
+
+      html = render_component(&Topology.pipeline_graph/1, topology: graph, tapped: nil)
+      assert html =~ ~s(data-flow="in" data-at="1.0" data-until="1.0")
+    end
   end
 
   describe "pipeline_graph/1" do
@@ -609,7 +633,8 @@ defmodule FlezhaUiWeb.TopologyTest do
           plugins: plugins
         })
 
-      assert Enum.map(map.sources, & &1.id) == ["calls", "in-ws_in"]
+      # Each source sits level with the lanes it feeds: orders comes first.
+      assert Enum.map(map.sources, & &1.id) == ["in-ws_in", "calls"]
       assert Enum.map(map.outputs, & &1.id) == ["out-kafka_out", "stream"]
       assert Enum.find(map.sources, &(&1.id == "in-ws_in")).inspect == {:plugin, "ws_in"}
 
@@ -676,6 +701,162 @@ defmodule FlezhaUiWeb.TopologyTest do
       assert band.more.href == "/namespaces/default/relays?runner=runner-a"
     end
 
+    test "the unbound zone draws twelve lanes and then +N more, linked to the relays index" do
+      rows =
+        for i <- 1..15, do: map_row("u_#{String.pad_leading("#{i}", 2, "0")}", %{runner: nil})
+
+      zone = Topology.map(%{namespace: "default", rows: rows, runners: []}).zone
+
+      assert length(zone.lanes) == 12
+      assert zone.more.count == 3
+      assert zone.more.href == "/namespaces/default/relays"
+    end
+
+    test "a partition group's copies of a plugin are one node, wired to every member" do
+      rows =
+        for i <- 0..2 do
+          map_row("demo#p#{i}", %{factory: "market", partition: %{group: "demo", index: i}})
+        end
+
+      plugins =
+        for i <- 0..2,
+            do: {"demo#p#{i}", [{"ohlc#p#{i}", %{hooks: [:on_output], provider: K}}]}
+
+      map =
+        Topology.map(%{
+          namespace: "default",
+          rows: rows,
+          runners: [%{id: "runner-a"}],
+          plugins: plugins,
+          expanded: MapSet.new(["runner-a/market"])
+        })
+
+      assert [
+               %{
+                 id: "out-ohlc",
+                 label: "ohlc ×3",
+                 inspect: nil,
+                 link: %{navigate: "/namespaces/default/plugins"}
+               },
+               _stream
+             ] =
+               map.outputs
+
+      wires = Enum.map(map.wires, & &1.id)
+      assert Enum.all?(0..2, &("relay-demo#p#{&1}->out-ohlc" in wires))
+    end
+
+    test "a group of one keeps its copy's own name and inspector" do
+      rows = [map_row("solo#p0", %{partition: %{group: "solo", index: 0}})]
+      plugins = [{"solo#p0", [{"feed#p0", %{hooks: [:on_input], provider: K}}]}]
+
+      map =
+        Topology.map(%{
+          namespace: "d",
+          rows: rows,
+          runners: [%{id: "runner-a"}],
+          plugins: plugins
+        })
+
+      assert %{label: "feed#p0", inspect: {:plugin, "feed#p0"}} =
+               Enum.find(map.sources, &(&1.id == "in-feed"))
+    end
+
+    test "a column draws its eight most-wired plugins and folds the rest into +N more" do
+      rows = for i <- 1..12, do: map_row("r_#{String.pad_leading("#{i}", 2, "0")}")
+
+      plugins =
+        for i <- 1..12 do
+          id = "r_#{String.pad_leading("#{i}", 2, "0")}"
+          {id, [{"in_#{id}", %{hooks: [:on_input], provider: Ws}}]}
+        end
+
+      map =
+        Topology.map(%{
+          namespace: "default",
+          rows: rows,
+          runners: [%{id: "runner-a"}],
+          plugins: plugins
+        })
+
+      assert length(map.sources) == 10
+
+      assert %{label: "+4 more", link: %{navigate: "/namespaces/default/plugins"}} =
+               Enum.find(map.sources, &(&1.id == "more-in"))
+
+      # Every lane is still fed: a folded plugin's lane from the +N more node.
+      fed = map.wires |> Enum.map(& &1.id) |> Enum.filter(&String.contains?(&1, "->relay-"))
+      assert length(fed) == 12
+      assert Enum.count(fed, &String.starts_with?(&1, "more-in->")) == 4
+    end
+
+    test "runners past the fourth fold into one row, those needing attention kept first" do
+      runners = for i <- 1..6, do: %{id: "runner-#{i}"}
+
+      rows =
+        for i <- 1..6 do
+          map_row("r_#{i}", %{
+            runner: "runner-#{i}",
+            health: if(i == 6, do: :failed, else: :healthy)
+          })
+        end
+
+      map = Topology.map(%{namespace: "default", rows: rows, runners: runners})
+
+      assert Enum.map(map.bands, & &1.id) == ~w(runner-6 runner-1 runner-2 runner-3)
+
+      assert %{label: "+2 more runners", sub: "2 relays, listed under Runners"} =
+               map.more_runners
+
+      assert map.more_runners.link == %{href: "#runners"}
+    end
+
+    test "the folded runners and the zone's overflow render as links" do
+      runners = for i <- 1..5, do: %{id: "runner-#{i}"}
+      bound = for i <- 1..5, do: map_row("r_#{i}", %{runner: "runner-#{i}"})
+      unbound = for i <- 1..13, do: map_row("u_#{i}", %{runner: nil})
+
+      html =
+        render_component(&Topology.namespace_map/1,
+          map: Topology.map(%{namespace: "default", rows: bound ++ unbound, runners: runners})
+        )
+
+      assert html =~ ~r/data-testid="map-more-runners"[^>]*>/
+      assert html =~ ~s(href="#runners")
+      assert html =~ "+1 more runner"
+      assert html =~ ~r/data-testid="map-more-unbound"/
+      assert html =~ ~s(href="/namespaces/default/relays")
+    end
+
+    test "a namespace of a hundred relays draws a map of bounded height" do
+      runners = for i <- 1..8, do: %{id: "runner-#{i}"}
+
+      rows =
+        for i <- 1..100 do
+          map_row("r_#{i}", %{
+            runner: if(i > 80, do: nil, else: "runner-#{rem(i, 8) + 1}"),
+            factory: "f_#{i}",
+            partition: %{group: "g_#{rem(i, 5)}", index: i}
+          })
+        end
+
+      plugins =
+        for i <- 1..100 do
+          {"r_#{i}",
+           [
+             {"in_#{i}", %{hooks: [:on_input], provider: Ws}},
+             {"out_#{i}", %{hooks: [:on_output], provider: K}}
+           ]}
+        end
+
+      map = Topology.map(%{namespace: "d", rows: rows, runners: runners, plugins: plugins})
+
+      assert length(map.bands) == 4
+      assert length(map.zone.lanes) == 12
+      assert length(map.sources) <= 10 and length(map.outputs) <= 10
+      assert map.height < 3_600
+    end
+
     test "lanes needing attention come first, then the busiest, then by id" do
       rows = [
         map_row("b_busy"),
@@ -736,7 +917,7 @@ defmodule FlezhaUiWeb.TopologyTest do
     test "parked entries open a drain to the dead-letter screen" do
       map = Topology.map(%{namespace: "d", rows: [], runners: [], parked: 3})
 
-      assert %{sub: "3 parked", href: "/dlq"} = map.drain
+      assert %{sub: "3 parked", link: %{navigate: "/dlq"}} = map.drain
       assert Topology.map(%{namespace: "d", rows: [], runners: []}).drain == nil
     end
 

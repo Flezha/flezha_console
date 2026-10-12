@@ -349,7 +349,8 @@ Hooks.FlzPalette = {
 // counter names, spread over the next tick; a tap's records arrive as
 // `pipeline_records` and ride its side filled, with the start of their
 // payload. A streaming wire draws its band instead, so only dead letters ride
-// it. Every wire a dot crosses lights and fades over the CSS transition.
+// it. Every wire and box a dot crosses lights and fades over the CSS
+// transition; inside a box the dot is hidden, so it passes through, not over.
 // Hovering or focusing an element traces the routes through it, and the arrow
 // keys walk the lanes in the order the server numbers them.
 const DOT_POOL = 24
@@ -449,15 +450,23 @@ Hooks.FlzPipeline = {
     }
     if (!flight.dot) { flight.dot = this.dot(flight) }
     const point = route.getPointAtLength(t * route.getTotalLength())
+    const visibility = this.inBox(flight.route, t) ? "hidden" : "visible"
     flight.dot.setAttribute("cx", point.x)
     flight.dot.setAttribute("cy", point.y)
+    flight.dot.setAttribute("visibility", visibility)
     if (flight.label) {
       flight.label.setAttribute("x", point.x)
       flight.label.setAttribute("y", point.y - 9)
+      flight.label.setAttribute("visibility", visibility)
     }
     this.light(flight, t)
     if (t >= 1) { this.land(flight); return false }
     return true
+  },
+
+  inBox(route, t) {
+    return [...this.el.querySelectorAll(`.flz-graph-node[data-flow="${route}"]`)]
+      .some(box => Number(box.dataset.at) <= t && t < Number(box.dataset.until))
   },
 
   dot(flight) {
@@ -489,7 +498,7 @@ Hooks.FlzPipeline = {
     if (flight.always) { flight.dot.remove() } else { this.pool.push(flight.dot) }
   },
 
-  // Each wire of the route lights once the dot reaches where it starts, and
+  // Each wire and box of the route lights once the dot reaches where it starts, and
   // fades through the stylesheet's transition once the light is taken off.
   light(flight, t) {
     for (const wire of this.el.querySelectorAll(`[data-flow="${flight.route}"]`)) {

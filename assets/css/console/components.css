@@ -1798,6 +1798,7 @@ a.fui-tile:hover {
   display: block;
   font-family: var(--fui-font-sans);
   height: auto;
+  margin-inline: auto;
   max-width: 64rem;
   min-width: 46rem;
   width: 100%;
@@ -1976,6 +1977,24 @@ a.fui-tile:hover {
   fill: var(--fui-accent);
   font-size: 12px;
   font-weight: 500;
+}
+
+.fui-map-more-runners rect {
+  fill: var(--fui-raised);
+  stroke: var(--fui-line-strong);
+  stroke-dasharray: 4 4;
+}
+
+.fui-map-more-runners text {
+  fill: var(--fui-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fui-map-more-runners .fui-map-sub {
+  fill: var(--fui-ink-3);
+  font-size: 11px;
+  font-weight: 400;
 }
 
 .fui-map-legend {

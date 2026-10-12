@@ -517,7 +517,13 @@ defmodule FlezhaUiWeb.Topology do
 
     ports = ports(record, rates, recency, observers)
     nav = nav_order(nodes, ports)
-    nodes = Enum.map(nodes, &Map.put(&1, :nav, nav[{:node, &1.id}]))
+
+    nodes =
+      Enum.map(
+        nodes,
+        &(&1 |> Map.put(:nav, nav[{:node, &1.id}]) |> Map.merge(crossing(&1, record, core)))
+      )
+
     word = state_word(history, modes, backpressure?)
     width = canvas_width(nodes)
 
@@ -531,7 +537,6 @@ defmodule FlezhaUiWeb.Topology do
       ports: Enum.map(ports, &Map.put(&1, :nav, nav[{:port, &1.id}])),
       routes: route_paths(record, core, branches),
       width: width,
-      min_width: round(width * 0.75),
       height: @fail_y + @end_h + @pad,
       selected: Enum.find(nodes, &(&1.id == input.selected && &1.selectable?)),
       stall: List.first(input.verdicts),
@@ -939,6 +944,29 @@ defmodule FlezhaUiWeb.Topology do
     |> Map.new()
   end
 
+  # Where a dot's route crosses a box, as fractions of that route: the hook
+  # lights the box as the dot reaches it and hides the dot inside it, so a
+  # record passes through a box rather than over it. A box at an end of the
+  # route lights as the dot leaves or lands.
+  defp crossing(%{lane: :life}, _record, _core), do: %{}
+
+  defp crossing(%{lane: :fail} = node, _record, _core),
+    do: %{flow: if(node.kind == :filtered, do: "filter", else: "dlq"), at: 1.0, until: 1.0}
+
+  defp crossing(%{kind: :core}, _record, _core), do: %{flow: "in", at: 1.0, until: 1.0}
+
+  defp crossing(node, record, core) do
+    {ingest, output} = {hd(record), List.last(record)}
+
+    {flow, x0, x1} =
+      if node.x < core.x,
+        do: {"in", ingest.x + ingest.w, core.x},
+        else: {"out", core.x + core.w, output.x}
+
+    along = &Float.round(min(max((&1 - x0) / max(x1 - x0, 1), 0), 1) / 1, 3)
+    %{flow: flow, at: along.(node.x), until: along.(node.x + node.w)}
+  end
+
   # The hidden paths dots ride: into the core, from it to the output, and from
   # it along each branch into the failures lane.
   defp route_paths(record, core, branches) do
@@ -1323,13 +1351,20 @@ defmodule FlezhaUiWeb.Topology do
           viewBox={"0 0 #{@topology.width} #{@topology.height}"}
           width={@topology.width}
           height={@topology.height}
-          style={"min-width: #{@topology.min_width}px"}
-          class="w-full h-auto"
+          class="topo-svg"
           role="group"
           aria-label={"Pipeline of #{@topology.relay_id}"}
         >
           <g class="topo-lane-label" aria-hidden="true">
             <text :for={{name, y} <- lane_labels()} x="20" y={y}>{name}</text>
+            <text
+              :if={not Enum.any?(@topology.nodes, &(&1.lane == :life))}
+              class="topo-lane-empty"
+              x="20"
+              y={life_hint_y()}
+            >
+              No lifecycle hook is bound to this relay.
+            </text>
           </g>
           <g>
             <path
@@ -1368,6 +1403,8 @@ defmodule FlezhaUiWeb.Topology do
     </.graph_frame>
     """
   end
+
+  defp life_hint_y, do: @life_y + 26
 
   defp lane_labels,
     do: [
@@ -1757,7 +1794,7 @@ defmodule FlezhaUiWeb.Topology do
         y={@node.y - 5}
         width={@node.w + 10}
         height={@node.h + 10}
-        rx="11"
+        rx="0"
         class="topo-stall"
       />
       <circle
@@ -1788,9 +1825,14 @@ defmodule FlezhaUiWeb.Topology do
 
   defp node_body(assigns) do
     ~H"""
-    <g class={node_class(@node, @selected)}>
+    <g
+      class={node_class(@node, @selected)}
+      data-flow={@node[:flow]}
+      data-at={@node[:at]}
+      data-until={@node[:until]}
+    >
       <title>{@node.label} — {@node.sub}</title>
-      <rect x={@node.x} y={@node.y} width={@node.w} height={@node.h} rx="8" />
+      <rect x={@node.x} y={@node.y} width={@node.w} height={@node.h} />
       <%!-- SVG text never wraps, so the box clips it rather than letting a long
            identifier run out past its own edge. --%>
       <svg x={@node.x} y={@node.y} width={@node.w - 8} height={@node.h} overflow="hidden">
@@ -1998,11 +2040,11 @@ defmodule FlezhaUiWeb.Topology do
 
   # ---- Namespace map ----
 
-  @map_w 900
+  @map_w 1000
   @map_src_w 176
-  @map_band_x 236
-  @map_band_w 428
-  @map_out_x 724
+  @map_band_x 276
+  @map_band_w 380
+  @map_out_x 824
   @map_out_w 176
   @map_top 34
   @map_node_h 40
@@ -2012,6 +2054,8 @@ defmodule FlezhaUiWeb.Topology do
   @map_lane_gap 8
   @map_band_gap 18
   @map_lane_cap 12
+  @map_band_cap 4
+  @map_column_cap 8
   @map_stack_min 4
   @map_spark_w 72
   @map_spark_h 18
@@ -2031,7 +2075,12 @@ defmodule FlezhaUiWeb.Topology do
 
   Within a band, lanes needing attention come first, then by measured
   throughput, then by id; more than three relays of one factory collapse into
-  a stack lane, and a band draws at most twelve lanes and then "+N more".
+  a stack lane, and a band or the zone draws at most #{@map_lane_cap} lanes
+  and then "+N more". The runners with relays needing attention, then the
+  busiest, get the first #{@map_band_cap} bands; the rest fold into one row. A
+  partition group's copies of a plugin are one node, and each side column
+  draws its #{@map_column_cap} most-wired plugins and then "+N more", so the
+  map's height is bounded however many relays the namespace runs.
   Wires animate at their lane's speed bucket, and not at all before two
   snapshots exist.
   """
@@ -2043,57 +2092,87 @@ defmodule FlezhaUiWeb.Topology do
     selected = Map.get(input, :selected)
     faulted = Map.get(input, :faulted_groups, [])
     expanded = Map.get(input, :expanded, MapSet.new())
+    namespace = input.namespace
 
     bindings = Map.new(rows, &{to_string(&1.id), relay_bindings(plugins, to_string(&1.id))})
+    keys = plugin_keys(rows, bindings)
+
+    keyed =
+      Map.new(bindings, fn {id, list} ->
+        {id, for({plugin_id, hooks} <- list, do: {keys[plugin_id], hooks})}
+      end)
+
     runner_ids = MapSet.new(runners, &to_string(&1.id))
 
     {bound, unbound} =
       Enum.split_with(rows, &(&1[:runner] && MapSet.member?(runner_ids, to_string(&1.runner))))
 
     by_runner = Enum.group_by(bound, &to_string(&1.runner))
-    lane = &map_lane(&1, input, rates, faulted, bindings)
+    lane = &map_lane(&1, input, rates, faulted, keyed)
 
-    sources = map_sources(bindings, selected)
-    outputs = map_outputs(bindings, selected)
-
-    {bands, y} =
-      runners
-      |> Enum.sort_by(&to_string(&1.id))
-      |> Enum.map_reduce(@map_top, fn runner, y ->
-        id = to_string(runner.id)
-
-        lanes =
-          by_runner
-          |> Map.get(id, [])
-          |> Enum.map(lane)
-          |> stack(id, expanded)
-          |> order_lanes()
-
-        {shown, more} = Enum.split(lanes, @map_lane_cap)
-        band = map_band(input.namespace, runner, shown, more, y, selected)
-        {band, y + band.h + @map_band_gap}
-      end)
+    {bands, more_runners, y} =
+      runner_bands(runners, by_runner, lane, expanded, namespace, selected)
 
     zone =
       case unbound |> Enum.map(lane) |> order_lanes() do
         [] -> nil
-        lanes -> map_zone(lanes, y)
+        lanes -> map_zone(lanes, ~p"/namespaces/#{namespace}/relays", y)
       end
 
     bands_bottom = if zone, do: zone.y + zone.h, else: y - @map_band_gap
-    drain = map_drain(Map.get(input, :parked, 0), length(outputs))
-    all_lanes = Enum.flat_map(bands, & &1.lanes) ++ ((zone && zone.lanes) || [])
-    lanes = Enum.map(all_lanes, &mark_selected(&1, selected))
+    parked = Map.get(input, :parked, 0)
+    drawn = drawn_lanes(bands, zone)
+    plugins_href = ~p"/namespaces/#{namespace}/plugins"
 
-    height =
-      Enum.max([
-        bands_bottom,
-        column_bottom(sources),
-        column_bottom(outputs ++ List.wrap(drain))
-      ]) + @map_node_gap
+    {source_nodes, source_ids} =
+      [%{id: "calls", kind: :calls, label: "Calls and sends", sub: "from clients", inspect: nil}]
+      |> Kernel.++(plugin_nodes(bindings, keys, "on_input", "in", plugins_href))
+      |> cap_column(drawn, &source_ids/1, "more-in", "on_input", plugins_href)
+
+    {output_nodes, output_ids} =
+      bindings
+      |> plugin_nodes(keys, "on_output", "out", plugins_href)
+      |> Kernel.++([
+        %{
+          id: "stream",
+          kind: :runner_stream,
+          label: "Runner stream",
+          sub: "to its clients",
+          inspect: nil
+        }
+      ])
+      |> cap_column(drawn, &output_ids/1, "more-out", "on_output", plugins_href)
+
+    # Every column is centred on the tallest, so a short one sits level with
+    # what it feeds instead of hanging from the top edge.
+    bands_h = bands_bottom - @map_top
+    src_h = column_height(length(source_nodes))
+    out_h = column_height(length(output_nodes)) + drain_height(parked)
+    content_h = Enum.max([bands_h, src_h, out_h])
+    dy = div(content_h - bands_h, 2)
+
+    bands = Enum.map(bands, &shift_block(&1, dy))
+    zone = zone && shift_block(zone, dy)
+    more_runners = more_runners && %{more_runners | y: more_runners.y + dy}
+    lanes = bands |> drawn_lanes(zone) |> Enum.map(&mark_selected(&1, selected))
+
+    # Each side node sits level with the lanes it is wired to, so wires run
+    # across rather than diagonally over each other.
+    sources =
+      source_nodes
+      |> order_by_lanes(lanes, source_ids)
+      |> place_column(0, @map_src_w, @map_top + div(content_h - src_h, 2), selected)
+
+    outputs =
+      output_nodes
+      |> order_by_lanes(lanes, output_ids)
+      |> place_column(@map_out_x, @map_out_w, @map_top + div(content_h - out_h, 2), selected)
+
+    drain = map_drain(parked, outputs)
+    height = @map_top + content_h + @map_node_gap
 
     %{
-      namespace: input.namespace,
+      namespace: namespace,
       width: @map_w,
       height: max(height, @map_top + @map_node_h + @map_node_gap),
       animated?: rates != %{},
@@ -2104,8 +2183,9 @@ defmodule FlezhaUiWeb.Topology do
         Enum.map(bands, fn band ->
           %{band | lanes: Enum.map(band.lanes, &mark_selected(&1, selected))}
         end),
+      more_runners: more_runners,
       zone: zone && %{zone | lanes: Enum.map(zone.lanes, &mark_selected(&1, selected))},
-      wires: map_wires(lanes, sources, outputs, rates)
+      wires: map_wires(lanes, sources, outputs, rates, source_ids, output_ids)
     }
   end
 
@@ -2118,53 +2198,167 @@ defmodule FlezhaUiWeb.Topology do
     for {plugin_id, hooks} <- bindings, hook in hooks, do: plugin_id
   end
 
-  defp map_sources(bindings, selected) do
-    plugins =
-      bindings
-      |> Map.values()
-      |> Enum.flat_map(&bound_on(&1, "on_input"))
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    ([%{id: "calls", kind: :calls, label: "Calls and sends", sub: "from clients", inspect: nil}] ++
-       Enum.map(
-         plugins,
-         &%{id: "in-#{&1}", kind: :plugin, label: &1, sub: "on_input", inspect: {:plugin, &1}}
-       ))
-    |> place_column(0, @map_src_w, selected)
+  # A partition group's members each bind their own copy of a plugin, named
+  # with the member's suffix (`demo#p0` binds `ohlc#p0`): the map draws a
+  # plugin's copies as one node, keyed by the name without that suffix.
+  defp plugin_keys(rows, bindings) do
+    for row <- rows, {plugin_id, _hooks} <- Map.get(bindings, to_string(row.id), []), into: %{} do
+      {plugin_id, plugin_key(row, plugin_id)}
+    end
   end
 
-  defp map_outputs(bindings, selected) do
-    plugins =
-      bindings
-      |> Map.values()
-      |> Enum.flat_map(&bound_on(&1, "on_output"))
-      |> Enum.uniq()
-      |> Enum.sort()
+  defp plugin_key(%{id: id, partition: %{group: group}}, plugin_id) do
+    suffix = String.replace_prefix(to_string(id), to_string(group), "")
 
-    (Enum.map(
-       plugins,
-       &%{id: "out-#{&1}", kind: :plugin, label: &1, sub: "on_output", inspect: {:plugin, &1}}
-     ) ++
-       [
-         %{
-           id: "stream",
-           kind: :runner_stream,
-           label: "Runner stream",
-           sub: "to its clients",
-           inspect: nil
-         }
-       ])
-    |> place_column(@map_out_x, @map_out_w, selected)
+    if suffix != "" and byte_size(plugin_id) > byte_size(suffix) and
+         String.ends_with?(plugin_id, suffix),
+       do: String.replace_suffix(plugin_id, suffix, ""),
+       else: plugin_id
   end
 
-  defp place_column(nodes, x, w, selected) do
+  defp plugin_key(_row, plugin_id), do: plugin_id
+
+  # One node per plugin bound on `hook`, or per set of a group's copies, which
+  # opens the plugins screen rather than one copy.
+  defp plugin_nodes(bindings, keys, hook, prefix, href) do
+    bindings
+    |> Map.values()
+    |> Enum.flat_map(&bound_on(&1, hook))
+    |> Enum.uniq()
+    |> Enum.group_by(&keys[&1])
+    |> Enum.sort()
+    |> Enum.map(fn
+      {key, [plugin_id]} ->
+        %{
+          id: "#{prefix}-#{key}",
+          kind: :plugin,
+          label: plugin_id,
+          sub: hook,
+          inspect: {:plugin, plugin_id}
+        }
+
+      {key, copies} ->
+        %{
+          id: "#{prefix}-#{key}",
+          kind: :plugin,
+          label: "#{key} ×#{length(copies)}",
+          sub: "#{hook} · one per partition",
+          inspect: nil,
+          link: %{navigate: href}
+        }
+    end)
+  end
+
+  # A column draws its most-wired plugins, up to the cap, and folds the rest
+  # into one "+N more" node that opens the plugins screen. Answers the nodes
+  # and how a lane's ends resolve to them: a folded plugin's to that node.
+  defp cap_column(nodes, lanes, ids_of, more_id, hook, href) do
+    {plugins, fixed} = Enum.split_with(nodes, &(&1.kind == :plugin))
+    wired = lanes |> Enum.flat_map(ids_of) |> Enum.frequencies()
+
+    {kept, folded} =
+      plugins
+      |> Enum.sort_by(&{-Map.get(wired, &1.id, 0), &1.id})
+      |> Enum.split(@map_column_cap)
+
+    shown = MapSet.new(fixed ++ kept, & &1.id)
+
+    more =
+      if folded == [],
+        do: [],
+        else: [
+          %{
+            id: more_id,
+            kind: :more,
+            label: "+#{length(folded)} more",
+            sub: hook,
+            inspect: nil,
+            link: %{navigate: href}
+          }
+        ]
+
+    resolve = fn lane ->
+      lane
+      |> ids_of.()
+      |> Enum.map(&if(MapSet.member?(shown, &1), do: &1, else: more_id))
+      |> Enum.uniq()
+    end
+
+    {Enum.filter(nodes, &MapSet.member?(shown, &1.id)) ++ more, resolve}
+  end
+
+  # One band per runner, those with relays needing attention and then the
+  # busiest first, down to the band cap; the rest fold into one row under them.
+  # Answers the bands, that row (or nil) and where the next block starts.
+  defp runner_bands(runners, by_runner, lane, expanded, namespace, selected) do
+    {shown, folded} =
+      runners
+      |> Enum.map(fn runner ->
+        id = to_string(runner.id)
+
+        lanes =
+          by_runner
+          |> Map.get(id, [])
+          |> Enum.map(lane)
+          |> stack(id, expanded)
+          |> order_lanes()
+
+        {runner, lanes}
+      end)
+      |> Enum.sort_by(fn {runner, lanes} ->
+        {if(Enum.any?(lanes, & &1.attention?), do: 0, else: 1), -length(lanes),
+         to_string(runner.id)}
+      end)
+      |> Enum.split(@map_band_cap)
+
+    {bands, y} =
+      Enum.map_reduce(shown, @map_top, fn {runner, lanes}, y ->
+        id = to_string(runner.id)
+        {lanes, more} = Enum.split(lanes, @map_lane_cap)
+        href = ~p"/namespaces/#{namespace}/relays?#{[runner: id]}"
+        band = map_band(runner, lanes, more, href, y, selected)
+        {band, y + band.h + @map_band_gap}
+      end)
+
+    {more_runners, y} = more_runners(folded, by_runner, y)
+    {bands, more_runners, y}
+  end
+
+  defp drawn_lanes(bands, zone),
+    do: Enum.flat_map(bands, & &1.lanes) ++ ((zone && zone.lanes) || [])
+
+  # Runners past the band cap fold into one row under the bands,
+  # counting their relays and pointing at the runners table below the map.
+  defp more_runners([], _by_runner, y), do: {nil, y}
+
+  defp more_runners(folded, by_runner, y) do
+    relays =
+      folded |> Enum.map(&length(Map.get(by_runner, to_string(elem(&1, 0).id), []))) |> Enum.sum()
+
+    block = %{
+      id: "more-runners",
+      kind: :more,
+      label: "+" <> FlezhaUiWeb.Words.count(length(folded), "more runner"),
+      sub: FlezhaUiWeb.Words.count(relays, "relay") <> ", listed under Runners",
+      x: @map_band_x,
+      y: y,
+      w: @map_band_w,
+      h: @map_node_h,
+      link: %{href: "#runners"},
+      class: "fui-map-more-runners",
+      testid: "map-more-runners"
+    }
+
+    {block, y + block.h + @map_band_gap}
+  end
+
+  defp place_column(nodes, x, w, top, selected) do
     nodes
     |> Enum.with_index()
     |> Enum.map(fn {node, index} ->
       Map.merge(node, %{
         x: x,
-        y: @map_top + index * (@map_node_h + @map_node_gap),
+        y: top + index * (@map_node_h + @map_node_gap),
         w: w,
         h: @map_node_h,
         selected?: node.inspect != nil and node.inspect == selected
@@ -2172,8 +2366,46 @@ defmodule FlezhaUiWeb.Topology do
     end)
   end
 
-  defp column_bottom([]), do: @map_top
-  defp column_bottom(nodes), do: nodes |> Enum.map(&(&1.y + &1.h)) |> Enum.max()
+  defp column_bottom(nodes), do: nodes |> Enum.map(&(&1.y + &1.h)) |> Enum.max(fn -> @map_top end)
+
+  defp column_height(0), do: 0
+  defp column_height(count), do: count * (@map_node_h + @map_node_gap) - @map_node_gap
+
+  defp drain_height(parked) when parked in [nil, 0], do: 0
+  defp drain_height(_parked), do: 2 * @map_node_gap + @map_node_h
+
+  # A band or the no-runner zone moved down by `dy`, with everything in it.
+  defp shift_block(block, dy) do
+    block = %{block | y: block.y + dy, lanes: Enum.map(block.lanes, &%{&1 | y: &1.y + dy})}
+
+    case block do
+      %{more: %{y: y} = more} -> %{block | more: %{more | y: y + dy}}
+      _no_more -> block
+    end
+  end
+
+  # The side nodes a lane is wired to: calls and sends when no input plugin
+  # feeds it, the runner stream when no output plugin carries it.
+  defp source_ids(%{inputs: []}), do: ["calls"]
+  defp source_ids(lane), do: Enum.map(lane.inputs, &"in-#{&1}")
+
+  defp output_ids(%{outputs: [], bound?: true}), do: ["stream"]
+  defp output_ids(%{outputs: []}), do: []
+  defp output_ids(lane), do: Enum.map(lane.outputs, &"out-#{&1}")
+
+  # Nodes by the mean height of the lanes they are wired to, those wired to
+  # none last, each group keeping its own order.
+  defp order_by_lanes(nodes, lanes, ids_of) do
+    centre = fn node ->
+      ys = for lane <- lanes, node.id in ids_of.(lane), do: lane.y + div(lane.h, 2)
+      if ys == [], do: :infinity, else: Enum.sum(ys) / length(ys)
+    end
+
+    nodes
+    |> Enum.with_index()
+    |> Enum.sort_by(fn {node, index} -> {centre.(node), index} end)
+    |> Enum.map(&elem(&1, 0))
+  end
 
   defp map_drain(parked, _outputs) when parked in [nil, 0], do: nil
 
@@ -2185,10 +2417,12 @@ defmodule FlezhaUiWeb.Topology do
       sub: "#{parked} parked",
       parked: parked,
       x: @map_out_x,
-      y: @map_top + outputs * (@map_node_h + @map_node_gap) + @map_node_gap,
+      y: column_bottom(outputs) + 2 * @map_node_gap,
       w: @map_out_w,
       h: @map_node_h,
-      href: ~p"/dlq"
+      link: %{navigate: ~p"/dlq"},
+      class: "fui-map-drain",
+      testid: "map-drain"
     }
   end
 
@@ -2300,9 +2534,29 @@ defmodule FlezhaUiWeb.Topology do
     Enum.sort_by(lanes, &{if(&1.attention?, do: 0, else: 1), -&1.throughput, &1.id})
   end
 
-  defp map_band(namespace, runner, lanes, more, y, selected) do
+  defp map_band(runner, lanes, more, href, y, selected) do
     id = to_string(runner.id)
-    head = y + @map_band_head
+
+    Map.merge(
+      %{
+        id: id,
+        short: short_id(id),
+        pid: Map.get(runner, :pid),
+        selected?: selected == {:runner, id}
+      },
+      lane_block(lanes, more, href, y, @map_band_head)
+    )
+  end
+
+  defp map_zone(lanes, href, y) do
+    {shown, more} = Enum.split(lanes, @map_lane_cap)
+    lane_block(shown, more, href, y, 30)
+  end
+
+  # A band's or the zone's lanes stacked under a heading `head` tall, with a
+  # "+N more" row for those past the cap.
+  defp lane_block(lanes, more, href, y, head) do
+    top = y + head
 
     placed =
       lanes
@@ -2310,7 +2564,7 @@ defmodule FlezhaUiWeb.Topology do
       |> Enum.map(fn {lane, index} ->
         Map.merge(lane, %{
           x: @map_band_x + 12,
-          y: head + index * (@map_lane_h + @map_lane_gap),
+          y: top + index * (@map_lane_h + @map_lane_gap),
           w: @map_band_w - 24,
           h: @map_lane_h
         })
@@ -2319,97 +2573,95 @@ defmodule FlezhaUiWeb.Topology do
     rows = length(placed) + if(more == [], do: 0, else: 1)
 
     %{
-      id: id,
-      short: short_id(id),
-      pid: Map.get(runner, :pid),
       x: @map_band_x,
       y: y,
       w: @map_band_w,
-      h: @map_band_head + max(rows, 1) * (@map_lane_h + @map_lane_gap) + 4,
+      h: head + max(rows, 1) * (@map_lane_h + @map_lane_gap) + 4,
       lanes: placed,
       more:
         if more != [] do
           %{
             count: Enum.reduce(more, 0, &(&2 + max(length(&1.members), 1))),
-            href: ~p"/namespaces/#{namespace}/relays?#{[runner: id]}",
-            y: head + length(placed) * (@map_lane_h + @map_lane_gap) + 24
+            href: href,
+            y: top + length(placed) * (@map_lane_h + @map_lane_gap) + 24
           }
-        end,
-      selected?: selected == {:runner, id}
-    }
-  end
-
-  defp map_zone(lanes, y) do
-    head = y + 30
-
-    placed =
-      lanes
-      |> Enum.with_index()
-      |> Enum.map(fn {lane, index} ->
-        Map.merge(lane, %{
-          x: @map_band_x + 12,
-          y: head + index * (@map_lane_h + @map_lane_gap),
-          w: @map_band_w - 24,
-          h: @map_lane_h
-        })
-      end)
-
-    %{
-      x: @map_band_x,
-      y: y,
-      w: @map_band_w,
-      h: 30 + length(placed) * (@map_lane_h + @map_lane_gap) + 4,
-      lanes: placed
+        end
     }
   end
 
   defp mark_selected(lane, selected),
     do: Map.put(lane, :selected?, lane.inspect != nil and lane.inspect == selected)
 
-  # Each lane is wired from the sources it is bound to — calls and sends when
-  # no input plugin feeds it — and to its outputs, the runner stream when no
-  # output plugin carries it. A lane with no runner has no stream to reach.
-  defp map_wires(lanes, sources, outputs, rates) do
+  # Each lane is wired from the sources it is bound to and to its outputs (see
+  # `source_ids/1` and `output_ids/1`). Where several wires meet one edge,
+  # their ends are spread along it in the order of what they lead to, so no two
+  # converge on one point and none cross at the edge.
+  defp map_wires(lanes, sources, outputs, rates, source_ids, output_ids) do
     source = Map.new(sources, &{&1.id, &1})
     output = Map.new(outputs, &{&1.id, &1})
 
-    Enum.flat_map(lanes, fn lane ->
-      ins = if lane.inputs == [], do: ["calls"], else: Enum.map(lane.inputs, &"in-#{&1}")
+    ins =
+      for lane <- lanes,
+          id <- source_ids.(lane),
+          node <- List.wrap(source[id]),
+          do: {node, lane, :in}
 
-      outs =
-        if lane.outputs == [],
-          do: if(lane.bound?, do: ["stream"], else: []),
-          else: Enum.map(lane.outputs, &"out-#{&1}")
+    outs =
+      for lane <- lanes,
+          id <- output_ids.(lane),
+          node <- List.wrap(output[id]),
+          do: {node, lane, :out}
 
-      in_bucket = if rates == %{}, do: :idle, else: speed_bucket(lane.rate && lane.rate.in)
-      out_bucket = if rates == %{}, do: :idle, else: speed_bucket(lane.rate && lane.rate.out)
+    node_port = ports(ins ++ outs, &edge_node/1, &lane_mid/1)
+    lane_port = ports(ins, &edge_lane/1, &node_mid/1)
+    lane_out_port = ports(outs, &edge_lane/1, &node_mid/1)
 
-      Enum.map(ins, fn id ->
-        node = Map.fetch!(source, id)
-
+    Enum.map(ins, fn {node, lane, _side} = edge ->
+      wire(
+        "#{node.id}->#{lane.key}",
+        node.x + node.w,
+        node.y + Map.fetch!(node_port, edge),
+        lane.x,
+        lane.y + Map.fetch!(lane_port, edge),
+        speed(rates, lane, :in)
+      )
+    end) ++
+      Enum.map(outs, fn {node, lane, _side} = edge ->
         wire(
-          "#{id}->#{lane.key}",
-          node.x + node.w,
-          node.y + div(node.h, 2),
-          lane.x,
-          lane.y + div(lane.h, 2),
-          in_bucket
+          "#{lane.key}->#{node.id}",
+          lane.x + lane.w,
+          lane.y + Map.fetch!(lane_out_port, edge),
+          node.x,
+          node.y + Map.fetch!(node_port, edge),
+          speed(rates, lane, :out)
         )
-      end) ++
-        Enum.map(outs, fn id ->
-          node = Map.fetch!(output, id)
-
-          wire(
-            "#{lane.key}->#{id}",
-            lane.x + lane.w,
-            lane.y + div(lane.h, 2),
-            node.x,
-            node.y + div(node.h, 2),
-            out_bucket
-          )
-        end)
-    end)
+      end)
   end
+
+  # Where along a box's edge each wire ends: the wires sharing a box are
+  # ordered by how high their other end sits and spaced evenly over its height.
+  defp ports(edges, box_of, other_mid) do
+    edges
+    |> Enum.group_by(box_of)
+    |> Enum.flat_map(fn {box, group} ->
+      count = length(group)
+
+      group
+      |> Enum.sort_by(other_mid)
+      |> Enum.with_index(1)
+      |> Enum.map(fn {edge, index} -> {edge, div(box.h * index, count + 1)} end)
+    end)
+    |> Map.new()
+  end
+
+  defp edge_node({node, _lane, _side}), do: node
+  defp edge_lane({_node, lane, _side}), do: lane
+
+  defp lane_mid({_node, lane, _side}), do: lane.y + div(lane.h, 2)
+  defp node_mid({node, _lane, _side}), do: node.y + div(node.h, 2)
+
+  defp speed(rates, _lane, _key) when rates == %{}, do: :idle
+  defp speed(_rates, lane, key), do: speed_bucket(lane.rate && Map.get(lane.rate, key))
 
   defp wire(id, x1, y1, x2, y2, bucket) do
     mid = div(x1 + x2, 2)
@@ -2467,21 +2719,10 @@ defmodule FlezhaUiWeb.Topology do
             />
           </g>
 
-          <.map_node :for={node <- @map.sources ++ @map.outputs} node={node} />
-
-          <.link
-            :if={@map.drain}
-            navigate={@map.drain.href}
-            class="fui-map-drain"
-            data-testid="map-drain"
-            aria-label={"Dead letter: #{@map.drain.sub}"}
-          >
-            <rect x={@map.drain.x} y={@map.drain.y} width={@map.drain.w} height={@map.drain.h} rx="8" />
-            <text x={@map.drain.x + 12} y={@map.drain.y + 17}>{@map.drain.label}</text>
-            <text class="fui-map-sub" x={@map.drain.x + 12} y={@map.drain.y + 32}>
-              {@map.drain.sub}
-            </text>
-          </.link>
+          <.map_node
+            :for={node <- @map.sources ++ @map.outputs ++ List.wrap(@map.drain)}
+            node={node}
+          />
 
           <g :for={band <- @map.bands} class="fui-map-band" data-testid={"map-band-#{band.id}"}>
             <rect
@@ -2490,7 +2731,6 @@ defmodule FlezhaUiWeb.Topology do
               y={band.y}
               width={band.w}
               height={band.h}
-              rx="10"
             />
             <g
               class="fui-map-band-head fui-map-hit"
@@ -2511,7 +2751,6 @@ defmodule FlezhaUiWeb.Topology do
                 y={band.y + 5}
                 width={band.w - 12}
                 height="28"
-                rx="6"
               />
               <text class="fui-map-band-title" x={band.x + 14} y={band.y + 24}>{band.short}</text>
               <text class="fui-map-sub" x={band.x + 140} y={band.y + 24}>
@@ -2522,26 +2761,33 @@ defmodule FlezhaUiWeb.Topology do
               </text>
             </g>
             <.map_lane :for={lane <- band.lanes} lane={lane} />
-            <.link
-              :if={band.more}
-              navigate={band.more.href}
-              class="fui-map-more"
-              data-testid={"map-more-#{band.id}"}
-            >
-              <text x={band.x + 14} y={band.more.y}>+{band.more.count} more</text>
-            </.link>
+            <.map_more block={band} testid={"map-more-#{band.id}"} />
           </g>
 
+          <.map_node :if={@map.more_runners} node={@map.more_runners} />
+
           <g :if={@map.zone} class="fui-map-unbound" data-testid="map-unbound">
-            <rect x={@map.zone.x} y={@map.zone.y} width={@map.zone.w} height={@map.zone.h} rx="10" />
+            <rect x={@map.zone.x} y={@map.zone.y} width={@map.zone.w} height={@map.zone.h} />
             <text class="fui-map-zone-label" x={@map.zone.x + 14} y={@map.zone.y + 20}>
               Waiting for a runner
             </text>
             <.map_lane :for={lane <- @map.zone.lanes} lane={lane} />
+            <.map_more block={@map.zone} testid="map-more-unbound" />
           </g>
         </svg>
       </div>
     </div>
+    """
+  end
+
+  attr :block, :map, required: true, doc: "a band or the zone"
+  attr :testid, :string, required: true
+
+  defp map_more(assigns) do
+    ~H"""
+    <.link :if={@block.more} navigate={@block.more.href} class="fui-map-more" data-testid={@testid}>
+      <text x={@block.x + 14} y={@block.more.y}>+{@block.more.count} more</text>
+    </.link>
     """
   end
 
@@ -2572,6 +2818,22 @@ defmodule FlezhaUiWeb.Topology do
     """
   end
 
+  # A box that opens a screen (`navigate`) or a place on this one (`href`).
+  defp map_node(%{node: %{link: link}} = assigns) do
+    assigns = assign(assigns, :link, link)
+
+    ~H"""
+    <.link
+      {@link}
+      class={["fui-map-node fui-map-hit", @node[:class]]}
+      aria-label={"#{@node.label}: #{@node.sub}"}
+      data-testid={@node[:testid] || "map-node-#{@node.id}"}
+    >
+      <.map_node_body node={@node} />
+    </.link>
+    """
+  end
+
   defp map_node(assigns) do
     ~H"""
     <g class="fui-map-node" data-testid={"map-node-#{@node.id}"}>
@@ -2584,7 +2846,7 @@ defmodule FlezhaUiWeb.Topology do
 
   defp map_node_body(assigns) do
     ~H"""
-    <rect x={@node.x} y={@node.y} width={@node.w} height={@node.h} rx="8" />
+    <rect x={@node.x} y={@node.y} width={@node.w} height={@node.h} />
     <svg x={@node.x} y={@node.y} width={@node.w - 6} height={@node.h} overflow="hidden">
       <text class={@node.kind == :plugin && "fui-map-mono"} x="12" y="17">{@node.label}</text>
       <text class="fui-map-sub" x="12" y="32">{@node.sub}</text>
@@ -2611,10 +2873,10 @@ defmodule FlezhaUiWeb.Topology do
       phx-key="Enter"
       data-testid={"map-lane-#{@lane.id}"}
     >
-      <rect class="fui-map-lane-box" x={@lane.x} y={@lane.y} width={@lane.w} height={@lane.h} rx="7" />
+      <rect class="fui-map-lane-box" x={@lane.x} y={@lane.y} width={@lane.w} height={@lane.h} />
       <.map_glyph shape={@lane.shape} cx={@lane.x + 14} cy={@lane.y + 13} />
       <title>{lane_name(@lane)}</title>
-      <svg x={@lane.x} y={@lane.y} width="226" height={@lane.h} overflow="hidden">
+      <svg x={@lane.x} y={@lane.y} width="200" height={@lane.h} overflow="hidden">
         <text class="fui-map-mono" x="26" y="17">{@lane.label}</text>
         <text class="fui-map-sub" x="26" y="32">
           <tspan class="fui-map-health">{@lane.state}</tspan>{if @lane.sub != "",
@@ -2624,7 +2886,7 @@ defmodule FlezhaUiWeb.Topology do
       <polyline
         :if={@lane.spark}
         class="fui-map-spark"
-        transform={"translate(#{@lane.x + 236}, #{@lane.y + 11})"}
+        transform={"translate(#{@lane.x + 206}, #{@lane.y + 11})"}
         points={@lane.spark}
         data-testid={"map-spark-#{@lane.id}"}
       />
