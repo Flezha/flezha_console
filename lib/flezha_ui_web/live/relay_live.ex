@@ -117,7 +117,13 @@ defmodule FlezhaUiWeb.RelayLive do
   #
   # A listen on the relay's input or output, held by a feed linked to this
   # screen: closing the tap or leaving the page stops the feed, which ends the
-  # listen on the controller.
+  # listen on the controller. What it hears is also pushed to the graph, which
+  # draws each record on the tapped side: coalesced under one timer, so a busy
+  # relay sends one push per flush rather than one per record.
+
+  @tap_flush_ms 250
+  @tap_previews 6
+  @tap_preview_chars 40
 
   @impl true
   def handle_event("graph_tap", %{"direction" => direction}, socket)
@@ -133,6 +139,9 @@ defmodule FlezhaUiWeb.RelayLive do
          count: 0,
          bytes: 0,
          recent: [],
+         dead_letters: 0,
+         pending: no_pending(),
+         flush: nil,
          error: nil,
          ended?: false
        }
@@ -343,7 +352,23 @@ defmodule FlezhaUiWeb.RelayLive do
 
   @impl true
   def handle_info({kind, :payload_tap, event}, %{assigns: %{tap: %{} = tap}} = socket) do
-    {:noreply, assign(socket, tap: tap_event(tap, kind, event))}
+    {:noreply, assign(socket, tap: tap |> tap_event(kind, event) |> arm_flush())}
+  end
+
+  # A flush armed for a tap since closed or replaced is not this tap's.
+  @impl true
+  def handle_info({:tap_flush, ref}, %{assigns: %{tap: %{flush: {ref, _timer}} = tap}} = socket) do
+    %{records: records, dead_letters: dead_letters, previews: previews} = tap.pending
+
+    {:noreply,
+     socket
+     |> assign(tap: %{tap | pending: no_pending(), flush: nil})
+     |> push_event("pipeline_records", %{
+       port: tap.direction,
+       records: records,
+       dead_letters: dead_letters,
+       previews: Enum.reverse(previews)
+     })}
   end
 
   @impl true
@@ -356,12 +381,27 @@ defmodule FlezhaUiWeb.RelayLive do
 
   defp tap_event(tap, :feed_event, {kind, payload, meta}) when kind in [:output, :input, :part] do
     frame = Format.frame(payload, meta)
+    pending = tap.pending
+
+    previews =
+      if length(pending.previews) < @tap_previews,
+        do: [Format.printable(payload, limit: @tap_preview_chars) | pending.previews],
+        else: pending.previews
 
     %{
       tap
       | count: tap.count + 1,
         bytes: tap.bytes + frame.bytes,
-        recent: Enum.take([frame | tap.recent], 5)
+        recent: Enum.take([frame | tap.recent], 5),
+        pending: %{pending | records: pending.records + 1, previews: previews}
+    }
+  end
+
+  defp tap_event(tap, :feed_event, {:dead_lettered, _error, _meta}) do
+    %{
+      tap
+      | dead_letters: tap.dead_letters + 1,
+        pending: Map.update!(tap.pending, :dead_letters, &(&1 + 1))
     }
   end
 
@@ -374,8 +414,20 @@ defmodule FlezhaUiWeb.RelayLive do
 
   defp close_tap(%{assigns: %{tap: tap}} = socket) do
     EventFeed.stop(tap.feed, :payload_tap)
+    with {_ref, timer} <- tap.flush, do: Process.cancel_timer(timer)
     assign(socket, tap: nil)
   end
+
+  defp no_pending, do: %{records: 0, dead_letters: 0, previews: []}
+
+  defp arm_flush(%{flush: nil, pending: %{records: 0, dead_letters: 0}} = tap), do: tap
+
+  defp arm_flush(%{flush: nil} = tap) do
+    ref = make_ref()
+    %{tap | flush: {ref, Process.send_after(self(), {:tap_flush, ref}, @tap_flush_ms)}}
+  end
+
+  defp arm_flush(tap), do: tap
 
   defp listen_feed(socket, direction, tag) do
     %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns

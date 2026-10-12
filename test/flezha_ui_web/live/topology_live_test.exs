@@ -20,6 +20,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
   @relay "/namespaces/default/relays/relay_a"
   @listen {Relay, :listen}
+  @listener Flezha.Plugin.Provider.MonitoredIOForward
 
   defp overwatch(bindings \\ %{}) do
     %{
@@ -67,8 +68,17 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
        %{
          channels: channels,
          relays:
-           Enum.map(relays, fn {id, received, forwarded} ->
-             %{relay_id: id, io_in_received: received, forwarded: forwarded, filtered_nil: 0}
+           Enum.map(relays, fn
+             {id, received, forwarded} ->
+               %{relay_id: id, io_in_received: received, forwarded: forwarded, filtered_nil: 0}
+
+             {id, received, forwarded, filtered} ->
+               %{
+                 relay_id: id,
+                 io_in_received: received,
+                 forwarded: forwarded,
+                 filtered_nil: filtered
+               }
            end)
        }}
     )
@@ -122,8 +132,61 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert html =~ ~s(data-testid="topo-node-output")
       assert html =~ "topo-node-output"
       refute html =~ "sink"
-      assert html =~ ~s(data-testid="topology-legend")
       assert html =~ "0 plugins attached"
+
+      # Both ends of the failures lane are drawn before anything reaches them.
+      assert html =~ ~s(data-testid="topo-node-filtered")
+      assert html =~ ~s(data-testid="topo-node-dead-letter")
+
+      # The dots' layer, the state in words, its timeline and the empty dock.
+      assert html =~ ~s(data-testid="topology-canvas")
+      assert html =~ ~s(data-testid="topo-dots")
+      assert html =~ ~s(data-testid="topology-state")
+      assert html =~ ~s(data-testid="topology-state-word")
+      assert html =~ ~s(data-testid="topology-timeline")
+      assert html =~ ~s(data-testid="timeline-row-in")
+      assert html =~ ~s(data-testid="topology-dock")
+    end
+
+    test "the legend is a control in the header, naming ports and listeners", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @relay)
+
+      assert has_element?(view, ~s(button[data-testid="topology-legend-toggle"]), "Legend")
+      legend = view |> element(~s([data-testid="topology-legend"])) |> render()
+      assert legend =~ "dead-letter"
+      assert legend =~ "A port"
+      assert legend =~ "Listeners watching that point"
+    end
+
+    test "listeners are counted on the ports they watch, not drawn as steps", %{
+      conn: conn,
+      node: node
+    } do
+      bindings = %{
+        on_input: [
+          %{plugin_id: "guard", provider: Some.Guard, position: 0},
+          %{plugin_id: "io_listener_in", provider: @listener, position: 1}
+        ],
+        on_output: [%{plugin_id: "io_listener_out", provider: @listener, position: 0}],
+        on_preview: [%{plugin_id: "io_listener_out", provider: @listener, position: 0}],
+        on_call: [%{plugin_id: "io_listener_calls", provider: @listener, position: 0}]
+      }
+
+      FakeController.set(node, {Relay, :overwatch_state}, {:ok, overwatch(bindings)})
+
+      {:ok, view, html} = live(conn, @relay)
+
+      refute html =~ ~s(data-testid="topo-node-plugin-io_listener)
+      assert html =~ "1 plugin attached"
+
+      assert view |> element(~s([data-testid="topology-observer-count"])) |> render() =~
+               "3 listening"
+
+      assert view |> element(~s([data-testid="topo-observers-in"])) |> render() =~ "1 listening"
+      assert view |> element(~s([data-testid="topo-observers-out"])) |> render() =~ "1 listening"
+
+      assert view |> element(~s([data-testid="topo-observers-calls"])) |> render() =~
+               "io_listener_calls"
     end
 
     test "puts bound plugins on the record path in position order", %{conn: conn, node: node} do
@@ -136,12 +199,12 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       {:ok, _view, html} = live(conn, @relay)
 
-      assert html =~ ~s(data-testid="topo-node-plugin-guard")
-      assert html =~ ~s(data-testid="topo-node-plugin-fanout")
+      assert html =~ ~s(data-testid="topo-node-plugin-guard-on_input")
+      assert html =~ ~s(data-testid="topo-node-plugin-fanout-on_output")
       assert html =~ "2 plugins attached"
       # The input guard feeds the core; the core feeds the output fanout.
-      assert html =~ ~s(data-testid="topo-edge-flow-plugin-guard-relay_a")
-      assert html =~ ~s(data-testid="topo-edge-flow-relay_a-plugin-fanout")
+      assert html =~ ~s(data-testid="topo-edge-flow-plugin-guard-on_input-relay_a")
+      assert html =~ ~s(data-testid="topo-edge-flow-relay_a-plugin-fanout-on_output")
     end
 
     test "an off-path hook hangs off the core rather than joining the chain", %{
@@ -166,7 +229,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert html =~ "unbound"
 
       assert html =~
-               ~r/data-testid="topo-edge-[^"]+"[^>]*class="flz-graph-wire flz-graph-wire--fail"/
+               ~r/data-testid="topo-edge-[^"]+"[^>]*class="flz-graph-wire flz-graph-wire--fail/
 
       assert html =~ ~r/data-testid="topo-node-channel".*?class="[^"]*flz-graph-node--dead/s
     end
@@ -178,13 +241,58 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       snapshot(node, [{"relay_a", 100, 90}])
       {:ok, view, html} = live(conn, @relay)
 
-      refute html =~ ~s(data-testid="topo-rate-flow-ingest-relay_a")
+      refute html =~ ~s(data-testid="topo-rate-in")
 
       snapshot(node, [{"relay_a", 1_000, 900}])
       html = tick(view)
 
-      assert html =~ ~s(data-testid="topo-rate-flow-ingest-relay_a")
+      assert html =~ ~s(data-testid="topo-rate-in")
+      assert html =~ ~s(data-testid="topo-rate-out")
+      assert html =~ ~s(data-testid="topo-rate-flow-channel-output")
       assert html =~ "topo-flow-fast"
+      assert html =~ ~s(data-testid="topo-band-flow-ingest-relay_a")
+      assert view |> element(~s([data-testid="topo-port-state-in"])) |> render() =~ "continuous"
+    end
+
+    test "each tick's counter advances are pushed for the graph to replay, from the second on", %{
+      conn: conn,
+      node: node
+    } do
+      snapshot(node, [{"relay_a", 100, 90, 1}])
+      {:ok, view, _html} = live(conn, @relay)
+
+      refute_push_event(view, "pipeline_counts", %{}, 50)
+
+      snapshot(node, [{"relay_a", 103, 92, 2}])
+      tick(view)
+
+      assert_push_event(view, "pipeline_counts", %{
+        in: 3,
+        out: 2,
+        filtered: 1,
+        parked: 0,
+        interval_ms: interval,
+        modes: %{in: _, out: _, chan: _}
+      })
+
+      assert interval > 0
+    end
+
+    test "a liveness read that fails leaves no rate, band or stream standing", %{
+      conn: conn,
+      node: node
+    } do
+      snapshot(node, [{"relay_a", 100, 90}])
+      {:ok, view, _html} = live(conn, @relay)
+      snapshot(node, [{"relay_a", 1_000, 900}])
+      assert tick(view) =~ ~s(data-testid="topo-band-flow-ingest-relay_a")
+
+      FakeController.set(node, {Controller, :liveness_counters}, {:error, :timeout})
+      html = tick(view)
+
+      refute html =~ ~s(data-testid="topo-rate-in")
+      refute html =~ ~s(data-testid="topo-band-)
+      assert view |> element(~s([data-testid="topo-port-state-in"])) |> render() =~ "measuring"
     end
 
     test "counters that reset clamp to zero rather than reading as a burst", %{
@@ -228,6 +336,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert html =~ ~s(data-testid="topology-stall")
       assert html =~ "Relay Not Forwarding"
       assert html =~ "relay_a"
+      assert html =~ ~r/data-testid="topo-node-relay_a".*?data-testid="topo-stall-marker"/s
 
       stall_signal(node, :relay_not_forwarding, %{relay_id: "relay_a"}, 120_000_000)
       {:ok, _view, html} = live(conn, @relay)
@@ -250,6 +359,24 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       refute view |> element(~s([data-testid="topology-detail-dismiss"])) |> render_click() =~
                ~s(data-testid="topology-detail")
+    end
+
+    test "Enter selects a focused node and Escape dismisses it", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @relay)
+
+      html =
+        view
+        |> element(~s([data-testid="topo-node-relay_a"]))
+        |> render_keydown(%{"key" => "Enter"})
+
+      assert html =~ ~s(data-testid="topology-detail")
+
+      html =
+        view
+        |> element(~s([data-testid="topology-canvas"]))
+        |> render_keydown(%{"key" => "Escape"})
+
+      refute html =~ ~s(data-testid="topology-detail")
     end
 
     test "selecting the channel offers its counters and the cluster screen", %{
@@ -312,12 +439,13 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     test "opening a tap listens and closing it ends the listen", %{conn: conn, node: node} do
       {:ok, view, html} = live(conn, @relay)
 
-      assert html =~ ~s(data-testid="tap-output")
       refute html =~ ~s(data-testid="tap-figures")
 
-      html = render_click(view, "graph_tap", %{"direction" => "output"})
+      html = view |> element(~s([data-testid="topo-port-out"])) |> render_click()
 
       assert html =~ ~s(data-testid="tap-figures")
+      assert html =~ ~s(data-testid="topology-tap")
+      assert has_element?(view, ~s([data-testid="topo-port-out"].is-tapped))
       assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
 
       html = render_click(view, "graph_tap_close", %{})
@@ -326,6 +454,71 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) == [] end),
              "the listen must not be left open on the controller"
+    end
+
+    test "a tap opens from the IN port, and from it with Enter", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, @relay)
+
+      view |> element(~s([data-testid="topo-port-in"])) |> render_keydown(%{"key" => "Enter"})
+
+      assert has_element?(view, ~s([data-testid="topo-port-in"].is-tapped))
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      assert [["default", "relay_a", :input | _] | _] = FakeController.calls(node, @listen)
+
+      # Selecting the tapped port again closes its tap.
+      view |> element(~s([data-testid="topo-port-in"])) |> render_click()
+      refute has_element?(view, ~s([data-testid="topology-tap"]))
+    end
+
+    test "switching ports ends the first listen", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, @relay)
+
+      view |> element(~s([data-testid="topo-port-out"])) |> render_click()
+      assert PeerNode.eventually(fn -> length(FakeController.streams(node, @listen)) == 1 end)
+      [first] = FakeController.streams(node, @listen)
+
+      view |> element(~s([data-testid="topo-port-in"])) |> render_click()
+
+      assert PeerNode.eventually(fn ->
+               match?([other] when other != first, FakeController.streams(node, @listen))
+             end)
+    end
+
+    test "what the tap hears reaches the graph coalesced, previews cut to 40 characters", %{
+      conn: conn,
+      node: node
+    } do
+      {:ok, view, _html} = live(conn, @relay)
+      view |> element(~s([data-testid="topo-port-out"])) |> render_click()
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+
+      long = String.duplicate("x", 50)
+      {:error, failure} = FakeController.error("internal.uncatalogued")
+      FakeController.emit(node, @listen, {:output, long, %{}})
+      FakeController.emit(node, @listen, {:output, "short", %{}})
+      FakeController.emit(node, @listen, {:dead_lettered, failure, %{}})
+
+      assert_push_event(
+        view,
+        "pipeline_records",
+        %{port: "output", records: 2, dead_letters: 1, previews: [preview, "short"]},
+        1_000
+      )
+
+      assert preview == String.duplicate("x", 40)
+      assert view |> element(~s([data-testid="tap-dead-letters"])) |> render() =~ "1"
+    end
+
+    test "closing the tap drops what it had not yet pushed", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, @relay)
+      view |> element(~s([data-testid="topo-port-out"])) |> render_click()
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+
+      FakeController.emit(node, @listen, {:output, "late", %{}})
+      assert PeerNode.eventually(fn -> render(view) =~ "late" end)
+      view |> element(~s([data-testid="tap-close"])) |> render_click()
+
+      refute_push_event(view, "pipeline_records", %{}, 400)
     end
 
     test "payloads are counted and sized as they arrive", %{conn: conn, node: node} do
@@ -356,6 +549,8 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       render_click(view, "graph_tap", %{"direction" => "input"})
 
       assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tap-error") end)
+      # A tap that is not listening does not claim its port.
+      refute has_element?(view, ~s([data-testid="topo-port-in"].is-tapped))
     end
 
     test "the raw payload is what gets sized, not its printable rendering" do

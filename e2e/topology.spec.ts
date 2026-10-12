@@ -1,12 +1,9 @@
 import {
   test,
   expect,
-  testIds,
-  chosen,
-  openSection,
   expectAdvances,
   readFigure,
-  sparklineSamples,
+  timelineSamples,
   ADVANCE_WINDOW_MS,
   openPage,
   type Page,
@@ -25,9 +22,46 @@ import {
 const RELAY = '/namespaces/default/relays/testnet_store_1';
 const FLOW_BUCKETS = /topo-flow-(idle|slow|medium|fast)/;
 
-/** The test ids of the listener bindings on the relay, read on its plugins panel. */
-async function listenerBindings(page: Page): Promise<string[]> {
-  return (await testIds(page, 'binding-row-')).filter((id) => id.startsWith('io_listener_'));
+/** Every node's box on the canvas, to compare before and after something that must not move it. */
+async function nodeBoxes(page: Page): Promise<string> {
+  return page
+    .locator('[data-testid^="topo-node-"]')
+    .evaluateAll((nodes) =>
+      JSON.stringify(
+        nodes.map((n) => {
+          const b = n.getBoundingClientRect();
+          return [n.getAttribute('data-testid'), Math.round(b.x), Math.round(b.y), Math.round(b.width)];
+        }),
+      ),
+    );
+}
+
+/** How many listeners a port counts; none when its badge is absent. */
+async function observers(page: Page, port: 'in' | 'out'): Promise<number> {
+  const badge = page.getByTestId(`topo-observers-${port}`);
+  return (await badge.count()) ? readFigure(badge) : 0;
+}
+
+/** Whether a dot matching `selector` is in flight on the canvas within the window. */
+async function dotFlies(page: Page, selector: string): Promise<boolean> {
+  return page.evaluate(
+    async ({ selector, ms }) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        if (document.querySelector(`#topology-dots ${selector}[data-flying]`)) return true;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return false;
+    },
+    { selector, ms: 15_000 },
+  );
+}
+
+/** The highest stroke opacity among the record lane's wires; a still wire sits at 0.5. */
+async function brightestWire(page: Page): Promise<number> {
+  return page
+    .locator('.topo-wire[data-flow="in"], .topo-wire[data-flow="out"]')
+    .evaluateAll((wires) => Math.max(...wires.map((w) => Number(getComputedStyle(w).strokeOpacity))));
 }
 
 test.describe('Pipeline graph', () => {
@@ -35,42 +69,48 @@ test.describe('Pipeline graph', () => {
     await live(RELAY);
   });
 
-  test('draws the record path from ingest to output', async ({ page }) => {
+  test('lays the record path out left to right, with both ports and both ends of the failures lane', async ({
+    page,
+  }) => {
     await expect(page.getByTestId('topology-graph')).toBeVisible();
 
-    await expect(page.getByTestId('topo-node-ingest')).toBeVisible();
-    await expect(page.getByTestId('topo-node-testnet_store_1')).toBeVisible();
-    await expect(page.getByTestId('topo-node-channel')).toBeVisible();
-    await expect(page.getByTestId('topo-node-output')).toBeVisible();
+    for (const id of ['ingest', 'testnet_store_1', 'channel', 'output', 'filtered', 'dead-letter']) {
+      await expect(page.getByTestId(`topo-node-${id}`)).toBeVisible();
+    }
+    await expect(page.getByTestId('topo-port-in')).toBeVisible();
+    await expect(page.getByTestId('topo-port-out')).toBeVisible();
 
-    // The chain is drawn top to bottom, so the output sits below the ingest.
     const ingest = await page.getByTestId('topo-node-ingest').boundingBox();
     const output = await page.getByTestId('topo-node-output').boundingBox();
-    expect(output!.y).toBeGreaterThan(ingest!.y);
+    const parked = await page.getByTestId('topo-node-dead-letter').boundingBox();
+    expect(output!.x).toBeGreaterThan(ingest!.x);
+    expect(Math.round(output!.y)).toBe(Math.round(ingest!.y));
+    expect(parked!.y).toBeGreaterThan(ingest!.y);
   });
 
-  test('fits the column it is given rather than being clipped by it', async ({ page }) => {
+  test('scrolls the canvas inside its panel rather than the page', async ({ page }) => {
     const overflow = await page.evaluate(() => {
-      const svg = document.querySelector('[data-testid="topology-graph"] svg')!;
-      const box = svg.getBoundingClientRect();
-      const column = svg.parentElement!.getBoundingClientRect();
-      return Math.round(box.right - column.right);
+      const canvas = document.querySelector('[data-testid="topology-canvas"]')!;
+      return document.documentElement.scrollWidth - document.documentElement.clientWidth +
+        Math.round(canvas.getBoundingClientRect().right - canvas.parentElement!.getBoundingClientRect().right);
     });
 
-    expect(overflow, 'the graph must not spill out of its column').toBeLessThanOrEqual(0);
+    expect(overflow, 'the graph must not push the page sideways').toBeLessThanOrEqual(0);
   });
 
-  test('names every line style in a legend', async ({ page }) => {
+  test('opens its legend on demand', async ({ page }) => {
     const legend = page.getByTestId('topology-legend');
+    await expect(legend).toBeHidden();
+
+    await page.getByTestId('topology-legend-toggle').click();
 
     await expect(legend).toBeVisible();
     await expect(legend).toContainText('Records flowing');
     await expect(legend).toContainText('dead-letter');
+    await expect(legend).toContainText('A port');
   });
 
-  test('every flow edge carries a speed bucket, and the seeded traffic moves its rate', async ({
-    page,
-  }) => {
+  test('every wire carries a speed bucket, and the seeded traffic reads a rate above zero', async ({ page }) => {
     const classes = await page
       .locator('[data-testid^="topo-edge-flow-"]')
       .evaluateAll((edges) => edges.map((e) => e.getAttribute('class') ?? ''));
@@ -78,39 +118,69 @@ test.describe('Pipeline graph', () => {
     expect(classes.length).toBeGreaterThan(0);
     classes.forEach((klass) => expect(klass).toMatch(FLOW_BUCKETS));
 
-    // The seeded source feeds this relay, so the edge it forwards on must read
-    // a rate above zero on some tick, and leave the idle bucket with it.
-    const rate = page.getByTestId('topo-rate-flow-testnet_store_1-channel');
-    const edge = page.getByTestId('topo-edge-flow-testnet_store_1-channel');
+    // The seeded source writes one record every five seconds, which the
+    // smoothed rate shows as a figure rather than 0.0/s.
+    const rate = page.getByTestId('topo-rate-out');
     await expect
-      .poll(
-        async () =>
-          ((await rate.count()) ? await readFigure(rate) : 0) > 0 &&
-          (await edge.getAttribute('class')),
-        { message: 'the forwarding edge never showed a rate', timeout: ADVANCE_WINDOW_MS },
-      )
-      .toMatch(/topo-flow-(slow|medium|fast)/);
+      .poll(async () => ((await rate.count()) ? await readFigure(rate) : 0), {
+        message: 'the OUT port never showed a rate',
+        timeout: 2 * ADVANCE_WINDOW_MS,
+      })
+      .toBeGreaterThan(0);
   });
 
-  test('the selected relay’s sparkline gains a sample every tick', async ({ page }) => {
-    await page.getByTestId('topo-node-testnet_store_1').click();
-    await expect(page.getByTestId('topology-sparkline')).toBeVisible({
-      timeout: ADVANCE_WINDOW_MS,
-    });
+  test('with no tap open, the counters move hollow dots along the path, which light it', async ({ page }) => {
+    expect(await dotFlies(page, '.topo-dot--counted'), 'no counted dot flew').toBe(true);
 
-    await expectAdvances(() => sparklineSamples(page), 'the sparkline');
+    // The wire a dot crossed is still lit while its light fades.
+    await expect
+      .poll(() => brightestWire(page), { message: 'no wire lit up', timeout: ADVANCE_WINDOW_MS })
+      .toBeGreaterThan(0.6);
   });
 
-  test('selecting the core shows its counters and links to its listen view', async ({ page }) => {
+  test('under reduced motion no dot moves, and the wires still light', async ({ page, live }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await live(RELAY);
+
+    await expect
+      .poll(() => brightestWire(page), { message: 'no wire lit up', timeout: 2 * ADVANCE_WINDOW_MS })
+      .toBeGreaterThan(0.6);
+    expect(await dotFlies(page, '.topo-dot')).toBe(false);
+  });
+
+  test('says what the relay is doing, and its timeline gains a sample every tick', async ({ page }) => {
+    await expect(page.getByTestId('topology-state-word')).toHaveText(/Streaming|Trickle|Quiet|Failing|Stuck/);
+    await expect
+      .poll(() => page.getByTestId('topology-state-word').textContent(), { timeout: 2 * ADVANCE_WINDOW_MS })
+      .toMatch(/Trickle/);
+
+    await expectAdvances(() => timelineSamples(page), 'the timeline');
+  });
+
+  test('hovering the dead-letter end traces its route and dims the output route', async ({ page }) => {
+    await page.getByTestId('topo-node-dead-letter').hover();
+
+    const opacity = (id: string) =>
+      page.getByTestId(id).evaluate((el) => Number(getComputedStyle(el).opacity));
+    await expect.poll(() => opacity('topo-node-output')).toBeLessThan(0.5);
+    expect(await opacity('topo-node-testnet_store_1')).toBe(1);
+    expect(await opacity('topo-node-ingest')).toBe(1);
+  });
+
+  test('selecting a node docks its inspector below and leaves the canvas where it was', async ({ page }) => {
+    const canvas = page.getByTestId('topology-canvas');
+    const before = await canvas.boundingBox();
+
     await page.getByTestId('topo-node-testnet_store_1').click();
 
     const panel = page.getByTestId('topology-detail');
     await expect(panel).toBeVisible();
     await expect(panel).toContainText('store_input');
     await expect(panel).toContainText('Uptime');
+    expect(await canvas.boundingBox()).toEqual(before);
+    expect((await panel.boundingBox())!.y).toBeGreaterThan(before!.y + before!.height);
 
     await page.getByTestId('topology-detail-link').click();
-
     await expect(page).toHaveURL(new RegExp(`${RELAY}/listen$`));
   });
 
@@ -131,6 +201,27 @@ test.describe('Pipeline graph', () => {
 
     await expect(page.getByTestId('topology-detail')).toHaveCount(0);
   });
+
+  test('is driven from the keyboard: arrows walk the lanes, Enter selects, Escape clears', async ({ page }) => {
+    await page.getByTestId('topo-port-in').focus();
+    await expect(page.getByTestId('topo-port-in')).toBeFocused();
+
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('topo-node-testnet_store_1')).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('topo-port-out')).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('topo-node-channel')).toBeFocused();
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowLeft');
+
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('topology-detail')).toContainText('store_input');
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('topology-detail')).toHaveCount(0);
+    await expect(page.getByTestId('topology-tap')).toHaveCount(0);
+  });
 });
 
 test.describe('Payload tap', () => {
@@ -138,76 +229,76 @@ test.describe('Payload tap', () => {
     await live(RELAY);
   });
 
-  test('attaches on demand, measures the seeded traffic, and detaches on close', async ({
-    page,
-  }) => {
-    await expect(page.getByTestId('tap-figures')).toHaveCount(0);
+  test('opens from the IN port, counts its listener there, and moves nothing', async ({ page }) => {
+    const boxes = await nodeBoxes(page);
+    const before = await observers(page, 'in');
 
-    // The seeded source writes into this relay's input.
-    await page.getByTestId('topology-tap').getByTestId('tap-input').click();
+    await page.getByTestId('topo-port-in').click();
 
     // Figures come from the payloads the listener delivers, because nothing on
     // the data plane counts bytes.
-    const figures = page.getByTestId('tap-figures');
-    await expect(figures).toBeVisible();
+    await expect(page.getByTestId('tap-figures')).toBeVisible();
+    await expect(page.getByTestId('topo-port-state-in')).toHaveText('tapping');
+    await expect.poll(() => observers(page, 'in'), { timeout: ADVANCE_WINDOW_MS }).toBe(before + 1);
     await expectAdvances(page.getByTestId('tap-msg-rate'), 'the tap message rate');
     await expect(page.getByTestId('tap-byte-rate')).not.toHaveText(/^\s*0 B\/s\s*$/);
     await expect(page.getByTestId('tap-recent').locator('li').first()).toBeVisible();
+    expect(await nodeBoxes(page)).toEqual(boxes);
 
     await page.getByTestId('tap-close').click();
 
     await expect(page.getByTestId('tap-figures')).toHaveCount(0);
-    await expect(page.getByTestId('tap-input')).toBeVisible();
   });
 
-  test('an output tap reports what the relay forwards', async ({ page }) => {
-    await page.getByTestId('tap-output').click();
+  test('an output tap draws the records it hears filled, with their payload', async ({ page }) => {
+    await page.getByTestId('topo-port-out').click();
 
     await expect(page.getByTestId('tap-figures')).toBeVisible();
-    await expectAdvances(page.getByTestId('tap-msg-rate'), 'the output tap message rate');
+    expect(await dotFlies(page, '.topo-dot:not(.topo-dot--counted)'), 'no tapped dot flew').toBe(true);
+    await expect(page.locator('#topology-dots .topo-dot-preview').first()).toContainText('store_1', {
+      timeout: ADVANCE_WINDOW_MS,
+    });
     await page.getByTestId('tap-close').click();
   });
 
-  test('leaves no listener bound to the relay behind it', async ({ page, live }) => {
-    await openSection(page, 'plugins');
-    const before = await testIds(page, 'binding-row-');
+  test('leaves its port counting the listeners it had before', async ({ page, live }) => {
+    const before = await observers(page, 'in');
 
-    await page.getByTestId('tap-input').click();
-    await expect(page.getByTestId('tap-figures')).toBeVisible();
+    await page.getByTestId('topo-port-in').click();
+    await expect.poll(() => observers(page, 'in'), { timeout: ADVANCE_WINDOW_MS }).toBe(before + 1);
 
     // Navigating away is the case an operator actually hits; the controller
     // has to notice the listening page is gone without being told.
     await live('/plugins');
     await live(RELAY);
-    await openSection(page, 'plugins');
 
     await expect
-      .poll(() => testIds(page, 'binding-row-'), {
+      .poll(() => observers(page, 'in'), {
         message: 'the tap must not outlive the page that opened it',
+        timeout: ADVANCE_WINDOW_MS,
       })
-      .toEqual(before);
+      .toBe(before);
   });
 
   test('ends its listener when the page loses its socket', async ({ page, pageHealth }) => {
     pageHealth.allow(/took phx-(client-)?error/, 'the test drops the socket on purpose');
     const watcher = await openPage(page, RELAY);
-    await openSection(watcher, 'plugins');
-    const before = await listenerBindings(watcher);
+    const before = await observers(watcher, 'in');
 
-    await page.getByTestId('tap-input').click();
+    await page.getByTestId('topo-port-in').click();
     await expect(page.getByTestId('tap-figures')).toBeVisible();
-    await expect.poll(() => listenerBindings(watcher)).not.toEqual(before);
+    await expect.poll(() => observers(watcher, 'in'), { timeout: ADVANCE_WINDOW_MS }).toBe(before + 1);
 
     await page.evaluate(() =>
       (window as unknown as { liveSocket: { disconnect(): void } }).liveSocket.disconnect(),
     );
 
     await expect
-      .poll(() => listenerBindings(watcher), {
+      .poll(() => observers(watcher, 'in'), {
         message: 'the tap must end with the socket that held it',
         timeout: ADVANCE_WINDOW_MS,
       })
-      .toEqual(before);
+      .toBe(before);
     await watcher.close();
   });
 });

@@ -29,9 +29,10 @@
 }
 
 /* ---- Topology graph ----
- * Nodes, wires and the legend wear the stylebook's relay-graph recipe. What
- * stays here is the console's own behaviour on top of it: flow speed, the
- * selection, backpressure, rate figures, label geometry and the sparkline.
+ * Nodes, wires, dots and the legend wear the stylebook's relay-graph recipe.
+ * What stays here is the console's own behaviour on top of it: flow speed,
+ * stream bands, the afterglow of a passing record, ports and their observers,
+ * path tracing, the selection, health marks, the flow sentence and timeline.
  *
  * Flow is animated by marching the dash pattern along the edge; the speed
  * bucket the UI derives from a rate picks the period, and an idle edge has no
@@ -54,6 +55,74 @@
 /* A dead-letter branch is structure, not a failure: amber, dotted. */
 .topo-edge-dlq      { stroke: var(--warning); stroke-opacity: 1; }
 
+/* Only a stream marches; a trickle is drawn by its dots and the light they
+   leave, and a quiet wire stands still. */
+.topo-wire:is(.topo-flow-slow, .topo-flow-medium, .topo-flow-fast):not([data-mode="streaming"]) {
+  animation: none; stroke: var(--text-muted); stroke-opacity: 0.5; stroke-dasharray: none; stroke-width: 1.5;
+}
+
+/* A passing record lights each wire it crosses; taking the light off fades it. */
+.topo-wire { transition: stroke 6s ease-out, stroke-opacity 6s ease-out, opacity 0.15s; }
+/* Scoped to the canvas so it outranks the still wire above. */
+.topo-canvas .topo-wire.is-lit { stroke: var(--accent-solid); stroke-opacity: 1; transition: none; }
+
+/* A stream is a band under its marching wire, as wide as its volume; a full
+   runner stops it in the warning colour. */
+.topo-band { fill: none; stroke: var(--brand-solid); stroke-opacity: 0.22; stroke-linecap: round; }
+.topo-band.is-stopped { stroke: var(--warning); stroke-opacity: 0.45; }
+.topo-canvas:has(.topo-band.is-stopped) .topo-wire[data-mode="streaming"]:not([data-flow="in"]) {
+  animation: none; stroke: var(--warning);
+}
+
+.topo-routes path { fill: none; stroke: none; }
+
+/* Counted dots run a tick behind, so they are hollow; a tap's are filled. */
+#topology-dots .topo-dot:not([data-flying]) { display: none; }
+.topo-dot--counted { fill: var(--surface-raised); stroke: var(--accent-solid); stroke-width: 1.5; }
+.topo-dot--filtered { stroke: var(--text-muted); }
+.topo-lane-label { fill: var(--text-muted); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.topo-dot-preview { fill: var(--text-secondary); font-size: 9px; font-family: var(--font-mono); }
+
+/* A port: where a listener watches the record path, and where a tap opens. */
+.topo-port { cursor: pointer; outline: none; }
+.topo-port-hit { fill: transparent; }
+.topo-port-ring { fill: var(--surface-raised); stroke: var(--text-brand); stroke-width: 1.5; }
+.topo-port-core { fill: var(--text-brand); }
+.topo-port:hover .topo-port-ring,
+.topo-port:focus-visible .topo-port-ring { stroke-width: 2.5; }
+.topo-port.is-tapped .topo-port-ring { fill: var(--accent-solid); stroke: var(--accent-solid); }
+.topo-port.is-tapped .topo-port-core { fill: var(--surface-raised); }
+.topo-port-state { fill: var(--text-muted); font-size: 10px; font-family: var(--font-mono); }
+.topo-observers { fill: var(--text-brand); font-size: 10px; font-family: var(--font-mono); }
+.topo-observer-ids { fill: var(--text-secondary); font-size: 9px; font-family: var(--font-mono); display: none; }
+.topo-port:hover .topo-observer-ids,
+.topo-port:focus-visible .topo-observer-ids { display: inline; }
+.topo-legend-badge {
+  border-radius: 999px; border: 1px solid var(--text-brand); color: var(--text-brand);
+  font-family: var(--font-mono); font-size: 10px; line-height: 1; padding: 2px 6px;
+}
+.topo-legend { padding: var(--space-3); flex-direction: column; flex-wrap: nowrap; }
+
+/* An end nothing has reached yet is drawn, quietly. */
+.flz-graph-node.is-muted { opacity: 0.55; }
+
+/* Tracing a path: what shares a route with the traced element stays, the
+   rest steps back. */
+.topo-canvas [data-routes]:not(.topo-wire) { transition: opacity 0.15s; }
+.topo-canvas[data-trace] [data-routes] { opacity: 0.25; }
+.topo-canvas[data-trace-out] [data-routes~="out"],
+.topo-canvas[data-trace-filter] [data-routes~="filter"],
+.topo-canvas[data-trace-dlq] [data-routes~="dlq"],
+.topo-canvas[data-trace-life] [data-routes~="life"] { opacity: 1; }
+
+/* Keyboard focus on a node or a port. */
+.topo-canvas [tabindex]:focus-visible { outline: none; }
+.topo-canvas [tabindex]:focus-visible rect:first-of-type,
+.topo-canvas g[tabindex]:focus-visible .flz-graph-node rect { stroke: var(--brand-solid); stroke-width: 2.5; }
+
+/* A stall verdict naming a node rings it. */
+.topo-stall { fill: none; stroke: var(--warning); stroke-width: 2; stroke-dasharray: 5 3; }
+
 /* A suspended or unbound node keeps its own outline when selected. */
 :is(a, [phx-click]) > .flz-graph-node:not(.flz-graph-node--dead, .flz-graph-node--recovering):hover rect,
 .flz-graph-node.is-selected:not(.flz-graph-node--dead, .flz-graph-node--recovering) rect { stroke: var(--brand-solid); }
@@ -72,8 +141,23 @@
 .topo-muted     { color: var(--text-muted); }
 .topo-rule      { border-top: 1px solid var(--border-subtle); }
 
-.topo-spark-in  { fill: none; stroke: var(--brand-solid); stroke-width: 1.5; }
-.topo-spark-out { fill: none; stroke: var(--positive);    stroke-width: 1.5; }
+/* The flow in words, and a bar per tick for what came in, was delivered,
+   was filtered and was parked. */
+.topo-state-word { font-weight: 600; margin-right: 0.35em; }
+.topo-state-word.is-streaming,
+.topo-state-word.is-trickle { color: var(--text-brand); }
+.topo-state-word.is-quiet   { color: var(--text-muted); }
+.topo-state-word.is-failing { color: var(--negative); }
+.topo-state-word.is-stuck   { color: var(--warning); }
+
+.topo-timeline-row { display: grid; grid-template-columns: 5.5rem 1fr; align-items: end; gap: 0.5rem; }
+.topo-timeline-label { color: var(--text-muted); font-size: 11px; }
+.topo-timeline-bars { width: 100%; border-bottom: 1px solid var(--border-subtle); }
+.topo-timeline-bars.is-in rect       { fill: var(--brand-solid); }
+.topo-timeline-bars.is-out rect      { fill: var(--positive); }
+.topo-timeline-bars.is-filtered rect { fill: var(--text-muted); }
+.topo-timeline-bars.is-parked rect   { fill: var(--warning); }
+.topo-timeline-axis { display: flex; justify-content: space-between; margin-left: 6rem; }
 
 @media (prefers-reduced-motion: reduce) {
   .topo-flow-slow, .topo-flow-medium, .topo-flow-fast, .topo-backpressure { animation: none; }

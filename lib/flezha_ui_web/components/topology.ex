@@ -7,9 +7,11 @@ defmodule FlezhaUiWeb.Topology do
   factory, not upstream peers — so the graph worth drawing is *one relay's
   own path*: transport ingest → its `on_input` plugins in position order → the
   relay core → its `on_output` plugins → the bound runner's stream channel
-  → output, with failures parking into the dead-letter queue. Structure comes
-  from the controller's own hook table, so the picture shows what is
-  actually attached, in the order it runs.
+  → output, with lifecycle hooks above the core and the filtered and
+  dead-letter ends below it. Structure comes from the controller's own hook
+  table, so the picture shows what is actually attached, in the order it
+  runs; listeners bound by core's `Flezha.Service.Listener` are counted on the
+  point they watch rather than drawn as steps.
 
   A namespace gets a summary rather than a canvas of every relay: flezha
   runs thousands, and the summary costs the same five controller calls whatever
@@ -20,15 +22,20 @@ defmodule FlezhaUiWeb.Topology do
     * the host seam — `use FlezhaUiWeb.Topology`, then `init/1` in mount and
       `load_pipeline/1` or `load_summary/2` inside the host's own `refresh/1`.
       Everything kept between ticks (the previous snapshot, rate history, the
-      selection) lives in the `:topology_state` assign.
+      selection, when each port last saw a record and each wire's state) lives
+      in the `:topology_state` assign.
     * the view model — `pipeline/1`, `summary/1`, `rates/3`, `push_history/2`,
       `speed_bucket/1`. Pure, so the delta arithmetic and the joins are
       testable without a controller.
     * the rendering — `pipeline_graph/1` and `namespace_map/1`, server-rendered
-      SVG and HEEx whose flow animation is CSS keyed to a speed bucket.
+      SVG and HEEx. The pipeline's records move through the `FlzPipeline`
+      hook, from the counts `load_pipeline/1` pushes each tick and what the
+      host's tap pushes.
 
   Rates are `Δcount / Δt` between this UI's own ticks, not controller-side
-  timing, and only on the three edges the controller actually counts. The
+  timing, smoothed on the pipeline over its newest samples, and only where the
+  controller actually counts: the IN and OUT ports and the wire out of the
+  channel. The
   controller keeps no per-hook counter, so the chain between plugins
   carries no figure — a tap is how you measure a point the counters miss.
   """
@@ -37,22 +44,44 @@ defmodule FlezhaUiWeb.Topology do
 
   alias FlezhaUi.Service.NodeManager
 
-  # A vertical chain: it fits the column it is given at any length, and the
-  # page already scrolls downward.
-  @node_w 240
-  @node_h 52
-  @row_step 96
+  # Three left-to-right lanes: lifecycle chips over the core, the record path,
+  # and the filtered and dead-letter ends under the core. The wires out of
+  # Ingest and out of the core are wider than the rest, since each carries a
+  # port.
   @pad 20
-  @branch_gap 44
-  @branch_w 176
+  @cap_w 88
+  @node_w 168
+  @node_h 52
+  @gap 40
+  @port_gap 140
+  @chip_w 152
+  @chip_h 36
+  @chip_gap 12
+  @end_w 152
+  @end_h 44
+  @lane_gap 64
+  @life_y @pad
+  @record_y @life_y + @chip_h + @lane_gap
+  @fail_y @record_y + @node_h + @lane_gap
+
+  # The pipeline shows the mean of the newest samples, so a relay moving one
+  # record every few ticks does not flicker between a figure and zero.
+  @smoothing 7
+  # A wire streams from 5 records a second until it falls to 3, and trickles
+  # while a record passed within the last 30 seconds.
+  @stream_on 5
+  @stream_off 3
+  @trickle_ms 30_000
+
+  @observer_provider inspect(Flezha.Plugin.Provider.MonitoredIOForward)
+
+  # The relay counters the controller keeps, by the rate each one feeds.
+  @counted [in: :io_in_received, out: :forwarded, filtered: :filtered_nil]
+  @quiet %{in: :quiet, out: :quiet}
 
   @history_limit 60
   @stall_window_us 60_000_000
   @stall_query %{source: :flezha_health, limit: 20}
-
-  # The hooks that sit on the record path, and where.
-  @inbound [:on_input]
-  @outbound [:on_output]
 
   # Named exactly, not by prefix: a host owns `graph_*` events of its own — the
   # relay page's payload tap is one — and a prefix match would swallow them
@@ -88,7 +117,17 @@ defmodule FlezhaUiWeb.Topology do
   def init(socket) do
     assign(socket,
       topology: nil,
-      topology_state: %{prev: nil, prev_at: nil, history: %{}, rates: %{}, selected: nil}
+      topology_state: %{
+        prev: nil,
+        prev_at: nil,
+        history: %{},
+        rates: %{},
+        selected: nil,
+        prev_parked: nil,
+        seen: %{in: nil, out: nil},
+        modes: @quiet,
+        opened_at: System.monotonic_time(:millisecond)
+      }
     )
   end
 
@@ -98,6 +137,10 @@ defmodule FlezhaUiWeb.Topology do
   Reads the overwatch facts the host already assigned, so a tick costs one
   liveness snapshot and the reads that are namespace-wide anyway — never a
   second overwatch call for the relay the host just fetched.
+
+  Once a baseline exists, each tick also pushes `"pipeline_counts"` to the
+  browser: how far the relay's counters advanced, which the graph replays as
+  moving dots over the next tick.
   """
   def load_pipeline(socket) do
     %{ns: namespace, relay_id: relay_id, overwatch: facts} = socket.assigns
@@ -106,28 +149,87 @@ defmodule FlezhaUiWeb.Topology do
 
     if NodeManager.connected_node() do
       {snapshot, skew} = snapshot(token)
-      {rates, state} = advance(state, snapshot, [relay_id])
+      {_rates, ticked} = advance(state, snapshot, [relay_id])
       {verdicts, stall_notice} = stall(token)
+      parked = parked_for(facts, token)
+      {ticked, counts} = tick(state, ticked, relay_id, snapshot, parked)
 
-      assign_topology(
-        socket,
-        state,
+      # A failed read measures nothing, so nothing is shown as moving.
+      {history, modes} =
+        if snapshot,
+          do: {ticked.history |> Map.get(relay_id, []) |> Enum.reverse(), ticked.modes},
+          else: {[], @quiet}
+
+      socket
+      |> assign_topology(
+        ticked,
         pipeline(%{
           namespace: namespace,
           relay_id: relay_id,
           facts: facts,
           snapshot: snapshot,
-          rate: Map.get(rates, relay_id),
-          history: state.history |> Map.get(relay_id, []) |> Enum.reverse(),
-          parked: parked_for(facts, token),
+          history: history,
+          parked: parked,
           verdicts: verdicts,
           stall_notice: stall_notice,
           skew: skew,
-          selected: state.selected
+          selected: ticked.selected,
+          seen: ticked.seen,
+          modes: modes,
+          opened_at: ticked.opened_at,
+          now: System.monotonic_time(:millisecond)
         })
       )
+      |> push_counts(counts)
     else
       disconnected(socket, state)
+    end
+  end
+
+  defp push_counts(socket, nil), do: socket
+
+  defp push_counts(socket, counts),
+    do: Phoenix.LiveView.push_event(socket, "pipeline_counts", counts)
+
+  # What the pipeline keeps beyond the shared arithmetic: the parked sample
+  # beside this tick's rates, when each counted point last moved, and each
+  # wire's state. Answers the counts to replay, or nil without a baseline.
+  defp tick(before, ticked, relay_id, snapshot, parked) do
+    previous = relay_counters(before.prev, relay_id)
+    current = relay_counters(snapshot, relay_id)
+    parked_by = (before.prev_parked && advance_of(parked, before.prev_parked)) || 0
+    ticked = %{ticked | prev_parked: parked}
+
+    if previous && current && before.prev_at do
+      now = ticked.prev_at
+      interval = now - before.prev_at
+      counts = advances(previous, current) |> Map.put(:parked, parked_by)
+      seconds = max(interval, 1) / 1_000
+      history = sample_parked(ticked.history, relay_id, Float.round(parked_by / seconds, 1))
+      seen = Map.new(ticked.seen, fn {key, at} -> {key, (counts[key] > 0 && now) || at} end)
+      newest = history |> Map.get(relay_id, []) |> Enum.reverse()
+
+      modes =
+        Map.new(ticked.modes, fn {key, mode} ->
+          {key, wire_mode(mode, smoothed(newest, key), seen[key] && now - seen[key])}
+        end)
+
+      {%{ticked | history: history, seen: seen, modes: modes},
+       Map.merge(counts, %{interval_ms: interval, modes: Map.put(modes, :chan, modes.out)})}
+    else
+      {ticked, nil}
+    end
+  end
+
+  # `push_history/2` stores the shared rates; the parked rate is the
+  # pipeline's own, added to the sample this tick just pushed.
+  defp sample_parked(history, relay_id, rate) do
+    case history do
+      %{^relay_id => [newest | older]} ->
+        %{history | relay_id => [Map.put(newest, :parked, rate) | older]}
+
+      _none ->
+        history
     end
   end
 
@@ -236,11 +338,21 @@ defmodule FlezhaUiWeb.Topology do
   end
 
   # A stale baseline carried across a disconnect would produce one tick of
-  # fictional rates on reconnect, so the graph starts from no baseline instead.
+  # fictional rates on reconnect, and what was measured before it would read as
+  # current, so the graph starts from nothing instead.
   defp disconnected(socket, state) do
     assign_topology(
       socket,
-      %{state | prev: nil, prev_at: nil, rates: %{}},
+      %{
+        state
+        | prev: nil,
+          prev_at: nil,
+          rates: %{},
+          history: %{},
+          prev_parked: nil,
+          seen: %{in: nil, out: nil},
+          modes: @quiet
+      },
       %{kind: :disconnected, state: :disconnected}
     )
   end
@@ -354,64 +466,141 @@ defmodule FlezhaUiWeb.Topology do
   # ---- Pipeline view model ----
 
   @doc """
-  One relay's pipeline, as nodes and edges.
+  One relay's pipeline, as lanes of nodes, the wires between them, and the IN
+  and OUT ports.
 
   Pure: the overwatch facts (including the hook table), the liveness
-  snapshot, the computed rate and its history, the parked count, and any recent
-  stall verdicts all arrive in `input`.
+  snapshot, the rate history (oldest first), the parked count and any recent
+  stall verdicts all arrive in `input`, as do, when the host keeps them, when
+  each port last saw a record (`seen`), each wire's state (`modes`), when the
+  page opened (`opened_at`) and the clock to age them by (`now`).
   """
   def pipeline(input) do
     facts = input.facts
+    history = Map.get(input, :history, [])
     channel = channel_for(input.snapshot, facts.runner_id)
-    {inbound, outbound, satellites} = stages(facts.bindings)
 
-    chain =
-      [%{id: "ingest", kind: :ingest, label: "Ingest", sub: "transport"}] ++
-        Enum.map(inbound, &stage_node/1) ++
-        [core_node(input, facts)] ++
-        Enum.map(outbound, &stage_node/1) ++
-        [channel_node(input, facts, channel), output_node()]
+    %{inbound: inbound, outbound: outbound, chips: chips, observers: observers} =
+      stages(facts.bindings)
 
-    nodes = position(chain)
-    core = Enum.find(nodes, &(&1.kind == :core))
-    branches = branch_nodes(input, satellites, core)
-    all = nodes ++ branches
+    stalled = stalled_subject(input, facts, channel)
+    counters = relay_counters(input.snapshot, input.relay_id)
+    rates = %{in: smoothed(history, :in), out: smoothed(history, :out)}
+
+    nodes =
+      layout(
+        [%{id: "ingest", kind: :ingest, lane: :record, label: "Ingest", sub: "transport"}] ++
+          Enum.map(inbound, &plugin_node(&1, :record)) ++
+          [
+            core_node(
+              input,
+              facts,
+              if(history != [], do: rates),
+              counters,
+              observers.calls,
+              stalled
+            )
+          ] ++
+          Enum.map(outbound, &plugin_node(&1, :record)) ++
+          [channel_node(facts, channel, stalled), output_node()] ++
+          Enum.map(chips, &plugin_node(&1, :life)) ++
+          [filtered_node(counters), dead_letter_node(input.parked)]
+      )
+
+    record = Enum.filter(nodes, &(&1.lane == :record))
+    core = Enum.find(record, &(&1.kind == :core))
+    modes = Map.get(input, :modes, @quiet)
+    recency = recency(input, rates, modes)
+    backpressure? = Enum.any?(record, &(&1[:backpressure?] == true))
+    chain = chain_edges(record, core, rates, modes, recency, backpressure?)
+    branches = for node <- nodes, node.lane != :record, do: branch(node, core)
+
+    ports = ports(record, rates, recency, observers)
+    nav = nav_order(nodes, ports)
+    nodes = Enum.map(nodes, &Map.put(&1, :nav, nav[{:node, &1.id}]))
+    word = state_word(history, modes, backpressure?)
+    width = canvas_width(nodes)
 
     %{
       kind: :pipeline,
       state: :ok,
       namespace: input.namespace,
       relay_id: input.relay_id,
-      nodes: all,
-      edges: chain_edges(nodes, input) ++ branch_edges(core, branches),
-      width: @pad + @node_w + @branch_gap + @branch_w + @pad,
-      height: canvas_height(all),
-      selected: Enum.find(all, &(&1.id == input.selected && &1.selectable?)),
+      nodes: nodes,
+      edges: chain ++ branches,
+      ports: Enum.map(ports, &Map.put(&1, :nav, nav[{:port, &1.id}])),
+      routes: route_paths(record, core, branches),
+      width: width,
+      min_width: round(width * 0.75),
+      height: @fail_y + @end_h + @pad,
+      selected: Enum.find(nodes, &(&1.id == input.selected && &1.selectable?)),
       stall: List.first(input.verdicts),
       stall_notice: Map.get(input, :stall_notice),
       skew: input.skew,
-      plugin_count: length(facts.bindings)
+      plugin_count: (inbound ++ outbound ++ chips) |> Enum.map(& &1.plugin_id) |> count_ids(),
+      observer_count: observers |> Map.values() |> List.flatten() |> count_ids(),
+      flow: %{word: word, sentence: sentence(word, history, rates, modes, input)},
+      timeline: timeline(history)
     }
   end
 
-  # `on_input` runs before the relay sees a record and `on_output` after it
-  # forwards one; everything else fires off the record path, so it hangs off the
-  # core rather than pretending to be a step.
-  defp stages(bindings) do
-    sorted = Enum.sort_by(bindings, &{&1.position || 0, &1.plugin_id})
+  defp count_ids(ids), do: ids |> Enum.uniq() |> length()
 
-    {Enum.filter(sorted, &on?(&1, @inbound)), Enum.filter(sorted, &on?(&1, @outbound)),
-     Enum.reject(sorted, &(on?(&1, @inbound) or on?(&1, @outbound)))}
+  # Listeners leave the path first: every binding of the provider core's
+  # `Flezha.Service.Listener` binds is an observer, counted once per plugin on
+  # the point it watches. Then `on_input` runs before the relay sees a record
+  # and `on_output` after it forwards one, and every other hook fires off the
+  # record path, so a plugin bound only there is one lifecycle chip.
+  defp stages(bindings) do
+    {listeners, plugins} = Enum.split_with(bindings, &(&1.provider == @observer_provider))
+    sorted = Enum.sort_by(plugins, &{&1.position || 0, &1.plugin_id})
+
+    %{
+      inbound: Enum.filter(sorted, &(&1.hook == "on_input")),
+      outbound: Enum.filter(sorted, &(&1.hook == "on_output")),
+      chips:
+        sorted
+        |> Enum.reject(&(&1.hook in ~w(on_input on_output)))
+        |> Enum.group_by(& &1.plugin_id)
+        |> Enum.sort_by(fn {plugin_id, _entries} -> plugin_id end)
+        |> Enum.map(fn {plugin_id, entries} ->
+          %{
+            plugin_id: plugin_id,
+            hook: Enum.map_join(entries, ", ", & &1.hook),
+            sub: Enum.map_join(entries, " · ", & &1.hook),
+            provider: hd(entries).provider,
+            position: nil
+          }
+        end),
+      observers: %{
+        in: observing(listeners, ~w(on_input)),
+        out: observing(listeners, ~w(on_output on_preview)),
+        calls: observing(listeners, ~w(on_call))
+      }
+    }
   end
 
-  defp on?(entry, hooks), do: entry.hook in Enum.map(hooks, &Atom.to_string/1)
+  defp observing(listeners, hooks) do
+    for(entry <- listeners, entry.hook in hooks, do: entry.plugin_id)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
 
-  defp stage_node(entry) do
+  # A step on the record lane is one binding, so its id names its hook; a
+  # lifecycle chip is one plugin, listing every hook it is bound to.
+  defp plugin_node(entry, lane) do
     %{
-      id: "plugin-#{entry.plugin_id}",
+      id:
+        if(lane == :record,
+          do: "plugin-#{entry.plugin_id}-#{entry.hook}",
+          else: "plugin-#{entry.plugin_id}"
+        ),
       kind: :plugin,
+      lane: lane,
       label: entry.plugin_id,
-      sub: "#{entry.hook}#{position_suffix(entry.position)} · #{short_provider(entry.provider)}",
+      sub:
+        entry[:sub] ||
+          "#{entry.hook}#{position_suffix(entry.position)} · #{short_provider(entry.provider)}",
       selectable?: true,
       plugin_id: entry.plugin_id,
       hook: entry.hook,
@@ -423,34 +612,38 @@ defmodule FlezhaUiWeb.Topology do
   defp position_suffix(nil), do: ""
   defp position_suffix(position), do: " ##{position}"
 
-  # A provider module's last segment: the full name is far wider than a branch
-  # node, and stays in the node's tooltip and the selected plugin's panel.
+  # A provider module's last segment: the full name is far wider than a node,
+  # and stays in the node's tooltip and the selected plugin's panel.
   defp short_provider(provider), do: provider |> to_string() |> String.split(".") |> List.last()
 
-  defp core_node(input, facts) do
+  defp core_node(input, facts, rates, counters, callers, stalled) do
     %{
       id: input.relay_id,
       kind: :core,
+      lane: :record,
       label: input.relay_id,
       sub: to_string(facts.factory_id || "—"),
       selectable?: true,
       state: (facts.suspended && :suspended) || :running,
+      stalled?: stalled == :core,
       facts: facts,
-      counters: relay_counters(input.snapshot, input.relay_id),
-      rate: input.rate,
-      history: input.history,
+      counters: counters,
+      rate: rates,
+      observers: callers,
       href: ~p"/namespaces/#{input.namespace}/relays/#{input.relay_id}/listen"
     }
   end
 
-  defp channel_node(_input, facts, channel) do
+  defp channel_node(facts, channel, stalled) do
     %{
       id: "channel",
       kind: :channel,
+      lane: :record,
       label: facts.runner_id || "unbound",
       sub: (channel && "stream channel") || "no channel counters",
       selectable?: true,
       state: channel_state(facts.runner_id),
+      stalled?: stalled == :channel,
       channel: channel,
       backpressure?: channel != nil and credit_exhausted?(channel),
       href: ~p"/cluster"
@@ -460,91 +653,438 @@ defmodule FlezhaUiWeb.Topology do
   defp channel_state(nil), do: :unbound
   defp channel_state(_runner_id), do: :bound
 
-  defp output_node, do: %{id: "output", kind: :output, label: "Output", sub: "runner stream"}
+  defp output_node,
+    do: %{id: "output", kind: :output, lane: :record, label: "Output", sub: "runner stream"}
 
-  # Every chain node is one row down from the last.
-  defp position(chain) do
-    chain
-    |> Enum.with_index()
-    |> Enum.map(fn {node, row} ->
-      node
-      |> Map.put_new(:selectable?, false)
-      |> Map.merge(%{x: @pad, y: @pad + row * @row_step})
-    end)
+  # Both ends of the failures lane are drawn from the start, so the first
+  # record to reach either does not move anything.
+  defp filtered_node(counters) do
+    filtered = (counters && Map.get(counters, :filtered_nil, 0)) || 0
+
+    %{
+      id: "filtered",
+      kind: :filtered,
+      lane: :fail,
+      label: "Filtered",
+      sub: "#{filtered} dropped as nil",
+      muted?: filtered == 0
+    }
   end
 
-  # The dead-letter branch and the off-path hooks live in their own column
-  # beside the core, so neither pretends to be a step on the record path.
-  defp branch_nodes(input, satellites, core) do
-    dlq =
-      if input.parked > 0 do
-        [
-          %{
-            id: "dead-letter",
-            kind: :dead_letter,
-            label: "Dead letter",
-            sub: "#{input.parked} parked",
-            selectable?: false,
-            href: ~p"/dlq"
-          }
-        ]
-      else
-        []
-      end
-
-    (dlq ++ Enum.map(satellites, &stage_node/1))
-    |> Enum.with_index()
-    |> Enum.map(fn {node, index} ->
-      Map.merge(node, %{
-        x: @pad + @node_w + @branch_gap,
-        y: core.y + index * @row_step
-      })
-    end)
+  defp dead_letter_node(parked) do
+    %{
+      id: "dead-letter",
+      kind: :dead_letter,
+      lane: :fail,
+      label: "Dead letter",
+      sub: "#{parked} parked",
+      muted?: parked == 0,
+      href: ~p"/dlq"
+    }
   end
 
-  # Rates land only where the controller counts: into the relay, out of it,
-  # and out of the channel. Between plugins there is no counter, so no figure.
-  defp chain_edges(nodes, input) do
-    nodes
+  # The newest verdict marks the node it names: the relay is its core, and its
+  # runner or that runner's channel is its channel.
+  defp stalled_subject(input, facts, channel) do
+    case List.first(input.verdicts) do
+      %{subject: nil} -> nil
+      %{subject: subject} when subject == input.relay_id -> :core
+      %{subject: subject} -> channel_subject(subject, facts.runner_id, channel)
+      nil -> nil
+    end
+  end
+
+  defp channel_subject(subject, runner_id, channel) do
+    if subject == runner_id or (channel != nil and subject == to_string(channel.name)),
+      do: :channel
+  end
+
+  @doc """
+  Places the pipeline's nodes in their lanes, from the nodes alone: the record
+  lane left to right with compact ends and wide port wires, lifecycle chips
+  centred over the core, and the filtered and dead-letter ends under it.
+
+  Pure, and fed only the relay's own plugins, so a listener coming or going
+  moves nothing.
+  """
+  def layout(nodes) do
+    {record, rest} = Enum.split_with(nodes, &(&1.lane == :record))
+
+    {record, _x} =
+      Enum.map_reduce(record, @pad, fn node, x ->
+        w = if node.kind in [:ingest, :output], do: @cap_w, else: @node_w
+        gap = if node.kind in [:ingest, :core], do: @port_gap, else: @gap
+        {place(node, x, @record_y, w, @node_h), x + w + gap}
+      end)
+
+    core = Enum.find(record, &(&1.kind == :core))
+    centre = core.x + div(core.w, 2)
+    chips = Enum.filter(rest, &(&1.lane == :life))
+    span = length(chips) * (@chip_w + @chip_gap) - @chip_gap
+    # Clear of the lane's label when many chips push the row left.
+    from = max(centre - div(span, 2), @pad + 104)
+
+    life =
+      chips
+      |> Enum.with_index()
+      |> Enum.map(fn {chip, i} ->
+        place(chip, from + i * (@chip_w + @chip_gap), @life_y, @chip_w, @chip_h)
+      end)
+
+    fail =
+      rest
+      |> Enum.filter(&(&1.lane == :fail))
+      |> Enum.map(fn node ->
+        x = if node.kind == :filtered, do: centre - @end_w - 8, else: centre + 8
+        place(node, x, @fail_y, @end_w, @end_h)
+      end)
+
+    record ++ life ++ fail
+  end
+
+  defp place(node, x, y, w, h) do
+    node
+    |> Map.put_new(:selectable?, false)
+    |> Map.merge(%{x: x, y: y, w: w, h: h, routes: routes(node)})
+  end
+
+  # The routes a record can take through an element: on to the output, into
+  # the filtered end, into the dead-letter queue, or the lifecycle hooks'.
+  # Everything before the core is on every record's way.
+  defp routes(%{lane: :life}), do: "life"
+  defp routes(%{kind: :core}), do: "out filter dlq life"
+  defp routes(%{kind: :filtered}), do: "filter"
+  defp routes(%{kind: :dead_letter}), do: "dlq"
+  defp routes(%{kind: kind}) when kind in [:channel, :output], do: "out"
+  defp routes(%{kind: :plugin, hook: "on_output"}), do: "out"
+  defp routes(_before_core), do: "out filter dlq"
+
+  defp canvas_width(nodes) do
+    Enum.max(Enum.map(nodes, &(&1.x + &1.w))) + @pad
+  end
+
+  defp middle(node), do: node.y + div(node.h, 2)
+
+  # The record lane's wires join neighbours; the core reaches each chip and
+  # each end of the failures lane on a branch. Only the wire out of Ingest,
+  # the wire out of the core and the wire out of the channel are counted; the
+  # rest say so.
+  defp chain_edges(record, core, rates, modes, recency, backpressure?) do
+    {start, finish} = {hd(record).x + hd(record).w, List.last(record).x}
+
+    record
     |> Enum.chunk_every(2, 1, :discard)
     |> Enum.map(fn [from, to] ->
+      segment = segment(from, to, core)
+      key = counter(segment)
+      rate = rates[key]
+      counted? = from.kind in [:ingest, :core, :channel]
+      {x0, x1} = if key == :in, do: {start, core.x}, else: {core.x + core.w, finish}
+
       %{
         id: "flow-#{from.id}-#{to.id}",
         kind: :flow,
-        rate: edge_rate(from, to, input.rate),
+        d: "M#{from.x + from.w},#{middle(from)} L#{to.x},#{middle(to)}",
+        x1: from.x + from.w,
+        x2: to.x,
+        y: middle(from),
+        counted?: counted?,
+        rate: if(counted?, do: rate),
+        label: if(segment == :chan, do: rate_label(rate)),
+        bucket: speed_bucket(rate),
+        mode: modes[key],
+        band: modes[key] == :streaming && band_width(rate),
+        stopped?: backpressure? and key == :out,
         degraded?: to.kind == :channel and to.state == :unbound,
-        x1: from.x + div(@node_w, 2),
-        y1: from.y + @node_h,
-        x2: to.x + div(@node_w, 2),
-        y2: to.y
+        flow: Atom.to_string(key),
+        at: Float.round((from.x + from.w - x0) / max(x1 - x0, 1), 2),
+        routes: if(from.kind == :core, do: to.routes, else: from.routes),
+        title: wire_title(segment, counted?, rate, recency[key])
       }
-      |> then(&Map.put(&1, :bucket, speed_bucket(&1.rate)))
     end)
   end
 
-  defp edge_rate(_from, %{kind: :core}, rate), do: rate && rate.in
-  defp edge_rate(%{kind: :core}, _to, rate), do: rate && rate.out
-  defp edge_rate(%{kind: :channel}, _to, rate), do: rate && rate.out
-  defp edge_rate(_from, _to, _rate), do: nil
+  # The wire out of the channel moves with the relay's forwarded count.
+  defp counter(:chan), do: :out
+  defp counter(segment), do: segment
 
-  defp branch_edges(core, branches) do
-    Enum.map(branches, fn branch ->
+  defp segment(from, to, core) do
+    cond do
+      from.kind == :channel -> :chan
+      from.x < core.x or to.kind == :core -> :in
+      true -> :out
+    end
+  end
+
+  defp branch(node, core) do
+    centre = core.x + div(core.w, 2)
+
+    {kind, d, title} =
+      case node.lane do
+        :life ->
+          {from_x, to_y} = {node.x + div(node.w, 2), node.y + node.h}
+          mid = div(to_y + core.y, 2)
+
+          {:satellite,
+           "M#{from_x},#{to_y} C#{from_x},#{mid} #{centre},#{mid} #{centre},#{core.y}",
+           "#{node.label} runs on #{node.sub}, off the record path"}
+
+        :fail ->
+          {x0, y0} =
+            {if(node.kind == :filtered, do: centre - 24, else: centre + 24), core.y + core.h}
+
+          {x1, y1} = {node.x + div(node.w, 2), node.y}
+          mid = div(y0 + y1, 2)
+          kind = if node.kind == :filtered, do: :filter, else: :dlq
+
+          {kind, "M#{x0},#{y0} C#{x0},#{mid} #{x1},#{mid} #{x1},#{y1}", branch_title(kind)}
+      end
+
+    %{
+      id: "branch-#{node.id}",
+      kind: kind,
+      d: d,
+      rate: nil,
+      bucket: :idle,
+      mode: :quiet,
+      band: false,
+      degraded?: false,
+      flow: Atom.to_string(kind),
+      at: 0.0,
+      routes: node.routes,
+      title: title
+    }
+  end
+
+  defp branch_title(:filter), do: "Records the relay dropped by returning nil"
+  defp branch_title(:dlq), do: "Records that failed, parked in the dead-letter queue"
+
+  defp wire_title(_segment, false, _rate, _recency),
+    do: "Not counted: the controller keeps no counter between plugins"
+
+  defp wire_title(segment, true, rate, recency) do
+    what = %{in: "Into the relay", out: "Forwarded by the relay", chan: "Out to the runner"}
+
+    "#{what[segment]}: #{rate_label(rate) || "measuring"}, #{recency}"
+  end
+
+  # The streaming band's width grows with the logarithm of the rate, so a
+  # thousand records a second does not drown the graph.
+  defp band_width(rate), do: Float.round(3 + 4 * :math.log10(1 + rate), 1)
+
+  # The ports sit on the wire out of Ingest, where the input listener sees
+  # records, and on the wire out of the core, where the output listener does.
+  defp ports(record, rates, recency, observers) do
+    for {key, after_kind, direction, routes} <- [
+          {:in, :ingest, "input", "out filter dlq"},
+          {:out, :core, "output", "out"}
+        ] do
+      index = Enum.find_index(record, &(&1.kind == after_kind))
+      [from, to] = Enum.slice(record, index, 2)
+      rate = rates[key]
+
       %{
-        id: "branch-#{branch.id}",
-        kind: (branch.kind == :dead_letter && :dlq) || :satellite,
-        rate: nil,
-        bucket: :idle,
-        degraded?: false,
-        x1: core.x + @node_w,
-        y1: core.y + div(@node_h, 2),
-        x2: branch.x,
-        y2: branch.y + div(@node_h, 2)
+        id: Atom.to_string(key),
+        direction: direction,
+        x: div(from.x + from.w + to.x, 2),
+        y: middle(from),
+        rate: rate,
+        label: rate_label(rate),
+        state: recency[key],
+        observers: observers[key],
+        routes: routes
       }
-    end)
+    end
   end
 
-  defp canvas_height(nodes) do
-    Enum.max(Enum.map(nodes, & &1.y)) + @node_h + @pad
+  # How each counted point states its recency: nothing before a baseline,
+  # "continuous" while a stream is still arriving, and otherwise when a record
+  # last passed, to the tick's resolution.
+  defp recency(input, rates, modes) do
+    seen = Map.get(input, :seen, %{in: nil, out: nil})
+    now = Map.get(input, :now, 0)
+    opened_at = Map.get(input, :opened_at, now)
+
+    Map.new([:in, :out], &{&1, recency(rates[&1], modes[&1], seen[&1], now, opened_at)})
+  end
+
+  defp recency(nil, _mode, _seen, _now, _opened_at), do: "measuring"
+  defp recency(_rate, :quiet, nil, now, opened_at), do: "quiet for #{ago(now - opened_at)}"
+  defp recency(_rate, :quiet, seen, now, _opened_at), do: "quiet for #{ago(now - seen)}"
+  defp recency(_rate, _mode, nil, _now, _opened_at), do: "none since opened"
+
+  defp recency(_rate, :streaming, seen, now, _opened_at) when now - seen <= 3_000,
+    do: "continuous"
+
+  defp recency(_rate, _mode, seen, now, _opened_at), do: "last record #{ago(now - seen)} ago"
+
+  defp ago(ms) when ms < 60_000, do: "~#{div(max(ms, 0), 1_000)} s"
+  defp ago(ms), do: Format.duration(ms)
+
+  # Focus walks each lane in path order and steps between lanes; the hook
+  # reads the order from `data-lane` and `data-nav`.
+  defp nav_order(nodes, ports) do
+    (for(
+       node <- nodes,
+       node.selectable? or node.kind == :dead_letter,
+       do: {{:node, node.id}, node.lane, node.x}
+     ) ++
+       for(port <- ports, do: {{:port, port.id}, :record, port.x}))
+    |> Enum.group_by(&elem(&1, 1))
+    |> Enum.flat_map(fn {_lane, members} ->
+      members
+      |> Enum.sort_by(&elem(&1, 2))
+      |> Enum.with_index(fn {key, _lane, _x}, i -> {key, i} end)
+    end)
+    |> Map.new()
+  end
+
+  # The hidden paths dots ride: into the core, from it to the output, and from
+  # it along each branch into the failures lane.
+  defp route_paths(record, core, branches) do
+    [ingest, output] = [hd(record), List.last(record)]
+    y = middle(core)
+    branch = &Enum.find_value(branches, fn edge -> edge.kind == &1 && edge.d end)
+
+    %{
+      in: "M#{ingest.x + ingest.w},#{y} L#{core.x},#{y}",
+      out: "M#{core.x + core.w},#{y} L#{output.x},#{y}",
+      filter: branch.(:filter),
+      dlq: branch.(:dlq)
+    }
+  end
+
+  @doc """
+  The rate the pipeline shows for `key`: the mean of the newest
+  #{@smoothing} samples of a history held oldest first, or nil before the
+  first sample.
+  """
+  def smoothed([], _key), do: nil
+
+  def smoothed(history, key) do
+    samples = Enum.take(history, -@smoothing)
+    Enum.sum(Enum.map(samples, &Map.get(&1, key, 0))) / length(samples)
+  end
+
+  @doc "A displayed rate as the pipeline labels it; a trickle under 0.05 reads `<0.1/s`."
+  def rate_label(nil), do: nil
+  def rate_label(rate) when rate > 0 and rate < 0.05, do: "<0.1/s"
+  def rate_label(rate), do: "#{Float.round(rate / 1, 1)}/s"
+
+  @doc """
+  A counted wire's state: `:streaming` from #{@stream_on} records a second
+  until its rate falls to #{@stream_off}, `:trickling` below that while a
+  record passed within #{div(@trickle_ms, 1_000)} seconds (`ago_ms`), and
+  `:quiet` otherwise.
+  """
+  def wire_mode(previous, rate, ago_ms) do
+    rate = rate || 0
+
+    cond do
+      rate >= @stream_on -> :streaming
+      previous == :streaming and rate > @stream_off -> :streaming
+      ago_ms != nil and ago_ms <= @trickle_ms -> :trickling
+      true -> :quiet
+    end
+  end
+
+  # Stuck outranks Failing, which outranks how the input is moving.
+  defp state_word(_history, _modes, true), do: :stuck
+
+  defp state_word(history, modes, false) do
+    if failing?(history) do
+      :failing
+    else
+      %{streaming: :streaming, trickling: :trickle, quiet: :quiet}[modes.in]
+    end
+  end
+
+  # More than a tenth of what the last two ticks took was parked.
+  defp failing?(history) do
+    {parked, taken} = parked_of_taken(history)
+    parked > 0 and parked > taken / 10
+  end
+
+  defp parked_of_taken(history) do
+    recent = Enum.take(history, -2)
+
+    {recent |> Enum.map(&Map.get(&1, :parked, 0)) |> Enum.sum(),
+     recent |> Enum.map(&Map.get(&1, :in, 0)) |> Enum.sum()}
+  end
+
+  # The one place the graph's state is put into words.
+  defp sentence(:stuck, _history, _rates, _modes, _input),
+    do: "The runner's channel has no credit left, so the relay cannot hand records on."
+
+  defp sentence(:failing, history, _rates, _modes, _input) do
+    {parked, taken} = parked_of_taken(history)
+    share = if taken > 0, do: "#{round(min(parked / taken, 1) * 100)}% of", else: "records beyond"
+
+    "#{share} what came in over the last two ticks was parked in the dead-letter queue."
+  end
+
+  defp sentence(:quiet, history, _rates, _modes, input) do
+    seen = input |> Map.get(:seen, %{}) |> Map.get(:in)
+
+    cond do
+      history == [] -> "Measuring: rates appear after the second reading."
+      is_nil(seen) -> "No record has come in since this page opened."
+      true -> "No record has come in for #{ago(Map.get(input, :now, seen) - seen)}."
+    end
+  end
+
+  defp sentence(_moving, history, rates, _modes, _input) do
+    filtered = smoothed(history, :filtered) || 0
+    taken = rates.in || 0
+
+    "#{rate_label(taken)} in, #{rate_label(rates.out || 0)} delivered" <>
+      if(filtered > 0 and taken > 0,
+        do: ", #{round(min(filtered / taken, 1) * 100)}% filtered.",
+        else: "."
+      )
+  end
+
+  @timeline_rows [in: "In", out: "Delivered", filtered: "Filtered", parked: "Parked"]
+  @timeline_w 600
+  @timeline_row_h 18
+
+  # One bar per tick on each row, newest at the right, on a shared log scale
+  # so a trickle still shows beside a stream.
+  defp timeline(history) do
+    peak =
+      history
+      |> Enum.flat_map(&Enum.map(@timeline_rows, fn {key, _} -> Map.get(&1, key, 0) end))
+      |> Enum.max(fn -> 0 end)
+
+    step = @timeline_w / @history_limit
+    offset = @history_limit - length(history)
+
+    %{
+      samples: length(history),
+      width: @timeline_w,
+      row_h: @timeline_row_h,
+      rows:
+        Enum.map(@timeline_rows, fn {key, label} ->
+          %{
+            key: key,
+            label: label,
+            bars:
+              for {sample, i} <- Enum.with_index(history),
+                  value = Map.get(sample, key, 0),
+                  value > 0 do
+                %{
+                  x: Float.round((offset + i) * step, 1),
+                  w: Float.round(step - 1, 1),
+                  h:
+                    Float.round(
+                      max(:math.log10(1 + value) / :math.log10(1 + peak), 0.1) * @timeline_row_h,
+                      1
+                    )
+                }
+              end
+          }
+        end)
+    }
   end
 
   # ---- Summary view model ----
@@ -625,10 +1165,10 @@ defmodule FlezhaUiWeb.Topology do
   # ---- Shared arithmetic ----
 
   @doc """
-  Per-relay in/out message rates from two snapshots and the milliseconds
-  between them.
+  Per-relay message rates from two snapshots and the milliseconds between
+  them: in, out, and the records the relay filtered by returning nil.
 
-  Answers `%{relay_id => %{in: rate, out: rate}}`, and nothing at all
+  Answers `%{relay_id => %{in: rate, out: rate, filtered: rate}}`, and nothing at all
   without a baseline — a first tick has no elapsed time to divide by. A
   negative delta means the controller restarted and its counters reset; that
   clamps to zero for the one tick rather than rendering a nonsense figure.
@@ -645,10 +1185,13 @@ defmodule FlezhaUiWeb.Topology do
 
       case Map.fetch(before, id) do
         {:ok, base} ->
-          Map.put(acc, id, %{
-            in: rate(entry, base, :io_in_received, seconds),
-            out: rate(entry, base, :forwarded, seconds)
-          })
+          Map.put(
+            acc,
+            id,
+            Map.new(advances(base, entry), fn {key, delta} ->
+              {key, Float.round(delta / seconds, 1)}
+            end)
+          )
 
         :error ->
           acc
@@ -658,11 +1201,15 @@ defmodule FlezhaUiWeb.Topology do
 
   def rates(_snapshot, _previous, _elapsed_ms), do: %{}
 
-  defp rate(entry, base, slot, seconds) do
-    delta = max(Map.get(entry, slot, 0) - Map.get(base, slot, 0), 0)
-
-    Float.round(delta / seconds, 1)
+  # How far each counted slot moved since `base`. A counter that went
+  # backwards was reset by a controller restart, and moved nothing.
+  defp advances(base, entry) do
+    Map.new(@counted, fn {key, slot} ->
+      {key, advance_of(Map.get(entry, slot, 0), Map.get(base, slot, 0))}
+    end)
   end
+
+  defp advance_of(now, before), do: max(now - before, 0)
 
   @doc """
   Appends this tick's rates to each relay's history, newest first.
@@ -727,12 +1274,16 @@ defmodule FlezhaUiWeb.Topology do
   # ---- Pipeline rendering ----
 
   @doc """
-  One relay's pipeline: the chain, its banners, the legend, and the detail
-  panel for the selected node.
+  One relay's pipeline: the lanes, the ports, a sentence and a timeline of
+  what the relay is doing, and a dock below them holding the selected node's
+  inspector and the host's payload tap.
 
-  The `:tap` slot is where the host puts its payload tap, beside the chain.
+  `tapped` is the direction of the host's open tap, which marks its port; the
+  `:tap` slot is where the host puts the tap itself. Nothing opened in the dock
+  moves the canvas.
   """
   attr :topology, :any, required: true
+  attr :tapped, :string, default: nil, doc: "the direction of the open tap, if any"
   slot :tap
 
   def pipeline_graph(assigns) do
@@ -746,131 +1297,179 @@ defmodule FlezhaUiWeb.Topology do
     >
       <:header>
         <span :if={@topology && @topology.kind == :pipeline} class="text-xs topo-muted">
-          {@topology.plugin_count} plugin{if @topology.plugin_count == 1, do: "", else: "s"} attached
+          {Words.count(@topology.plugin_count, "plugin")} attached<span
+            :if={@topology.observer_count > 0}
+            data-testid="topology-observer-count"
+          > · {@topology.observer_count} listening</span>
         </span>
+        <.legend :if={@topology && @topology.kind == :pipeline} />
       </:header>
 
-      <div class="flex flex-col lg:flex-row gap-4">
+      <div
+        id="topology-canvas"
+        phx-hook="FlzPipeline"
+        phx-mounted={
+          JS.ignore_attributes(
+            ~w(data-trace data-trace-out data-trace-filter data-trace-dlq data-trace-life)
+          )
+        }
+        phx-window-keydown={@topology.selected && "graph_dismiss"}
+        phx-key="Escape"
+        data-testid="topology-canvas"
+        data-tapped={@tapped}
+        class="topo-canvas overflow-x-auto"
+      >
+        <svg
+          viewBox={"0 0 #{@topology.width} #{@topology.height}"}
+          width={@topology.width}
+          height={@topology.height}
+          style={"min-width: #{@topology.min_width}px"}
+          class="w-full h-auto"
+          role="group"
+          aria-label={"Pipeline of #{@topology.relay_id}"}
+        >
+          <g class="topo-lane-label" aria-hidden="true">
+            <text :for={{name, y} <- lane_labels()} x="20" y={y}>{name}</text>
+          </g>
+          <g>
+            <path
+              :for={edge <- @topology.edges}
+              :if={edge[:band]}
+              d={edge.d}
+              stroke-width={edge.band}
+              class={["topo-band", edge[:stopped?] && "is-stopped"]}
+              data-testid={"topo-band-#{edge.id}"}
+              data-routes={edge.routes}
+            />
+          </g>
+          <g><.wire :for={edge <- @topology.edges} edge={edge} /></g>
+          <g>
+            <.graph_node :for={node <- @topology.nodes} node={node} selected={@topology.selected} />
+          </g>
+          <g>
+            <.port :for={port <- @topology.ports} port={port} tapped={@tapped == port.direction} />
+          </g>
+          <g class="topo-routes" aria-hidden="true">
+            <path :for={{route, d} <- @topology.routes} id={"route-#{route}"} d={d} />
+          </g>
+          <g id="topology-dots" phx-update="ignore" data-testid="topo-dots"></g>
+        </svg>
+      </div>
+
+      <.flow_state flow={@topology.flow} timeline={@topology.timeline} />
+
+      <div data-testid="topology-dock" class="grid gap-4 md:grid-cols-2">
         <.detail :if={@topology.selected} node={@topology.selected} />
         {render_slot(@tap)}
-
-        <div class="flex-1 order-last">
-          <svg
-            viewBox={"0 0 #{@topology.width} #{@topology.height}"}
-            width={@topology.width}
-            height={@topology.height}
-            class="max-w-full h-auto mx-auto"
-            role="img"
-            aria-label={"Pipeline of #{@topology.relay_id}"}
-          >
-            <g><.edge :for={edge <- @topology.edges} edge={edge} /></g>
-            <g>
-              <.graph_node :for={node <- @topology.nodes} node={node} selected={@topology.selected} />
-            </g>
-          </svg>
-
-          <.legend />
-        </div>
+        <p :if={!@topology.selected and is_nil(@tapped)} class="text-xs topo-muted md:col-span-2">
+          Select a node to inspect it, or a port to tap the records passing it.
+        </p>
       </div>
     </.graph_frame>
     """
   end
 
+  defp lane_labels,
+    do: [
+      {"Lifecycle", @life_y + 4},
+      {"Records", @record_y - 12},
+      {"Failures and drops", @fail_y + 4}
+    ]
+
   @doc """
-  The relay page's payload tap, beside its pipeline: a listen on the relay's
-  input or output while it is open, with what passed through. It belongs to
-  the graph and keeps the graph's recipe until the graph's own redesign.
+  The relay page's payload tap, in the graph's dock: what a listen on the
+  relay's input or output has heard since its port opened it.
   """
   attr :tap, :any, required: true
 
   def payload_tap(assigns) do
     ~H"""
-    <aside
-      data-testid="topology-tap"
-      class="flz-panel lg:w-72 shrink-0 p-4 space-y-3"
+    <.dock_panel
+      :if={@tap}
+      testid="topology-tap"
+      on_close="graph_tap_close"
+      close_testid="tap-close"
+      close_label="Close tap"
     >
-      <div class="flex items-center justify-between gap-2">
-        <p class="flz-label">Payload tap</p>
+      <:head>
+        <p class="flz-label">Tapping <span class="font-mono">{@tap.direction}</span></p>
+      </:head>
+
+      <div :if={@tap.error} data-testid="tap-error">
+        <.runtime_error error={@tap.error} action="the payload tap" />
+      </div>
+
+      <dl data-testid="tap-figures" class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+        <dt class="topo-muted">Messages</dt>
+        <dd class="topo-secondary font-mono text-right">{@tap.count}</dd>
+        <dt class="topo-muted">Total</dt>
+        <dd class="topo-secondary font-mono text-right">{Format.bytes(@tap.bytes)}</dd>
+        <dt class="topo-muted">Rate</dt>
+        <dd data-testid="tap-msg-rate" class="topo-primary font-mono text-right">
+          {FlezhaUiWeb.RelayLive.tap_rate(@tap, :count)}/s
+        </dd>
+        <dt class="topo-muted">Throughput</dt>
+        <dd data-testid="tap-byte-rate" class="topo-primary font-mono text-right">
+          {Format.bytes(round(FlezhaUiWeb.RelayLive.tap_rate(@tap, :bytes)))}/s
+        </dd>
+        <dt class="topo-muted">Dead letters</dt>
+        <dd data-testid="tap-dead-letters" class="topo-secondary font-mono text-right">
+          {@tap.dead_letters}
+        </dd>
+      </dl>
+
+      <ul :if={@tap.recent != []} data-testid="tap-recent" class="space-y-1">
+        <li :for={msg <- @tap.recent} class="flz-chip block truncate">
+          {String.slice(msg.message, 0, 60)}
+        </li>
+      </ul>
+
+      <p :if={@tap.ended?} data-testid="tap-ended" class="text-xs topo-muted">
+        The tap ended: the relay stopped or the controller let it go.
+      </p>
+
+      <p
+        :if={@tap.recent == [] and is_nil(@tap.error) and not @tap.ended?}
+        class="text-xs topo-muted"
+      >
+        Listening while open, and stops when closed. Waiting for a record to pass.
+      </p>
+    </.dock_panel>
+    """
+  end
+
+  # A panel of the graph's dock, beneath the canvas: a head, a control that
+  # closes it, and its body.
+  attr :testid, :string, required: true
+  attr :on_close, :string, required: true
+  attr :close_testid, :string, required: true
+  attr :close_label, :string, required: true
+  slot :head, required: true
+  slot :inner_block, required: true
+
+  defp dock_panel(assigns) do
+    ~H"""
+    <aside data-testid={@testid} class="flz-panel p-4 space-y-3">
+      <div class="flex items-start justify-between gap-2">
+        <div>{render_slot(@head)}</div>
         <button
-          :if={@tap}
           type="button"
-          phx-click="graph_tap_close"
-          data-testid="tap-close"
+          phx-click={@on_close}
+          data-testid={@close_testid}
           class="flz-button flz-button--sm flz-button--ghost"
-          aria-label="Close tap"
+          aria-label={@close_label}
         >
           <.icon name="hero-x-mark" class="w-4 h-4" />
         </button>
       </div>
-
-      <p :if={!@tap} class="text-xs topo-muted">
-        Listens to this relay while open, and stops listening when you close it.
-      </p>
-
-      <div :if={!@tap} class="flex gap-2">
-        <.button
-          :for={direction <- ~w(input output)}
-          variant="secondary"
-          size="sm"
-          phx-click="graph_tap"
-          phx-value-direction={direction}
-          data-testid={"tap-#{direction}"}
-        >
-          Tap {direction}
-        </.button>
-      </div>
-
-      <div :if={@tap} class="space-y-2">
-        <p class="text-xs topo-secondary">
-          Tapping <span class="font-mono">{@tap.direction}</span>
-        </p>
-
-        <div :if={@tap.error} data-testid="tap-error">
-          <.runtime_error error={@tap.error} action="the payload tap" />
-        </div>
-
-        <dl data-testid="tap-figures" class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-          <dt class="topo-muted">Messages</dt>
-          <dd class="topo-secondary font-mono text-right">{@tap.count}</dd>
-          <dt class="topo-muted">Total</dt>
-          <dd class="topo-secondary font-mono text-right">{Format.bytes(@tap.bytes)}</dd>
-          <dt class="topo-muted">Rate</dt>
-          <dd data-testid="tap-msg-rate" class="topo-primary font-mono text-right">
-            {FlezhaUiWeb.RelayLive.tap_rate(@tap, :count)}/s
-          </dd>
-          <dt class="topo-muted">Throughput</dt>
-          <dd data-testid="tap-byte-rate" class="topo-primary font-mono text-right">
-            {Format.bytes(round(FlezhaUiWeb.RelayLive.tap_rate(@tap, :bytes)))}/s
-          </dd>
-        </dl>
-
-        <ul :if={@tap.recent != []} data-testid="tap-recent" class="space-y-1">
-          <li
-            :for={msg <- @tap.recent}
-            class="flz-chip block truncate"
-          >
-            {String.slice(msg.message, 0, 60)}
-          </li>
-        </ul>
-
-        <p :if={@tap.ended?} data-testid="tap-ended" class="text-xs topo-muted">
-          The tap ended: the relay stopped or the controller let it go.
-        </p>
-
-        <p
-          :if={@tap.recent == [] and is_nil(@tap.error) and not @tap.ended?}
-          class="text-xs topo-muted"
-        >
-          Waiting for a record to pass through.
-        </p>
-      </div>
+      {render_slot(@inner_block)}
     </aside>
     """
   end
 
-  # The pipeline's frame, in the stylebook's panel recipe the graph keeps until
-  # its own redesign: an honest word when the controller is unreachable, and the
-  # notices the graph may not go without.
+  # The pipeline's frame, in the stylebook's panel recipe: an honest word when
+  # the controller is unreachable, and the notices the graph may not go
+  # without.
   attr :topology, :any, required: true
   attr :kind, :atom, required: true, doc: "the topology kind whose body this frame holds"
   attr :testid, :string, required: true
@@ -905,22 +1504,55 @@ defmodule FlezhaUiWeb.Topology do
 
   defp legend(assigns) do
     ~H"""
-    <ul data-testid="topology-legend" class="flz-graph-legend mt-4 topo-rule">
-      <li><span class="flz-graph-legend-plugin" aria-hidden="true"></span>A plugin</li>
-      <li><span class="flz-graph-legend-tasklet" aria-hidden="true"></span>The relay's own code</li>
-      <.legend_item swatch="topo-flow-medium">Records flowing; speed tracks the rate</.legend_item>
-      <.legend_item swatch="topo-flow-fast">Busy — over 100 records a second</.legend_item>
-      <.legend_item swatch="topo-flow-idle">Idle — no records since the last tick</.legend_item>
-      <.legend_item swatch="flz-graph-wire--state">Runs off the record path</.legend_item>
-      <.legend_item swatch="flz-graph-wire--state topo-edge-dlq">
-        Where failures park, in the dead-letter queue
-      </.legend_item>
-      <.legend_item swatch="flz-graph-wire--fail">Nothing bound at the far end</.legend_item>
-      <.legend_node role="runner">The runner's channel</.legend_node>
-      <.legend_node role="state">Where records enter and leave</.legend_node>
-      <.legend_node role="runner flz-graph-node--recovering">Suspended</.legend_node>
-      <.legend_node role="runner flz-graph-node--dead">Unbound — no runner</.legend_node>
-    </ul>
+    <.popover
+      id="topology-legend-menu"
+      testid="topology-legend-toggle"
+      label="Legend"
+      align="end"
+      role="dialog"
+      trigger_class="fui-btn fui-btn--sm fui-btn--ghost"
+    >
+      <:trigger>Legend</:trigger>
+      <ul data-testid="topology-legend" class="flz-graph-legend topo-legend">
+        <li><span class="flz-graph-legend-plugin" aria-hidden="true"></span>A plugin</li>
+        <li><span class="flz-graph-legend-tasklet" aria-hidden="true"></span>The relay's own code</li>
+        <.legend_node role="runner">The runner's channel</.legend_node>
+        <.legend_node role="state">Where records enter, leave, or end</.legend_node>
+        <.legend_node role="runner flz-graph-node--recovering">Suspended</.legend_node>
+        <.legend_node role="runner flz-graph-node--dead">Unbound — no runner</.legend_node>
+        <.legend_item swatch="topo-flow-medium">Records flowing; speed tracks the rate</.legend_item>
+        <.legend_item swatch="topo-flow-fast">Busy — over 100 records a second</.legend_item>
+        <.legend_item swatch="topo-flow-idle">Idle, or one record at a time</.legend_item>
+        <li>
+          <svg width="26" height="10" class="shrink-0" aria-hidden="true">
+            <line x1="0" y1="5" x2="26" y2="5" class="topo-band" stroke-width="7" />
+          </svg>
+          A stream — five or more records a second
+        </li>
+        <.legend_item swatch="flz-graph-wire--state">Runs off the record path</.legend_item>
+        <.legend_item swatch="flz-graph-wire--state topo-edge-dlq">
+          Where failures park, in the dead-letter queue
+        </.legend_item>
+        <.legend_item swatch="flz-graph-wire--fail">Nothing bound at the far end</.legend_item>
+        <li>
+          <svg width="26" height="14" class="shrink-0" aria-hidden="true">
+            <g class="topo-port"><circle cx="13" cy="7" r="5.5" class="topo-port-ring" /></g>
+          </svg>
+          A port — select it to tap the records passing
+        </li>
+        <li>
+          <span class="topo-legend-badge" aria-hidden="true">2</span> Listeners watching that point
+        </li>
+        <li>
+          <svg width="26" height="10" class="shrink-0" aria-hidden="true">
+            <circle cx="7" cy="5" r="3.5" class="flz-graph-dot topo-dot topo-dot--counted" />
+            <circle cx="19" cy="5" r="3.5" class="flz-graph-dot topo-dot" />
+          </svg>
+          A record — hollow from the counters, a tick behind; filled from a tap
+        </li>
+        <li><span class="flz-graph-legend-fail" aria-hidden="true"></span>A dead letter</li>
+      </ul>
+    </.popover>
     """
   end
 
@@ -959,49 +1591,134 @@ defmodule FlezhaUiWeb.Topology do
 
   attr :edge, :map, required: true
 
-  defp edge(assigns) do
-    assigns = assign(assigns, :label, edge_label(assigns.edge))
-
+  defp wire(assigns) do
     ~H"""
-    <line
+    <path
       data-testid={"topo-edge-#{@edge.id}"}
-      x1={@edge.x1}
-      y1={@edge.y1}
-      x2={@edge.x2}
-      y2={@edge.y2}
-      class={edge_class(@edge)}
-    />
-    <text
-      :if={@label}
-      data-testid={"#{@label.name}-#{@edge.id}"}
-      x={@edge.x1 + 10}
-      y={div(@edge.y1 + @edge.y2, 2) + 4}
-      class={[@label.name, @label.muted? && "is-muted"]}
+      d={@edge.d}
+      class={wire_class(@edge)}
+      data-flow={@edge.flow}
+      data-at={@edge.at}
+      data-mode={@edge.mode}
+      data-routes={@edge.routes}
     >
-      {@label.text}
+      <title>{@edge.title}</title>
+    </path>
+    <text
+      :if={@edge[:label]}
+      data-testid={"topo-rate-#{@edge.id}"}
+      x={div(@edge.x1 + @edge.x2, 2)}
+      y={@edge.y - 8}
+      text-anchor="middle"
+      class={["topo-rate", @edge.rate == 0 && "is-muted"]}
+    >
+      {@edge.label}
     </text>
     """
   end
 
-  # Only the edges the controller counts carry a figure. An idle edge still
-  # states its zero, but quietly: one busy relay should not read as a
-  # column of identical numbers.
-  defp edge_label(%{kind: :flow, rate: rate}) when is_number(rate),
-    do: %{name: "topo-rate", text: "#{rate}/s", muted?: rate == 0}
+  defp wire_class(%{degraded?: true}), do: "flz-graph-wire flz-graph-wire--fail topo-wire"
+  defp wire_class(%{kind: :flow} = edge), do: "flz-graph-wire topo-wire topo-flow-#{edge.bucket}"
 
-  defp edge_label(_edge), do: nil
+  defp wire_class(%{kind: :dlq}),
+    do: "flz-graph-wire flz-graph-wire--state topo-wire topo-edge-dlq"
 
-  defp edge_class(%{degraded?: true}), do: "flz-graph-wire flz-graph-wire--fail"
-  defp edge_class(%{kind: :flow} = edge), do: "flz-graph-wire topo-flow-#{edge.bucket}"
-  defp edge_class(%{kind: :dlq}), do: "flz-graph-wire flz-graph-wire--state topo-edge-dlq"
-  defp edge_class(%{kind: :satellite}), do: "flz-graph-wire flz-graph-wire--state"
+  defp wire_class(_off_path), do: "flz-graph-wire flz-graph-wire--state topo-wire"
+
+  attr :port, :map, required: true
+  attr :tapped, :boolean, required: true
+
+  defp port(assigns) do
+    assigns =
+      assign(assigns,
+        event: (assigns.tapped && "graph_tap_close") || "graph_tap",
+        name: port_name(assigns.port, assigns.tapped),
+        state: (assigns.tapped && "tapping") || assigns.port.state
+      )
+
+    ~H"""
+    <g
+      data-testid={"topo-port-#{@port.id}"}
+      class={["topo-port", @tapped && "is-tapped"]}
+      role="button"
+      tabindex="0"
+      aria-pressed={to_string(@tapped)}
+      aria-label={@name}
+      phx-click={@event}
+      phx-keydown={@event}
+      phx-key="Enter"
+      phx-value-direction={@port.direction}
+      data-lane="record"
+      data-nav={@port.nav}
+      data-routes={@port.routes}
+    >
+      <title>{@name}</title>
+      <rect class="topo-port-hit" x={@port.x - 46} y={@port.y - 30} width="92" height="78" rx="6" />
+      <circle class="topo-port-ring" cx={@port.x} cy={@port.y} r="9" />
+      <circle class="topo-port-core" cx={@port.x} cy={@port.y} r="3.5" />
+      <text x={@port.x} y={@port.y - 16} text-anchor="middle" class="topo-port-state">
+        {String.upcase(@port.id)}<tspan
+          :if={@port.label}
+          data-testid={"topo-rate-#{@port.id}"}
+          class={["topo-rate", @port.rate == 0 && "is-muted"]}
+        > {@port.label}</tspan>
+      </text>
+      <text
+        data-testid={"topo-port-state-#{@port.id}"}
+        x={@port.x}
+        y={@port.y + 26}
+        text-anchor="middle"
+        class="topo-port-state"
+      >
+        {@state}
+      </text>
+      <text
+        :if={@port.observers != []}
+        data-testid={"topo-observers-#{@port.id}"}
+        x={@port.x}
+        y={@port.y + 40}
+        text-anchor="middle"
+        class="topo-observers"
+      >
+        {length(@port.observers)} listening
+      </text>
+      <text class="topo-observer-ids" x={@port.x} y={@port.y + 54} text-anchor="middle">
+        <tspan
+          :for={{id, i} <- Enum.with_index(@port.observers)}
+          x={@port.x}
+          dy={if i > 0, do: 12, else: 0}
+        >
+          {id}
+        </tspan>
+      </text>
+    </g>
+    """
+  end
+
+  defp port_name(port, tapped) do
+    [
+      "#{String.upcase(port.id)} port, #{port.label || "no rate yet"}, #{port.state}",
+      tapped && "your tap is open here",
+      port.observers != [] && "listening: #{Enum.join(port.observers, ", ")}",
+      if(tapped, do: "select to close the tap", else: "select to tap the #{port.direction}")
+    ]
+    |> Enum.filter(& &1)
+    |> Enum.join("; ")
+  end
 
   attr :node, :map, required: true
   attr :selected, :any, required: true
 
   defp graph_node(%{node: %{kind: :dead_letter}} = assigns) do
     ~H"""
-    <.link navigate={@node.href} data-testid={"topo-node-#{@node.id}"}>
+    <.link
+      navigate={@node.href}
+      data-testid={"topo-node-#{@node.id}"}
+      aria-label={"Dead letter: #{@node.sub}"}
+      data-lane={@node.lane}
+      data-nav={@node.nav}
+      data-routes={@node.routes}
+    >
       <.node_body node={@node} selected={@selected} />
     </.link>
     """
@@ -1009,7 +1726,7 @@ defmodule FlezhaUiWeb.Topology do
 
   defp graph_node(%{node: %{selectable?: false}} = assigns) do
     ~H"""
-    <g data-testid={"topo-node-#{@node.id}"}>
+    <g data-testid={"topo-node-#{@node.id}"} data-routes={@node.routes}>
       <.node_body node={@node} selected={@selected} />
     </g>
     """
@@ -1019,19 +1736,49 @@ defmodule FlezhaUiWeb.Topology do
     ~H"""
     <g
       data-testid={"topo-node-#{@node.id}"}
+      role="button"
+      tabindex="0"
+      aria-label={"#{@node.label}, #{@node.sub}"}
+      aria-pressed={to_string(@selected != nil and @selected.id == @node.id)}
       phx-click="graph_select"
+      phx-keydown="graph_select"
+      phx-key="Enter"
       phx-value-id={@node.id}
+      data-lane={@node.lane}
+      data-nav={@node.nav}
+      data-routes={@node.routes}
       class="cursor-pointer"
     >
       <.node_body node={@node} selected={@selected} />
+      <rect
+        :if={@node[:stalled?]}
+        data-testid="topo-stall-marker"
+        x={@node.x - 5}
+        y={@node.y - 5}
+        width={@node.w + 10}
+        height={@node.h + 10}
+        rx="11"
+        class="topo-stall"
+      />
       <circle
         :if={@node.kind == :channel and @node.backpressure?}
         data-testid="topo-backpressure"
-        cx={@node.x + node_w() - 14}
+        cx={@node.x + @node.w - 14}
         cy={@node.y + 14}
         r="5"
         class="topo-backpressure"
       />
+      <text
+        :if={@node[:observers] not in [nil, []]}
+        data-testid="topo-observers-calls"
+        x={@node.x + @node.w}
+        y={@node.y - 6}
+        text-anchor="end"
+        class="topo-observers"
+      >
+        <title>Listening to calls: {Enum.join(@node.observers, ", ")}</title>
+        {length(@node.observers)} on calls
+      </text>
     </g>
     """
   end
@@ -1043,21 +1790,16 @@ defmodule FlezhaUiWeb.Topology do
     ~H"""
     <g class={node_class(@node, @selected)}>
       <title>{@node.label} — {@node.sub}</title>
-      <rect x={@node.x} y={@node.y} width={width_for(@node)} height={node_h()} rx="8" />
+      <rect x={@node.x} y={@node.y} width={@node.w} height={@node.h} rx="8" />
       <%!-- SVG text never wraps, so the box clips it rather than letting a long
            identifier run out past its own edge. --%>
-      <svg x={@node.x} y={@node.y} width={width_for(@node) - 8} height={node_h()} overflow="hidden">
-        <text x="12" y="21" class="topo-label">{@node.label}</text>
-        <text x="12" y="38" class="topo-sub">{@node.sub}</text>
+      <svg x={@node.x} y={@node.y} width={@node.w - 8} height={@node.h} overflow="hidden">
+        <text x="12" y={div(@node.h, 2) - 4} class="topo-label">{@node.label}</text>
+        <text x="12" y={div(@node.h, 2) + 12} class="topo-sub">{@node.sub}</text>
       </svg>
     </g>
     """
   end
-
-  defp node_w, do: @node_w
-  defp node_h, do: @node_h
-  defp width_for(%{x: x}) when x > @pad, do: @branch_w
-  defp width_for(_node), do: @node_w
 
   defp node_class(node, selected) do
     [
@@ -1066,6 +1808,7 @@ defmodule FlezhaUiWeb.Topology do
       "topo-node-#{node.kind}",
       node[:state] == :suspended && "flz-graph-node--recovering",
       node[:state] == :unbound && "flz-graph-node--dead",
+      node[:muted?] && "is-muted",
       selected && selected.id == node.id && "is-selected"
     ]
     |> Enum.filter(&is_binary/1)
@@ -1079,31 +1822,71 @@ defmodule FlezhaUiWeb.Topology do
   defp graph_role(:channel), do: "runner"
   defp graph_role(_kind), do: "state"
 
+  attr :flow, :map, required: true
+  attr :timeline, :map, required: true
+
+  # The state word, the sentence that explains it, and the timeline beneath.
+  defp flow_state(assigns) do
+    ~H"""
+    <div data-testid="topology-state" class="space-y-2">
+      <p class="text-sm topo-secondary">
+        <span data-testid="topology-state-word" class={"topo-state-word is-#{@flow.word}"}>
+          {flow_word(@flow.word)}
+        </span>
+        {@flow.sentence}
+      </p>
+
+      <div data-testid="topology-timeline" data-samples={@timeline.samples} class="topo-timeline">
+        <div :for={row <- @timeline.rows} class="topo-timeline-row">
+          <span class="topo-timeline-label">{row.label}</span>
+          <svg
+            data-testid={"timeline-row-#{row.key}"}
+            viewBox={"0 0 #{@timeline.width} #{@timeline.row_h}"}
+            preserveAspectRatio="none"
+            height={@timeline.row_h}
+            class={"topo-timeline-bars is-#{row.key}"}
+            role="img"
+            aria-label={"#{row.label}, #{length(row.bars)} of the last #{@timeline.samples} ticks"}
+          >
+            <rect
+              :for={bar <- row.bars}
+              x={bar.x}
+              y={@timeline.row_h - bar.h}
+              width={bar.w}
+              height={bar.h}
+            />
+          </svg>
+        </div>
+        <p class="topo-timeline-axis text-xs topo-muted">
+          <span>2 min ago</span><span>now</span>
+        </p>
+      </div>
+    </div>
+    """
+  end
+
+  defp flow_word(:stuck), do: "Stuck"
+  defp flow_word(:failing), do: "Failing"
+  defp flow_word(:streaming), do: "Streaming"
+  defp flow_word(:trickle), do: "Trickle"
+  defp flow_word(:quiet), do: "Quiet"
+
   # ---- Detail panel ----
 
   attr :node, :map, required: true
 
   defp detail(assigns) do
     ~H"""
-    <aside
-      data-testid="topology-detail"
-      class="flz-panel lg:w-80 shrink-0 p-4 space-y-3"
+    <.dock_panel
+      testid="topology-detail"
+      on_close="graph_dismiss"
+      close_testid="topology-detail-dismiss"
+      close_label="Close detail"
     >
-      <div class="flex items-start justify-between gap-2">
-        <div>
-          <p class="flz-label">{@node.kind}</p>
-          <p class="text-sm font-mono topo-primary break-all">{@node.label}</p>
-        </div>
-        <button
-          type="button"
-          phx-click="graph_dismiss"
-          data-testid="topology-detail-dismiss"
-          class="flz-button flz-button--sm flz-button--ghost"
-          aria-label="Close detail"
-        >
-          <.icon name="hero-x-mark" class="w-4 h-4" />
-        </button>
-      </div>
+      <:head>
+        <p class="flz-label">{@node.kind}</p>
+        <p class="text-sm font-mono topo-primary break-all">{@node.label}</p>
+      </:head>
 
       <.core_detail :if={@node.kind == :core} node={@node} />
       <.channel_detail :if={@node.kind == :channel} node={@node} />
@@ -1118,7 +1901,7 @@ defmodule FlezhaUiWeb.Topology do
         {detail_link_label(@node.kind)}
         <.icon name="hero-arrow-top-right-on-square" class="w-3 h-3" />
       </.link>
-    </aside>
+    </.dock_panel>
     """
   end
 
@@ -1147,9 +1930,10 @@ defmodule FlezhaUiWeb.Topology do
       <.fact :if={@node.counters} label="Filtered nil">
         {Map.get(@node.counters, :filtered_nil, 0)}
       </.fact>
+      <.fact :if={@node.observers != []} label="Listening to calls">
+        {Enum.join(@node.observers, ", ")}
+      </.fact>
     </dl>
-
-    <.pipeline_sparkline :if={@node.history != []} samples={@node.history} />
     """
   end
 
@@ -1210,48 +1994,7 @@ defmodule FlezhaUiWeb.Topology do
   end
 
   defp rate_text(nil, _key), do: "—"
-  defp rate_text(rate, key), do: "#{Map.fetch!(rate, key)}/s"
-
-  @sparkline_w 256
-  @sparkline_h 40
-
-  attr :samples, :list, required: true
-
-  defp pipeline_sparkline(assigns) do
-    peak = Enum.max([0 | Enum.flat_map(assigns.samples, &[&1.in, &1.out])])
-
-    assigns =
-      assign(assigns,
-        peak: peak,
-        height: @sparkline_h,
-        in_points: sparkline_points(assigns.samples, :in, peak),
-        out_points: sparkline_points(assigns.samples, :out, peak)
-      )
-
-    ~H"""
-    <div data-testid="topology-sparkline">
-      <svg viewBox={"0 0 #{sparkline_w()} #{@height}"} width="100%" height={@height} role="img">
-        <polyline points={@in_points} class="topo-spark-in" />
-        <polyline points={@out_points} class="topo-spark-out" />
-      </svg>
-      <p class="text-xs topo-muted text-right">peak {@peak}/s</p>
-    </div>
-    """
-  end
-
-  defp sparkline_w, do: @sparkline_w
-
-  defp sparkline_points(samples, key, peak) do
-    count = length(samples)
-    step = if count > 1, do: @sparkline_w / (count - 1), else: 0.0
-    scale = if peak > 0, do: (@sparkline_h - 2) / peak, else: 0.0
-
-    samples
-    |> Enum.with_index()
-    |> Enum.map_join(" ", fn {sample, index} ->
-      "#{Float.round(index * step, 1)},#{Float.round(@sparkline_h - 1 - Map.fetch!(sample, key) * scale, 1)}"
-    end)
-  end
+  defp rate_text(rate, key), do: rate |> Map.fetch!(key) |> rate_label()
 
   # ---- Namespace map ----
 

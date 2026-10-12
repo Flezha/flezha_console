@@ -75,7 +75,7 @@ sources in `config/dev.exs`. `readFigure` reads a number, scaling `KB`/`MB`.
 Counts of discrete events are fed by the console's own controls: a send from
 the relay screen (`sendToRelay()`), a call to `orders`, a relay started and
 stopped, an administration action the audit tail must show. Rates and samples
-— tap rates, flow rates, the sparkline, the periodic refresh — are fed by the
+— tap rates, flow rates, the pipeline's dots and timeline, the periodic refresh — are fed by the
 seeded sources. The first test in `listen.spec.ts` checks that precondition by
 name: the seeded sources are bound to their relays and deliver, so a silent
 stack fails there and not as a timeout in every liveness assertion.

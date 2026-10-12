@@ -50,7 +50,7 @@ scope switch moves between the two forms.
 | `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update, with a typed field for each option the provider declares |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
 | `/relays` | **Fleet** — every relay across every reachable namespace, filterable by namespace, health, run and runner; starts one into any of them; what happened while the screen was open |
-| `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph with its payload tap, and as sections that fold: diagnosis, the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema |
+| `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph — records drawn as they pass, a payload tap opened from its IN and OUT ports, and a sentence and timeline of what the relay is doing — and as sections that fold: diagnosis, the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema |
 | `/namespaces/:ns/relays/:id/listen` | **Listen** — the relay's live outputs or inputs |
 | `/namespaces/:ns/relays/:id/state` | **State** — steps facts as sentences, the task journal and input log, SDK state, and durable cells with their sequences and lag; point-in-time reads, a cell's outbox, replay, rotate, delete; retention, the history one settable |
 | `/plugins` | Enabled plugins per namespace, the providers on offer, and the packages installed on the controller with why one was refused |
@@ -301,9 +301,15 @@ the content of every screen is drawn with the console's own component kit.
 - **Theme contract**: attribute `data-theme="light|dark"` on `<html>`, storage
   key `flezha-theme`, set before the first paint by the stylebook's inlined
   `theme-hydrate.js`. The toggle is in the account menu.
-- **The relay pipeline graph** keeps the stylebook's relay-graph recipe
-  (`.flz-graph-*`) until its own redesign; only its behaviour — flow-speed
-  buckets, selection, backpressure, rate labels — stays here as `topo-*` rules.
+- **The relay pipeline graph** draws nodes, wires and dots with the
+  stylebook's relay-graph recipe (`.flz-graph-*`). What is the console's own
+  stays here as `topo-*` rules: lanes, ports and their listener counts,
+  stream bands, the light a passing record leaves, path tracing, the stall
+  ring, the flow sentence and the timeline. Its motion is the `FlzPipeline`
+  hook: each tick the server pushes how far the relay's counters advanced
+  (`pipeline_counts`), replayed as hollow dots over the next tick, and an open
+  tap pushes what it heard every 250 ms at most (`pipeline_records`), drawn
+  filled with the start of each payload.
 - **The gate.** `npm run tokens` runs the stylebook's `check-tokens.mjs` twice:
   over the console's roles, resolved through the stylebook's palette, and over
   the stylebook tokens the graph still reads. Either fails on an undefined or

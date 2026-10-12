@@ -14,6 +14,8 @@ defmodule FlezhaUiWeb.TopologyTest do
 
   alias FlezhaUiWeb.Topology
 
+  @listener "Flezha.Plugin.Provider.MonitoredIOForward"
+
   defp facts(overrides \\ %{}) do
     Map.merge(
       %{
@@ -43,7 +45,6 @@ defmodule FlezhaUiWeb.TopologyTest do
         relay_id: "relay_a",
         facts: facts(),
         snapshot: nil,
-        rate: nil,
         history: [],
         parked: 0,
         verdicts: [],
@@ -70,19 +71,27 @@ defmodule FlezhaUiWeb.TopologyTest do
     )
   end
 
-  defp chain(graph), do: Enum.map(graph.nodes, & &1.kind)
   defp node(graph, id), do: Enum.find(graph.nodes, &(&1.id == id))
   defp edge(graph, id), do: Enum.find(graph.edges, &(&1.id == id))
 
+  defp lane(graph, lane),
+    do: graph.nodes |> Enum.filter(&(&1.lane == lane)) |> Enum.map(& &1.kind)
+
+  defp listener(id, hook), do: %{binding(id, hook) | provider: @listener}
+  defp port(graph, id), do: Enum.find(graph.ports, &(&1.id == id))
+  defp samples(values), do: Enum.map(values, &%{in: &1, out: &1, filtered: 0, parked: 0})
+
   describe "pipeline/1 structure" do
-    test "a relay with nothing bound is still a full chain, ending in its output" do
+    test "a relay with nothing bound is still a full record lane, ending in its output" do
       graph = Topology.pipeline(pipeline_input())
 
-      assert chain(graph) == [:ingest, :core, :channel, :output]
+      assert lane(graph, :record) == [:ingest, :core, :channel, :output]
+      assert lane(graph, :life) == []
       assert graph.plugin_count == 0
+      assert Enum.map(graph.ports, & &1.id) == ["in", "out"]
     end
 
-    test "input and output plugins sit on the record path, in position order" do
+    test "input and output plugins sit on the record lane, in position order" do
       bindings = [
         binding("late_out", "on_output", 1),
         binding("early_in", "on_input", 0),
@@ -90,39 +99,39 @@ defmodule FlezhaUiWeb.TopologyTest do
       ]
 
       graph = Topology.pipeline(pipeline_input(%{facts: facts(%{bindings: bindings})}))
+      record = Enum.filter(graph.nodes, &(&1.lane == :record))
 
-      assert chain(graph) == [:ingest, :plugin, :core, :plugin, :plugin, :channel, :output]
+      assert Enum.map(record, & &1.label) ==
+               ~w(Ingest early_in relay_a early_out late_out runner-a Output)
 
-      assert Enum.map(graph.nodes, & &1.label) == [
-               "Ingest",
-               "early_in",
-               "relay_a",
-               "early_out",
-               "late_out",
-               "runner-a",
-               "Output"
-             ]
+      # Left to right, on one row.
+      assert Enum.map(record, & &1.x) == Enum.sort(Enum.map(record, & &1.x))
+      assert record |> Enum.map(& &1.y) |> Enum.uniq() |> length() == 1
     end
 
-    test "a hook that is not on the record path hangs off the core instead" do
+    test "an off-path hook is a lifecycle chip over the core, not a step" do
       bindings = [binding("ticker", "on_interval"), binding("feeder", "on_input", 0)]
 
       graph = Topology.pipeline(pipeline_input(%{facts: facts(%{bindings: bindings})}))
+      chip = node(graph, "plugin-ticker")
+      core = node(graph, "relay_a")
 
-      # The chain carries only the inbound plugin...
-      assert chain(graph) == [:ingest, :plugin, :core, :channel, :output, :plugin]
-      # ...and the off-path one is joined by a satellite edge, not a flow edge.
+      assert lane(graph, :record) == [:ingest, :plugin, :core, :channel, :output]
+      assert chip.lane == :life and chip.y < core.y
+      assert chip.x + div(chip.w, 2) == core.x + div(core.w, 2)
       assert edge(graph, "branch-plugin-ticker").kind == :satellite
-      refute edge(graph, "flow-plugin-ticker-relay_a")
     end
 
-    test "the chain is drawn top to bottom, each node one row below the last" do
-      graph = Topology.pipeline(pipeline_input())
+    test "a plugin on a path hook and a lifecycle hook is one step and one chip, every id unique" do
+      bindings = [binding("audit", "on_input", 0), binding("audit", "on_terminate")]
 
-      ys = Enum.map(graph.nodes, & &1.y)
+      graph = Topology.pipeline(pipeline_input(%{facts: facts(%{bindings: bindings})}))
+      ids = Enum.map(graph.nodes, & &1.id) ++ Enum.map(graph.edges, & &1.id)
 
-      assert ys == Enum.sort(ys)
-      assert Enum.uniq(Enum.map(graph.nodes, & &1.x)) == [Enum.at(graph.nodes, 0).x]
+      assert node(graph, "plugin-audit-on_input").lane == :record
+      assert node(graph, "plugin-audit").lane == :life
+      assert ids == Enum.uniq(ids)
+      assert graph.plugin_count == 1
     end
 
     test "a relay bound to no runner reports an unbound channel and a degraded edge" do
@@ -133,17 +142,19 @@ defmodule FlezhaUiWeb.TopologyTest do
       assert edge(graph, "flow-relay_a-channel").degraded?
     end
 
-    test "parked entries draw a dead-letter branch carrying the count" do
-      graph = Topology.pipeline(pipeline_input(%{parked: 4}))
+    test "both ends of the failures lane are drawn at zero, muted, where they stay" do
+      empty = Topology.pipeline(pipeline_input())
+      parked = Topology.pipeline(pipeline_input(%{parked: 4}))
 
-      assert node(graph, "dead-letter").sub == "4 parked"
-      assert edge(graph, "branch-dead-letter").kind == :dlq
-    end
+      assert lane(empty, :fail) == [:filtered, :dead_letter]
+      assert node(empty, "dead-letter").muted? and node(empty, "filtered").muted?
+      assert node(parked, "dead-letter").sub == "4 parked"
+      refute node(parked, "dead-letter").muted?
 
-    test "nothing parked means no dead-letter branch" do
-      graph = Topology.pipeline(pipeline_input())
+      assert Map.take(node(parked, "dead-letter"), [:x, :y]) ==
+               Map.take(node(empty, "dead-letter"), [:x, :y])
 
-      refute node(graph, "dead-letter")
+      assert edge(parked, "branch-dead-letter").kind == :dlq
     end
 
     test "a suspended relay is styled apart" do
@@ -152,7 +163,7 @@ defmodule FlezhaUiWeb.TopologyTest do
       assert node(graph, "relay_a").state == :suspended
     end
 
-    test "a channel whose credit ran dry reports backpressure" do
+    test "a channel whose credit ran dry reports backpressure, and the relay reads Stuck" do
       snapshot = %{
         channels: [
           %{runner_id: "runner-a", name: :chan_a, credit_active: 1, credit_ledger_level: 0}
@@ -160,67 +171,143 @@ defmodule FlezhaUiWeb.TopologyTest do
         relays: []
       }
 
-      graph = Topology.pipeline(pipeline_input(%{snapshot: snapshot}))
-
-      assert node(graph, "channel").backpressure?
-      assert node(graph, "channel").channel.name == "chan_a"
-    end
-  end
-
-  describe "pipeline/1 rates" do
-    test "rates land only on the edges the controller counts" do
-      bindings = [binding("in_1", "on_input", 0), binding("out_1", "on_output", 0)]
-
       graph =
         Topology.pipeline(
           pipeline_input(%{
-            facts: facts(%{bindings: bindings}),
-            rate: %{in: 12.0, out: 9.0}
+            snapshot: snapshot,
+            history: samples([40, 40]),
+            modes: %{in: :streaming, out: :streaming}
           })
         )
 
-      # Into the relay, and out of it.
-      assert edge(graph, "flow-plugin-in_1-relay_a").rate == 12.0
-      assert edge(graph, "flow-relay_a-plugin-out_1").rate == 9.0
-      # Ingest to the first plugin, and plugin to channel, are not counted.
-      assert edge(graph, "flow-ingest-plugin-in_1").rate == nil
-      assert edge(graph, "flow-plugin-out_1-channel").rate == nil
-    end
-
-    test "an idle rate still renders, in the idle bucket" do
-      graph = Topology.pipeline(pipeline_input(%{rate: %{in: +0.0, out: +0.0}}))
-
-      assert edge(graph, "flow-ingest-relay_a").bucket == :idle
-    end
-
-    test "no baseline means no figure anywhere" do
-      graph = Topology.pipeline(pipeline_input())
-
-      assert Enum.all?(graph.edges, &is_nil(&1.rate))
+      assert node(graph, "channel").backpressure?
+      assert node(graph, "channel").channel.name == "chan_a"
+      assert edge(graph, "flow-relay_a-channel").stopped?
+      refute edge(graph, "flow-ingest-relay_a").stopped?
+      assert graph.flow.word == :stuck
     end
   end
 
-  describe "pipeline/1 selection and stalls" do
-    test "a selected node is resolved to the node itself" do
-      graph = Topology.pipeline(pipeline_input(%{selected: "relay_a"}))
+  describe "pipeline/1 observers" do
+    test "listeners are counted on the point they watch and drawn as no node" do
+      bindings = [
+        binding("guard", "on_input", 0),
+        listener("io_listener_a", "on_input"),
+        listener("io_listener_b", "on_output"),
+        listener("io_listener_b", "on_preview"),
+        listener("io_listener_c", "on_call")
+      ]
 
-      assert graph.selected.kind == :core
+      graph = Topology.pipeline(pipeline_input(%{facts: facts(%{bindings: bindings})}))
+
+      assert port(graph, "in").observers == ["io_listener_a"]
+      assert port(graph, "out").observers == ["io_listener_b"]
+      assert node(graph, "relay_a").observers == ["io_listener_c"]
+      refute Enum.any?(graph.nodes, &String.contains?(&1.id, "io_listener"))
+      assert {graph.plugin_count, graph.observer_count} == {1, 3}
     end
 
-    test "a node that cannot be selected is not selected" do
-      graph = Topology.pipeline(pipeline_input(%{selected: "ingest"}))
+    test "listeners coming and going move no node" do
+      plain = [binding("guard", "on_input", 0), binding("ticker", "on_interval")]
 
-      refute graph.selected
+      listened =
+        plain ++ [listener("io_listener_a", "on_input"), listener("io_listener_b", "on_output")]
+
+      place = fn bindings ->
+        pipeline_input(%{facts: facts(%{bindings: bindings})})
+        |> Topology.pipeline()
+        |> Map.fetch!(:nodes)
+        |> Map.new(&{&1.id, {&1.x, &1.y, &1.w, &1.h}})
+      end
+
+      assert place.(listened) == place.(plain)
     end
 
-    test "a selected relay's sparkline draws from a single idle sample" do
+    test "the header counts one plugin on two hooks once, and an output listener apart" do
+      bindings = [
+        binding("audit", "on_input", 0),
+        binding("audit", "on_output", 0),
+        listener("io_listener_b", "on_output"),
+        listener("io_listener_b", "on_preview")
+      ]
+
+      graph = Topology.pipeline(pipeline_input(%{facts: facts(%{bindings: bindings})}))
+
+      assert {graph.plugin_count, graph.observer_count} == {1, 1}
+    end
+  end
+
+  describe "pipeline/1 rates and recency" do
+    test "the ports show the mean of the newest seven samples" do
+      history = samples([100, 0, 0, 7, 0, 0, 7, 0, 0])
+
+      graph = Topology.pipeline(pipeline_input(%{history: history}))
+
+      # 0+7+0+0+7+0+0 over seven: the burst nine ticks ago has left the window.
+      assert port(graph, "in").label == "2.0/s"
+      assert port(graph, "out").rate == 2.0
+      assert edge(graph, "flow-channel-output").label == "2.0/s"
+    end
+
+    test "a trickle under one decimal reads <0.1/s, and no baseline reads nothing" do
+      assert Topology.rate_label(0.04) == "<0.1/s"
+      assert Topology.rate_label(+0.0) == "0.0/s"
+      assert Topology.rate_label(nil) == nil
+
+      graph = Topology.pipeline(pipeline_input())
+      assert port(graph, "in").label == nil
+      assert port(graph, "in").state == "measuring"
+    end
+
+    test "edges between plugins carry no figure and say they are not counted" do
+      bindings = [binding("a", "on_input", 0), binding("b", "on_input", 1)]
+
       graph =
-        Topology.pipeline(pipeline_input(%{selected: "relay_a", history: [%{in: 0, out: 0}]}))
+        Topology.pipeline(
+          pipeline_input(%{facts: facts(%{bindings: bindings}), history: samples([3])})
+        )
 
-      html = render_component(&Topology.pipeline_graph/1, topology: graph)
+      between = edge(graph, "flow-plugin-a-on_input-plugin-b-on_input")
+      assert between.rate == nil
+      assert between.title =~ "Not counted"
+      assert edge(graph, "flow-ingest-plugin-a-on_input").rate == 3.0
+    end
 
-      assert html =~ ~s(data-testid="topology-sparkline")
-      assert html =~ ~s(points="0.0,39.0")
+    test "each port states when a record last passed, or how long it has been quiet" do
+      input =
+        pipeline_input(%{
+          history: samples([1, 0, 0]),
+          now: 100_000,
+          opened_at: 0,
+          seen: %{in: 96_000, out: nil},
+          modes: %{in: :trickling, out: :quiet}
+        })
+
+      graph = Topology.pipeline(input)
+
+      assert port(graph, "in").state == "last record ~4 s ago"
+      assert port(graph, "out").state == "quiet for 1m 40s"
+      assert edge(graph, "flow-ingest-relay_a").title =~ "last record ~4 s ago"
+
+      quiet =
+        Topology.pipeline(%{
+          input
+          | seen: %{in: 20_000, out: nil},
+            modes: %{in: :quiet, out: :quiet}
+        })
+
+      assert port(quiet, "in").state == "quiet for 1m 20s"
+    end
+
+    test "a stall verdict marks the node it names" do
+      core = Topology.pipeline(pipeline_input(%{verdicts: [%{layer: :x, subject: "relay_a"}]}))
+      runner = Topology.pipeline(pipeline_input(%{verdicts: [%{layer: :x, subject: "runner-a"}]}))
+      elsewhere = Topology.pipeline(pipeline_input(%{verdicts: [%{layer: :x, subject: "other"}]}))
+
+      assert node(core, "relay_a").stalled?
+      refute node(core, "channel").stalled?
+      assert node(runner, "channel").stalled?
+      refute Enum.any?(elsewhere.nodes, & &1[:stalled?])
     end
 
     test "the newest verdict is the one bannered" do
@@ -232,6 +319,104 @@ defmodule FlezhaUiWeb.TopologyTest do
       graph = Topology.pipeline(pipeline_input(%{verdicts: verdicts}))
 
       assert graph.stall.layer == :relay_not_forwarding
+    end
+  end
+
+  describe "wire_mode/3" do
+    test "streams from 5/s and keeps streaming until the rate falls to 3/s" do
+      assert Topology.wire_mode(:trickling, 5.0, 0) == :streaming
+      assert Topology.wire_mode(:trickling, 4.0, 0) == :trickling
+      assert Topology.wire_mode(:streaming, 4.0, 0) == :streaming
+      assert Topology.wire_mode(:streaming, 3.0, 0) == :trickling
+    end
+
+    test "trickles while a record passed within 30 s, and is quiet after" do
+      assert Topology.wire_mode(:quiet, 0.1, 30_000) == :trickling
+      assert Topology.wire_mode(:trickling, 0.1, 30_001) == :quiet
+      assert Topology.wire_mode(:quiet, nil, nil) == :quiet
+    end
+  end
+
+  describe "pipeline/1 state and timeline" do
+    defp word(history, mode),
+      do:
+        Topology.pipeline(pipeline_input(%{history: history, modes: %{in: mode, out: mode}})).flow
+
+    test "a moving relay reads by its input's state, with its figures" do
+      history = Enum.map(1..7, fn _ -> %{in: 120.0, out: 108.0, filtered: 12.0, parked: 0} end)
+
+      assert %{word: :streaming, sentence: sentence} = word(history, :streaming)
+      assert sentence =~ "120.0/s in"
+      assert sentence =~ "108.0/s delivered"
+      assert sentence =~ "10% filtered"
+      assert word(samples([0.2]), :trickling).word == :trickle
+      assert word(samples([0]), :quiet).word == :quiet
+    end
+
+    test "Failing outranks Streaming once over a tenth of two ticks' intake parked" do
+      history = [%{in: 50.0, out: 40.0, parked: 6.0}, %{in: 50.0, out: 40.0, parked: 6.0}]
+
+      assert %{word: :failing, sentence: sentence} = word(history, :streaming)
+      assert sentence =~ "12% of what came in"
+      assert word([%{in: 50.0, out: 50.0, parked: 4.0}], :streaming).word == :streaming
+    end
+
+    test "the timeline draws a bar where each row moved, newest at the right" do
+      history = [
+        %{in: 30.0, out: 30.0, filtered: 0, parked: 0},
+        %{in: 0, out: 0, filtered: 2.0, parked: 1.0}
+      ]
+
+      timeline = Topology.pipeline(pipeline_input(%{history: history})).timeline
+      rows = Map.new(timeline.rows, &{&1.key, &1.bars})
+
+      assert timeline.samples == 2
+      assert [%{x: x_in}] = rows.in
+      assert [%{x: x_parked}] = rows.parked
+      assert length(rows.out) == 1 and length(rows.filtered) == 1
+      assert x_parked > x_in
+      assert x_parked + 10 == timeline.width
+    end
+
+    test "tracing the dead-letter route reaches back through the core to Ingest" do
+      bindings = [binding("guard", "on_input", 0), binding("fan", "on_output", 0)]
+      graph = Topology.pipeline(pipeline_input(%{facts: facts(%{bindings: bindings})}))
+      on_dlq = fn routes -> "dlq" in String.split(routes) end
+
+      assert on_dlq.(node(graph, "ingest").routes)
+      assert on_dlq.(node(graph, "plugin-guard-on_input").routes)
+      assert on_dlq.(node(graph, "relay_a").routes)
+      assert on_dlq.(edge(graph, "branch-dead-letter").routes)
+      refute on_dlq.(node(graph, "plugin-fan-on_output").routes)
+      refute on_dlq.(node(graph, "output").routes)
+      refute on_dlq.(port(graph, "out").routes)
+    end
+  end
+
+  describe "pipeline_graph/1" do
+    test "renders the ports, the dock hint, the timeline and the not-counted tooltip" do
+      bindings = [binding("a", "on_input", 0), binding("b", "on_input", 1)]
+
+      graph =
+        Topology.pipeline(
+          pipeline_input(%{
+            facts: facts(%{bindings: bindings}),
+            history: samples([1]),
+            selected: "relay_a"
+          })
+        )
+
+      html = render_component(&Topology.pipeline_graph/1, topology: graph, tapped: "output")
+
+      assert html =~ ~s(data-testid="topo-port-in")
+
+      assert html =~
+               ~r/data-testid="topo-port-out"[^>]*class="topo-port is-tapped"|class="topo-port is-tapped"[^>]*data-testid="topo-port-out"/
+
+      assert html =~ ~s(data-testid="topology-timeline" data-samples="1")
+      assert html =~ "Not counted: the controller keeps no counter between plugins"
+      assert html =~ ~s(data-testid="topology-detail")
+      assert html =~ ~s(id="route-dlq")
     end
   end
 
@@ -309,15 +494,16 @@ defmodule FlezhaUiWeb.TopologyTest do
   describe "rates/3" do
     defp snapshot(relays), do: %{channels: [], relays: relays}
 
-    defp counters(id, received, forwarded) do
-      %{relay_id: id, io_in_received: received, forwarded: forwarded, filtered_nil: 0}
+    defp counters(id, received, forwarded, filtered \\ 0) do
+      %{relay_id: id, io_in_received: received, forwarded: forwarded, filtered_nil: filtered}
     end
 
     test "advancing counters over elapsed time become messages per second" do
-      previous = snapshot([counters("relay_a", 100, 90)])
-      current = snapshot([counters("relay_a", 140, 120)])
+      previous = snapshot([counters("relay_a", 100, 90, 4)])
+      current = snapshot([counters("relay_a", 140, 120, 10)])
 
-      assert %{"relay_a" => %{in: 20.0, out: 15.0}} = Topology.rates(current, previous, 2_000)
+      assert %{"relay_a" => %{in: 20.0, out: 15.0, filtered: 3.0}} =
+               Topology.rates(current, previous, 2_000)
     end
 
     test "a first snapshot has no baseline and so no rates" do

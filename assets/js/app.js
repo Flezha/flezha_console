@@ -342,6 +342,203 @@ Hooks.FlzPalette = {
   destroyed() { window.removeEventListener("keydown", this.onKeydown) }
 }
 
+// The relay pipeline's motion. Each tick's counter advances arrive as
+// `pipeline_counts` and are replayed as hollow dots along the route each
+// counter names, spread over the next tick; a tap's records arrive as
+// `pipeline_records` and ride its side filled, with the start of their
+// payload. A streaming wire draws its band instead, so only dead letters ride
+// it. Every wire a dot crosses lights and fades over the CSS transition.
+// Hovering or focusing an element traces the routes through it, and the arrow
+// keys walk the lanes in the order the server numbers them.
+const DOT_POOL = 24
+// Counted dots replay one tick; a longer gap, after a pause or a failed read,
+// is compressed into it rather than holding the pool for the whole gap.
+const SPREAD_MS = 2000
+const DOT_RIDE_MS = {in: 1600, out: 1600, filter: 1000, dlq: 1000}
+const TRACED = ["out", "filter", "dlq", "life"]
+const SVG_NS = "http://www.w3.org/2000/svg"
+const AFTERGLOW_MS = 6000
+const TAP_FLUSH_MS = 250
+
+Hooks.FlzPipeline = {
+  mounted() {
+    this.flights = []
+    this.pool = []
+    this.tappedDeadLetters = 0
+    this.reduced = window.matchMedia("(prefers-reduced-motion: reduce)")
+    this.handleEvent("pipeline_counts", counts => this.counts(counts))
+    this.handleEvent("pipeline_records", records => this.records(records))
+
+    this.onOver = event => this.trace(event.target.closest?.("[data-routes]"))
+    this.onLeave = () => this.trace(this.el.contains(document.activeElement) ? document.activeElement.closest("[data-routes]") : null)
+    this.onFocus = event => this.trace(event.target.closest("[data-routes]"))
+    this.onKeydown = event => this.walk(event)
+    this.el.addEventListener("pointerover", this.onOver)
+    this.el.addEventListener("pointerleave", this.onLeave)
+    this.el.addEventListener("focusin", this.onFocus)
+    this.el.addEventListener("focusout", this.onLeave)
+    this.el.addEventListener("keydown", this.onKeydown)
+  },
+  destroyed() {
+    cancelAnimationFrame(this.frame)
+    this.flights = []
+  },
+
+  route(name) { return this.el.querySelector(`#route-${name}`) },
+
+  // Nothing is drawn behind a hidden tab, so nothing is queued for it either.
+  counts({in: taken, out, filtered, parked, interval_ms, modes}) {
+    this.modes = modes
+    const tappedDeadLetters = this.tappedDeadLetters
+    this.tappedDeadLetters = 0
+    if (document.hidden) { return }
+    const tapped = this.el.dataset.tapped
+    const span = Math.min(interval_ms, SPREAD_MS)
+    if (tapped !== "input" && modes.in !== "streaming") { this.spread("in", taken, "counted", span) }
+    if (tapped !== "output" && modes.out !== "streaming") { this.spread("out", out, "counted", span) }
+    this.spread("filter", filtered, "filtered", span)
+    // An output tap hears the dead letters parked on input itself, but not
+    // those parked further on, so the counters draw only what it did not.
+    this.spread("dlq", Math.max(parked - tappedDeadLetters, 0), "fail", span)
+  },
+
+  records({port, records, dead_letters, previews}) {
+    if (document.hidden) { return }
+    this.tappedDeadLetters += dead_letters
+    const route = port === "input" ? "in" : "out"
+    if (this.modes?.[route] !== "streaming") { this.spread(route, records, "tapped", TAP_FLUSH_MS, previews) }
+    this.spread("dlq", dead_letters, "fail", TAP_FLUSH_MS)
+  },
+
+  // `count` flights spread evenly over `span`; dead letters are never capped.
+  spread(route, count, kind, span, previews = []) {
+    const now = performance.now()
+    for (let i = 0; i < count; i++) {
+      this.launch({route, kind, always: kind === "fail", preview: previews[i], at: now + (span * i) / count})
+    }
+  },
+
+  // A flight waits for its moment; under reduced motion it only lights its
+  // route when that moment comes.
+  launch(flight) {
+    if (!this.route(flight.route)) { return }
+    if (!flight.always && this.flights.filter(f => !f.always).length >= DOT_POOL) { return }
+    this.flights.push({...flight, lit: new Set()})
+    if (!this.frame) { this.frame = requestAnimationFrame(t => this.step(t)) }
+  },
+
+  step(now) {
+    this.frame = null
+    this.flights = this.flights.filter(flight => this.fly(flight, now))
+    if (this.flights.length) { this.frame = requestAnimationFrame(t => this.step(t)) }
+  },
+
+  // Moves one flight; answers whether it is still under way.
+  fly(flight, now) {
+    if (now < flight.at) { return true }
+    const route = this.route(flight.route)
+    const ride = DOT_RIDE_MS[flight.route]
+    const t = Math.min((now - flight.at) / ride, 1)
+    if (!route) { this.land(flight); return false }
+
+    if (this.reduced.matches) {
+      this.light(flight, 1)
+      return false
+    }
+    if (!flight.dot) { flight.dot = this.dot(flight) }
+    const point = route.getPointAtLength(t * route.getTotalLength())
+    flight.dot.setAttribute("cx", point.x)
+    flight.dot.setAttribute("cy", point.y)
+    if (flight.label) {
+      flight.label.setAttribute("x", point.x)
+      flight.label.setAttribute("y", point.y - 9)
+    }
+    this.light(flight, t)
+    if (t >= 1) { this.land(flight); return false }
+    return true
+  },
+
+  dot(flight) {
+    const layer = this.el.querySelector("#topology-dots")
+    const dot = (!flight.always && this.pool.pop()) || document.createElementNS(SVG_NS, "circle")
+    dot.setAttribute("r", "4")
+    dot.setAttribute("class", {
+      counted: "flz-graph-dot topo-dot topo-dot--counted",
+      filtered: "flz-graph-dot topo-dot topo-dot--counted topo-dot--filtered",
+      tapped: "flz-graph-dot topo-dot",
+      fail: "flz-graph-dot flz-graph-dot--fail topo-dot"
+    }[flight.kind])
+    dot.setAttribute("data-flying", "")
+    layer.appendChild(dot)
+    if (flight.preview) {
+      flight.label = document.createElementNS(SVG_NS, "text")
+      flight.label.setAttribute("class", "topo-dot-preview")
+      flight.label.setAttribute("text-anchor", "middle")
+      flight.label.textContent = flight.preview
+      layer.appendChild(flight.label)
+    }
+    return dot
+  },
+
+  land(flight) {
+    flight.label?.remove()
+    if (!flight.dot) { return }
+    flight.dot.removeAttribute("data-flying")
+    if (flight.always) { flight.dot.remove() } else { this.pool.push(flight.dot) }
+  },
+
+  // Each wire of the route lights once the dot reaches where it starts, and
+  // fades through the stylesheet's transition once the light is taken off.
+  light(flight, t) {
+    for (const wire of this.el.querySelectorAll(`[data-flow="${flight.route}"]`)) {
+      if (flight.lit.has(wire) || Number(wire.dataset.at) > t) { continue }
+      flight.lit.add(wire)
+      wire.classList.add("is-lit")
+      // Reduced motion takes the fade away, so the light is held for as long instead.
+      if (this.reduced.matches) { setTimeout(() => wire.classList.remove("is-lit"), AFTERGLOW_MS); continue }
+      requestAnimationFrame(() => requestAnimationFrame(() => wire.classList.remove("is-lit")))
+    }
+  },
+
+  // The traced routes live on the wrapper, which the server patch leaves
+  // alone, so a tick does not undo the highlight.
+  trace(element) {
+    const routes = element && this.el.contains(element) ? element.dataset.routes.split(" ") : []
+    this.el.toggleAttribute("data-trace", routes.length > 0)
+    for (const route of TRACED) { this.el.toggleAttribute(`data-trace-${route}`, routes.includes(route)) }
+  },
+
+  // LiveView hands a key to the window binding only when the focused element
+  // binds no key of its own, so Escape on a focused node or port is sent here.
+  walk(event) {
+    if (event.key === "Escape" && event.target.hasAttribute?.("phx-keydown") && this.el.hasAttribute("phx-window-keydown")) {
+      this.pushEvent(this.el.getAttribute("phx-window-keydown"), {})
+      return
+    }
+    const step = {ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0]}[event.key]
+    const from = event.target.closest?.("[data-nav]")
+    if (!step || !from || event.altKey || event.ctrlKey || event.metaKey) { return }
+    const lanes = ["life", "record", "fail"]
+    const stops = [...this.el.querySelectorAll("[data-nav]")]
+    const lane = lanes.indexOf(from.dataset.lane)
+    const centre = el => { const box = el.getBoundingClientRect(); return box.left + box.width / 2 }
+    let target = null
+
+    if (step[1]) {
+      target = stops.find(el => el.dataset.lane === from.dataset.lane && Number(el.dataset.nav) === Number(from.dataset.nav) + step[1])
+    } else {
+      for (let next = lane + step[0]; !target && next >= 0 && next < lanes.length; next += step[0]) {
+        const row = stops.filter(el => el.dataset.lane === lanes[next])
+        target = row.sort((a, b) => Math.abs(centre(a) - centre(from)) - Math.abs(centre(b) - centre(from)))[0]
+      }
+    }
+    if (target) {
+      event.preventDefault()
+      target.focus()
+    }
+  }
+}
+
 Hooks.ScrollBottom = {
   mounted() {
     this.scrollToBottom()

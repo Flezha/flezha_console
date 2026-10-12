@@ -81,7 +81,7 @@
 
 <.runtime_error :if={is_nil(@completion)} error={@load_error} />
 
-<.pipeline_graph topology={@topology}>
+<.pipeline_graph topology={@topology} tapped={@tap && @tap.feed && @tap.direction}>
   <:tap><.payload_tap tap={@tap} /></:tap>
 </.pipeline_graph>
 

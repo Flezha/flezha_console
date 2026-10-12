@@ -4,7 +4,7 @@ import {
   closeSection,
   openPalette,
   openSection,
-  sparklineSamples,
+  timelineSamples,
   withStepsRelay,
   ADVANCE_WINDOW_MS,
   expectAdvances,
@@ -277,26 +277,24 @@ test.describe('A screen that refreshes', () => {
     const relay = '/namespaces/default/relays/testnet_store_1';
 
     await live(relay);
-    await page.getByTestId('topo-node-testnet_store_1').click();
-    await expect(page.getByTestId('topology-sparkline')).toBeVisible({ timeout: ADVANCE_WINDOW_MS });
-    await expectAdvances(() => sparklineSamples(page), 'the refreshing sparkline');
+    await expect(page.getByTestId('topology-timeline')).toBeVisible({ timeout: ADVANCE_WINDOW_MS });
+    await expectAdvances(() => timelineSamples(page), 'the refreshing timeline');
 
     await page.getByTestId('liveness-toggle').click();
     await expect(page.getByTestId('liveness-state')).toContainText('Paused');
-    const held = await sparklineSamples(page);
+    const held = await timelineSamples(page);
 
     // A second copy of the screen keeps refreshing; once it has ticked twice,
     // the paused one has missed at least one tick it would have taken.
     const other = await openPage(page, relay);
-    await other.getByTestId('topo-node-testnet_store_1').click();
-    await expect(other.getByTestId('topology-sparkline')).toBeVisible({ timeout: ADVANCE_WINDOW_MS });
-    await expectAdvances(() => sparklineSamples(other), 'the other copy, once');
-    await expectAdvances(() => sparklineSamples(other), 'the other copy, twice');
+    await expect(other.getByTestId('topology-timeline')).toBeVisible({ timeout: ADVANCE_WINDOW_MS });
+    await expectAdvances(() => timelineSamples(other), 'the other copy, once');
+    await expectAdvances(() => timelineSamples(other), 'the other copy, twice');
     await other.close();
 
-    expect(await sparklineSamples(page)).toBe(held);
+    expect(await timelineSamples(page)).toBe(held);
     await page.getByTestId('liveness-toggle').click();
-    await expectAdvances(() => sparklineSamples(page), 'the resumed sparkline');
+    await expectAdvances(() => timelineSamples(page), 'the resumed timeline');
   });
 
   test('states its liveness and can be held still', async ({ page, live }) => {

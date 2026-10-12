@@ -592,11 +592,11 @@ export async function sendToRelay(page: Page, payload: string, opts: { channel?:
   await page.getByTestId('talk-close-btn').click();
 }
 
-/** How many samples the selected pipeline node's sparkline draws. */
-export async function sparklineSamples(page: Page): Promise<number> {
-  const line = page.getByTestId('topology-sparkline').locator('polyline').first();
-  if ((await line.count()) === 0) return 0;
-  return ((await line.getAttribute('points')) ?? '').trim().split(/\s+/).filter(Boolean).length;
+/** How many ticks the pipeline's timeline holds. */
+export async function timelineSamples(page: Page): Promise<number> {
+  const timeline = page.getByTestId('topology-timeline');
+  if ((await timeline.count()) === 0) return 0;
+  return Number((await timeline.getAttribute('data-samples')) ?? 0);
 }
 
 /** A page-health problem that is benign, matched against the reported line. */
