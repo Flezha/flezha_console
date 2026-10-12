@@ -188,7 +188,7 @@
       <span class="fui-rate">
         {case Map.get(@topology_state.rates, to_string(row.id)) do
           nil -> "—"
-          rate -> "#{rate.in}/s"
+          rate -> FlezhaUiWeb.Topology.traffic_label(rate, :in)
         end}
       </span>
     </span>

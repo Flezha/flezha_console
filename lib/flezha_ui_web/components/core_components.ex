@@ -1041,7 +1041,7 @@ defmodule FlezhaUiWeb.CoreComponents do
       width={@width}
       height={@height}
       role="img"
-      aria-label={"#{@label}: #{length(@values)} samples, peak #{Enum.max(@values)}/s"}
+      aria-label={"#{@label}: #{length(@values)} samples, peak #{Enum.max(@values)} msgs/s"}
       data-testid={@testid}
       data-samples={length(@values)}
     >

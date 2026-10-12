@@ -150,7 +150,7 @@ defmodule FlezhaUiWeb.KitLive do
         <:col :let={row} label="Relay"><.ident value={row.id} full /></:col>
         <:col :let={row} label="Health"><.state_badge value={row.health} /></:col>
         <:col :let={_row} label="Rate" num>
-          <span class="fui-rate">4.2/s</span>
+          <span class="fui-rate">4.2 msgs/s</span>
           <.sparkline samples={@samples} />
         </:col>
         <:menu :let={row}>

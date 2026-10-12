@@ -462,7 +462,7 @@ defmodule FlezhaUiWeb.Inspect do
   end
 
   defp rate_words(nil, _key), do: "not measured yet"
-  defp rate_words(rate, key), do: "#{Map.fetch!(rate, key)}/s"
+  defp rate_words(rate, key), do: FlezhaUiWeb.Topology.traffic_label(rate, key)
 
   defp short(id) do
     id = to_string(id)

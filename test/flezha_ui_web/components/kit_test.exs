@@ -234,7 +234,7 @@ defmodule FlezhaUiWeb.KitTest do
 
       html = rendered_to_string(~H|<.sparkline samples={[1, 4, 2]} />|)
       assert attr_of(html, "svg", "data-samples") == "3"
-      assert attr_of(html, "svg", "aria-label") =~ "peak 4/s"
+      assert attr_of(html, "svg", "aria-label") =~ "peak 4 msgs/s"
 
       assert rendered_to_string(~H|<.sparkline samples={[3]} />|) |> String.trim() == ""
     end

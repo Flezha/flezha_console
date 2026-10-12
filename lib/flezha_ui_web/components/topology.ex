@@ -77,6 +77,10 @@ defmodule FlezhaUiWeb.Topology do
 
   # The relay counters the controller keeps, by the rate each one feeds.
   @counted [in: :io_in_received, out: :forwarded, filtered: :filtered_nil]
+  # The bytes behind `in` and `out`, read only where the controller reports
+  # them, so an older one reads as unmeasured rather than as zero bytes.
+  @counted_bytes [bytes_in: :bytes_in, bytes_out: :bytes_forwarded]
+  @bytes_of %{in: :bytes_in, out: :bytes_out}
   @quiet %{in: :quiet, out: :quiet}
 
   @history_limit 60
@@ -485,7 +489,14 @@ defmodule FlezhaUiWeb.Topology do
 
     stalled = stalled_subject(input, facts, channel)
     counters = relay_counters(input.snapshot, input.relay_id)
-    rates = %{in: smoothed(history, :in), out: smoothed(history, :out)}
+
+    rates =
+      %{
+        in: smoothed(history, :in),
+        out: smoothed(history, :out),
+        bytes_in: smoothed_bytes(history, :bytes_in),
+        bytes_out: smoothed_bytes(history, :bytes_out)
+      }
 
     nodes =
       layout(
@@ -994,10 +1005,30 @@ defmodule FlezhaUiWeb.Topology do
     Enum.sum(Enum.map(samples, &Map.get(&1, key, 0))) / length(samples)
   end
 
-  @doc "A displayed rate as the pipeline labels it; a trickle under 0.05 reads `<0.1/s`."
+  # Bytes are smoothed like messages, but only once the controller has
+  # reported them; before that they are unmeasured, not zero.
+  defp smoothed_bytes(history, key) do
+    if Enum.any?(history, &Map.has_key?(&1, key)), do: smoothed(history, key)
+  end
+
+  @doc "A displayed message rate; a trickle under 0.05 reads `<0.1 msgs/s`."
   def rate_label(nil), do: nil
-  def rate_label(rate) when rate > 0 and rate < 0.05, do: "<0.1/s"
-  def rate_label(rate), do: "#{Float.round(rate / 1, 1)}/s"
+  def rate_label(rate) when rate > 0 and rate < 0.05, do: "<0.1 msgs/s"
+  def rate_label(rate), do: "#{Float.round(rate / 1, 1)} msgs/s"
+
+  @doc "A displayed byte rate, `2.3 KB/s`, or nil while the bytes are unmeasured."
+  def byte_rate_label(nil), do: nil
+  def byte_rate_label(bytes), do: Format.bytes(round(bytes)) <> "/s"
+
+  @doc """
+  A relay's traffic one way (`:in` or `:out`) from its rates: messages a
+  second and, where the controller counts them, bytes — `4.0 msgs/s · 2.3 KB/s`.
+  """
+  def traffic_label(rate, way) do
+    [rate_label(Map.fetch!(rate, way)), byte_rate_label(Map.get(rate, @bytes_of[way]))]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
 
   @doc """
   A counted wire's state: `:streaming` from #{@stream_on} records a second
@@ -1065,7 +1096,8 @@ defmodule FlezhaUiWeb.Topology do
     filtered = smoothed(history, :filtered) || 0
     taken = rates.in || 0
 
-    "#{rate_label(taken)} in, #{rate_label(rates.out || 0)} delivered" <>
+    "#{traffic_label(%{rates | in: taken}, :in)} in; " <>
+      "#{traffic_label(%{rates | out: rates.out || 0}, :out)} delivered" <>
       if(filtered > 0 and taken > 0,
         do: ", #{round(min(filtered / taken, 1) * 100)}% filtered.",
         else: "."
@@ -1232,7 +1264,9 @@ defmodule FlezhaUiWeb.Topology do
   # How far each counted slot moved since `base`. A counter that went
   # backwards was reset by a controller restart, and moved nothing.
   defp advances(base, entry) do
-    Map.new(@counted, fn {key, slot} ->
+    bytes = Enum.filter(@counted_bytes, fn {_key, slot} -> Map.has_key?(entry, slot) end)
+
+    Map.new(@counted ++ bytes, fn {key, slot} ->
       {key, advance_of(Map.get(entry, slot, 0), Map.get(base, slot, 0))}
     end)
   end
@@ -1443,7 +1477,7 @@ defmodule FlezhaUiWeb.Topology do
         <dd class="topo-secondary font-mono text-right">{Format.bytes(@tap.bytes)}</dd>
         <dt class="topo-muted">Rate</dt>
         <dd data-testid="tap-msg-rate" class="topo-primary font-mono text-right">
-          {FlezhaUiWeb.RelayLive.tap_rate(@tap, :count)}/s
+          {FlezhaUiWeb.RelayLive.tap_rate(@tap, :count)} msgs/s
         </dd>
         <dt class="topo-muted">Throughput</dt>
         <dd data-testid="tap-byte-rate" class="topo-primary font-mono text-right">
@@ -2036,7 +2070,7 @@ defmodule FlezhaUiWeb.Topology do
   end
 
   defp rate_text(nil, _key), do: "—"
-  defp rate_text(rate, key), do: rate |> Map.fetch!(key) |> rate_label()
+  defp rate_text(rate, key), do: traffic_label(rate, key)
 
   # ---- Namespace map ----
 
@@ -2057,7 +2091,7 @@ defmodule FlezhaUiWeb.Topology do
   @map_band_cap 4
   @map_column_cap 8
   @map_stack_min 4
-  @map_spark_w 72
+  @map_spark_w 56
   @map_spark_h 18
 
   @doc """
@@ -2497,8 +2531,10 @@ defmodule FlezhaUiWeb.Topology do
   defp stack_lane(key, factory, members) do
     counts = members |> Enum.map(& &1.health) |> Enum.frequencies()
     worst = members |> Enum.map(& &1.tone) |> FlezhaUiWeb.Words.worst()
-    rate_in = members |> Enum.map(&((&1.rate && &1.rate.in) || 0)) |> Enum.sum()
-    rate_out = members |> Enum.map(&((&1.rate && &1.rate.out) || 0)) |> Enum.sum()
+    rates = members |> Enum.map(& &1.rate) |> Enum.reject(&is_nil/1)
+    sum = fn key -> rates |> Enum.map(&(Map.get(&1, key) || 0)) |> Enum.sum() end
+    {rate_in, rate_out} = {sum.(:in), sum.(:out)}
+    bytes? = Enum.any?(rates, &Map.has_key?(&1, :bytes_in))
     any_rate? = Enum.any?(members, & &1.rate)
 
     %{
@@ -2519,7 +2555,13 @@ defmodule FlezhaUiWeb.Topology do
       shape: if(worst == :positive, do: "dot", else: "triangle"),
       attention?: Enum.any?(members, & &1.attention?),
       rate:
-        if(any_rate?, do: %{in: Float.round(rate_in / 1, 1), out: Float.round(rate_out / 1, 1)}),
+        if(any_rate?,
+          do:
+            Map.merge(
+              %{in: Float.round(rate_in / 1, 1), out: Float.round(rate_out / 1, 1)},
+              if(bytes?, do: %{bytes_in: sum.(:bytes_in), bytes_out: sum.(:bytes_out)}, else: %{})
+            )
+        ),
       throughput: rate_in + rate_out,
       spark: nil,
       inputs: members |> Enum.flat_map(& &1.inputs) |> Enum.uniq(),
@@ -2690,6 +2732,7 @@ defmodule FlezhaUiWeb.Topology do
         <p class="fui-eyebrow">Data plane</p>
         <p class="fui-map-legend">
           <span>Lanes needing attention come first</span>
+          <span>Rates are messages a second, then bytes</span>
           <span>
             {if @map.animated?,
               do: "Dots move at the measured rate",
@@ -2876,7 +2919,7 @@ defmodule FlezhaUiWeb.Topology do
       <rect class="fui-map-lane-box" x={@lane.x} y={@lane.y} width={@lane.w} height={@lane.h} />
       <.map_glyph shape={@lane.shape} cx={@lane.x + 14} cy={@lane.y + 13} />
       <title>{lane_name(@lane)}</title>
-      <svg x={@lane.x} y={@lane.y} width="200" height={@lane.h} overflow="hidden">
+      <svg x={@lane.x} y={@lane.y} width="190" height={@lane.h} overflow="hidden">
         <text class="fui-map-mono" x="26" y="17">{@lane.label}</text>
         <text class="fui-map-sub" x="26" y="32">
           <tspan class="fui-map-health">{@lane.state}</tspan>{if @lane.sub != "",
@@ -2886,20 +2929,24 @@ defmodule FlezhaUiWeb.Topology do
       <polyline
         :if={@lane.spark}
         class="fui-map-spark"
-        transform={"translate(#{@lane.x + 206}, #{@lane.y + 11})"}
+        transform={"translate(#{@lane.x + 196}, #{@lane.y + 11})"}
         points={@lane.spark}
         data-testid={"map-spark-#{@lane.id}"}
       />
-      <text
-        :if={@lane.rate}
-        class="fui-map-rate"
-        x={@lane.x + @lane.w - 12}
-        y={@lane.y + 24}
-        text-anchor="end"
-        data-testid={"map-rate-#{@lane.id}"}
-      >
-        {@lane.rate.in}/s
-      </text>
+      <g :if={@lane.rate} data-testid={"map-rate-#{@lane.id}"}>
+        <text class="fui-map-rate" x={@lane.x + @lane.w - 12} y={@lane.y + 17} text-anchor="end">
+          {rate_label(@lane.rate.in)}
+        </text>
+        <text
+          :if={@lane.rate[:bytes_in]}
+          class="fui-map-sub"
+          x={@lane.x + @lane.w - 12}
+          y={@lane.y + 32}
+          text-anchor="end"
+        >
+          {byte_rate_label(@lane.rate.bytes_in)}
+        </text>
+      </g>
     </g>
     """
   end
@@ -2910,7 +2957,7 @@ defmodule FlezhaUiWeb.Topology do
   defp lane_name(lane),
     do:
       "Relay #{lane.id}, #{lane.state}, #{lane.sub}" <>
-        if(lane.rate, do: ", #{lane.rate.in} per second in", else: "")
+        if(lane.rate, do: ", #{traffic_label(lane.rate, :in)} in", else: "")
 
   attr :shape, :string, required: true
   attr :cx, :integer, required: true

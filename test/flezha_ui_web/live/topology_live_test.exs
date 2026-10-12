@@ -305,7 +305,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       snapshot(node, [{"relay_a", 12, 8}])
       html = tick(view)
 
-      assert html =~ "0.0/s"
+      assert html =~ "0.0 msgs/s"
       assert html =~ "topo-flow-idle"
     end
 

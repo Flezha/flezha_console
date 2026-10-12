@@ -244,14 +244,14 @@ defmodule FlezhaUiWeb.TopologyTest do
       graph = Topology.pipeline(pipeline_input(%{history: history}))
 
       # 0+7+0+0+7+0+0 over seven: the burst nine ticks ago has left the window.
-      assert port(graph, "in").label == "2.0/s"
+      assert port(graph, "in").label == "2.0 msgs/s"
       assert port(graph, "out").rate == 2.0
-      assert edge(graph, "flow-channel-output").label == "2.0/s"
+      assert edge(graph, "flow-channel-output").label == "2.0 msgs/s"
     end
 
-    test "a trickle under one decimal reads <0.1/s, and no baseline reads nothing" do
-      assert Topology.rate_label(0.04) == "<0.1/s"
-      assert Topology.rate_label(+0.0) == "0.0/s"
+    test "a trickle under one decimal reads <0.1 msgs/s, and no baseline reads nothing" do
+      assert Topology.rate_label(0.04) == "<0.1 msgs/s"
+      assert Topology.rate_label(+0.0) == "0.0 msgs/s"
       assert Topology.rate_label(nil) == nil
 
       graph = Topology.pipeline(pipeline_input())
@@ -346,8 +346,8 @@ defmodule FlezhaUiWeb.TopologyTest do
       history = Enum.map(1..7, fn _ -> %{in: 120.0, out: 108.0, filtered: 12.0, parked: 0} end)
 
       assert %{word: :streaming, sentence: sentence} = word(history, :streaming)
-      assert sentence =~ "120.0/s in"
-      assert sentence =~ "108.0/s delivered"
+      assert sentence =~ "120.0 msgs/s in"
+      assert sentence =~ "108.0 msgs/s delivered"
       assert sentence =~ "10% filtered"
       assert word(samples([0.2]), :trickling).word == :trickle
       assert word(samples([0]), :quiet).word == :quiet
@@ -528,6 +528,27 @@ defmodule FlezhaUiWeb.TopologyTest do
 
       assert %{"relay_a" => %{in: 20.0, out: 15.0, filtered: 3.0}} =
                Topology.rates(current, previous, 2_000)
+    end
+
+    test "a controller that counts bytes gives byte rates too; one that does not gives none" do
+      with_bytes = &Map.merge(counters("relay_a", &1, &1), %{bytes_in: &2, bytes_forwarded: &2})
+      previous = snapshot([with_bytes.(100, 10_000)])
+      current = snapshot([with_bytes.(140, 14_096)])
+
+      assert %{"relay_a" => %{in: 20.0, bytes_in: 2048.0, bytes_out: 2048.0} = rate} =
+               Topology.rates(current, previous, 2_000)
+
+      assert Topology.traffic_label(rate, :in) == "20.0 msgs/s · 2.0 KB/s"
+
+      older =
+        Topology.rates(
+          snapshot([counters("relay_a", 140, 120)]),
+          snapshot([counters("relay_a", 100, 90)]),
+          2_000
+        )
+
+      refute Map.has_key?(older["relay_a"], :bytes_in)
+      assert Topology.traffic_label(older["relay_a"], :in) == "20.0 msgs/s"
     end
 
     test "a first snapshot has no baseline and so no rates" do
@@ -899,6 +920,21 @@ defmodule FlezhaUiWeb.TopologyTest do
       assert Enum.find(measured.wires, &(&1.id == "relay-orders->stream")).bucket == :idle
       assert %{rate: %{in: 12.0}, spark: spark} = hd(lanes(measured))
       assert is_binary(spark)
+    end
+
+    test "a lane states its rate in messages and, when counted, bytes; a stack sums both" do
+      rows = [map_row("solo")] ++ for(i <- 1..4, do: map_row("s_#{i}", %{factory: "same"}))
+      rate = %{in: 4.0, out: 4.0, bytes_in: 2048.0, bytes_out: 1024.0}
+      rates = Map.new(["solo", "s_1", "s_2", "s_3", "s_4"], &{&1, rate})
+
+      map =
+        Topology.map(%{namespace: "d", rows: rows, runners: [%{id: "runner-a"}], rates: rates})
+
+      html = render_component(&Topology.namespace_map/1, map: map)
+
+      assert html =~ ~r/data-testid="map-rate-solo".*?4.0 msgs\/s.*?2.0 KB\/s/s
+      assert %{in: 16.0, bytes_in: 8192.0} = Enum.find(lanes(map), &(&1.kind == :stack)).rate
+      assert html =~ "Rates are messages a second, then bytes"
     end
 
     test "health is carried in words and shape, not colour alone" do
