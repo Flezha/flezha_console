@@ -31,17 +31,26 @@ const popOpen = pop => !popPanel(pop).hidden
 
 // Placed against the viewport, so no scrolling ancestor — a grid, the canvas —
 // clips it; it opens upward when there is no room below, and aligns to the
-// trigger's right edge when it is an end-aligned menu.
+// trigger's right edge when it is an end-aligned menu. Whatever the trigger's
+// place, the panel is kept EDGE px inside the viewport.
+const EDGE = 8
+
 function placePop(pop) {
   const panel = popPanel(pop)
   const rect = popTrigger(pop).getBoundingClientRect()
   const end = panel.matches(".fui-popover--end, .right-0")
+  const width = document.documentElement.clientWidth
   // Every side is set, so no stylesheet offset is left to apply against the
   // viewport.
-  Object.assign(panel.style, {position: "fixed", top: "auto", bottom: "auto", left: "auto", right: "auto", marginTop: "0"})
-  if (pop.closest(".fui-combobox")) { panel.style.minWidth = `${rect.width}px` }
-  if (end) { panel.style.right = `${document.documentElement.clientWidth - rect.right}px` }
+  Object.assign(panel.style, {position: "fixed", top: "auto", bottom: "auto", left: "auto", right: "auto", marginTop: "0", maxWidth: `${width - 2 * EDGE}px`})
+  if (pop.closest(".fui-combobox")) { panel.style.minWidth = `${Math.min(rect.width, width - 2 * EDGE)}px` }
+  if (end) { panel.style.right = `${width - rect.right}px` }
   else { panel.style.left = `${rect.left}px` }
+  const placed = panel.getBoundingClientRect()
+  if (placed.left < EDGE || placed.right > width - EDGE) {
+    const left = Math.max(EDGE, Math.min(placed.left, width - EDGE - placed.width))
+    Object.assign(panel.style, {left: `${left}px`, right: "auto"})
+  }
   const below = window.innerHeight - rect.bottom
   if (panel.offsetHeight + 8 > below && rect.top > below) {
     panel.style.bottom = `${window.innerHeight - rect.top + 4}px`
@@ -158,6 +167,57 @@ document.addEventListener("keydown", event => {
   }
 })
 
+// ---- The navigation drawer ----
+//
+// Below desk width the rail is a drawer. A `[data-fui-nav-toggle]` opens and
+// closes it, delegated like the popovers so it works on a page with no
+// socket; while it is open the rest of the shell is inert.
+
+const shell = () => document.querySelector(".flz-app")
+const navOpen = () => shell()?.hasAttribute("data-nav-open") ?? false
+let navOpener = null
+
+function setNav(open, {refocus = false} = {}) {
+  const app = shell()
+  if (!app || open === navOpen()) { return }
+  app.toggleAttribute("data-nav-open", open)
+  for (const part of app.querySelectorAll(":scope > :not(#shell-nav)")) { part.inert = open }
+  for (const toggle of app.querySelectorAll("[data-fui-nav-toggle]")) { toggle.setAttribute("aria-expanded", String(open)) }
+  if (open) {
+    // Scrolled into view: in a short landscape drawer the current place can sit
+    // below the fold, and the drawer is fixed, so the page does not move.
+    const nav = document.getElementById("shell-nav")
+    ;(nav.querySelector("[aria-current]") ?? nav.querySelector(FOCUSABLE))?.focus()
+  } else if (refocus) {
+    // The opener may have been hidden by a resize into another mode.
+    const back = navOpener && visible(navOpener) ? navOpener : [...app.querySelectorAll("[data-fui-nav-toggle]")].find(visible)
+    back?.focus({preventScroll: true})
+  }
+}
+
+document.addEventListener("click", event => {
+  const toggle = event.target.closest("[data-fui-nav-toggle]")
+  if (toggle) { navOpener = toggle; setNav(!navOpen(), {refocus: true}); return }
+  if (!navOpen()) { return }
+  // A tap on the scrim lands on the inert shell around the drawer; a toast
+  // floats over everything and is not beside the drawer.
+  if (!event.target.closest("#shell-nav, .fui-toasts")) { setNav(false, {refocus: true}) }
+  else {
+    // A link to where the operator already is navigates nowhere, so focus
+    // goes back to the menu control rather than to a page that never loads.
+    const link = event.target.closest("#shell-nav a[href]")
+    if (link) { setNav(false, {refocus: link.href === location.href}) }
+  }
+})
+
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && navOpen()) { event.preventDefault(); setNav(false, {refocus: true}) }
+})
+
+window.addEventListener("phx:page-loading-start", () => setNav(false))
+// At desk width the rail stands beside the page, and nothing may stay inert.
+window.matchMedia("(width >= 1024px)").addEventListener("change", ({matches}) => matches && setNav(false))
+
 // ---- Copying an identifier or a value shown once ----
 //
 // `data-fui-copy` names the value itself; `data-fui-copy-from` names the
@@ -193,13 +253,13 @@ document.addEventListener("click", event => {
 // Never inside a text field, and never with a modifier: Ctrl+K belongs to the
 // palette and every other chord to the browser. `g` then a letter follows the
 // shell's `[data-shortcut]` link of that letter. Nothing fires under an open
-// dialog or drawer.
+// dialog, drawer or navigation drawer.
 
 let pendingG = 0
 
 document.addEventListener("keydown", event => {
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) { return }
-  if (typing(event.target) || document.querySelector("dialog[open], [aria-modal='true']")) { return }
+  if (typing(event.target) || navOpen() || document.querySelector("dialog[open], [aria-modal='true']")) { return }
 
   if (event.key === "?") { event.preventDefault(); openHelp(); return }
   if (event.key === "g") { pendingG = Date.now(); return }
@@ -331,7 +391,7 @@ Hooks.FlzPalette = {
         return
       }
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") { return }
-      if (typing(event.target)) { return }
+      if (typing(event.target) || navOpen()) { return }
       event.preventDefault()
       this.pushEventTo(this.el, "open", {})
     }

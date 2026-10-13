@@ -183,6 +183,137 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     end
   end
 
+  describe "the narrow shell" do
+    setup %{node: node} do
+      with_fleet(node, ["default"], %{"default" => ["relay_a"]})
+      :ok
+    end
+
+    test "both menu controls name the rail as the drawer they open", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert html |> within("#shell-nav") |> attr("class") =~ "flz-sidebar"
+
+      for testid <- ~w(nav-toggle tabbar-menu) do
+        toggle = within(html, ~s([data-testid="#{testid}"]))
+        assert attr(toggle, "data-fui-nav-toggle"), testid
+        assert attr(toggle, "aria-controls") == "shell-nav"
+        assert attr(toggle, "aria-expanded") == "false"
+      end
+    end
+
+    test "the bar is Home, Relays, Problems, Search and Menu, and marks where you are", %{
+      conn: conn
+    } do
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default/relays")
+      bar = within(html, ".flz-tabbar")
+
+      assert testids(bar, "a, button") ==
+               ~w(tabbar-home tabbar-relays tabbar-problems tabbar-cluster tabbar-search tabbar-menu)
+
+      assert bar |> LazyHTML.query(~s([data-testid="tabbar-cluster"])) |> attr("hidden")
+      assert bar |> current_entries() |> LazyHTML.attribute("data-testid") == ["tabbar-relays"]
+
+      assert hrefs(bar) == [
+               "/namespaces/default",
+               "/namespaces/default/relays",
+               "/problems",
+               "/cluster"
+             ]
+    end
+
+    test "with no namespace in scope, Home and Relays fall back as the shortcuts do", %{
+      conn: conn,
+      node: node
+    } do
+      with_fleet(node, [])
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert html |> within(".flz-tabbar") |> hrefs() |> Enum.take(2) == [
+               "/namespaces",
+               "/relays"
+             ]
+    end
+
+    test "the bar and the menu control count open problems in the worst one's tone", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set_fleet(node,
+        namespaces: ["default"],
+        rows: %{"default" => [FakeController.relay_row("relay_s", %{health: :suspended})]}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/cluster")
+
+      # The bar on a phone, the menu control on a tablet.
+      for testid <- ~w(tabbar-problems-count nav-toggle-problems-count) do
+        count = view |> render() |> within(~s([data-testid="#{testid}"]))
+        assert LazyHTML.text(count) =~ "1", testid
+        assert attr(count, "data-tone") == "warning"
+      end
+
+      with_fleet(node, ["default"], %{"default" => ["relay_a"]})
+      send(view.pid, :shell_pulse)
+      refute render(view) =~ ~s(data-testid="tabbar-problems-count")
+      refute render(view) =~ ~s(data-testid="nav-toggle-problems-count")
+    end
+
+    test "Search in the bar and in the topbar opens the palette", %{conn: conn} do
+      for testid <- ~w(tabbar-search search-open) do
+        {:ok, view, _html} = live(conn, ~p"/cluster")
+        refute has_element?(view, ~s([data-testid="command-palette"]))
+
+        view |> element(~s([data-testid="#{testid}"])) |> render_click()
+
+        assert has_element?(view, ~s([data-testid="command-palette"])), testid
+      end
+    end
+
+    test "the palette's Cancel closes it", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cluster")
+      open_palette(view)
+
+      view |> element(~s([data-testid="command-palette-close"])) |> render_click()
+
+      refute has_element?(view, ~s([data-testid="command-palette"]))
+    end
+
+    test "the settings page offers the menu but no search, having no palette", %{conn: conn} do
+      html = conn |> get(~p"/users/settings") |> html_response(200)
+
+      assert html =~ ~s(data-testid="tabbar-menu")
+      refute html =~ ~s(data-testid="tabbar-search")
+      refute html =~ ~s(data-testid="search-open")
+    end
+
+    test "each part the narrow topbar leaves out has one copy per width", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      shown_at = fn testid ->
+        html |> within(~s([data-testid="#{testid}"])) |> attr("data-shell-at")
+      end
+
+      assert shown_at.("theme-toggle") == "desk compact"
+      assert shown_at.("drawer-theme-toggle") == "phone"
+      assert shown_at.("help-btn") == "desk compact"
+      assert shown_at.("search-open") == "compact"
+      assert shown_at.("nav-toggle") == "compact"
+      assert shown_at.("tabbar") == "phone"
+    end
+
+    test "on a phone liveness keeps the time and drops the interval", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+      state = within(html, ~s([data-testid="liveness-state"]))
+
+      assert state |> LazyHTML.query(~s([data-shell-at="desk compact"])) |> LazyHTML.text() =~
+               "Every"
+
+      assert LazyHTML.text(state) =~ ~r/\d\d:\d\d:\d\d/
+    end
+  end
+
   describe "the crumb trail" do
     setup %{node: node} do
       with_fleet(node, ["default"], %{"default" => ["relay_a"]})

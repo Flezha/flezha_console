@@ -59,7 +59,7 @@ defmodule FlezhaUiWeb.CoreComponents do
     ~H"""
     <header class="fui-page-header" data-testid={@testid}>
       <.crumbs :if={@crumbs != []} trail={@crumbs} />
-      <div class="min-w-0 space-y-2">
+      <div class="fui-page-heading space-y-2">
         <p class="fui-eyebrow" data-testid="page-eyebrow">{@eyebrow}</p>
         <div class="flex items-center gap-2">
           <h1 class="fui-title" data-testid="page-title">{@title}</h1>
@@ -859,16 +859,27 @@ defmodule FlezhaUiWeb.CoreComponents do
 
     ~H"""
     <div class="fui-grid-wrap">
-      <table class="fui-grid" data-testid={@testid}>
-        <thead>
-          <tr>
-            <th :for={col <- @col} class={col[:num] && "fui-cell-num"}>{col[:label]}</th>
-            <th :if={@menu != []} class="fui-cell-menu"><span class="sr-only">Actions</span></th>
+      <%!-- The roles are explicit because a phone lays the rows out as cards,
+            and a table part whose display changes can lose its role. --%>
+      <table class="fui-grid" role="table" data-testid={@testid}>
+        <thead role="rowgroup">
+          <tr role="row">
+            <th :for={col <- @col} role="columnheader" class={col[:num] && "fui-cell-num"}>
+              {col[:label]}
+            </th>
+            <th :if={@menu != []} role="columnheader" class="fui-cell-menu">
+              <span class="sr-only">Actions</span>
+            </th>
           </tr>
         </thead>
-        <tbody id={@id} phx-update={match?(%Phoenix.LiveView.LiveStream{}, @rows) && "stream"}>
+        <tbody
+          id={@id}
+          role="rowgroup"
+          phx-update={match?(%Phoenix.LiveView.LiveStream{}, @rows) && "stream"}
+        >
           <tr
             :for={row <- @rows}
+            role="row"
             id={@row_id && @row_id.(row)}
             data-testid={@row_testid && @row_testid.(row)}
             data-tone={@row_tone && @row_tone.(row)}
@@ -880,10 +891,15 @@ defmodule FlezhaUiWeb.CoreComponents do
             phx-keydown={@row_activate && @row_activate.(row)}
             phx-key={@row_activate && "Enter"}
           >
-            <td :for={col <- @col} class={[col[:num] && "fui-cell-num", col[:class]]}>
+            <td
+              :for={col <- @col}
+              role="cell"
+              data-label={col[:label]}
+              class={[col[:num] && "fui-cell-num", col[:class]]}
+            >
               {render_slot(col, @row_item.(row))}
             </td>
-            <td :if={@menu != []} class="fui-cell-menu" phx-click={own_click()}>
+            <td :if={@menu != []} role="cell" class="fui-cell-menu" phx-click={own_click()}>
               {render_slot(@menu, @row_item.(row))}
             </td>
           </tr>
@@ -1376,7 +1392,7 @@ defmodule FlezhaUiWeb.CoreComponents do
           What {@error.code} means
         </a>
       </p>
-      <.link :if={@settings_link?} navigate={~p"/users/settings"}>
+      <.link :if={@settings_link?} href={~p"/users/settings"}>
         Store a flezha token in settings.
       </.link>
     </.notice>
@@ -1491,7 +1507,7 @@ defmodule FlezhaUiWeb.CoreComponents do
       </span>
       <span :if={!@status.token?}>No flezha token is bound to this console.</span>
       Reads of the audit log and observability, and every mutation, will be refused.
-      <.link navigate={~p"/users/settings"}>Store a token in settings.</.link>
+      <.link href={~p"/users/settings"}>Store a token in settings.</.link>
     </.notice>
     """
   end

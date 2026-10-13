@@ -119,8 +119,17 @@ defmodule FlezhaUiWeb.BrandTest do
 
       assert html =~ ~s(aria-current="page")
 
-      # One destination in the rail, never a second place.
-      assert html |> String.split(~s(aria-current="page")) |> length() == 2
+      # One destination in the rail, never a second place; a phone's bar marks
+      # its own twin of it.
+      marked = fn selector ->
+        html
+        |> LazyHTML.from_document()
+        |> LazyHTML.query(selector <> " [aria-current=page]")
+        |> Enum.count()
+      end
+
+      assert marked.(".flz-sidebar-nav") == 1
+      assert marked.(".flz-tabbar") == 1
     end
 
     test "the theme control is the stylebook's toggle, always visible in the topbar", %{

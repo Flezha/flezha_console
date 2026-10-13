@@ -186,7 +186,7 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
       assert html =~ "steps"
       assert html =~ "flezha@node-z"
       assert html =~ "runner-a"
-      assert html =~ ~r/<td class="fui-cell-num">\s*2\s*<\/td>/
+      assert html =~ ~r/<td[^>]*class="fui-cell-num"[^>]*>\s*2\s*<\/td>/
     end
 
     test "every health verdict the controller answers renders distinctly", %{

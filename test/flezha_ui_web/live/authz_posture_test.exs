@@ -77,6 +77,21 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
     assert html =~ "authz-identity"
     assert html =~ "alice"
     assert html =~ "acme"
+
+    # Below desk width the drawer's foot names the principal instead.
+    shown_at = fn testid ->
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(~s([data-testid="#{testid}"]))
+      |> LazyHTML.attribute("data-shell-at")
+    end
+
+    assert shown_at.("authz-identity") == ["desk"]
+    assert shown_at.("drawer-principal") == ["compact phone"]
+
+    assert html =~
+             ~r/data-testid="drawer-principal".*?alice\s*<span>\/acme<\/span>\s*<span>\(ops\)/s
+
     refute html =~ "authz-unbound"
     refute html =~ "authz-bootstrap-pending"
   end

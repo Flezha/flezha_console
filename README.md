@@ -114,6 +114,32 @@ namespace and some are not, and it says which is which.
 - **Every screen that refreshes says so** — its interval, when it last did, and
   a control to hold it still.
 
+### On a phone or tablet
+
+The shell has three modes, by width alone:
+
+- **Desk, 1024 px and wider:** the rail beside the page, as described above.
+- **Compact, 600–1023 px:** the rail is a drawer, opened from the menu control
+  that leads the topbar. The topbar keeps to one row, and a search control
+  opens the palette.
+- **Phone, under 600 px:** the drawer too, plus a bar along the bottom edge:
+  Home, Relays and Problems (with its count), Search, which opens the palette
+  full screen, and Menu, which opens the drawer. The topbar holds the
+  namespace picker, the time of the last refresh with its pause control, and
+  the account menu. The node, the principal and the theme toggle move to the
+  drawer's foot, and each screen's own "?" stands in for the topbar's help.
+
+The drawer closes on Escape, a tap beside it, or following a link, and the page
+behind it takes no focus while it is open. On a phone a table reads as cards,
+each value under its column's name, and a dialog rises as a sheet whose title
+and actions stay in view. Every control a finger meets is at least 44 px tall.
+A touch screen shows no hover tooltips; a tap on a term opens the help that
+explains it.
+
+iOS Safari ignores `interactive-widget=resizes-content`, so there the keyboard
+covers the bottom of a sheet rather than pushing it up. The focused field is
+still scrolled into view.
+
 ## Dev setup
 
 The compose file brings up the controller, a Rust runner, this UI, Postgres,
@@ -239,6 +265,7 @@ mix test --exclude distributed  # the fast loop — no peer nodes booted
 npx playwright install chromium  # one-time
 npm run e2e                   # browser suite, needs the dev stack running
 npm run e2e:ui                # same, in Playwright's UI mode
+npx playwright test --project=phone  # the console held as a phone (390×844, touch)
 
 npm run tokens                # the design-token gate over assets/ and lib/
 ```
@@ -251,7 +278,9 @@ floor in either theme — so a colour that only looks fine in dark mode is caugh
 before it ships.
 
 `npm run e2e` drives the running dev stack at `http://localhost:4000`, so bring
-it up first with `docker compose -f docker-compose.dev.yml up`. A failing test
+it up first with `docker compose -f docker-compose.dev.yml up`. When the stack
+is published on another port, set `E2E_BASE_URL`, for example
+`E2E_BASE_URL=http://localhost:4001 npm run e2e`. A failing test
 means the stack is not in the shape the suite requires — the specs assert
 unconditionally rather than skipping, so a green run means the assertions ran.
 

@@ -333,6 +333,30 @@ defmodule FlezhaUiWeb.KitTest do
       assert attr_of(html, ~s([data-testid="stop-a"]), "class") =~ "fui-menu-item--danger"
       assert attr_of(html, "[data-fui-pop-trigger]", "aria-label") == "Actions"
     end
+
+    test "every cell names its column, and the table keeps its roles when laid out as cards" do
+      assigns = %{rows: [%{id: "a"}]}
+
+      html =
+        rendered_to_string(~H"""
+        <.grid id="g" rows={@rows}>
+          <:col :let={row} label="Relay">{row.id}</:col>
+          <:col :let={_row} label="Rate" num>1</:col>
+          <:menu :let={row}>
+            <.row_menu id={"m-#{row.id}"}>
+              <:item click="stop">Stop</:item>
+            </.row_menu>
+          </:menu>
+        </.grid>
+        """)
+
+      assert html |> q("td[data-label]") |> LazyHTML.attribute("data-label") == ["Relay", "Rate"]
+      assert attr_of(html, "table", "role") == "table"
+      assert html |> q("thead, tbody") |> LazyHTML.attribute("role") == ["rowgroup", "rowgroup"]
+      assert html |> q("tr") |> LazyHTML.attribute("role") == ["row", "row"]
+      assert html |> q("th") |> LazyHTML.attribute("role") |> Enum.uniq() == ["columnheader"]
+      assert html |> q("td") |> LazyHTML.attribute("role") == ["cell", "cell", "cell"]
+    end
   end
 
   describe "overlays" do

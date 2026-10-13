@@ -7,7 +7,7 @@
  * Colour is the stylebook's: each role names the stylebook token it takes, so
  * the console wears the Flezha palette and follows the stylebook's own theme
  * switch. The console adds only what the stylebook has no token for — the
- * signal colour for live data, the scrim and the overlay shadow — and the inks
+ * signal colour for live data and the overlay shadow — and the inks
  * a solid fill needs in the dark theme.
  *
  * Roles, not hues. Accent marks interaction (focus, the current place, links,
@@ -60,6 +60,8 @@
   --fui-drawer-w: 30rem;
   /* Clear of the stylebook's 64px topbar, for what floats just under it */
   --fui-topbar-clear: 4rem;
+  /* Clear of the stylebook's 56px phone bar, for what floats just over it */
+  --fui-tabbar-clear: 3.5rem;
 
   /* Motion: one easing curve, three durations */
   --fui-ease: cubic-bezier(0.2, 0, 0, 1);
@@ -83,6 +85,7 @@
   --fui-line: var(--border-default);
   --fui-line-strong: var(--field-border);
   --fui-field: var(--field-bg);
+  --fui-scrim: var(--scrim);
 
   --fui-ink-1: var(--text-primary);
   --fui-ink-2: var(--text-secondary);
@@ -114,8 +117,15 @@
   --fui-signal: #8a580c;
   --fui-signal-subtle: color-mix(in oklab, var(--fui-signal) 12%, var(--fui-surface));
   --fui-on-signal: #ffffff;
-  --fui-scrim: #17141c59;
   --fui-shadow: #1714241f;
+}
+
+/* A finger needs a 44px target; every control is sized from these two. */
+@media (pointer: coarse) {
+  :root {
+    --fui-control-h: 2.75rem;
+    --fui-control-h-sm: 2.75rem;
+  }
 }
 
 /* ---- Colour: what changes in the dark theme ----
@@ -129,6 +139,5 @@
   --fui-signal: var(--gold);
   --fui-signal-subtle: color-mix(in oklab, var(--fui-signal) 14%, var(--fui-surface));
   --fui-on-signal: var(--text-on-gold);
-  --fui-scrim: #0d0b10b3;
   --fui-shadow: #00000099;
 }

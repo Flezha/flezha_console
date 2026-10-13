@@ -166,3 +166,20 @@
 @media (prefers-reduced-motion: reduce) {
   .topo-flow-slow, .topo-flow-medium, .topo-flow-fast, .topo-backpressure { animation: none; }
 }
+
+/* On a phone the frame runs to the screen's edges, and a shade marks a side
+   with more graph beyond it: the covers scroll with the graph and the shades
+   stay with the frame, so a shade shows only once its cover has moved off. */
+@media (width <= 599px) {
+  .topo-frame { border-inline: 0; border-radius: 0; margin-inline: calc(-1 * var(--space-4)); }
+  .topo-canvas {
+    background:
+      linear-gradient(to right, var(--surface-raised) 40%, transparent) left / 2.5rem 100%,
+      linear-gradient(to left, var(--surface-raised) 40%, transparent) right / 2.5rem 100%,
+      radial-gradient(farthest-side at 0 50%, color-mix(in oklab, var(--text-primary) 25%, transparent), transparent) left / 1rem 100%,
+      radial-gradient(farthest-side at 100% 50%, color-mix(in oklab, var(--text-primary) 25%, transparent), transparent) right / 1rem 100%;
+    background-attachment: local, local, scroll, scroll;
+    background-color: var(--surface-raised);
+    background-repeat: no-repeat;
+  }
+}

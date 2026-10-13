@@ -9,6 +9,8 @@ npm run e2e                                   # headless
 npm run e2e:ui                                # Playwright UI mode
 npm run e2e:headed                            # watch it drive a real browser
 npx playwright test plugin-attach             # one spec
+npx playwright test --project=phone           # the phone spec alone
+E2E_BASE_URL=http://localhost:4001 npm run e2e  # a stack on another port
 npx playwright show-report                    # last run's HTML report
 ```
 
@@ -146,6 +148,10 @@ e2e/
                              process refused until readmitted
   theme.spec.ts              the theme following the device, a stored choice,
                              the chrome flipping with it, the badger and icons
+  phone.spec.ts              the `phone` project alone (390×844, touch): the
+                             drawer, the bottom bar, cards, sheets, menus on
+                             screen, 44 px targets, no sideways scroll on any
+                             route at 390 and 360 px; one tablet case at 768 px
   observability.spec.ts      sources, sinks, toggles, the live tail
   relay-state.spec.ts        durable cells and point-in-time reads
   relay-calls.spec.ts        diagnosis, the relay's API, calling `orders`'

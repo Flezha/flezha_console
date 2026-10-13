@@ -20,9 +20,10 @@ defmodule FlezhaUi.StylebookSkinTest do
   @kit_allowed ~w(flz-brand flz-logo)
 
   # The theme toggle is the shell's own chrome, drawn on the signed-out canvas
-  # too, so it lives with the layouts rather than in the shell template.
+  # too, and the principal is drawn in both the topbar and the drawer's foot,
+  # so both live with the layouts rather than in the shell template.
   @layouts "lib/flezha_ui_web/components/layouts.ex"
-  @layouts_allowed ~w(flz-chrome-icon-btn flz-theme-sun flz-theme-moon)
+  @layouts_allowed ~w(flz-chrome-icon-btn flz-theme-sun flz-theme-moon flz-num)
 
   # A `data-flz-*` attribute binds a stylebook behaviour, such as the theme
   # toggle; it is not a class.

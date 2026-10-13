@@ -6,7 +6,8 @@ defmodule FlezhaUiWeb.Layouts do
   The rail lists the namespace's own screens, then what needs attention, the
   platform and its monitoring; the topbar holds the connection, the namespace
   picker, the screen's liveness, the bound identity, help, the theme toggle
-  and the account menu.
+  and the account menu. Below desk width the rail is a drawer, and a phone
+  shows the shortcut destinations as a bar along the bottom edge.
 
   "root" is the document skeleton; "app" wraps every LiveView and the plain
   settings page; "auth" is the signed-out canvas.
@@ -64,17 +65,14 @@ defmodule FlezhaUiWeb.Layouts do
       %{
         heading: "Attention",
         scope: nil,
-        entries: [
-          entry(~p"/problems", "hero-exclamation-triangle", "Problems", :problems),
-          entry(~p"/dlq", "hero-inbox-stack", "Dead-letter")
-        ]
+        entries: [problems(), entry(~p"/dlq", "hero-inbox-stack", "Dead-letter")]
       },
       %{
         heading: "Platform",
         scope: nil,
         entries: [
           entry(~p"/namespaces", "hero-rectangle-stack", "Namespaces"),
-          entry(~p"/cluster", "hero-server-stack", "Cluster"),
+          cluster(),
           entry(~p"/controller", "hero-server", "Controller")
         ]
       },
@@ -93,12 +91,31 @@ defmodule FlezhaUiWeb.Layouts do
 
   defp scoped_entries(namespace) do
     [
-      entry(scoped_path(namespace, nil), "hero-home", "Home"),
-      entry(scoped_path(namespace, "relays"), "hero-cpu-chip", "Relays"),
+      home(scoped_path(namespace, nil)),
+      relays(scoped_path(namespace, "relays")),
       entry(scoped_path(namespace, "plugins"), "hero-puzzle-piece", "Plugins"),
       entry(scoped_path(namespace, "schedules"), "hero-clock", "Schedules")
     ]
   end
+
+  @doc """
+  The places `g` then a letter reaches, by their letter; each is in the rail
+  too, and a phone shows them as its bottom bar. With no namespace in scope,
+  Home and Relays fall back to the namespaces and to every relay.
+  """
+  def shortcuts(namespace) do
+    [
+      {"h", home((namespace && scoped_path(namespace, nil)) || ~p"/namespaces")},
+      {"r", relays((namespace && scoped_path(namespace, "relays")) || ~p"/relays")},
+      {"p", problems()},
+      {"c", cluster()}
+    ]
+  end
+
+  defp home(path), do: entry(path, "hero-home", "Home")
+  defp relays(path), do: entry(path, "hero-cpu-chip", "Relays")
+  defp problems, do: entry(~p"/problems", "hero-exclamation-triangle", "Problems", :problems)
+  defp cluster, do: entry(~p"/cluster", "hero-server-stack", "Cluster")
 
   defp entry(path, icon, label, count \\ nil),
     do: %{path: path, icon: icon, label: label, count: count}
@@ -376,6 +393,9 @@ defmodule FlezhaUiWeb.Layouts do
   The theme toggle, drawn as flezha.com draws it: a sun in dark (switch to
   light), a moon in light. The stylebook's `bindThemeToggles/0` binds it.
   """
+  attr :testid, :string, default: "theme-toggle"
+  attr :rest, :global
+
   def theme_toggle(assigns) do
     ~H"""
     <button
@@ -384,7 +404,8 @@ defmodule FlezhaUiWeb.Layouts do
       data-flz-theme-toggle
       aria-label="Toggle color theme"
       title="Toggle light/dark mode"
-      data-testid="theme-toggle"
+      data-testid={@testid}
+      {@rest}
     >
       <svg
         class="flz-theme-sun"
@@ -412,6 +433,65 @@ defmodule FlezhaUiWeb.Layouts do
         <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path>
       </svg>
     </button>
+    """
+  end
+
+  # What opens and closes the drawer the rail becomes below desk width.
+  attr :class, :string, default: nil
+  attr :rest, :global
+  slot :inner_block, required: true
+
+  defp nav_toggle(assigns) do
+    ~H"""
+    <button
+      type="button"
+      class={@class}
+      data-fui-nav-toggle
+      aria-controls="shell-nav"
+      aria-expanded="false"
+      phx-mounted={JS.ignore_attributes(["aria-expanded"])}
+      {@rest}
+    >
+      {render_slot(@inner_block)}
+    </button>
+    """
+  end
+
+  # The flezha principal the console's token is bound to.
+  attr :status, :map, required: true, doc: "a `NodeManager.authz_status/1` map"
+  attr :class, :any, default: nil
+  attr :rest, :global
+
+  defp principal(assigns) do
+    ~H"""
+    <span
+      class={["flz-num flex items-center gap-1.5", @class]}
+      title={"flezha principal #{@status.principal}"}
+      {@rest}
+    >
+      <.icon name="hero-key" class="w-3.5 h-3.5 shrink-0" />
+      {@status.principal}
+      <span :if={@status.namespace}>/{@status.namespace}</span>
+      <span :if={@status.role}>({@status.role})</span>
+    </span>
+    """
+  end
+
+  # How many problems are open, in the worst one's tone; nothing when clear.
+  attr :problems, :list, default: nil
+  attr :class, :string, default: nil
+  attr :testid, :string, required: true
+
+  defp problems_count(assigns) do
+    ~H"""
+    <span
+      :if={@problems not in [nil, []]}
+      class={["fui-count fui-count--#{Attention.worst(@problems)}", @class]}
+      data-testid={@testid}
+      data-tone={Attention.worst(@problems)}
+    >
+      {length(@problems)}
+    </span>
     """
   end
 

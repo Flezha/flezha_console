@@ -49,11 +49,7 @@ defmodule FlezhaUi.CoverageLedgerTest do
   @bindings_floor 100
 
   # {test id or event, reason}
-  @exempt [
-    {"close",
-     "the palette's phx-click-away, fired by the browser outside the element: LiveViewTest " <>
-       "cannot send it, and console-navigation.spec.ts clicks outside the palette and asserts it closed"}
-  ]
+  @exempt []
 
   @own_file Path.relative_to_cwd(__ENV__.file)
 

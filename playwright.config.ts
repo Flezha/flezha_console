@@ -6,6 +6,8 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * Bring the stack up first:
  *   docker compose -f docker-compose.dev.yml up
+ *
+ * `E2E_BASE_URL` points the suite at a stack published on another port.
  */
 export default defineConfig({
   testDir: './e2e',
@@ -27,7 +29,7 @@ export default defineConfig({
   expect: { timeout: 10_000 },
 
   use: {
-    baseURL: 'http://localhost:4000',
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:4000',
     storageState: 'e2e/.auth/user.json',
     viewport: { width: 1280, height: 720 },
     navigationTimeout: 30_000,
@@ -42,6 +44,17 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: 'phone.spec.ts',
+    },
+    {
+      // A phone held in portrait: touch, a coarse pointer and a mobile viewport.
+      name: 'phone',
+      use: {
+        ...devices['Pixel 7'],
+        viewport: { width: 390, height: 844 },
+        deviceScaleFactor: 3,
+      },
+      testMatch: 'phone.spec.ts',
     },
   ],
 });

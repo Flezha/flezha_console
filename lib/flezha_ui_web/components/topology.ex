@@ -1553,7 +1553,7 @@ defmodule FlezhaUiWeb.Topology do
 
   defp graph_frame(assigns) do
     ~H"""
-    <div data-testid={@testid} class="flz-panel overflow-hidden">
+    <div data-testid={@testid} class="flz-panel topo-frame overflow-hidden">
       <div class="flz-panel-head">
         <h2 class="flz-panel-title"><.icon name={@icon} class="w-4 h-4" />{@title}</h2>
         <div :if={@header != []} class="flex items-center gap-3">{render_slot(@header)}</div>

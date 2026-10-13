@@ -500,13 +500,17 @@ export async function disablePlugin(page: Page, name: string): Promise<void> {
 }
 
 /**
- * Opens the settings screen. Settings sits behind sudo mode, whose window is
- * shorter than a full suite run, so this re-authenticates rather than trusting
- * the shared session. The email field is readonly on the re-auth form — only
- * the password is asked for.
+ * Opens the settings screen, by address or by `open` — following a link to it.
+ * Settings sits behind sudo mode, whose window is shorter than a full suite
+ * run, so this re-authenticates rather than trusting the shared session. The
+ * email field is readonly on the re-auth form — only the password is asked for.
  */
-export async function openSettings(page: Page): Promise<void> {
-  await page.goto('/users/settings');
+export async function openSettings(
+  page: Page,
+  open: () => Promise<unknown> = () => page.goto('/users/settings'),
+): Promise<void> {
+  await open();
+  await page.waitForURL(/\/users\/(settings|log-in)$/);
 
   if (page.url().includes('/users/log-in')) {
     await submitLogin(page);

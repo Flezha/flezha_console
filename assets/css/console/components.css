@@ -93,21 +93,28 @@
    Page grammar: a header of kind, name, sentence, actions and tabs
    ====================================================================== */
 
+/* The actions sit beside the title while 20rem of it fits, and move under it
+   rather than narrow it, whatever room the canvas has. */
 .fui-page-header {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--fui-space-2) var(--fui-space-6);
-  grid-template-columns: minmax(0, 1fr) auto;
   margin-bottom: var(--fui-space-7);
+}
+
+.fui-page-heading {
+  flex: 1 1 20rem;
+  min-width: 0;
 }
 
 .fui-crumbs {
   align-items: center;
   color: var(--fui-ink-3);
   display: flex;
+  flex-basis: 100%;
   flex-wrap: wrap;
   font-size: var(--fui-text-sm);
   gap: var(--fui-space-2);
-  grid-column: 1 / -1;
 }
 
 .fui-crumbs a {
@@ -167,25 +174,17 @@
 .fui-page-actions {
   align-items: flex-start;
   display: flex;
+  flex: 0 1 auto;
   flex-wrap: wrap;
   gap: var(--fui-space-2);
-  justify-content: flex-end;
 }
 
 .fui-page-header .fui-tabs {
-  grid-column: 1 / -1;
+  flex-basis: 100%;
   margin-top: var(--fui-space-3);
 }
 
 @media (width <= 599px) {
-  .fui-page-header {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .fui-page-actions {
-    justify-content: flex-start;
-  }
-
   .fui-title {
     font-size: var(--fui-text-2xl);
   }
@@ -482,6 +481,13 @@
   min-height: var(--fui-control-h-sm);
 }
 
+/* Outranks base.css's phone rule, so it keeps the 16 px floor itself. */
+@media (width <= 599px) {
+  .fui-input--compact {
+    font-size: max(16px, var(--fui-text-sm));
+  }
+}
+
 .fui-check {
   align-items: center;
   color: var(--fui-ink-1);
@@ -693,6 +699,17 @@
   min-width: 2rem;
 }
 
+/* Controls drawn smaller than a control still give a finger a full one. */
+@media (pointer: coarse) {
+  .fui-switch,
+  .fui-section-toggle,
+  .fui-help-tip {
+    justify-content: center;
+    min-height: var(--fui-control-h);
+    min-width: var(--fui-control-h);
+  }
+}
+
 .fui-help-tip:hover,
 .fui-help-tip[aria-expanded="true"] {
   color: var(--fui-accent);
@@ -878,9 +895,17 @@ button.fui-menu-item--danger:hover {
   font-size: var(--fui-text-xs);
   font-weight: 500;
   gap: var(--fui-space-1);
-  height: 1.375rem;
+  min-height: 1.375rem;
   padding: 0 var(--fui-space-2);
   white-space: nowrap;
+}
+
+/* On a phone a label longer than its column wraps rather than widen the page. */
+@media (width <= 599px) {
+  .fui-badge {
+    max-width: 100%;
+    white-space: normal;
+  }
 }
 
 .fui-badge--positive {
@@ -1014,6 +1039,95 @@ button.fui-menu-item--danger:hover {
   color: var(--fui-ink-3);
   font-size: var(--fui-text-xs);
   padding: var(--fui-space-2) var(--fui-space-3);
+}
+
+/* On a phone a row is a card: its first cell the title, its menu at the top
+   right, and the other cells captioned by their column, several to a line.
+   The header stays for a screen reader. */
+@media (width <= 599px) {
+  .fui-grid {
+    display: block;
+  }
+
+  .fui-grid thead {
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+
+  .fui-grid tbody {
+    display: grid;
+    gap: var(--fui-space-3);
+  }
+
+  .fui-grid tr {
+    border: 1px solid var(--fui-line);
+    border-radius: var(--fui-radius-surface);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--fui-space-3) var(--fui-space-5);
+    padding: var(--fui-space-3) var(--fui-space-4);
+    position: relative;
+  }
+
+  .fui-grid tr[data-tone] { box-shadow: inset 3px 0 0 var(--fui-line-strong); }
+  .fui-grid tr[data-tone="positive"] { box-shadow: inset 3px 0 0 var(--fui-positive); }
+  .fui-grid tr[data-tone="warning"] { box-shadow: inset 3px 0 0 var(--fui-warning); }
+  .fui-grid tr[data-tone="negative"] { box-shadow: inset 3px 0 0 var(--fui-negative); }
+
+  .fui-grid tbody tr[aria-selected="true"] {
+    background: var(--fui-accent-subtle);
+  }
+
+  @media (hover: hover) {
+    .fui-grid tbody tr:hover {
+      background: var(--fui-hover);
+    }
+  }
+
+  .fui-grid td,
+  .fui-grid tbody tr:hover td,
+  .fui-grid tbody tr[aria-selected="true"] td,
+  .fui-grid tr[data-tone] td:first-child {
+    background: none;
+    border: 0;
+    box-shadow: none;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    padding: 0;
+  }
+
+  .fui-grid td:first-child {
+    flex-basis: 100%;
+    font-weight: 600;
+  }
+
+  .fui-grid tr:has(> .fui-cell-menu) td:first-child {
+    padding-right: calc(var(--fui-control-h) + var(--fui-space-2));
+  }
+
+  .fui-grid td:not(:first-child)[data-label]::before {
+    color: var(--fui-ink-3);
+    content: attr(data-label);
+    display: block;
+    font-family: var(--fui-font-sans);
+    font-size: var(--fui-text-xs);
+    font-weight: 500;
+  }
+
+  .fui-grid .fui-cell-num {
+    text-align: left;
+  }
+
+  .fui-grid .fui-cell-menu {
+    position: absolute;
+    right: var(--fui-space-2);
+    top: var(--fui-space-1);
+    width: auto;
+  }
 }
 
 /* Facts: a definition list of labelled figures. */
@@ -1186,9 +1300,13 @@ button.fui-ident[data-copied]::after {
   z-index: var(--fui-z-popover);
 }
 
-.fui-tip-host:hover > .fui-tooltip,
-.fui-tip-host:focus-within > .fui-tooltip {
-  display: block;
+/* Not on a touch screen, which leaves a tapped tooltip half shown; a tap on
+   a term opens the help that explains it. */
+@media (hover: hover) {
+  .fui-tip-host:hover > .fui-tooltip,
+  .fui-tip-host:focus-within > .fui-tooltip {
+    display: block;
+  }
 }
 
 .fui-tooltip-term {
@@ -1366,7 +1484,16 @@ button.fui-ident[data-copied]::after {
 
   .fui-drawer-panel {
     border-left: 0;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     width: 100vw;
+  }
+}
+
+/* Below desk width the page itself scrolls, and holds still behind an
+   overlay. */
+@media (width <= 1023px) {
+  html:has(.fui-dialog, .fui-drawer, dialog[open]) {
+    overflow: hidden;
   }
 }
 
@@ -1423,6 +1550,65 @@ button.fui-ident[data-copied]::after {
   padding: 0 var(--fui-space-5) var(--fui-space-5);
 }
 
+/* On a phone, upright or on its side, a dialog is a sheet risen from the
+   bottom edge, within thumb reach: its body scrolls, while its title and its
+   actions stay in view. Help is a native dialog with the same panel. */
+@media (width <= 599px), (height <= 500px) {
+  .fui-dialog {
+    overflow: hidden;
+    padding: env(safe-area-inset-top) 0 0;
+    place-items: end stretch;
+  }
+
+  .fui-dialog > .fui-dialog-panel,
+  dialog.fui-dialog-panel[open] {
+    animation-name: fui-sheet;
+    border-bottom: 0;
+    border-radius: var(--fui-radius-surface) var(--fui-radius-surface) 0 0;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - env(safe-area-inset-top) - var(--fui-space-4));
+    max-width: none;
+  }
+
+  dialog.fui-dialog-panel[open] {
+    inset: auto 0 0;
+    margin: 0;
+    position: fixed;
+    width: 100%;
+  }
+
+  :is(.fui-dialog > .fui-dialog-panel, dialog.fui-dialog-panel) > .fui-dialog-body {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  :is(.fui-dialog > .fui-dialog-panel, dialog.fui-dialog-panel) > :last-child {
+    padding-bottom: calc(var(--fui-space-5) + env(safe-area-inset-bottom));
+  }
+
+  .fui-dialog-foot {
+    border-top: 1px solid var(--fui-line);
+    padding-top: var(--fui-space-4);
+  }
+
+  /* A stepped form's controls, or a form's closing row of buttons, are the
+     sheet's actions. */
+  .fui-dialog .fui-steps-foot,
+  .fui-dialog-body form > :last-child:has([type="submit"]) {
+    background: var(--fui-raised);
+    bottom: calc(-1 * var(--fui-space-5));
+    padding-bottom: var(--fui-space-4);
+    position: sticky;
+  }
+}
+
+@keyframes fui-sheet {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
 @keyframes fui-rise {
   from { opacity: 0; transform: translateY(var(--fui-space-2)); }
   to { opacity: 1; transform: translateY(0); }
@@ -1441,6 +1627,21 @@ button.fui-ident[data-copied]::after {
   position: fixed;
   right: 0;
   z-index: var(--fui-z-toast);
+}
+
+/* A phone's topbar is one row of controls, so a toast rises from the bottom
+   edge instead, clear of the bar when there is one. */
+@media (width <= 599px) {
+  .fui-toasts {
+    bottom: env(safe-area-inset-bottom);
+    left: 0;
+    max-width: none;
+    top: auto;
+  }
+
+  body:has(.flz-tabbar) .fui-toasts {
+    bottom: calc(var(--fui-tabbar-clear) + env(safe-area-inset-bottom));
+  }
 }
 
 .fui-toast {
@@ -2030,18 +2231,29 @@ a.fui-tile:hover {
   overflow: hidden;
 }
 
+.fui-palette form {
+  align-items: center;
+  border-bottom: 1px solid var(--fui-line);
+  display: flex;
+}
+
 .fui-palette-input {
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--fui-line);
   border-radius: 0;
+  flex: 1 1 auto;
   font-size: var(--fui-text-lg);
   min-height: 3.25rem;
+  min-width: 0;
   padding: 0 var(--fui-space-5);
 }
 
 .fui-palette-input:focus-visible {
   box-shadow: none;
+}
+
+.fui-palette-cancel {
+  display: none;
 }
 
 .fui-palette-list {
@@ -2077,6 +2289,41 @@ a.fui-tile:hover {
   color: var(--fui-ink-3);
   font-size: var(--fui-text-sm);
   padding: var(--fui-space-4) var(--fui-space-5);
+}
+
+/* A phone's palette fills the screen, input on top, so the keyboard never
+   covers what it found. */
+@media (width <= 599px), (height <= 500px) {
+  .fui-palette.fui-dialog {
+    padding: 0;
+    place-items: stretch;
+  }
+
+  .fui-palette .fui-dialog-panel {
+    border: 0;
+    border-radius: 0;
+    height: 100dvh;
+    max-height: none;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  }
+
+  .fui-palette-list {
+    flex: 1 1 auto;
+    max-height: none;
+    min-height: 0;
+  }
+
+  .fui-palette-input {
+    outline-offset: -2px;
+  }
+
+  .fui-palette-cancel {
+    color: var(--fui-accent);
+    display: block;
+    font-weight: 600;
+    min-height: var(--fui-control-h);
+    padding: 0 var(--fui-space-4);
+  }
 }
 
 .fui-shortcuts {
@@ -2137,6 +2384,14 @@ a.fui-tile:hover {
   position: absolute;
   right: var(--fui-space-4);
   top: var(--fui-space-4);
+}
+
+/* The shell sizes its own chrome buttons for a finger; this one sits outside it. */
+@media (pointer: coarse) {
+  .fui-auth-toggle > .flz-chrome-icon-btn {
+    min-height: var(--fui-control-h);
+    min-width: var(--fui-control-h);
+  }
 }
 
 @media (width <= 599px) {

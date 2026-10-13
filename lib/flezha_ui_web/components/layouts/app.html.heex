@@ -20,8 +20,8 @@ namespaces =
     else: FlezhaUiWeb.Layouts.dead_namespaces(assigns)
 
 problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
-<div class="flz-app">
-  <aside class="flz-sidebar">
+<div class="flz-app" phx-mounted={JS.ignore_attributes(["data-nav-open"])}>
+  <aside id="shell-nav" class="flz-sidebar" aria-label="Navigation">
     <.link
       navigate={~p"/"}
       class="flz-sidebar-brand"
@@ -53,14 +53,12 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
           class="flz-sidebar-link"
         >
           <.icon name={entry.icon} class="w-[18px] h-[18px] shrink-0" />{entry.label}
-          <span
-            :if={entry.count == :problems and problems not in [nil, []]}
-            class={"fui-count fui-count--#{FlezhaUiWeb.Attention.worst(problems)} ml-auto"}
-            data-testid="problems-count"
-            data-tone={FlezhaUiWeb.Attention.worst(problems)}
-          >
-            {length(problems)}
-          </span>
+          <.problems_count
+            :if={entry.count == :problems}
+            problems={problems}
+            class="ml-auto"
+            testid="problems-count"
+          />
         </.link>
       <% end %>
     </nav>
@@ -76,14 +74,38 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
         <span :if={node} class="flz-num truncate">{node}</span>
         <span :if={!node}>Disconnected</span>
       </div>
-      <p class="flz-num">flezha_ui v0.1.0</p>
+      <.principal
+        :if={authz.principal}
+        status={authz}
+        class="mb-2"
+        data-testid="drawer-principal"
+        data-shell-at="compact phone"
+      />
+      <div class="flex items-center justify-between gap-2">
+        <p class="flz-num">flezha_ui v0.1.0</p>
+        <.theme_toggle testid="drawer-theme-toggle" data-shell-at="phone" />
+      </div>
     </div>
   </aside>
 
-  <div class="flz-app-main">
+  <div class="flz-app-main" phx-mounted={JS.ignore_attributes(["inert"])}>
     <header class="flz-topbar" data-testid="topbar">
-      <div class="flex flex-wrap items-center gap-3">
-        <span :if={node} class="flex items-center gap-1.5">
+      <div class="flz-topbar-group">
+        <.nav_toggle
+          class="flz-chrome-icon-btn relative"
+          aria-label="Menu"
+          data-testid="nav-toggle"
+          data-shell-at="compact"
+        >
+          <.icon name="hero-bars-3" class="w-5 h-5" />
+          <.problems_count
+            problems={problems}
+            class="flz-corner-badge"
+            testid="nav-toggle-problems-count"
+          />
+        </.nav_toggle>
+
+        <span :if={node} class="flex items-center gap-1.5" data-shell-at="desk">
           <span class="fui-shape fui-tone-positive" data-shape="dot" aria-hidden="true"></span>{node}
         </span>
         <span :if={!node} class="flz-topbar-muted flex items-center gap-1.5">
@@ -92,10 +114,10 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
         </span>
 
         <%!-- One meaning in both places: show me this namespace. --%>
-        <div :if={live?} id="namespace-picker" class="relative" data-fui-pop>
+        <div :if={live?} id="namespace-picker" class="relative min-w-0" data-fui-pop>
           <button
             type="button"
-            class="flz-dropdown-trigger flz-chrome-icon-btn"
+            class="flz-dropdown-trigger flz-chrome-icon-btn max-w-full"
             data-fui-pop-trigger
             data-testid="namespace-picker"
             aria-label="Namespace scope"
@@ -103,8 +125,8 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
             aria-expanded="false"
             phx-mounted={JS.ignore_attributes(["aria-expanded"])}
           >
-            <.icon name="hero-rectangle-stack" class="w-[18px] h-[18px]" />
-            <span class="flz-num">{scope || "no namespace"}</span>
+            <.icon name="hero-rectangle-stack" class="w-[18px] h-[18px] shrink-0" />
+            <span class="flz-num truncate min-w-0">{scope || "no namespace"}</span>
             <.icon name="hero-chevron-down-micro" class="shrink-0" />
           </button>
           <div
@@ -129,7 +151,7 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center gap-3">
+      <div class="flz-topbar-group">
         <div
           :if={assigns[:refresh_interval]}
           data-testid="liveness"
@@ -138,9 +160,10 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
           <span class="flz-topbar-muted" data-testid="liveness-state">
             <span :if={assigns[:refresh_paused]}>Paused</span>
             <span :if={!assigns[:refresh_paused]}>
-              Every {FlezhaUi.Format.duration(@refresh_interval)} · {FlezhaUi.Format.time_of_day(
-                assigns[:refresh_at]
-              )}
+              <span data-shell-at="desk compact">
+                Every {FlezhaUi.Format.duration(@refresh_interval)} ·
+              </span>
+              {FlezhaUi.Format.time_of_day(assigns[:refresh_at])}
             </span>
           </span>
           <button
@@ -159,17 +182,25 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
           </button>
         </div>
 
-        <span
+        <.principal
           :if={authz.principal}
+          status={authz}
+          class="flz-topbar-muted"
           data-testid="authz-identity"
-          class="flz-num flz-topbar-muted flex items-center gap-1.5"
-          title={"flezha principal #{authz.principal}"}
+          data-shell-at="desk"
+        />
+
+        <button
+          :if={live?}
+          type="button"
+          class="flz-chrome-icon-btn"
+          phx-click={FlezhaUiWeb.CommandPalette.open()}
+          aria-label="Search or run a command"
+          data-testid="search-open"
+          data-shell-at="compact"
         >
-          <.icon name="hero-key" class="w-3.5 h-3.5" />
-          {authz.principal}
-          <span :if={authz.namespace}>/{authz.namespace}</span>
-          <span :if={authz.role}>({authz.role})</span>
-        </span>
+          <.icon name="hero-magnifying-glass" class="w-5 h-5" />
+        </button>
 
         <button
           type="button"
@@ -177,11 +208,12 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
           data-fui-help-open
           aria-label="Help for this screen"
           data-testid="help-btn"
+          data-shell-at="desk compact"
         >
           <.icon name="hero-question-mark-circle" class="w-5 h-5" />
         </button>
 
-        <.theme_toggle />
+        <.theme_toggle data-shell-at="desk compact" />
 
         <div id="account-menu" class="relative" data-fui-pop>
           <button
@@ -209,7 +241,7 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
                 assigns[:current_scope].user.email}
             </p>
             <hr class="flz-menu-sep" />
-            <.link navigate={~p"/users/settings"} class="flz-menu-item" data-fui-pop-item>
+            <.link href={~p"/users/settings"} class="flz-menu-item" data-fui-pop-item>
               <.icon name="hero-cog-6-tooth" class="w-4 h-4" /> Settings
             </.link>
             <hr class="flz-menu-sep" />
@@ -236,18 +268,44 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
       <% end %>
     </main>
   </div>
-</div>
 
-<%!-- What `g` then a letter follows; each is in the rail too. --%>
-<div hidden>
-  <.link navigate={(scope && ~p"/namespaces/#{scope}") || ~p"/namespaces"} data-shortcut="h">
-    Home
-  </.link>
-  <.link navigate={(scope && ~p"/namespaces/#{scope}/relays") || ~p"/relays"} data-shortcut="r">
-    Relays
-  </.link>
-  <.link navigate={~p"/problems"} data-shortcut="p">Problems</.link>
-  <.link navigate={~p"/cluster"} data-shortcut="c">Cluster</.link>
+  <nav
+    class="flz-tabbar"
+    aria-label="Main"
+    data-testid="tabbar"
+    data-shell-at="phone"
+    phx-mounted={JS.ignore_attributes(["inert"])}
+  >
+    <.link
+      :for={{key, entry} <- shortcuts(scope)}
+      navigate={entry.path}
+      data-shortcut={key}
+      hidden={key == "c"}
+      aria-current={nav_current?(current_path, entry.path) && "page"}
+      class="flz-tabbar-item"
+      data-testid={"tabbar-#{String.downcase(entry.label)}"}
+    >
+      <.icon name={entry.icon} class="w-[22px] h-[22px] shrink-0" />{entry.label}
+      <.problems_count
+        :if={entry.count == :problems}
+        problems={problems}
+        class="flz-corner-badge"
+        testid="tabbar-problems-count"
+      />
+    </.link>
+    <button
+      :if={live?}
+      type="button"
+      class="flz-tabbar-item"
+      phx-click={FlezhaUiWeb.CommandPalette.open()}
+      data-testid="tabbar-search"
+    >
+      <.icon name="hero-magnifying-glass" class="w-[22px] h-[22px] shrink-0" />Search
+    </button>
+    <.nav_toggle class="flz-tabbar-item" data-testid="tabbar-menu">
+      <.icon name="hero-bars-3" class="w-[22px] h-[22px] shrink-0" />Menu
+    </.nav_toggle>
+  </nav>
 </div>
 
 <.flash_group flash={@flash} />

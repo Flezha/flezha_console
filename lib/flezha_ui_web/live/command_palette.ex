@@ -45,6 +45,9 @@ defmodule FlezhaUiWeb.CommandPalette do
   @doc "The id the shell mounts this under, and `invalidate/1` addresses."
   def id, do: @id
 
+  @doc "Opens the palette from a control, for a screen without a keyboard."
+  def open, do: JS.push("open", target: "##{@id}")
+
   @impl true
   def update(assigns, socket) do
     {:ok,
@@ -193,7 +196,9 @@ defmodule FlezhaUiWeb.CommandPalette do
       <div :if={@open} class="fui-dialog fui-palette">
         <div class="fui-scrim"></div>
         <div
+          id="command-palette-panel"
           class="fui-dialog-panel"
+          phx-hook="FlzFocus"
           role="dialog"
           aria-modal="true"
           aria-label="Search or run a command"
@@ -217,6 +222,16 @@ defmodule FlezhaUiWeb.CommandPalette do
               data-testid="command-palette-input"
               phx-debounce="80"
             />
+            <%!-- A phone has no Escape key and no outside to tap. --%>
+            <button
+              type="button"
+              class="fui-palette-cancel"
+              phx-click="close"
+              phx-target={@myself}
+              data-testid="command-palette-close"
+            >
+              Cancel
+            </button>
           </form>
 
           <p :if={@found == []} class="fui-palette-note" data-testid="command-palette-empty">
