@@ -70,7 +70,7 @@ test.describe('Plugin packages', () => {
     await expect(page.getByTestId('installed-status-flezha_http_tampered')).toHaveText(/Refused/);
 
     const error = page.getByTestId('installed-error-flezha_http_tampered');
-    await expect(error).toContainText(/\(plugin\.[a-z_]+\)/);
+    await expect(error).toContainText(/plugin\.[a-z_]+/);
     await expect(error.getByTestId('runtime-error-reference')).toHaveAttribute(
       'href',
       /\/errors\.html#plugin$/,

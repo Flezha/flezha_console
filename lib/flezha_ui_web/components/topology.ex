@@ -1472,7 +1472,9 @@ defmodule FlezhaUiWeb.Topology do
 
       <dl data-testid="tap-figures" class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
         <dt class="topo-muted">Messages</dt>
-        <dd class="topo-secondary font-mono text-right">{@tap.count}</dd>
+        <dd data-testid="tap-msg-count" class="topo-secondary font-mono text-right">
+          {@tap.count}
+        </dd>
         <dt class="topo-muted">Total</dt>
         <dd class="topo-secondary font-mono text-right">{Format.bytes(@tap.bytes)}</dd>
         <dt class="topo-muted">Rate</dt>

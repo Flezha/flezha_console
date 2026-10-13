@@ -240,7 +240,9 @@ test.describe('Payload tap', () => {
     await expect(page.getByTestId('tap-figures')).toBeVisible();
     await expect(page.getByTestId('topo-port-state-in')).toHaveText('tapping');
     await expect.poll(() => observers(page, 'in'), { timeout: ADVANCE_WINDOW_MS }).toBe(before + 1);
-    await expectAdvances(page.getByTestId('tap-msg-rate'), 'the tap message rate');
+    // The count is what advances; a steady rate only holds above zero.
+    await expectAdvances(page.getByTestId('tap-msg-count'), 'the tapped message count');
+    await expect(page.getByTestId('tap-msg-rate')).not.toHaveText(/^\s*0(\.0+)?\s*msgs\/s/);
     await expect(page.getByTestId('tap-byte-rate')).not.toHaveText(/^\s*0 B\/s\s*$/);
     await expect(page.getByTestId('tap-recent').locator('li').first()).toBeVisible();
     expect(await nodeBoxes(page)).toEqual(boxes);

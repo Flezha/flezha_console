@@ -152,7 +152,7 @@ test.describe('Theme contract', () => {
         topbar!.height,
       );
       expect(await logo.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
-        await rgb(page, await token(page, '--text-primary')),
+        await rgb(page, await token(page, '--logo-ink')),
       );
     }
   });
@@ -180,10 +180,10 @@ test.describe('Theme contract', () => {
     page,
     live,
   }) => {
+    const own = new URL(test.info().project.use.baseURL!).host;
     const thirdParty: string[] = [];
     page.on('request', (r) => {
-      const url = new URL(r.url());
-      if (url.host !== 'localhost:4000') thirdParty.push(r.url());
+      if (new URL(r.url()).host !== own) thirdParty.push(r.url());
     });
 
     await live('/');

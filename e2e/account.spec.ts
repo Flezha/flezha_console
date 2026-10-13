@@ -31,7 +31,9 @@ async function createAndLogIn(page: Page): Promise<string> {
 test.describe('Accounts', () => {
   test('there is no registration page, and the login says who makes accounts', async ({
     page,
+    pageHealth,
   }) => {
+    pageHealth.allow(/\/users\/register/, 'the test asks for the page to prove it is not there');
     expect((await page.goto('/users/register'))?.status()).toBe(404);
 
     await page.goto('/users/log-in');
