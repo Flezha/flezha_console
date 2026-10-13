@@ -90,15 +90,20 @@ test.describe('Theme contract', () => {
     expect(await current.evaluate((el) => getComputedStyle(el).color)).toBe(
       await rgb(page, await token(page, '--accent-solid')),
     );
+    expect(await current.evaluate((el) => getComputedStyle(el).borderLeftColor)).toBe(
+      await rgb(page, await token(page, '--accent-solid')),
+    );
+    expect(await bg('.flz-topbar'), 'the topbar belongs to the page, not the rail').toBe(
+      await bg('.flz-canvas'),
+    );
+    expect(await bg('.flz-topbar')).not.toBe(sidebarDark);
     expect(
-      await page.locator('.flz-topbar').evaluate((el) => getComputedStyle(el).backgroundImage),
-      'the topbar is flat, so it and the rail read as one surface',
-    ).toBe('none');
-    expect(await bg('.flz-topbar')).toBe(sidebarDark);
+      await page.locator('.flz-topbar').evaluate((el) => getComputedStyle(el).borderBottomWidth),
+      'a hairline sets the topbar off the content',
+    ).toBe('1px');
     for (const [selector, edge] of [
       ['.flz-sidebar', 'borderRightWidth'],
       ['.flz-sidebar-brand', 'borderBottomWidth'],
-      ['.flz-topbar', 'borderBottomWidth'],
     ] as const) {
       expect(
         await page.locator(selector).evaluate((el, e) => getComputedStyle(el)[e], edge),
