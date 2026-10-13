@@ -9,6 +9,8 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * `E2E_BASE_URL` points the suite at a stack published on another port.
  */
+const MARKET_STACK = process.env.E2E_MARKET_STACK === '1';
+
 export default defineConfig({
   testDir: './e2e',
 
@@ -44,8 +46,24 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: 'phone.spec.ts',
+      // With the market stack named, its spec runs in its own project below;
+      // without it, the spec runs here and skips, saying why.
+      testIgnore: MARKET_STACK ? ['phone.spec.ts', 'relay-data-flow.spec.ts'] : 'phone.spec.ts',
     },
+    // flezha_trader's dev stack, which runs this console on its own port.
+    ...(MARKET_STACK
+      ? [
+          {
+            name: 'market',
+            use: {
+              ...devices['Desktop Chrome'],
+              baseURL: process.env.E2E_MARKET_URL ?? 'http://localhost:4000',
+              storageState: 'e2e/.auth/market.json',
+            },
+            testMatch: 'relay-data-flow.spec.ts',
+          },
+        ]
+      : []),
     {
       // A phone held in portrait: touch, a coarse pointer and a mobile viewport.
       name: 'phone',

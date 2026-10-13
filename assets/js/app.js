@@ -441,8 +441,16 @@ Hooks.FlzPipeline = {
     this.el.addEventListener("focusin", this.onFocus)
     this.el.addEventListener("focusout", this.onLeave)
     this.el.addEventListener("keydown", this.onKeydown)
+
+    // A hidden tab's page keeps ticking, so the screen is told to stop reading.
+    this.onVisibility = () => this.pushEvent("refresh_visibility", {hidden: document.hidden})
+    document.addEventListener("visibilitychange", this.onVisibility)
+    if (document.hidden) { this.onVisibility() }
   },
+  // A rejoined LiveView starts afresh, so it is told again about a hidden tab.
+  reconnected() { if (document.hidden) { this.onVisibility() } },
   destroyed() {
+    document.removeEventListener("visibilitychange", this.onVisibility)
     cancelAnimationFrame(this.frame)
     this.flights = []
   },
@@ -589,15 +597,22 @@ Hooks.FlzPipeline = {
     const step = {ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0]}[event.key]
     const from = event.target.closest?.("[data-nav]")
     if (!step || !from || event.altKey || event.ctrlKey || event.metaKey) { return }
-    const lanes = ["life", "record", "fail"]
+    const lanes = ["life", "record", "inside", "fail"]
     const stops = [...this.el.querySelectorAll("[data-nav]")]
     const lane = lanes.indexOf(from.dataset.lane)
     const centre = el => { const box = el.getBoundingClientRect(); return box.left + box.width / 2 }
+    const middle = el => { const box = el.getBoundingClientRect(); return box.top + box.height / 2 }
     let target = null
 
     if (step[1]) {
       target = stops.find(el => el.dataset.lane === from.dataset.lane && Number(el.dataset.nav) === Number(from.dataset.nav) + step[1])
-    } else {
+    } else if (from.dataset.lane === "inside") {
+      // Inside the relay, Up and Down walk the column first.
+      target = stops
+        .filter(el => el.dataset.lane === "inside" && Math.abs(centre(el) - centre(from)) < 40 && Math.sign(middle(el) - middle(from)) === step[0])
+        .sort((a, b) => Math.abs(middle(a) - middle(from)) - Math.abs(middle(b) - middle(from)))[0]
+    }
+    if (!target && !step[1]) {
       for (let next = lane + step[0]; !target && next >= 0 && next < lanes.length; next += step[0]) {
         const row = stops.filter(el => el.dataset.lane === lanes[next])
         target = row.sort((a, b) => Math.abs(centre(a) - centre(from)) - Math.abs(centre(b) - centre(from)))[0]

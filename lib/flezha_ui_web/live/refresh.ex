@@ -40,7 +40,8 @@ defmodule FlezhaUiWeb.Live.Refresh do
   # for its own modal cannot drop the operator's pause by forgetting to call
   # back into it.
   def tick(module, socket) do
-    if socket.assigns[:refresh_paused] or module.refresh_paused?(socket) do
+    if socket.assigns[:refresh_paused] || socket.assigns[:refresh_hidden] ||
+         module.refresh_paused?(socket) do
       socket
     else
       socket |> module.refresh() |> mark_refreshed()
@@ -64,6 +65,27 @@ defmodule FlezhaUiWeb.Live.Refresh do
     socket = Phoenix.Component.assign(socket, :refresh_paused, paused)
 
     if paused, do: socket, else: tick(module, socket)
+  end
+
+  @doc """
+  Stops reading while the browser tab is hidden, and reads at once when it is
+  shown again, so a tab left in the background asks the controller nothing.
+  A hook reports the tab's visibility as `"refresh_visibility"`.
+  """
+  def visibility(socket, module, hidden) do
+    was_hidden = socket.assigns[:refresh_hidden] || false
+    socket = Phoenix.Component.assign(socket, :refresh_hidden, hidden)
+
+    if was_hidden and not hidden, do: tick(module, socket), else: socket
+  end
+
+  @doc false
+  # A runner of the screen's namespace came or went: what was read once and
+  # kept, such as a relay's announced graph, may be stale, so `:runner_epoch`
+  # counts these for whoever keys a cache on it, and the screen reads at once.
+  def runner_changed(module, socket) do
+    epoch = (socket.assigns[:runner_epoch] || 0) + 1
+    tick(module, Phoenix.Component.assign(socket, :runner_epoch, epoch))
   end
 
   @doc false
@@ -112,7 +134,7 @@ defmodule FlezhaUiWeb.Live.Refresh do
               |> FlezhaUiWeb.River.runner(event, data)
 
             if FlezhaUiWeb.Live.Refresh.concerns?(socket, data),
-              do: {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket)},
+              do: {:noreply, FlezhaUiWeb.Live.Refresh.runner_changed(__MODULE__, socket)},
               else: {:noreply, socket}
           end
         end
@@ -177,6 +199,11 @@ defmodule FlezhaUiWeb.Live.Refresh do
       @impl Phoenix.LiveView
       def handle_event("refresh_toggle", _params, socket) do
         {:noreply, FlezhaUiWeb.Live.Refresh.toggle_pause(socket, __MODULE__)}
+      end
+
+      def handle_event("refresh_visibility", %{"hidden" => hidden}, socket)
+          when is_boolean(hidden) do
+        {:noreply, FlezhaUiWeb.Live.Refresh.visibility(socket, __MODULE__, hidden)}
       end
 
       @impl FlezhaUiWeb.Live.Refresh

@@ -62,7 +62,22 @@ defmodule FlezhaUiWeb.Topology do
   @lane_gap 64
   @life_y @pad
   @record_y @life_y + @chip_h + @lane_gap
-  @fail_y @record_y + @node_h + @lane_gap
+
+  # Inside a relay boundary, below its header: entry ports on the left edge,
+  # tasklet columns by depth, plugin-bound ports on the right edge, and the
+  # plugins attached to those ports in a column on either side of it.
+  @inside_top @node_h + 36
+  @inside_pad 24
+  @entry_margin 150
+  @exit_margin 150
+  @tasklet_w 152
+  @tasklet_h 40
+  @tasklet_pitch 52
+  @column_gap 120
+  @entry_pitch 40
+  @exit_pitch 30
+  @side_gap 48
+  @side_pitch @node_h + 8
 
   # The pipeline shows the mean of the newest samples, so a relay moving one
   # record every few ticks does not flicker between a figure and zero.
@@ -84,6 +99,7 @@ defmodule FlezhaUiWeb.Topology do
   @quiet %{in: :quiet, out: :quiet}
 
   @history_limit 60
+  @stale_baseline_ms 10_000
   @stall_window_us 60_000_000
   @stall_query %{source: :flezha_health, limit: 20}
 
@@ -130,7 +146,10 @@ defmodule FlezhaUiWeb.Topology do
         prev_parked: nil,
         seen: %{in: nil, out: nil},
         modes: @quiet,
-        opened_at: System.monotonic_time(:millisecond)
+        opened_at: System.monotonic_time(:millisecond),
+        graph: nil,
+        graph_for: nil,
+        activity: nil
       }
     )
   end
@@ -148,7 +167,7 @@ defmodule FlezhaUiWeb.Topology do
   """
   def load_pipeline(socket) do
     %{ns: namespace, relay_id: relay_id, overwatch: facts} = socket.assigns
-    state = socket.assigns.topology_state
+    state = forget_stale(socket.assigns.topology_state)
     token = socket.assigns[:flezha_token]
 
     if NodeManager.connected_node() do
@@ -156,6 +175,8 @@ defmodule FlezhaUiWeb.Topology do
       {_rates, ticked} = advance(state, snapshot, [relay_id])
       {verdicts, stall_notice} = stall(token)
       parked = parked_for(facts, token)
+      {graph, graph_for, activity} = inside_reads(socket, state, facts, token)
+      ticked = %{ticked | graph: graph, graph_for: graph_for, activity: activity}
       {ticked, counts} = tick(state, ticked, relay_id, snapshot, parked)
 
       # A failed read measures nothing, so nothing is shown as moving.
@@ -181,7 +202,10 @@ defmodule FlezhaUiWeb.Topology do
           seen: ticked.seen,
           modes: modes,
           opened_at: ticked.opened_at,
-          now: System.monotonic_time(:millisecond)
+          now: System.monotonic_time(:millisecond),
+          graph: graph,
+          activity: activity,
+          prev_activity: state.activity
         })
       )
       |> push_counts(counts)
@@ -189,6 +213,58 @@ defmodule FlezhaUiWeb.Topology do
       disconnected(socket, state)
     end
   end
+
+  # A baseline older than a few ticks, as after a hidden tab or a pause, would
+  # replay all it missed as one tick, so the next reading starts afresh.
+  defp forget_stale(%{prev_at: at} = state) when is_integer(at) do
+    if System.monotonic_time(:millisecond) - at > @stale_baseline_ms,
+      do: drop_baseline(state),
+      else: state
+  end
+
+  defp forget_stale(state), do: state
+
+  # What the next reading is measured against.
+  defp drop_baseline(state),
+    do: %{state | prev: nil, prev_at: nil, prev_parked: nil, activity: nil}
+
+  # The graph is the factory's announcement, so it is read once the page is
+  # connected and again only when the relay is bound anew, a runner of its
+  # namespace comes or goes, or its runner started another instance, or after
+  # a read that failed for a reason that may pass. Activity is read only for a
+  # relay whose inside is drawn, and the dead render reads neither.
+  defp inside_reads(socket, state, facts, token) do
+    %{ns: namespace, relay_id: relay_id} = socket.assigns
+    key = {facts.runner_id, Map.get(facts, :bound_at), socket.assigns[:runner_epoch]}
+    read_graph = fn -> NodeManager.relay_graph(namespace, relay_id, token) end
+
+    if Phoenix.LiveView.connected?(socket) do
+      fresh? = state.graph_for != key or not settled?(state.graph)
+      graph = if fresh?, do: read_graph.(), else: state.graph
+      activity = activity(graph, namespace, relay_id, token)
+
+      if not fresh? and restarted?(state.activity, activity),
+        do: {read_graph.(), key, activity},
+        else: {graph, key, activity}
+    else
+      {nil, nil, nil}
+    end
+  end
+
+  # The runner answering now started again since the last reading.
+  defp restarted?(%{} = before, %{} = now), do: instance(before) != instance(now)
+  defp restarted?(_before, _now), do: false
+
+  defp settled?({:ok, _read}), do: true
+  defp settled?({:error, {:api_missing, _module, _function, _arity}}), do: true
+  defp settled?({:error, reason}), do: NodeManager.error(reason).class in [:denied, :not_found]
+  defp settled?(_unread), do: false
+
+  defp activity({:ok, %{graph: %{}}}, namespace, relay_id, token) do
+    namespace |> NodeManager.relay_activity(relay_id, token) |> NodeManager.ok_or(nil)
+  end
+
+  defp activity(_graph, _namespace, _relay_id, _token), do: nil
 
   defp push_counts(socket, nil), do: socket
 
@@ -209,7 +285,18 @@ defmodule FlezhaUiWeb.Topology do
       interval = now - before.prev_at
       counts = advances(previous, current) |> Map.put(:parked, parked_by)
       seconds = max(interval, 1) / 1_000
-      history = sample_parked(ticked.history, relay_id, Float.round(parked_by / seconds, 1))
+
+      history =
+        sample_more(
+          ticked.history,
+          relay_id,
+          Map.put(
+            tasklet_rates(ticked.activity, before.activity),
+            :parked,
+            per_second(parked_by, seconds)
+          )
+        )
+
       seen = Map.new(ticked.seen, fn {key, at} -> {key, (counts[key] > 0 && now) || at} end)
       newest = history |> Map.get(relay_id, []) |> Enum.reverse()
 
@@ -225,17 +312,48 @@ defmodule FlezhaUiWeb.Topology do
     end
   end
 
-  # `push_history/2` stores the shared rates; the parked rate is the
-  # pipeline's own, added to the sample this tick just pushed.
-  defp sample_parked(history, relay_id, rate) do
+  # `push_history/2` stores the shared rates; the parked and tasklet rates are
+  # the pipeline's own, added to the sample this tick just pushed.
+  defp sample_more(history, relay_id, rates) do
     case history do
       %{^relay_id => [newest | older]} ->
-        %{history | relay_id => [Map.put(newest, :parked, rate) | older]}
+        %{history | relay_id => [Map.merge(newest, rates) | older]}
 
       _none ->
         history
     end
   end
+
+  @doc """
+  Each tasklet's input rate between two activity reads, keyed `{:tasklet,
+  name}`: the advance of its `admitted_total` over the advance of the runner's
+  `read_at_ms`. A total that went backwards clamps to zero, and reads of two
+  different instances, whose totals started again, give no rate.
+  """
+  def tasklet_rates(%{read_at_ms: now} = current, %{read_at_ms: before} = previous)
+      when is_integer(now) and is_integer(before) and now > before do
+    seconds = (now - before) / 1_000
+    base = same_instance_rows(current, previous)
+
+    for %{tasklet: name, admitted_total: total} <- current.tasklets,
+        is_integer(total) and is_integer(base[name][:admitted_total]),
+        into: %{},
+        do: {{:tasklet, name}, per_second(advance_of(total, base[name].admitted_total), seconds)}
+  end
+
+  def tasklet_rates(_current, _previous), do: %{}
+
+  defp instance(read), do: {read[:runner], read[:instance_seq]}
+
+  # The previous read's rows by tasklet, when the same instance answered both
+  # reads; totals of another instance started again and compare to nothing.
+  defp same_instance_rows(current, previous) do
+    if previous && instance(previous) == instance(current),
+      do: Map.new(previous.tasklets, &{&1.tasklet, &1}),
+      else: %{}
+  end
+
+  defp per_second(count, seconds), do: Float.round(count / seconds, 1)
 
   @doc """
   Reloads a namespace's fleet summary.
@@ -308,7 +426,7 @@ defmodule FlezhaUiWeb.Topology do
       {_rates, state} = advance(state, snapshot, ids)
       assign(socket, topology_state: state)
     else
-      assign(socket, topology_state: %{state | prev: nil, prev_at: nil, rates: %{}})
+      assign(socket, topology_state: %{drop_baseline(state) | rates: %{}})
     end
   end
 
@@ -348,14 +466,13 @@ defmodule FlezhaUiWeb.Topology do
     assign_topology(
       socket,
       %{
-        state
-        | prev: nil,
-          prev_at: nil,
-          rates: %{},
+        drop_baseline(state)
+        | rates: %{},
           history: %{},
-          prev_parked: nil,
           seen: %{in: nil, out: nil},
-          modes: @quiet
+          modes: @quiet,
+          graph: nil,
+          graph_for: nil
       },
       %{kind: :disconnected, state: :disconnected}
     )
@@ -483,9 +600,13 @@ defmodule FlezhaUiWeb.Topology do
     facts = input.facts
     history = Map.get(input, :history, [])
     channel = channel_for(input.snapshot, facts.runner_id)
+    announced = announced(Map.get(input, :graph))
 
     %{inbound: inbound, outbound: outbound, chips: chips, observers: observers} =
       stages(facts.bindings)
+
+    %{inbound: inbound, outbound: outbound, sides: sides} =
+      attach(inbound, outbound, Map.get(facts, :sources, []), announced)
 
     stalled = stalled_subject(input, facts, channel)
     counters = relay_counters(input.snapshot, input.relay_id)
@@ -497,6 +618,8 @@ defmodule FlezhaUiWeb.Topology do
         bytes_in: smoothed_bytes(history, :bytes_in),
         bytes_out: smoothed_bytes(history, :bytes_out)
       }
+
+    inside = inside(announced, sides, figures(input, history))
 
     nodes =
       layout(
@@ -515,16 +638,18 @@ defmodule FlezhaUiWeb.Topology do
           Enum.map(outbound, &plugin_node(&1, :record)) ++
           [channel_node(facts, channel, stalled), output_node()] ++
           Enum.map(chips, &plugin_node(&1, :life)) ++
-          [filtered_node(counters), dead_letter_node(input.parked)]
+          [filtered_node(counters), dead_letter_node(input.parked)],
+        inside
       )
 
-    record = Enum.filter(nodes, &(&1.lane == :record))
+    record = Enum.filter(nodes, &(&1.lane == :record and !&1[:inner?]))
     core = Enum.find(record, &(&1.kind == :core))
     modes = Map.get(input, :modes, @quiet)
     recency = recency(input, rates, modes)
     backpressure? = Enum.any?(record, &(&1[:backpressure?] == true))
     chain = chain_edges(record, core, rates, modes, recency, backpressure?)
     branches = for node <- nodes, node.lane != :record, do: branch(node, core)
+    wires = inside_wires(inside, nodes)
 
     ports = ports(record, rates, recency, observers)
     nav = nav_order(nodes, ports)
@@ -537,6 +662,8 @@ defmodule FlezhaUiWeb.Topology do
 
     word = state_word(history, modes, backpressure?)
     width = canvas_width(nodes)
+    fail_y = nodes |> Enum.find(&(&1.lane == :fail)) |> Map.fetch!(:y)
+    side_plugins = sides |> Map.values() |> List.flatten()
 
     %{
       kind: :pipeline,
@@ -544,16 +671,21 @@ defmodule FlezhaUiWeb.Topology do
       namespace: input.namespace,
       relay_id: input.relay_id,
       nodes: nodes,
-      edges: chain ++ branches,
+      edges: chain ++ branches ++ wires,
       ports: Enum.map(ports, &Map.put(&1, :nav, nav[{:port, &1.id}])),
       routes: route_paths(record, core, branches),
       width: width,
-      height: @fail_y + @end_h + @pad,
+      fail_y: fail_y,
+      height: fail_y + @end_h + @pad,
+      inside: inside_note(Map.get(input, :graph), announced),
       selected: Enum.find(nodes, &(&1.id == input.selected && &1.selectable?)),
       stall: List.first(input.verdicts),
       stall_notice: Map.get(input, :stall_notice),
       skew: input.skew,
-      plugin_count: (inbound ++ outbound ++ chips) |> Enum.map(& &1.plugin_id) |> count_ids(),
+      plugin_count:
+        (inbound ++ outbound ++ chips ++ side_plugins)
+        |> Enum.map(& &1.plugin_id)
+        |> count_ids(),
       observer_count: observers |> Map.values() |> List.flatten() |> count_ids(),
       flow: %{word: word, sentence: sentence(word, history, rates, modes, input)},
       timeline: timeline(history)
@@ -605,25 +737,421 @@ defmodule FlezhaUiWeb.Topology do
   # A step on the record lane is one binding, so its id names its hook; a
   # lifecycle chip is one plugin, listing every hook it is bound to.
   defp plugin_node(entry, lane) do
+    Map.merge(
+      Map.take(entry, [:channel, :ports, :missing, :every_channel?]),
+      %{
+        id: plugin_node_id(entry, lane),
+        kind: :plugin,
+        lane: lane,
+        label: entry.plugin_id,
+        sub:
+          entry[:sub] ||
+            "#{entry.hook}#{position_suffix(entry[:position])} · #{short_provider(entry.provider)}",
+        selectable?: true,
+        plugin_id: entry.plugin_id,
+        hook: entry.hook,
+        provider: entry.provider,
+        position: entry[:position]
+      }
+    )
+  end
+
+  defp plugin_node_id(entry, :record), do: "plugin-#{entry.plugin_id}-#{entry.hook}"
+  defp plugin_node_id(entry, _lane), do: "plugin-#{entry.plugin_id}"
+
+  # ---- The relay's inside ----
+
+  defp announced({:ok, %{graph: %{channels: channels, tasklets: tasklets} = graph}})
+       when is_list(channels) and is_list(tasklets),
+       do: graph
+
+  defp announced(_none), do: nil
+
+  # A channel that leaves the relay for a plugin output or a call.
+  defp exit?(%{kind: "entry"}), do: false
+  defp exit?(channel), do: channel.kind == "plugin_bound" or channel.plugin_end in ~w(output call)
+
+  # Without an announced graph every plugin keeps its place on the record
+  # lane. With one, a plugin naming channels the relay has hangs off their
+  # ports, while one naming none, or only channels the relay does not have,
+  # stays on the record lane, attached to the relay as a whole. A source
+  # feeds its entry the way an `on_input` plugin acts on it, so both hang
+  # off the entry ports.
+  defp attach(inbound, outbound, _sources, nil),
+    do: %{inbound: inbound, outbound: outbound, sides: %{in: [], out: []}}
+
+  defp attach(inbound, outbound, sources, graph) do
+    entries = for %{kind: "entry", name: name} <- graph.channels, do: name
+    exits = for channel <- graph.channels, exit?(channel), do: channel.name
+    known = Enum.map(graph.channels, & &1.name)
+
+    {side_in, axis_in} =
+      (Enum.map(sources, &Map.put(&1, :hook, "source")) ++ inbound)
+      |> Enum.map(&bind(&1, entries, known))
+      |> Enum.split_with(&(&1.ports != []))
+
+    {side_out, axis_out} =
+      outbound
+      |> Enum.map(&bind(&1, exits, known))
+      |> Enum.split_with(&(&1.ports != []))
+
+    %{inbound: axis_in, outbound: axis_out, sides: %{in: side_in, out: side_out}}
+  end
+
+  # A name of a channel this side does not reach, such as an output plugin's
+  # set naming an entry too, is not missing; one the graph lacks is.
+  defp bind(entry, names, known) do
+    named = entry[:channel] || []
+    ports = Enum.filter(named, &(&1 in names))
+
+    Map.merge(entry, %{
+      ports: ports,
+      missing: Enum.reject(named, &(&1 in known)),
+      every_channel?: ports == [] and entry.hook != "source"
+    })
+  end
+
+  # What each tasklet is doing, from this tick's activity read beside the
+  # previous one: its smoothed input rate, its backlog once its deepest Cell
+  # has held a queue for two reads, and what it shed since the last read.
+  # Nothing at all when this tick's read failed.
+  defp figures(input, history) do
+    case Map.get(input, :activity) do
+      %{tasklets: rows} = current ->
+        before = same_instance_rows(current, Map.get(input, :prev_activity))
+
+        figures = Map.new(rows, &{&1.tasklet, tasklet_figure(&1, before[&1.tasklet], history)})
+
+        deepest =
+          figures
+          |> Enum.filter(fn {_name, figure} -> figure.backlog end)
+          |> Enum.max_by(fn {_name, figure} -> figure.row[:queued_max] end, fn -> nil end)
+
+        case deepest do
+          {name, figure} -> Map.put(figures, name, %{figure | deepest?: true})
+          nil -> figures
+        end
+
+      _unread ->
+        %{}
+    end
+  end
+
+  defp tasklet_figure(row, previous, history) do
+    key = {:tasklet, row.tasklet}
+    samples = history |> Enum.take(-@smoothing) |> Enum.filter(&Map.has_key?(&1, key))
+    queued? = &(is_integer(&1[:queued_max]) and &1[:queued_max] > 0)
+
     %{
-      id:
-        if(lane == :record,
-          do: "plugin-#{entry.plugin_id}-#{entry.hook}",
-          else: "plugin-#{entry.plugin_id}"
-        ),
-      kind: :plugin,
-      lane: lane,
-      label: entry.plugin_id,
-      sub:
-        entry[:sub] ||
-          "#{entry.hook}#{position_suffix(entry.position)} · #{short_provider(entry.provider)}",
-      selectable?: true,
-      plugin_id: entry.plugin_id,
-      hook: entry.hook,
-      provider: entry.provider,
-      position: entry.position
+      row: row,
+      rate: if(samples != [], do: smoothed(samples, key)),
+      backlog: if(previous && queued?.(row) && queued?.(previous), do: row.queued_max),
+      shed: if(previous, do: advance_of(dropped(row), dropped(previous)), else: 0),
+      deepest?: false
     }
   end
+
+  defp dropped(row) do
+    [:dropped_newest_total, :dropped_oldest_total, :dropped_capped_total]
+    |> Enum.map(&(row[&1] || 0))
+    |> Enum.sum()
+  end
+
+  # Lays out a relay's announced graph inside its boundary, at the boundary's
+  # own origin: entry ports down the left edge, tasklets in columns by their
+  # longest distance from an entry, plugin-bound ports down the right edge, and
+  # the plugins attached to those ports in a column outside each edge.
+  #
+  # Pure and fed only the graph and the bindings, so a tick never moves it.
+  # Answers the boundary's size, how far its left column reaches out, the
+  # nodes, and the wires between them by node id; nil without a graph.
+  defp inside(nil, _sides, _figures), do: nil
+
+  defp inside(graph, sides, figures) do
+    names = Enum.map(graph.tasklets, & &1.name)
+    order = names |> Enum.with_index() |> Map.new()
+
+    inputs =
+      Map.new(names, fn name -> {name, for(c <- graph.channels, name in c.consumers, do: c)} end)
+
+    depth = depths(names, inputs)
+    columns = depth |> Map.values() |> Enum.max(fn -> 0 end)
+
+    entry_y =
+      for(%{kind: "entry"} = c <- graph.channels, do: c.name)
+      |> Enum.with_index(fn name, i ->
+        {name, @inside_top + div(@entry_pitch, 2) + i * @entry_pitch}
+      end)
+      |> Map.new()
+
+    tasklet_y =
+      Enum.reduce(1..columns//1, %{}, fn column, ys ->
+        names
+        |> Enum.filter(&(depth[&1] == column))
+        |> Enum.map(&{&1, centre_of(inputs[&1], entry_y, ys), order[&1]})
+        |> stack_down(div(@tasklet_h, 2), @tasklet_pitch)
+        |> Map.new()
+        |> Map.merge(ys)
+      end)
+
+    width =
+      @entry_margin + max(columns, 1) * @tasklet_w + max(columns - 1, 0) * @column_gap +
+        @exit_margin
+
+    exit_y =
+      graph.channels
+      |> Enum.with_index()
+      |> Enum.filter(fn {channel, _i} -> exit?(channel) end)
+      |> Enum.map(fn {c, i} -> {c.name, tasklet_y[c.producer] || entry_y[c.name] || 0, i} end)
+      |> stack_down(div(@exit_pitch, 2), @exit_pitch)
+      |> Map.new()
+
+    channels = Map.new(graph.channels, &{&1.name, &1})
+
+    tasklets =
+      for t <- graph.tasklets do
+        tasklet_node(t, inputs[t.name], figures[t.name])
+        |> Map.merge(%{
+          x: column_x(depth[t.name]),
+          y: tasklet_y[t.name] - div(@tasklet_h, 2),
+          w: @tasklet_w,
+          h: @tasklet_h
+        })
+      end
+
+    ports =
+      Enum.map(entry_y, fn {name, y} -> port_node(channels[name], :entry, 0, y) end) ++
+        Enum.map(exit_y, fn {name, y} -> port_node(channels[name], :exit, width, y) end)
+
+    # Every channel between tasklets is named on its wire, a hybrid one too;
+    # a tasklet producing several stacks their names upward.
+    labels =
+      graph.channels
+      |> Enum.filter(&(&1.consumers != [] and is_map_key(tasklet_y, &1.producer)))
+      |> Enum.group_by(& &1.producer)
+      |> Enum.flat_map(fn {producer, produced} ->
+        x = column_x(depth[producer]) + @tasklet_w
+
+        produced
+        |> Enum.with_index()
+        |> Enum.map(fn {c, i} ->
+          relay_channel_node(c, :inner)
+          |> Map.merge(%{x: x + 6, y: tasklet_y[producer] - 22 - i * 16, w: 96, h: 16})
+        end)
+      end)
+
+    left = side_column(sides.in, entry_y, -(@side_gap + @node_w))
+    right = side_column(sides.out, exit_y, width + @side_gap)
+
+    bottom =
+      (Enum.map(tasklets, &(&1.y + &1.h)) ++ Enum.map(ports, &(&1.y + &1.h)))
+      |> Enum.max(fn -> @inside_top end)
+
+    %{
+      w: width,
+      h: bottom + @inside_pad,
+      lead: if(left == [], do: 0, else: @side_gap + @node_w),
+      nodes: tasklets ++ ports ++ labels ++ left ++ right,
+      wires: inside_links(graph, inputs, sides)
+    }
+  end
+
+  defp column_x(depth), do: @entry_margin + (depth - 1) * (@tasklet_w + @column_gap)
+
+  # Places items `{key, ideal centre, order}` down one column: each at its
+  # ideal, or just below the one before when that still takes the room, as
+  # `{key, centre}` in placing order.
+  defp stack_down(items, half, pitch) do
+    items
+    |> Enum.sort_by(fn {_key, ideal, order} -> {ideal, order} end)
+    |> Enum.map_reduce(@inside_top, fn {key, ideal, _order}, floor ->
+      top = max(round(ideal - half), floor)
+      {{key, top + half}, top + pitch}
+    end)
+    |> elem(0)
+  end
+
+  # Each tasklet's longest distance from an entry, the entries' consumers
+  # being 1. Relaxed once per tasklet, which also bounds a cycle.
+  defp depths(names, inputs) do
+    start = Map.new(names, &{&1, 1})
+
+    Enum.reduce(names, start, fn _round, depth ->
+      Map.new(names, fn name ->
+        deepest =
+          for(%{producer: p} <- inputs[name], is_map_key(depth, p), do: depth[p] + 1)
+          |> Enum.max(fn -> 1 end)
+
+        {name, min(deepest, length(names))}
+      end)
+    end)
+  end
+
+  # Where a tasklet would sit level with the channels feeding it.
+  defp centre_of(inputs, entry_y, ys) do
+    case for(c <- inputs, y = ys[c.producer] || entry_y[c.name], do: y) do
+      [] -> @inside_top + div(@tasklet_h, 2)
+      found -> Enum.sum(found) / length(found)
+    end
+  end
+
+  # Plugins stand level with the first port they attach to, in position order,
+  # pushed down where the one above still takes the room.
+  defp side_column(entries, port_y, x) do
+    entries
+    |> Enum.map(fn entry ->
+      anchor = entry.ports |> Enum.map(&port_y[&1]) |> Enum.min()
+      {entry, anchor, {entry[:position] || 0, entry.plugin_id}}
+    end)
+    |> stack_down(div(@node_h, 2), @side_pitch)
+    |> Enum.map(fn {entry, centre} ->
+      entry
+      |> plugin_node(:record)
+      |> Map.merge(%{inner?: true, x: x, y: centre - div(@node_h, 2), w: @node_w, h: @node_h})
+    end)
+  end
+
+  defp tasklet_node(tasklet, inputs, figure) do
+    %{
+      id: "tasklet-#{tasklet.name}",
+      kind: :tasklet,
+      lane: :record,
+      inner?: true,
+      label: tasklet.name,
+      sub: tasklet_sub(tasklet, inputs, figure),
+      selectable?: true,
+      tasklet: tasklet,
+      inputs: Enum.map(inputs, & &1.name),
+      figure: figure
+    }
+  end
+
+  # A tasklet reading one channel has its rate drawn on that wire; one reading
+  # several has it here, since the runner counts its inputs together.
+  defp tasklet_sub(tasklet, [_one], _figure), do: tasklet.mode
+
+  defp tasklet_sub(tasklet, _inputs, %{rate: rate}) when is_number(rate),
+    do: "#{tasklet.mode} · #{rate_label(rate, "/s")}"
+
+  defp tasklet_sub(tasklet, _inputs, _figure), do: tasklet.mode
+
+  defp port_node(channel, role, x, y) do
+    {hit_x, hit_w} = if role == :entry, do: {x - 8, 112}, else: {x - 132, 140}
+    channel |> relay_channel_node(role) |> Map.merge(%{x: hit_x, y: y - 12, w: hit_w, h: 24})
+  end
+
+  # A channel's name on its wire is a node apart from its port, so a hybrid
+  # channel has both.
+  defp relay_channel_node(channel, role) do
+    %{
+      id: if(role == :inner, do: "channel-#{channel.name}-wire", else: "channel-#{channel.name}"),
+      kind: :relay_channel,
+      role: role,
+      lane: :record,
+      inner?: true,
+      label: channel.name,
+      sub: channel.kind,
+      selectable?: true,
+      channel: channel
+    }
+  end
+
+  # Every wire inside and at the edges of the boundary, by the ids of its ends:
+  # a plugin into its entry, an entry into its consumers, a tasklet into the
+  # next, a tasklet out to its plugin-bound port, and that port out to the
+  # plugins that take from it.
+  defp inside_links(graph, inputs, sides) do
+    tasklet = &"tasklet-#{&1}"
+    channel = &"channel-#{&1}"
+
+    feeds =
+      for entry <- sides.in,
+          port <- entry.ports,
+          do: {:branch, plugin_node_id(entry, :record), channel.(port), port}
+
+    takes =
+      for entry <- sides.out,
+          port <- entry.ports,
+          do: {:branch, channel.(port), plugin_node_id(entry, :record), port}
+
+    passes =
+      for c <- graph.channels, consumer <- c.consumers, is_map_key(inputs, consumer) do
+        from =
+          if c.kind == "entry", do: channel.(c.name), else: c.producer && tasklet.(c.producer)
+
+        {:inner, from, tasklet.(consumer), c.name}
+      end
+
+    leaves =
+      for c <- graph.channels,
+          exit?(c),
+          is_map_key(inputs, c.producer || ""),
+          do: {:inner, tasklet.(c.producer), channel.(c.name), c.name}
+
+    feeds ++ Enum.filter(passes, &elem(&1, 1)) ++ leaves ++ takes
+  end
+
+  # The wires of the inside, drawn once every end has its place on the canvas.
+  defp inside_wires(nil, _nodes), do: []
+
+  defp inside_wires(inside, nodes) do
+    by_id = Map.new(nodes, &{&1.id, &1})
+
+    for {kind, from_id, to_id, name} <- inside.wires,
+        from = by_id[from_id],
+        to = by_id[to_id] do
+      {x1, y1} = arrival = in_point(to)
+
+      rate =
+        if kind == :inner and to.kind == :tasklet and to.inputs == [name], do: to.figure[:rate]
+
+      edge(%{
+        id: "wire-#{from_id}-#{to_id}-#{name}",
+        kind: kind,
+        d: s_curve(out_point(from), arrival, :across),
+        x1: x1 - 64,
+        x2: x1 - 4,
+        y: y1,
+        rate: rate,
+        label: rate_label(rate, "/s"),
+        bucket: speed_bucket(rate),
+        mode: wire_mode(nil, rate, nil),
+        routes: (to.kind == :plugin && to.routes) || from.routes,
+        title: inside_title(kind, from, to, name, rate)
+      })
+    end
+  end
+
+  defp out_point(%{kind: :relay_channel} = port), do: port_centre(port)
+  defp out_point(node), do: {node.x + node.w, middle(node)}
+
+  defp in_point(%{kind: :relay_channel} = port), do: port_centre(port)
+  defp in_point(node), do: {node.x, middle(node)}
+
+  defp port_centre(%{role: :entry} = port), do: {port.x + 8, middle(port)}
+  defp port_centre(port), do: {port.x + port.w - 8, middle(port)}
+
+  defp inside_title(:branch, %{kind: :plugin} = plugin, _to, name, _rate),
+    do: "#{plugin.label} feeds #{name}"
+
+  defp inside_title(:branch, _from, plugin, name, _rate),
+    do: "#{plugin.label} takes the records of #{name}"
+
+  defp inside_title(:inner, _from, to, name, rate) do
+    "#{name} into #{to.label}" <>
+      if(to.kind == :tasklet and to.inputs == [name],
+        do: ": #{rate_label(rate, "/s") || "no rate yet"}",
+        else: ""
+      )
+  end
+
+  # Why the relay is drawn as one box, when it is.
+  defp inside_note(nil, _announced), do: nil
+  defp inside_note({:ok, %{disagree: true}}, %{}), do: :disagree
+  defp inside_note(_read, %{}), do: nil
+  defp inside_note({:ok, %{factory: factory}}, nil), do: {:not_announced, factory}
+  defp inside_note({:error, {:api_missing, _m, _f, _a}}, nil), do: :not_supported
+  defp inside_note({:error, reason}, nil), do: {:unreadable, reason}
 
   defp position_suffix(nil), do: ""
   defp position_suffix(position), do: " ##{position}"
@@ -722,18 +1250,24 @@ defmodule FlezhaUiWeb.Topology do
 
   Pure, and fed only the relay's own plugins, so a listener coming or going
   moves nothing.
+
+  With `inside`, the relay's laid-out graph, the core is its boundary: the
+  record lane runs through the boundary's header, and the graph hangs below
+  it, moved to where the boundary landed.
   """
-  def layout(nodes) do
+  def layout(nodes, inside \\ nil) do
     {record, rest} = Enum.split_with(nodes, &(&1.lane == :record))
 
     {record, _x} =
       Enum.map_reduce(record, @pad, fn node, x ->
-        w = if node.kind in [:ingest, :output], do: @cap_w, else: @node_w
+        {w, h, lead} = record_size(node, inside)
         gap = if node.kind in [:ingest, :core], do: @port_gap, else: @gap
-        {place(node, x, @record_y, w, @node_h), x + w + gap}
+        node = if inside && node.kind == :core, do: Map.put(node, :boundary?, true), else: node
+        {place(node, x + lead, @record_y, w, h), x + lead + w + gap}
       end)
 
     core = Enum.find(record, &(&1.kind == :core))
+    record = record ++ within(inside, core)
     centre = core.x + div(core.w, 2)
     chips = Enum.filter(rest, &(&1.lane == :life))
     span = length(chips) * (@chip_w + @chip_gap) - @chip_gap
@@ -747,15 +1281,32 @@ defmodule FlezhaUiWeb.Topology do
         place(chip, from + i * (@chip_w + @chip_gap), @life_y, @chip_w, @chip_h)
       end)
 
+    fail_y = Enum.max(Enum.map(record, &(&1.y + &1.h))) + @lane_gap
+
     fail =
       rest
       |> Enum.filter(&(&1.lane == :fail))
       |> Enum.map(fn node ->
         x = if node.kind == :filtered, do: centre - @end_w - 8, else: centre + 8
-        place(node, x, @fail_y, @end_w, @end_h)
+        place(node, x, fail_y, @end_w, @end_h)
       end)
 
     record ++ life ++ fail
+  end
+
+  # A record-lane node's width, height, and the room kept before it: the
+  # boundary keeps room for the plugins attached to its entries.
+  defp record_size(%{kind: :core}, %{} = inside), do: {inside.w, inside.h, inside.lead}
+
+  defp record_size(%{kind: kind}, _inside) when kind in [:ingest, :output],
+    do: {@cap_w, @node_h, 0}
+
+  defp record_size(_node, _inside), do: {@node_w, @node_h, 0}
+
+  defp within(nil, _core), do: []
+
+  defp within(inside, core) do
+    for node <- inside.nodes, do: place(node, core.x + node.x, core.y + node.y, node.w, node.h)
   end
 
   defp place(node, x, y, w, h) do
@@ -779,6 +1330,8 @@ defmodule FlezhaUiWeb.Topology do
     Enum.max(Enum.map(nodes, &(&1.x + &1.w))) + @pad
   end
 
+  # A boundary's record lane runs through its header.
+  defp middle(%{boundary?: true} = node), do: node.y + div(@node_h, 2)
   defp middle(node), do: node.y + div(node.h, 2)
 
   # The record lane's wires join neighbours; the core reaches each chip and
@@ -832,44 +1385,59 @@ defmodule FlezhaUiWeb.Topology do
     end
   end
 
+  # What an edge is when it says nothing of its own: uncounted, still, and on
+  # no dot's route.
+  @edge %{
+    rate: nil,
+    label: nil,
+    bucket: :idle,
+    mode: :quiet,
+    band: false,
+    degraded?: false,
+    flow: nil,
+    at: 0.0
+  }
+
+  defp edge(fields), do: Map.merge(@edge, fields)
+
+  # An S-curve from one end to the other, leaving and arriving level
+  # (`:across`) or upright (`:down`).
+  defp s_curve({x0, y0}, {x1, y1}, :across) do
+    mid = div(x0 + x1, 2)
+    "M#{x0},#{y0} C#{mid},#{y0} #{mid},#{y1} #{x1},#{y1}"
+  end
+
+  defp s_curve({x0, y0}, {x1, y1}, :down) do
+    mid = div(y0 + y1, 2)
+    "M#{x0},#{y0} C#{x0},#{mid} #{x1},#{mid} #{x1},#{y1}"
+  end
+
   defp branch(node, core) do
     centre = core.x + div(core.w, 2)
 
     {kind, d, title} =
       case node.lane do
         :life ->
-          {from_x, to_y} = {node.x + div(node.w, 2), node.y + node.h}
-          mid = div(to_y + core.y, 2)
-
           {:satellite,
-           "M#{from_x},#{to_y} C#{from_x},#{mid} #{centre},#{mid} #{centre},#{core.y}",
+           s_curve({node.x + div(node.w, 2), node.y + node.h}, {centre, core.y}, :down),
            "#{node.label} runs on #{node.sub}, off the record path"}
 
         :fail ->
-          {x0, y0} =
-            {if(node.kind == :filtered, do: centre - 24, else: centre + 24), core.y + core.h}
-
-          {x1, y1} = {node.x + div(node.w, 2), node.y}
-          mid = div(y0 + y1, 2)
+          x0 = if node.kind == :filtered, do: centre - 24, else: centre + 24
           kind = if node.kind == :filtered, do: :filter, else: :dlq
 
-          {kind, "M#{x0},#{y0} C#{x0},#{mid} #{x1},#{mid} #{x1},#{y1}", branch_title(kind)}
+          {kind, s_curve({x0, core.y + core.h}, {node.x + div(node.w, 2), node.y}, :down),
+           branch_title(kind)}
       end
 
-    %{
+    edge(%{
       id: "branch-#{node.id}",
       kind: kind,
       d: d,
-      rate: nil,
-      bucket: :idle,
-      mode: :quiet,
-      band: false,
-      degraded?: false,
       flow: Atom.to_string(kind),
-      at: 0.0,
       routes: node.routes,
       title: title
-    }
+    })
   end
 
   defp branch_title(:filter), do: "Records the relay dropped by returning nil"
@@ -943,23 +1511,30 @@ defmodule FlezhaUiWeb.Topology do
     (for(
        node <- nodes,
        node.selectable? or node.kind == :dead_letter,
-       do: {{:node, node.id}, node.lane, node.x}
+       do: {{:node, node.id}, nav_lane(node), {node.x, node.y}}
      ) ++
-       for(port <- ports, do: {{:port, port.id}, :record, port.x}))
+       for(port <- ports, do: {{:port, port.id}, :record, {port.x, port.y}}))
     |> Enum.group_by(&elem(&1, 1))
     |> Enum.flat_map(fn {_lane, members} ->
       members
       |> Enum.sort_by(&elem(&1, 2))
-      |> Enum.with_index(fn {key, _lane, _x}, i -> {key, i} end)
+      |> Enum.with_index(fn {key, _lane, _at}, i -> {key, i} end)
     end)
     |> Map.new()
   end
+
+  # The relay's inside is a lane of its own for the keyboard, below the
+  # record lane, so the arrows walk the record path as they do without it.
+  defp nav_lane(%{inner?: true}), do: :inside
+  defp nav_lane(node), do: node.lane
 
   # Where a dot's route crosses a box, as fractions of that route: the hook
   # lights the box as the dot reaches it and hides the dot inside it, so a
   # record passes through a box rather than over it. A box at an end of the
   # route lights as the dot leaves or lands.
   defp crossing(%{lane: :life}, _record, _core), do: %{}
+  defp crossing(%{inner?: true}, _record, _core), do: %{}
+  defp crossing(%{boundary?: true}, _record, _core), do: %{}
 
   defp crossing(%{lane: :fail} = node, _record, _core),
     do: %{flow: if(node.kind == :filtered, do: "filter", else: "dlq"), at: 1.0, until: 1.0}
@@ -1011,10 +1586,14 @@ defmodule FlezhaUiWeb.Topology do
     if Enum.any?(history, &Map.has_key?(&1, key)), do: smoothed(history, key)
   end
 
-  @doc "A displayed message rate; a trickle under 0.05 reads `<0.1 msgs/s`."
-  def rate_label(nil), do: nil
-  def rate_label(rate) when rate > 0 and rate < 0.05, do: "<0.1 msgs/s"
-  def rate_label(rate), do: "#{Float.round(rate / 1, 1)} msgs/s"
+  @doc """
+  A displayed message rate; a trickle under 0.05 reads `<0.1 msgs/s`. Inside
+  a relay boundary, where wires are short, the unit is `/s`.
+  """
+  def rate_label(rate, unit \\ " msgs/s")
+  def rate_label(nil, _unit), do: nil
+  def rate_label(rate, unit) when rate > 0 and rate < 0.05, do: "<0.1" <> unit
+  def rate_label(rate, unit), do: "#{Float.round(rate / 1, 1)}" <> unit
 
   @doc "A displayed byte rate, `2.3 KB/s`, or nil while the bytes are unmeasured."
   def byte_rate_label(nil), do: nil
@@ -1249,7 +1828,7 @@ defmodule FlezhaUiWeb.Topology do
             acc,
             id,
             Map.new(advances(base, entry), fn {key, delta} ->
-              {key, Float.round(delta / seconds, 1)}
+              {key, per_second(delta, seconds)}
             end)
           )
 
@@ -1367,6 +1946,11 @@ defmodule FlezhaUiWeb.Topology do
         <.legend :if={@topology && @topology.kind == :pipeline} />
       </:header>
 
+      <.inside_line
+        inside={@topology.inside}
+        drawn?={Enum.any?(@topology.nodes, &(&1[:boundary?] == true))}
+      />
+
       <div
         id="topology-canvas"
         phx-hook="FlzPipeline"
@@ -1390,7 +1974,7 @@ defmodule FlezhaUiWeb.Topology do
           aria-label={"Pipeline of #{@topology.relay_id}"}
         >
           <g class="topo-lane-label" aria-hidden="true">
-            <text :for={{name, y} <- lane_labels()} x="20" y={y}>{name}</text>
+            <text :for={{name, y} <- lane_labels(@topology)} x="20" y={y}>{name}</text>
             <text
               :if={not Enum.any?(@topology.nodes, &(&1.lane == :life))}
               class="topo-lane-empty"
@@ -1409,6 +1993,17 @@ defmodule FlezhaUiWeb.Topology do
               class={["topo-band", edge[:stopped?] && "is-stopped"]}
               data-testid={"topo-band-#{edge.id}"}
               data-routes={edge.routes}
+            />
+          </g>
+          <g aria-hidden="true">
+            <rect
+              :for={node <- @topology.nodes}
+              :if={node[:boundary?]}
+              x={node.x}
+              y={node.y}
+              width={node.w}
+              height={node.h}
+              class="topo-boundary-outline"
             />
           </g>
           <g><.wire :for={edge <- @topology.edges} edge={edge} /></g>
@@ -1440,11 +2035,45 @@ defmodule FlezhaUiWeb.Topology do
 
   defp life_hint_y, do: @life_y + 26
 
-  defp lane_labels,
+  attr :inside, :any, required: true
+  attr :drawn?, :boolean, required: true
+
+  # The words for what the boundary holds, where the graph first uses them, or
+  # why the relay is one box.
+  defp inside_line(assigns) do
+    ~H"""
+    <p :if={@drawn?} data-testid="topology-inside" class="text-sm topo-secondary">
+      Records enter on its <.term key="entry channel">entry channels</.term>, pass its <.term key="tasklet">tasklets</.term>, and leave on its
+      <.term key="plugin-bound channel">plugin-bound channels</.term>
+      to the plugins branching off them. A <.term key="backlog" /> mark shows where inputs
+      wait, and a <.term key="shed" /> mark where they were dropped.
+      <span :if={@inside == :disagree} data-testid="topology-inside-disagree">
+        Its runners announce different graphs; the latest is drawn.
+      </span>
+    </p>
+    <p
+      :if={not @drawn? and @inside != nil}
+      data-testid="topology-inside-note"
+      class="text-sm topo-muted"
+    >
+      The relay's inside is not shown: {inside_reason(@inside)}
+    </p>
+    """
+  end
+
+  defp inside_reason({:not_announced, factory}),
+    do: "the runners of factory #{factory || "—"} announced no graph."
+
+  defp inside_reason(:not_supported), do: "this controller does not report relay graphs."
+
+  defp inside_reason({:unreadable, reason}),
+    do: "its graph could not be read. #{NodeManager.error(reason).message}"
+
+  defp lane_labels(topology),
     do: [
       {"Lifecycle", @life_y + 4},
       {"Records", @record_y - 12},
-      {"Failures and drops", @fail_y + 4}
+      {"Failures and drops", topology.fail_y + 4}
     ]
 
   @doc """
@@ -1588,7 +2217,30 @@ defmodule FlezhaUiWeb.Topology do
       <:trigger>Legend</:trigger>
       <ul data-testid="topology-legend" class="flz-graph-legend topo-legend">
         <li><span class="flz-graph-legend-plugin" aria-hidden="true"></span>A plugin</li>
-        <li><span class="flz-graph-legend-tasklet" aria-hidden="true"></span>The relay's own code</li>
+        <li>
+          <span class="flz-graph-legend-tasklet" aria-hidden="true"></span>A tasklet — the relay's own code
+        </li>
+        <li>
+          <svg width="26" height="14" class="shrink-0" aria-hidden="true">
+            <rect x="1" y="1" width="24" height="12" class="topo-boundary-outline" />
+          </svg>
+          The relay, holding its own graph as its runners announce it
+        </li>
+        <.legend_port class="topo-channel">
+          A channel port — entries on the relay's left edge, plugin-bound channels on its right
+        </.legend_port>
+        <.legend_item swatch="topo-branch">
+          A plugin branch — the channel a plugin feeds or takes from
+        </.legend_item>
+        <.legend_mark class="topo-backlog" sample="40 queued">
+          A backlog: inputs waiting at a tasklet
+        </.legend_mark>
+        <.legend_mark class="topo-shed" sample="3 shed">
+          Inputs a tasklet dropped since the last reading
+        </.legend_mark>
+        <.legend_mark class="topo-mark" sample="every channel">
+          A plugin on the relay as a whole, naming no channel it has
+        </.legend_mark>
         <.legend_node role="runner">The runner's channel</.legend_node>
         <.legend_node role="state">Where records enter, leave, or end</.legend_node>
         <.legend_node role="runner flz-graph-node--recovering">Suspended</.legend_node>
@@ -1607,12 +2259,7 @@ defmodule FlezhaUiWeb.Topology do
           Where failures park, in the dead-letter queue
         </.legend_item>
         <.legend_item swatch="flz-graph-wire--fail">Nothing bound at the far end</.legend_item>
-        <li>
-          <svg width="26" height="14" class="shrink-0" aria-hidden="true">
-            <g class="topo-port"><circle cx="13" cy="7" r="5.5" class="topo-port-ring" /></g>
-          </svg>
-          A port — select it to tap the records passing
-        </li>
+        <.legend_port class="topo-port">A port — select it to tap the records passing</.legend_port>
         <li>
           <span class="topo-legend-badge" aria-hidden="true">2</span> Listeners watching that point
         </li>
@@ -1626,6 +2273,33 @@ defmodule FlezhaUiWeb.Topology do
         <li><span class="flz-graph-legend-fail" aria-hidden="true"></span>A dead letter</li>
       </ul>
     </.popover>
+    """
+  end
+
+  attr :class, :string, required: true
+  slot :inner_block, required: true
+
+  defp legend_port(assigns) do
+    ~H"""
+    <li>
+      <svg width="26" height="14" class="shrink-0" aria-hidden="true">
+        <g class={@class}><circle cx="13" cy="7" r="5.5" class="topo-port-ring" /></g>
+      </svg>
+      {render_slot(@inner_block)}
+    </li>
+    """
+  end
+
+  attr :class, :string, required: true
+  attr :sample, :string, required: true
+  slot :inner_block, required: true
+
+  defp legend_mark(assigns) do
+    ~H"""
+    <li>
+      <span class={["topo-marks", @class]} aria-hidden="true">{@sample}</span>
+      {render_slot(@inner_block)}
+    </li>
     """
   end
 
@@ -1691,7 +2365,11 @@ defmodule FlezhaUiWeb.Topology do
   end
 
   defp wire_class(%{degraded?: true}), do: "flz-graph-wire flz-graph-wire--fail topo-wire"
-  defp wire_class(%{kind: :flow} = edge), do: "flz-graph-wire topo-wire topo-flow-#{edge.bucket}"
+
+  defp wire_class(%{kind: kind} = edge) when kind in [:flow, :inner],
+    do: "flz-graph-wire topo-wire topo-flow-#{edge.bucket}"
+
+  defp wire_class(%{kind: :branch}), do: "flz-graph-wire topo-wire topo-branch"
 
   defp wire_class(%{kind: :dlq}),
     do: "flz-graph-wire flz-graph-wire--state topo-wire topo-edge-dlq"
@@ -1788,7 +2466,7 @@ defmodule FlezhaUiWeb.Topology do
       navigate={@node.href}
       data-testid={"topo-node-#{@node.id}"}
       aria-label={"Dead letter: #{@node.sub}"}
-      data-lane={@node.lane}
+      data-lane={nav_lane(@node)}
       data-nav={@node.nav}
       data-routes={@node.routes}
     >
@@ -1805,19 +2483,57 @@ defmodule FlezhaUiWeb.Topology do
     """
   end
 
+  defp graph_node(%{node: %{kind: :relay_channel} = node} = assigns) do
+    assigns = assign(assigns, :centre, node.role != :inner && port_centre(node))
+
+    ~H"""
+    <g
+      data-testid={"topo-node-#{@node.id}"}
+      role="button"
+      tabindex="0"
+      aria-label={"Channel #{@node.label}, #{@node.channel.kind}"}
+      aria-pressed={to_string(@selected != nil and @selected.id == @node.id)}
+      phx-click="graph_select"
+      phx-keydown="graph_select"
+      phx-key="Enter"
+      phx-value-id={@node.id}
+      data-lane={nav_lane(@node)}
+      data-nav={@node.nav}
+      data-routes={@node.routes}
+      class={[
+        "topo-channel",
+        "is-#{@node.role}",
+        @selected && @selected.id == @node.id && "is-selected"
+      ]}
+    >
+      <title>{@node.label} — {@node.channel.kind}</title>
+      <rect class="topo-channel-hit" x={@node.x} y={@node.y} width={@node.w} height={@node.h} />
+      <circle :if={@centre} class="topo-port-ring" cx={elem(@centre, 0)} cy={elem(@centre, 1)} r="5" />
+      <text
+        x={channel_label_x(@node, @centre)}
+        y={if @node.role == :inner, do: @node.y + 12, else: @node.y + 5}
+        text-anchor={if @node.role == :exit, do: "end", else: "start"}
+        class="topo-channel-label"
+      >
+        {@node.label}
+      </text>
+    </g>
+    """
+  end
+
   defp graph_node(assigns) do
     ~H"""
     <g
       data-testid={"topo-node-#{@node.id}"}
       role="button"
       tabindex="0"
-      aria-label={"#{@node.label}, #{@node.sub}"}
+      aria-label={Enum.join([@node.label, @node.sub | spoken_marks(@node)], ", ")}
       aria-pressed={to_string(@selected != nil and @selected.id == @node.id)}
       phx-click="graph_select"
       phx-keydown="graph_select"
       phx-key="Enter"
       phx-value-id={@node.id}
-      data-lane={@node.lane}
+      data-lane={nav_lane(@node)}
       data-nav={@node.nav}
       data-routes={@node.routes}
       class="cursor-pointer"
@@ -1833,6 +2549,30 @@ defmodule FlezhaUiWeb.Topology do
         rx="0"
         class="topo-stall"
       />
+      <text
+        :if={figure_marks(@node) != []}
+        x={@node.x + @node.w}
+        y={@node.y - 5}
+        text-anchor="end"
+        class="topo-marks"
+      >
+        <tspan
+          :for={{kind, text} <- figure_marks(@node)}
+          data-testid={"topo-#{kind}-#{@node.label}"}
+          class={["topo-#{kind}", (kind == :backlog and @node.figure.deepest?) && "is-deepest"]}
+        >
+          {text}
+        </tspan>
+      </text>
+      <text
+        :if={plugin_mark(@node)}
+        data-testid={"topo-mark-#{@node.id}"}
+        x={@node.x}
+        y={@node.y - 6}
+        class="topo-mark"
+      >
+        {plugin_mark(@node)}
+      </text>
       <circle
         :if={@node.kind == :channel and @node.backpressure?}
         data-testid="topo-backpressure"
@@ -1868,21 +2608,50 @@ defmodule FlezhaUiWeb.Topology do
       data-until={@node[:until]}
     >
       <title>{@node.label} — {@node.sub}</title>
-      <rect x={@node.x} y={@node.y} width={@node.w} height={@node.h} />
+      <rect x={@node.x} y={@node.y} width={@node.w} height={head(@node)} />
       <%!-- SVG text never wraps, so the box clips it rather than letting a long
            identifier run out past its own edge. --%>
-      <svg x={@node.x} y={@node.y} width={@node.w - 8} height={@node.h} overflow="hidden">
-        <text x="12" y={div(@node.h, 2) - 4} class="topo-label">{@node.label}</text>
-        <text x="12" y={div(@node.h, 2) + 12} class="topo-sub">{@node.sub}</text>
+      <svg x={@node.x} y={@node.y} width={@node.w - 8} height={head(@node)} overflow="hidden">
+        <text x="12" y={div(head(@node), 2) - 4} class="topo-label">{@node.label}</text>
+        <text x="12" y={div(head(@node), 2) + 12} class="topo-sub">{@node.sub}</text>
       </svg>
     </g>
     """
   end
 
+  # A tasklet's backlog and what it shed, as drawn above it and as spoken.
+  defp figure_marks(%{figure: %{backlog: backlog, shed: shed}}) do
+    Enum.filter(
+      [backlog && {:backlog, "#{backlog} queued"}, shed > 0 && {:shed, "#{shed} shed"}],
+      & &1
+    )
+  end
+
+  defp figure_marks(_node), do: []
+
+  # A plugin on the relay as a whole, or a source whose entry the relay lacks.
+  defp plugin_mark(%{every_channel?: true}), do: "every channel"
+  defp plugin_mark(%{hook: "source", ports: [], missing: [_ | _]}), do: "no such entry"
+  defp plugin_mark(_node), do: nil
+
+  # The marks drawn beside a node, in words, so they do not rest on colour.
+  defp spoken_marks(node),
+    do: Enum.map(figure_marks(node), &elem(&1, 1)) ++ List.wrap(plugin_mark(node))
+
+  # A port's name sits inside the boundary, beside its ring.
+  defp channel_label_x(%{role: :entry}, {x, _y}), do: x + 10
+  defp channel_label_x(%{role: :exit}, {x, _y}), do: x - 10
+  defp channel_label_x(node, _inner), do: node.x
+
+  # A boundary is selected by its header, so a click inside it reaches what it
+  # holds; its outline is drawn apart, beneath the wires.
+  defp head(%{boundary?: true}), do: @node_h
+  defp head(node), do: node.h
+
   defp node_class(node, selected) do
     [
       "flz-graph-node",
-      "flz-graph-node--#{graph_role(node.kind)}",
+      if(node[:boundary?], do: "topo-boundary", else: "flz-graph-node--#{graph_role(node.kind)}"),
       "topo-node-#{node.kind}",
       node[:state] == :suspended && "flz-graph-node--recovering",
       node[:state] == :unbound && "flz-graph-node--dead",
@@ -1897,6 +2666,7 @@ defmodule FlezhaUiWeb.Topology do
   # runner's channel a runner, and the ends of the record path are state.
   defp graph_role(:plugin), do: "plugin"
   defp graph_role(:core), do: "tasklet"
+  defp graph_role(:tasklet), do: "tasklet"
   defp graph_role(:channel), do: "runner"
   defp graph_role(_kind), do: "state"
 
@@ -1962,13 +2732,15 @@ defmodule FlezhaUiWeb.Topology do
       close_label="Close detail"
     >
       <:head>
-        <p class="flz-label">{@node.kind}</p>
+        <p class="flz-label">{kind_label(@node.kind)}</p>
         <p class="text-sm font-mono topo-primary break-all">{@node.label}</p>
       </:head>
 
       <.core_detail :if={@node.kind == :core} node={@node} />
       <.channel_detail :if={@node.kind == :channel} node={@node} />
       <.plugin_detail :if={@node.kind == :plugin} node={@node} />
+      <.tasklet_detail :if={@node.kind == :tasklet} node={@node} />
+      <.relay_channel_detail :if={@node.kind == :relay_channel} node={@node} />
 
       <.link
         :if={@node[:href]}
@@ -1982,6 +2754,10 @@ defmodule FlezhaUiWeb.Topology do
     </.dock_panel>
     """
   end
+
+  defp kind_label(:relay_channel), do: "channel"
+  defp kind_label(:channel), do: "runner channel"
+  defp kind_label(kind), do: kind
 
   defp detail_link_label(:core), do: "Listen"
   defp detail_link_label(:channel), do: "Open cluster"
@@ -2053,11 +2829,84 @@ defmodule FlezhaUiWeb.Topology do
     <dl class="space-y-1 text-xs">
       <.fact label="Plugin">{@node.plugin_id}</.fact>
       <.fact label="Provider">{@node.provider}</.fact>
-      <.fact label="Hook">{@node.hook}</.fact>
+      <.fact :if={@node.hook != "source"} label="Hook">{@node.hook}</.fact>
+      <.fact :if={@node.hook == "source"} label="Feeds">{channel_names(@node)}</.fact>
       <.fact label="Position">{@node.position || "—"}</.fact>
+      <.fact :if={@node.lane == :record and @node.hook != "source"} label="Channel">
+        {channel_names(@node)}
+      </.fact>
+    </dl>
+
+    <p :if={@node[:missing] not in [nil, []]} data-testid="topology-plugin-missing" class="text-xs">
+      The relay has no channel named <span class="font-mono">{Enum.join(@node.missing, ", ")}</span>{if @node.every_channel?,
+        do: ", so this plugin is drawn on the relay as a whole",
+        else: ""}.
+    </p>
+
+    <p :if={@node.hook == "on_output"} data-testid="topology-plugin-order" class="text-xs topo-muted">
+      The controller runs every on_output plugin in position order, and each acts only on the
+      channels it names.
+    </p>
+    """
+  end
+
+  defp channel_names(%{channel: [_ | _] = names}), do: Enum.join(names, ", ")
+  defp channel_names(_every), do: "every channel"
+
+  attr :node, :map, required: true
+
+  defp tasklet_detail(assigns) do
+    assigns = assign(assigns, :row, assigns.node.figure && assigns.node.figure.row)
+
+    ~H"""
+    <dl class="space-y-1 text-xs">
+      <.fact label="Cell mode">{@node.tasklet.mode}</.fact>
+      <.fact label="Cell keys">{listed(@node.tasklet.cell_keys)}</.fact>
+      <.fact label="Mailbox">{@node.tasklet.mailbox_capacity || "—"}</.fact>
+      <.fact label="Reads">{listed(@node.inputs)}</.fact>
+    </dl>
+
+    <dl :if={@node.figure} data-testid="topology-tasklet-activity" class="space-y-1 text-xs">
+      <.fact label="Input rate">{rate_label(@node.figure.rate) || "measuring"}</.fact>
+      <%!-- A figure the runner does not keep is unknown, not zero. --%>
+      <.fact label="Live Cells">{@row[:cells] || "—"}</.fact>
+      <.fact label="Queued">
+        {@row[:queued] || "—"} · deepest Cell {@row[:queued_max] || "—"}
+      </.fact>
+      <.fact label="Admitted">{@row[:admitted_total] || "—"}</.fact>
+      <.fact label="Dropped">
+        {@row[:dropped_newest_total] || "—"} newest · {@row[:dropped_oldest_total] || "—"} oldest · {@row[
+          :dropped_capped_total
+        ] || "—"} capped
+      </.fact>
+    </dl>
+
+    <p :if={is_nil(@node.figure)} class="text-xs topo-muted">
+      Its runner reports no activity for it.
+    </p>
+    """
+  end
+
+  attr :node, :map, required: true
+
+  defp relay_channel_detail(assigns) do
+    ~H"""
+    <dl class="space-y-1 text-xs">
+      <.fact label="Kind">{@node.channel.kind}</.fact>
+      <.fact label="Producer">{@node.channel.producer || "—"}</.fact>
+      <.fact label="Consumers">{listed(@node.channel.consumers)}</.fact>
+      <.fact label="Leaves to">{channel_end(@node.channel)}</.fact>
+      <.fact label="Overflow">{@node.channel.overflow || "—"}</.fact>
     </dl>
     """
   end
+
+  defp channel_end(%{plugin_end: "output"}), do: "plugin output"
+  defp channel_end(%{plugin_end: "call", call_target: target}), do: "call #{target}"
+  defp channel_end(_inside), do: "—"
+
+  defp listed([]), do: "—"
+  defp listed(names), do: Enum.join(names, ", ")
 
   attr :label, :string, required: true
   slot :inner_block, required: true

@@ -36,12 +36,25 @@ export async function submitLogin(
  * rather than merely assumed to work.
  */
 async function globalSetup(config: FullConfig) {
-  const { baseURL, storageState } = config.projects[0].use;
-
-  if (typeof storageState !== 'string') {
-    throw new Error('globalSetup expects `storageState` to be a path in playwright.config.ts');
+  // One login per stack: a project pointed at another stack keeps its own session.
+  const stacks = new Map<string, string | undefined>();
+  for (const { use } of config.projects) {
+    if (typeof use.storageState !== 'string') {
+      throw new Error('globalSetup expects `storageState` to be a path in playwright.config.ts');
+    }
+    const known = stacks.get(use.storageState);
+    if (known !== undefined && known !== use.baseURL) {
+      throw new Error(`${use.storageState} would hold the session of both ${known} and ${use.baseURL}`);
+    }
+    stacks.set(use.storageState, use.baseURL);
   }
 
+  for (const [storageState, baseURL] of stacks) {
+    await logIn(baseURL, storageState);
+  }
+}
+
+async function logIn(baseURL: string | undefined, storageState: string) {
   await mkdir(path.dirname(storageState), { recursive: true });
 
   const browser = await chromium.launch();

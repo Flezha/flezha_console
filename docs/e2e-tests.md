@@ -154,6 +154,8 @@ e2e/
                              route at 390 and 360 px; one tablet case at 768 px
   observability.spec.ts      sources, sinks, toggles, the live tail
   relay-state.spec.ts        durable cells and point-in-time reads
+  relay-data-flow.spec.ts    a relay's own graph: skipped unless run against
+                             flezha_trader's dev stack (below)
   relay-calls.spec.ts        diagnosis, the relay's API, calling `orders`'
                              channels from schema fields, raw send and call
   relay-call-activity.spec.ts the Calls panel: calls from the terminal and the
@@ -176,6 +178,25 @@ playwright.config.ts
 Every spec starts authenticated from the stored session except `login.spec.ts`,
 `account.spec.ts` and the brand tests outside the shell in `theme.spec.ts`.
 `e2e/.auth/` is gitignored — it holds a live dev session cookie.
+
+## The trader stack's market relay
+
+`relay-data-flow.spec.ts` needs what only flezha_trader's dev stack runs: the
+`demo` market group, whose runner announces a graph of fourteen tasklets with
+websocket sources and six Kafka producers, and an analyzer runner older than
+the graph, whose relays fall back to one box. That stack runs this checkout as
+its console on port 4000. `E2E_MARKET_STACK=1` adds a `market` project that runs
+the spec there, with its own login, beside the rest of the suite on this stack.
+Global setup then logs in to both stacks, so both must be up:
+
+```bash
+E2E_MARKET_STACK=1 E2E_BASE_URL=http://localhost:4001 npx playwright test  # both stacks
+E2E_MARKET_STACK=1 npx playwright test --project=market                     # the spec alone
+```
+
+`E2E_MARKET_URL` points the project elsewhere than `http://localhost:4000`.
+Without `E2E_MARKET_STACK` the spec is skipped, with the reason in the report.
+It starts one `momentum_percentile` relay in `analyzers` and stops it again.
 
 ## Single worker, on purpose
 

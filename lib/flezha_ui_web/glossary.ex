@@ -38,6 +38,14 @@ defmodule FlezhaUiWeb.Glossary do
     {"factory", "Factory",
      "What a runner registers and a relay is started from. Its runners announce its run."},
     {"tasklet", "Tasklet", "A step inside a relay."},
+    {"entry channel", "Entry channel",
+     "A named channel records enter a relay on. A plugin feeding the relay, or acting on its input, names the entry it attaches to."},
+    {"plugin-bound channel", "Plugin-bound channel",
+     "A channel that leaves a relay for its plugins: each output plugin takes the records of the channels it names."},
+    {"backlog", "Backlog",
+     "Inputs queued at a tasklet faster than it takes them, marked once its deepest Cell has held a queue for two readings."},
+    {"shed", "Shed",
+     "Inputs a tasklet dropped: its mailbox was full and its channel's overflow policy drops, or a new key found its Cell cap reached."},
     {"cell", "Cell", "A keyed unit of state inside a tasklet."},
     {"output", "Output",
      "Where a relay's results leave it: a plugin on its output, or the runner's stream."},
@@ -102,8 +110,20 @@ defmodule FlezhaUiWeb.Glossary do
       ["relay", "health", "run", "runner", "factory"]
     },
     relay_live: {
-      "What one relay is doing: its pipeline as the controller's hook table describes it, live rates, a payload tap, and on request a diagnosis, its calls, its API and its plugin bindings.",
-      ["relay", "runner", "factory", "run", "plugin", "hook"]
+      "What one relay is doing: its pipeline as the controller's hook table describes it, and inside the relay its tasklets and channels as its runners announce them, live rates, a payload tap, and on request a diagnosis, its calls, its API and its plugin bindings.",
+      [
+        "relay",
+        "runner",
+        "factory",
+        "run",
+        "plugin",
+        "hook",
+        "tasklet",
+        "entry channel",
+        "plugin-bound channel",
+        "backlog",
+        "shed"
+      ]
     },
     relay_listen: {
       "The records one relay emits or receives, as they happen. Listening holds a live subscription only while this view is open.",

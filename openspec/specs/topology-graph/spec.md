@@ -8,7 +8,7 @@ fleet.
 ## Requirements
 ### Requirement: Flow rates where the controller counts them
 
-The system SHALL compute message rates as the difference between successive data-plane liveness snapshots, read from `Flezha.Service.Controller.liveness_counters/1`, divided by the elapsed time between them, measured on the UI's monotonic clock. A relay's counters SHALL be read from the snapshot's `relays` list, keyed by `relay_id`. Negative differences SHALL clamp to zero. Rates SHALL be displayed only where the controller actually counts: at the IN port (`io_in_received`), at the OUT port (`forwarded`), and on the edge out of the channel (`send_frame_calls`). Edges between plugins SHALL carry no rate figure. The pipeline SHALL display, and SHALL animate from, the mean of the relay's newest seven rate samples. A mean above zero that would round to zero SHALL read `<0.1/s`. Each port SHALL state how long ago its counter last advanced, or that it has not advanced since the page opened. Edges SHALL animate at a speed bucket derived from their displayed rate. Edges at zero rate SHALL render static, and their figures SHALL be visually subdued.
+The system SHALL compute message rates as the difference between successive data-plane liveness snapshots, read from `Flezha.Service.Controller.liveness_counters/1`, divided by the elapsed time between them, measured on the UI's monotonic clock. A relay's counters SHALL be read from the snapshot's `relays` list, keyed by `relay_id`. Negative differences SHALL clamp to zero. Rates SHALL be displayed only where a counter exists: at the IN port (`io_in_received`), at the OUT port (`forwarded`), on the edge out of the channel (`send_frame_calls`), and, when the relay's activity can be read through `Flezha.Service.Relay.activity/3`, on each tasklet, computed from the difference of its `admitted_total` between successive reads divided by the difference of the reads' `read_at_ms`. A tasklet's rate SHALL be drawn on its single input wire when it consumes exactly one channel, and on the tasklet node otherwise. Edges between plugins and plugin branch wires SHALL carry no rate figure. The pipeline SHALL display, and SHALL animate from, the mean of the relay's newest seven rate samples. A mean above zero that would round to zero SHALL read `<0.1/s`. Each port SHALL state how long ago its counter last advanced, or that it has not advanced since the page opened. Edges SHALL animate at a speed bucket derived from their displayed rate. Edges at zero rate SHALL render static, and their figures SHALL be visually subdued.
 
 #### Scenario: Rates appear after two snapshots
 
@@ -54,6 +54,21 @@ The system SHALL compute message rates as the difference between successive data
 
 - **WHEN** the snapshot call fails, is refused, or the controller does not export `Flezha.Service.Controller.liveness_counters/1`
 - **THEN** the graph still renders structure and states from the remaining sources, with the screen's standard error notice and no rate figures
+
+#### Scenario: A tasklet's rate comes from its activity
+
+- **WHEN** two successive activity reads report tasklet `ohlc`'s `admitted_total` as 100 and 150, 10 seconds apart by `read_at_ms`
+- **THEN** the wire into `ohlc` (its only input channel) contributes a 5.0/s sample, smoothed like the ports' rates
+
+#### Scenario: A fan-in tasklet shows its rate on the node
+
+- **WHEN** a tasklet consumes two channels
+- **THEN** its rate is shown on the tasklet node and neither input wire carries a figure
+
+#### Scenario: Activity cannot be read
+
+- **WHEN** the activity read is refused, times out, or the runner does not report activity
+- **THEN** the tasklet graph still renders and no tasklet carries a rate figure
 
 ### Requirement: On-demand payload tap
 
@@ -141,7 +156,7 @@ The system SHALL surface channel credit state — a backpressure indicator when 
 
 ### Requirement: Node detail and legend
 
-The system SHALL show an inspector for a selected node, in the dock below the canvas: for the core, its raw monotonic counters, current rates, factory, runner, run (`flow` or `steps`, from the relay's builder) and uptime; for the channel, its per-channel counters, credit state and heartbeat figures; for a plugin, its plugin id, provider, hook and position. Selecting another node SHALL replace the inspector and dismissing it SHALL clear the selection. The system SHALL offer a legend, behind a control in the graph's header, naming every line style, node state, port and observer mark used on the graph. Nodes, wires, flow dots and the legend SHALL be drawn with the stylebook's relay-graph recipe, so a plugin, the relay core, the runner's channel, a degraded wire and a dead or suspended node look as they do on flezha.com. The inspector SHALL be a stylebook panel.
+The system SHALL show an inspector for a selected node, in the dock below the canvas: for the core, its raw monotonic counters, current rates, factory, runner, run (`flow` or `steps`, from the relay's builder) and uptime; for the channel, its per-channel counters, credit state and heartbeat figures; for a plugin, its plugin id, provider, hook, position and the channel it names; for a tasklet, its name, cell mode, declared cell keys, live Cells, queued inputs, input rate and dropped totals; for a channel inside the relay, its name, kind, producer and consumers. The inspector of an `on_output` plugin SHALL state that the controller runs every `on_output` plugin in position order and that each acts only on the channel it names. Selecting another node SHALL replace the inspector and dismissing it SHALL clear the selection. The system SHALL offer a legend, behind a control in the graph's header, naming every line style, node state, port and observer mark used on the graph, including the relay boundary, tasklets, entry and plugin-bound channel ports, plugin branches, and the backlog and shed marks. Nodes, wires, flow dots and the legend SHALL be drawn with the stylebook's relay-graph recipe, so a plugin, the relay core, the runner's channel, a degraded wire and a dead or suspended node look as they do on flezha.com. The inspector SHALL be a stylebook panel.
 
 #### Scenario: Selecting the core
 
@@ -166,7 +181,7 @@ The system SHALL show an inspector for a selected node, in the dock below the ca
 #### Scenario: The graph speaks the shared vocabulary
 
 - **WHEN** the graph markup is rendered
-- **THEN** its plugin nodes carry the stylebook's plugin role, the core the tasklet role, the channel the runner role, a degraded edge the failed-wire style, a disconnected node the dead state, and a flow dot the stylebook's flow-dot class
+- **THEN** its plugin nodes carry the stylebook's plugin role, each tasklet inside the relay boundary (or, with no announced graph, the core) the tasklet role, the channel the runner role, a degraded edge the failed-wire style, a disconnected node the dead state, and a flow dot the stylebook's flow-dot class
 - **AND** the flow animation still carries its `topo-flow-*` speed bucket class
 
 #### Scenario: A dead-letter branch is not a failure
@@ -178,6 +193,16 @@ The system SHALL show an inspector for a selected node, in the dock below the ca
 
 - **WHEN** the legend is open
 - **THEN** it shows the plugin, relay-code, runner-channel and record-end roles and the suspended and unbound states, each drawn as the graph draws it
+
+#### Scenario: Selecting a tasklet
+
+- **WHEN** the operator clicks a tasklet inside the relay boundary
+- **THEN** the inspector shows its cell mode, cell keys, live Cells, queued inputs, input rate and dropped totals
+
+#### Scenario: An output plugin explains its order
+
+- **WHEN** the operator clicks an `on_output` plugin drawn as a branch
+- **THEN** the inspector names the channel it takes from, its position, and that every `on_output` plugin runs in position order and acts only on its own channel
 
 ### Requirement: Fleet summary at fixed cost
 
@@ -245,7 +270,7 @@ Every node on the graph SHALL link to the screen that owns it: the relay core to
 
 ### Requirement: Relay pipeline graph
 
-The system SHALL render, on a relay's page, a graph of the path a record takes through that relay, laid out as three left-to-right lanes. The record lane SHALL hold a transport ingest node, the IN port, the relay's `on_input` plugins in position order, the relay core, the OUT port, its `on_output` plugins in position order, the bound runner's channel, and the relay's output. The lifecycle lane SHALL hold one chip per plugin bound only to hooks that do not sit on the record path, naming each of its hooks, attached to the core. The failures lane SHALL hold a filtered sink, for records the relay dropped by returning nil, and the dead-letter sink. Both SHALL be drawn whether or not anything has reached them. Pipeline structure SHALL come from the relay's overwatch state, read through `Flezha.Service.Relay.overwatch_state/3`, and its table of bound hooks, so the graph shows the plugins that are actually bound in the order the controller runs them. Node positions SHALL depend only on the relay's non-observer bindings. Every node SHALL carry a unique id. Selecting a node or opening a tap SHALL NOT move or resize the canvas. When the chain is too wide for its panel, the canvas SHALL scale down to no less than three quarters of its size and SHALL then scroll inside its panel, never the page. The last node of the record lane SHALL be presented as the relay's output in markup, class names and test ids, not as a sink.
+The system SHALL render, on a relay's page, a graph of the path a record takes through that relay, laid out as three left-to-right lanes. The record lane SHALL hold a transport ingest node, the IN port, the relay's `on_input` plugins, the relay, the OUT port, its `on_output` plugins, the bound runner's channel, and the relay's output. When `Flezha.Service.Relay.graph/3` answers a graph for the relay's factory, the relay SHALL be drawn as a boundary enclosing its own graph: its entry channels as ports on the boundary's left edge, its tasklets inside it ordered by their depth from the entries, the channels between tasklets as wires named by channel, and its plugin-bound channels as ports on the boundary's right edge; a channel that is both consumed by a tasklet and bound to a plugin SHALL have both its inner wire and its right-edge port. Without an announced graph, the relay SHALL be drawn as one core node, as before, with a line naming why its inside is not shown. A plugin's channels SHALL be read as the controller resolved its `channel`, `channel_in` and `channel_out` options: a plugin that feeds the relay (a source, bound on a hook or not) SHALL attach to the port of its `entry_channel`, an `on_input` plugin to the entry ports in its `filter_channel`, and an `on_output` plugin SHALL attach as a branch to each plugin-bound port in its `filter_channel`; plugins on one channel SHALL stack on that branch in position order, and a plugin that names no channel, or none the graph has on that side, SHALL attach to the boundary itself and be marked as such. Without an announced graph, plugins SHALL be drawn in position order as before. The lifecycle lane SHALL hold one chip per plugin bound only to hooks that do not sit on the record path, naming each of its hooks, attached to the relay. The failures lane SHALL hold a filtered sink, for records the relay dropped by returning nil, and the dead-letter sink. Both SHALL be drawn whether or not anything has reached them. Pipeline structure SHALL come from the relay's overwatch state, read through `Flezha.Service.Relay.overwatch_state/3`, its table of bound hooks and its plugin table, and from the relay's announced graph, so the graph shows the plugins that are actually bound and the tasklets the runner actually announced. Node positions SHALL depend only on the relay's non-observer bindings and its announced graph. Every node SHALL carry a unique id. Selecting a node or opening a tap SHALL NOT move or resize the canvas. When the chain is too wide for its panel, the canvas SHALL scale down to no less than three quarters of its size and SHALL then scroll inside its panel, never the page. The last node of the record lane SHALL be presented as the relay's output in markup, class names and test ids, not as a sink.
 
 #### Scenario: Relay with bound plugins
 
@@ -254,8 +279,38 @@ The system SHALL render, on a relay's page, a graph of the path a record takes t
 
 #### Scenario: Ordering follows position
 
-- **WHEN** a relay has two `on_output` plugins at positions 0 and 1
+- **WHEN** a relay with no announced graph has two `on_output` plugins at positions 0 and 1
 - **THEN** they render in that order between the OUT port and the channel
+
+#### Scenario: The relay's own graph is drawn inside its boundary
+
+- **WHEN** the relay's factory announces entry `trades_in` consumed by tasklets `ohlc` and `trades`, and `ohlc` producing `ohlc_out`, consumed by tasklet `atr` and bound to a plugin
+- **THEN** the boundary shows a `trades_in` port on its left edge, tasklets `ohlc` and `trades` after it, a wire named `ohlc_out` from `ohlc` to `atr`, and an `ohlc_out` port on its right edge
+
+#### Scenario: Output plugins branch from their channels
+
+- **WHEN** plugin `demo_ohlc` names channel `ohlc_out` and plugin `demo_trades` names channel `trades_out`
+- **THEN** each is drawn as its own branch off its channel's port, and no wire runs from `demo_ohlc` to `demo_trades`
+
+#### Scenario: Input plugins attach to their entries
+
+- **WHEN** plugin `trade_ws` names entry `trades_in` and plugin `book_ws` names entry `book_in`
+- **THEN** each attaches to its own entry port on the boundary's left edge
+
+#### Scenario: Plugins look different from tasklets
+
+- **WHEN** the graph markup is rendered
+- **THEN** plugin nodes sit outside the relay boundary and carry the plugin role, and tasklet nodes sit inside it and carry the tasklet role
+
+#### Scenario: A plugin names a channel the relay does not have
+
+- **WHEN** an `on_output` plugin names channel `ohcl_out` and the announced graph has no such channel
+- **THEN** the plugin attaches to the relay boundary, is marked as attached to every channel, and its inspector states that the relay has no channel `ohcl_out`
+
+#### Scenario: No graph announced
+
+- **WHEN** the relay's runner announced no graph, or the controller does not export `Flezha.Service.Relay.graph/3`
+- **THEN** the relay renders as one core node with its plugins in position order, and a line states that the relay's inside is not shown and why
 
 #### Scenario: Off-path hook
 
@@ -445,4 +500,28 @@ Every selectable node and every port SHALL take keyboard focus and carry an acce
 
 - **WHEN** a node is selected and the operator presses Escape
 - **THEN** the selection clears
+
+### Requirement: Tasklet figures only while the page is watched
+
+The system SHALL read a relay's activity through `Flezha.Service.Relay.activity/3` only on the relay page's own tick, only while the page is connected and visible, and SHALL stop reading when the page is hidden or closed. A tasklet whose `queued_max` has been above zero for two consecutive reads SHALL carry a backlog mark with that count, the deepest such tasklet marked first. A tasklet whose dropped totals advanced since the previous read SHALL carry a shed mark with the number shed. The graph structure SHALL be read once when the page opens and again when the relay's runner reconnects, not on every tick.
+
+#### Scenario: Reads stop when the tab is hidden
+
+- **WHEN** the operator switches to another browser tab for a minute
+- **THEN** no activity read is made for the relay during that minute, and reads resume on the next tick after the tab is visible again
+
+#### Scenario: A backlog is marked
+
+- **WHEN** tasklet `book` reports `queued_max` 40 on two consecutive reads
+- **THEN** `book` carries a backlog mark reading 40 queued
+
+#### Scenario: Shedding is marked
+
+- **WHEN** tasklet `ticks`'s `dropped_oldest_total` rose by 3 since the previous read
+- **THEN** `ticks` carries a shed mark reading 3 shed
+
+#### Scenario: Structure is not re-read every tick
+
+- **WHEN** the page has been open for ten ticks and no runner reconnected
+- **THEN** the relay's graph has been read once
 

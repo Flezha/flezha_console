@@ -134,6 +134,25 @@
 
 .topo-backpressure { fill: var(--warning); animation: topo-pulse 2s ease-in-out infinite; }
 
+/* The relay as a boundary around its own graph: a region, not a node, so it
+   neither fills like a tasklet nor lights as a record passes. */
+.topo-boundary-outline { fill: none; stroke: var(--text-brand); stroke-width: 1.5; stroke-dasharray: 6 4; rx: 10px; }
+.topo-boundary rect { fill: transparent; stroke: none; }
+.topo-boundary text { fill: var(--text-primary); }
+.topo-channel { cursor: pointer; outline: none; }
+.topo-channel-hit { fill: transparent; }
+.topo-channel-label { fill: var(--text-secondary); font-size: 11px; font-family: var(--font-mono); }
+.topo-channel.is-inner .topo-channel-label { fill: var(--text-muted); }
+.topo-channel:hover .topo-port-ring,
+.topo-channel.is-selected .topo-port-ring { stroke-width: 2.5; }
+.topo-channel.is-selected .topo-channel-label { fill: var(--text-brand); }
+.topo-marks { font-size: 11px; font-family: var(--font-mono); }
+.topo-legend span.topo-marks { border: 0; }
+.topo-backlog { fill: var(--warning); color: var(--warning); }
+.topo-backlog.is-deepest { font-weight: 700; }
+.topo-shed { fill: var(--negative); color: var(--negative); }
+.topo-mark { fill: var(--text-muted); color: var(--text-muted); font-size: 11px; font-family: var(--font-mono); }
+
 .topo-label  { font-size: 12px; font-family: var(--font-mono); }
 .flz-graph-node .topo-sub { fill: var(--text-muted); font-size: 11px; }
 .topo-rate   { fill: var(--text-brand);   font-size: 11px; font-family: var(--font-mono); }

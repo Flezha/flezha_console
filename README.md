@@ -17,6 +17,10 @@ The UI uses the controller's terms exactly. If a name here disagrees with
 | **Runner** | An SDK-side process serving factories. Relays are bound to one. |
 | **Factory** | What a runner registers and a relay is started from. |
 | **Tasklet** | A step inside a relay. |
+| **Entry channel** | A named channel records enter a relay on; a plugin feeding the relay names the entry it attaches to. |
+| **Plugin-bound channel** | A channel that leaves a relay for its plugins; each output plugin takes the records of the channels it names. |
+| **Backlog** | Inputs queued at a tasklet faster than it takes them, marked once its deepest Cell has held a queue for two readings. |
+| **Shed** | Inputs a tasklet dropped: a full mailbox under a dropping overflow policy, or a new key at the Cell cap. |
 | **Cell** | A keyed unit of state inside a tasklet. |
 | **Output** | Where a relay's results leave it. |
 | **Task journal** | A durable steps relay's record of committed tasklets and iterations; the only rewind targets. |
@@ -50,7 +54,7 @@ scope switch moves between the two forms.
 | `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update, with a typed field for each option the provider declares |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
 | `/relays` | The Relays screen's **All namespaces** switch — every relay across every reachable namespace, filterable by namespace, health, run and runner; starts one into any of them; what happened while the screen was open |
-| `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph — records drawn as they pass, a payload tap opened from its IN and OUT ports, and a sentence and timeline of what the relay is doing — and as sections that fold: diagnosis, the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema |
+| `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph — records drawn as they pass, the relay as a boundary around the tasklets and channels its runner announces, each with its live input rate, backlog and shed marks, plugins hung off the entry and plugin-bound channels they name, a payload tap opened from its IN and OUT ports, and a sentence and timeline of what the relay is doing — and as sections that fold: diagnosis, the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema |
 | `/namespaces/:ns/relays/:id/listen` | **Listen** — the relay's live outputs or inputs |
 | `/namespaces/:ns/relays/:id/state` | **State** — steps facts as sentences, the task journal and input log, SDK state, and durable cells with their sequences and lag; point-in-time reads, a cell's outbox, replay, rotate, delete; retention, the history one settable |
 | `/plugins` | Enabled plugins per namespace, the providers on offer, and the packages installed on the controller with why one was refused |
@@ -347,7 +351,15 @@ the content of every screen is drawn with the console's own component kit.
   hook: each tick the server pushes how far the relay's counters advanced
   (`pipeline_counts`), replayed as hollow dots over the next tick, and an open
   tap pushes what it heard every 250 ms at most (`pipeline_records`), drawn
-  filled with the start of each payload.
+  filled with the start of each payload. When the relay's runner announces
+  its graph (`Relay.graph/3`), the relay is a boundary around it: tasklets in
+  columns by their depth from the entries, entry ports on its left edge and
+  plugin-bound ports on its right, each plugin hung off the channels it names
+  (`entry_channel` and `filter_channel` as the controller resolved them).
+  The graph is read when the page opens and again when the relay is bound
+  anew; `Relay.activity/3` is read on each tick for the tasklets' rates,
+  backlogs and drops, and the hook stops the tick while the tab is hidden.
+  Without a graph the relay stays one box and a line says why.
 - **The gate.** `npm run tokens` runs the stylebook's `check-tokens.mjs` twice:
   over the console's roles, resolved through the stylebook's palette, and over
   the stylebook tokens the graph still reads. Either fails on an undefined or

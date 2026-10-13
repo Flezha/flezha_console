@@ -1036,6 +1036,26 @@ defmodule FlezhaUi.Service.NodeManager do
   end
 
   @doc """
+  The graph of the relay's factory as its runners announce it: `%{relay:,
+  factory:, graph: %{channels:, tasklets:} | nil, disagree:, reason:}`, with
+  `reason: "not_announced"` when no runner announced one. A controller older
+  than the graph answers `{:api_missing, …}`.
+  """
+  def relay_graph(namespace, relay_id, token) do
+    authorized_call(token, Flezha.Service.Relay, :graph, [namespace, relay_id])
+  end
+
+  @doc """
+  What each tasklet of the relay is doing, as its runner counts them:
+  `%{relay:, runner:, read_at_ms:, instance_seq:, tasklets: [%{tasklet:,
+  cells:, queued:, queued_max:, admitted_total:, …}]}`. A figure the runner
+  does not keep is `nil`.
+  """
+  def relay_activity(namespace, relay_id, token) do
+    authorized_call(token, Flezha.Service.Relay, :activity, [namespace, relay_id])
+  end
+
+  @doc """
   Every relay of a namespace as `Relay.info/2` reports it, live and finished.
   Costs an overwatch read per live relay on the controller, so it is read on
   open, never on a refresh tick.
@@ -1093,8 +1113,11 @@ defmodule FlezhaUi.Service.NodeManager do
       settings: Map.get(state, :settings),
       started_at: started_at,
       uptime_ms: uptime(started_at),
+      # Changes when the relay is bound again, as on a runner reconnecting.
+      bound_at: Map.get(state, :bound_at),
       relay_class: relay_class(state, relay_id),
-      bindings: hook_entries(state)
+      bindings: hook_entries(state),
+      sources: entry_sources(state)
     }
   end
 
@@ -1123,21 +1146,26 @@ defmodule FlezhaUi.Service.NodeManager do
 
   The hook table's `subs` maps each hook name to the entries subscribed to it;
   provider and position live on the entry, so this is the only place that
-  knows the table's shape.
+  knows the table's shape. `channel` is the set of channels the plugin acts
+  on, as the controller resolved its channel options, or `nil` for every
+  channel.
   """
   def hook_entries(%{extensions: table}), do: hook_entries(table)
 
-  def hook_entries(%{subs: subs}) when is_map(subs) do
+  def hook_entries(%{subs: subs} = table) when is_map(subs) do
     subs
     |> Enum.flat_map(fn {hook, entries} ->
       entries
       |> List.wrap()
       |> Enum.map(fn entry ->
+        plugin_id = to_string(Map.get(entry, :plugin_id, "—"))
+
         %{
-          plugin_id: to_string(Map.get(entry, :plugin_id, "—")),
+          plugin_id: plugin_id,
           hook: to_string(hook),
           provider: FlezhaUi.Format.module_name(Map.get(entry, :provider)),
-          position: Map.get(entry, :position)
+          position: Map.get(entry, :position),
+          channel: table |> plugin_opts(plugin_id) |> Map.get(:filter_channel) |> channel_names()
         }
       end)
     end)
@@ -1145,6 +1173,40 @@ defmodule FlezhaUi.Service.NodeManager do
   end
 
   def hook_entries(_), do: []
+
+  @doc """
+  The plugins that inject records into one of the relay's entry channels, such
+  as a websocket or a poll, whether or not they are bound on a hook:
+  `[%{plugin_id:, provider:, channel: [entry]}]`, by plugin id.
+  """
+  def entry_sources(%{extensions: %{plugins: plugins} = table}) when is_map(plugins) do
+    for {plugin_id, plugin} <- plugins,
+        plugin_id = to_string(plugin_id),
+        entry = table |> plugin_opts(plugin_id) |> Map.get(:entry_channel),
+        entry not in [nil, ""] do
+      %{
+        plugin_id: plugin_id,
+        provider: FlezhaUi.Format.module_name(Map.get(plugin, :provider)),
+        channel: [to_string(entry)]
+      }
+    end
+    |> Enum.sort_by(& &1.plugin_id)
+  end
+
+  def entry_sources(_state), do: []
+
+  # The controller writes `entry_channel` and `filter_channel` from the
+  # plugin's `channel`, `channel_in` and `channel_out` options, so they are the
+  # one reading of where a plugin is attached.
+  defp plugin_opts(table, plugin_id) do
+    case table |> Map.get(:plugins, %{}) |> Map.get(plugin_id) do
+      %{opts: %{} = opts} -> opts
+      _none -> %{}
+    end
+  end
+
+  defp channel_names(nil), do: nil
+  defp channel_names(names), do: names |> List.wrap() |> Enum.map(&to_string/1)
 
   # ---- Steps relays ----
 

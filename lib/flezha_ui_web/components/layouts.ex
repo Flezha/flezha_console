@@ -465,14 +465,15 @@ defmodule FlezhaUiWeb.Layouts do
   defp principal(assigns) do
     ~H"""
     <span
-      class={["flz-num flex items-center gap-1.5", @class]}
+      class={["flz-num flex min-w-0 items-center gap-1.5", @class]}
       title={"flezha principal #{@status.principal}"}
       {@rest}
     >
       <.icon name="hero-key" class="w-3.5 h-3.5 shrink-0" />
-      {@status.principal}
-      <span :if={@status.namespace}>/{@status.namespace}</span>
-      <span :if={@status.role}>({@status.role})</span>
+      <span class="truncate">
+        {@status.principal}<span :if={@status.namespace}>/{@status.namespace}</span>
+        <span :if={@status.role}>({@status.role})</span>
+      </span>
     </span>
     """
   end

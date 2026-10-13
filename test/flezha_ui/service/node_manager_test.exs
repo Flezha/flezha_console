@@ -156,6 +156,29 @@ defmodule FlezhaUi.Service.NodeManagerTest do
       assert [] = NodeManager.hook_entries(%{extensions: %{subs: %{}}})
     end
 
+    test "each row names the channels its plugin acts on, as the controller resolved them" do
+      state = %{
+        extensions: %{
+          subs: %{
+            on_input: [%{plugin_id: "filter", provider: Flezha.Plugin.Provider.Filter}],
+            on_output: [%{plugin_id: "kafka", provider: FlezhaKafka.Producer, position: 0}]
+          },
+          plugins: %{
+            "filter" => %{provider: Flezha.Plugin.Provider.Filter, opts: %{filter_channel: nil}},
+            "kafka" => %{
+              provider: FlezhaKafka.Producer,
+              opts: %{channel: ["sma_out", "ema_out"], filter_channel: ["sma_out", "ema_out"]}
+            }
+          }
+        }
+      }
+
+      assert [%{plugin_id: "filter", channel: nil}, %{plugin_id: "kafka", channel: channels}] =
+               NodeManager.hook_entries(state)
+
+      assert channels == ["sma_out", "ema_out"]
+    end
+
     test "a state without a hook table yields no rows rather than raising" do
       assert [] = NodeManager.hook_entries(%{})
       assert [] = NodeManager.hook_entries(nil)
@@ -164,6 +187,39 @@ defmodule FlezhaUi.Service.NodeManagerTest do
     test "renders a missing provider as a placeholder" do
       state = %{extensions: %{subs: %{on_input: [%{plugin_id: "a"}]}}}
       assert [%{provider: "—"}] = NodeManager.hook_entries(state)
+    end
+  end
+
+  describe "entry_sources/1" do
+    test "lists the plugins that feed an entry, hooked or not, and no others" do
+      state = %{
+        extensions: %{
+          subs: %{},
+          plugins: %{
+            "trade_ws" => %{
+              provider: Flezha.Plugin.Provider.Websocket,
+              opts: %{channel_in: ["trades_in"], entry_channel: "trades_in"}
+            },
+            "config" => %{
+              provider: Flezha.Plugin.Provider.HttpPoll,
+              opts: %{entry_channel: :config_in}
+            },
+            "kafka" => %{provider: FlezhaKafka.Producer, opts: %{entry_channel: nil}}
+          }
+        }
+      }
+
+      assert [
+               %{plugin_id: "config", channel: ["config_in"]},
+               %{plugin_id: "trade_ws", channel: ["trades_in"], provider: provider}
+             ] = NodeManager.entry_sources(state)
+
+      assert provider =~ "Websocket"
+    end
+
+    test "a state without a plugin table has no sources" do
+      assert [] = NodeManager.entry_sources(%{extensions: %{subs: %{}}})
+      assert [] = NodeManager.entry_sources(nil)
     end
   end
 

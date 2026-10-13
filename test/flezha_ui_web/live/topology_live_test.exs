@@ -430,6 +430,288 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     end
   end
 
+  describe "the relay's inside" do
+    setup %{node: node} do
+      stack(node,
+        overwatch:
+          Map.put(
+            overwatch(%{
+              on_output: [%{plugin_id: "kafka", provider: Some.Producer, position: 0}]
+            }),
+            :extensions,
+            %{
+              subs: %{on_output: [%{plugin_id: "kafka", provider: Some.Producer, position: 0}]},
+              plugins: %{
+                "kafka" => %{provider: Some.Producer, opts: %{filter_channel: ["ohlc_out"]}},
+                "trade_ws" => %{provider: Some.Socket, opts: %{entry_channel: "trades_in"}}
+              }
+            }
+          )
+      )
+
+      FakeController.set(node, {Relay, :graph}, {:ok, inside_graph()})
+      snapshot(node, [{"relay_a", 0, 0}])
+      :ok
+    end
+
+    defp inside_graph do
+      %{
+        relay: "relay_a",
+        factory: "market",
+        disagree: false,
+        reason: nil,
+        graph: %{
+          channels: [
+            FakeController.graph_channel("trades_in", "entry", nil, ["ohlc"], "none"),
+            FakeController.graph_channel("ohlc_out", "inter_tasklet", "ohlc", ["atr"], "output"),
+            FakeController.graph_channel("atr_out", "plugin_bound", "atr", [], "output")
+          ],
+          tasklets:
+            for name <- ["ohlc", "atr"] do
+              %{name: name, mode: "dynamic", cell_keys: ["symbol"], mailbox_capacity: 1024}
+            end
+        }
+      }
+    end
+
+    # How often the page has read the relay's graph or its activity.
+    defp reads(node, function), do: length(FakeController.calls(node, {Relay, function}))
+
+    defp tasklet_activity(node, read_at, ohlc) do
+      FakeController.set(
+        node,
+        {Relay, :activity},
+        {:ok,
+         %{
+           relay: "relay_a",
+           runner: "runner-a",
+           read_at_ms: read_at,
+           instance_seq: 1,
+           tasklets: [
+             FakeController.activity_row("ohlc", ohlc),
+             FakeController.activity_row("atr")
+           ]
+         }}
+      )
+    end
+
+    test "draws the boundary, its tasklets and channels, and the plugins on their channels", %{
+      conn: conn
+    } do
+      {:ok, view, html} = live(conn, @relay)
+
+      assert html =~ ~s(data-testid="topology-inside")
+      assert has_element?(view, ~s([data-testid="term-entry channel"]))
+      assert has_element?(view, ~s([data-testid="topo-node-tasklet-ohlc"]))
+      assert has_element?(view, ~s([data-testid="topo-node-channel-trades_in"]))
+      assert has_element?(view, ~s([data-testid="topo-node-channel-ohlc_out"]))
+
+      assert has_element?(
+               view,
+               ~s([data-testid="topo-edge-wire-plugin-trade_ws-source-channel-trades_in-trades_in"])
+             )
+
+      assert has_element?(
+               view,
+               ~s([data-testid="topo-edge-wire-channel-ohlc_out-plugin-kafka-on_output-ohlc_out"])
+             )
+
+      assert html =~ "2 plugins attached"
+
+      legend = view |> element(~s([data-testid="topology-legend"])) |> render()
+      assert legend =~ "A channel port"
+      assert legend =~ "A plugin branch"
+      assert legend =~ "queued"
+    end
+
+    test "a tasklet's rate comes from its activity, and its inspector names its figures", %{
+      conn: conn,
+      node: node
+    } do
+      tasklet_activity(node, 10_000, %{admitted_total: 100})
+      {:ok, view, _html} = live(conn, @relay)
+
+      tasklet_activity(node, 20_000, %{admitted_total: 150})
+      snapshot(node, [{"relay_a", 1, 1}])
+      html = tick(view)
+
+      assert html =~
+               ~r/data-testid="topo-rate-wire-channel-trades_in-tasklet-ohlc-trades_in"[^>]*>\s*5.0\/s/
+
+      view |> element(~s([data-testid="topo-node-tasklet-ohlc"])) |> render_click()
+      detail = view |> element(~s([data-testid="topology-detail"])) |> render()
+
+      assert detail =~ "Cell mode"
+      assert detail =~ "symbol"
+      assert detail =~ "5.0 msgs/s"
+      assert detail =~ "Live Cells"
+    end
+
+    test "a queue held over two reads is marked as a backlog", %{conn: conn, node: node} do
+      tasklet_activity(node, 1_000, %{queued_max: 40, queued: 40})
+      {:ok, view, html} = live(conn, @relay)
+      refute html =~ ~s(data-testid="topo-backlog-ohlc")
+
+      tasklet_activity(node, 3_000, %{queued_max: 40, queued: 40})
+      html = tick(view)
+
+      assert html =~ ~r/data-testid="topo-backlog-ohlc"[^>]*>\s*40 queued/
+    end
+
+    test "an output plugin's inspector names its channel and the order outputs run in", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, @relay)
+
+      view |> element(~s([data-testid="topo-node-plugin-kafka-on_output"])) |> render_click()
+      detail = view |> element(~s([data-testid="topology-detail"])) |> render()
+
+      assert detail =~ "ohlc_out"
+      assert detail =~ "runs every on_output plugin in position order"
+    end
+
+    test "the graph is read once while the relay stays bound, and again when it is bound anew",
+         %{conn: conn, node: node} do
+      tasklet_activity(node, 1_000, %{})
+      {:ok, view, _html} = live(conn, @relay)
+
+      # The dead render reads neither; the connected mount reads each once.
+      assert reads(node, :graph) == 1
+      assert reads(node, :activity) == 1
+      graph_reads = 1
+      for _tick <- 1..10, do: tick(view)
+
+      assert reads(node, :graph) == graph_reads
+      assert reads(node, :activity) == 11
+
+      FakeController.set(
+        node,
+        {Relay, :overwatch_state},
+        {:ok, Map.put(overwatch(), :bound_at, 1_760_000_000_000)}
+      )
+
+      tick(view)
+      assert reads(node, :graph) == graph_reads + 1
+
+      # A runner that started another instance announced again.
+      FakeController.set(
+        node,
+        {Relay, :activity},
+        {:ok,
+         %{relay: "relay_a", runner: "runner-a", read_at_ms: 9_000, instance_seq: 2, tasklets: []}}
+      )
+
+      tick(view)
+      tick(view)
+      assert reads(node, :graph) == graph_reads + 2
+    end
+
+    test "a runner of the namespace coming back makes the graph be read again", %{
+      conn: conn,
+      node: node
+    } do
+      {:ok, view, _html} = live(conn, @relay)
+      reads = reads(node, :graph)
+
+      send(view.pid, {:flezha_event, :runner_connected, {"default", "runner-a"}})
+      render(view)
+      assert reads(node, :graph) == reads + 1
+
+      send(view.pid, {:flezha_event, :runner_connected, {"elsewhere", "runner-z"}})
+      render(view)
+      assert reads(node, :graph) == reads + 1
+    end
+
+    test "a baseline older than a few ticks is dropped rather than replayed", %{
+      conn: conn,
+      node: node
+    } do
+      {:ok, view, _html} = live(conn, @relay)
+      snapshot(node, [{"relay_a", 5, 5}])
+      tick(view)
+      assert_push_event(view, "pipeline_counts", %{in: 5})
+
+      # As after a tab hidden for a minute: the last reading is long past.
+      :sys.replace_state(view.pid, fn %{socket: socket} = channel ->
+        state = socket.assigns.topology_state
+        aged = %{state | prev_at: state.prev_at - 60_000}
+        %{channel | socket: Phoenix.Component.assign(socket, :topology_state, aged)}
+      end)
+
+      snapshot(node, [{"relay_a", 500, 500}])
+      tick(view)
+      refute_push_event(view, "pipeline_counts", %{in: 495})
+    end
+
+    test "a refused graph read is an answer, not read again every tick", %{conn: conn, node: node} do
+      FakeController.set(node, {Relay, :graph}, FakeController.error("relay.not_found"))
+      {:ok, view, html} = live(conn, @relay)
+      for _tick <- 1..3, do: tick(view)
+
+      assert html =~ "its graph could not be read"
+      assert reads(node, :graph) == 1
+    end
+
+    test "nothing is read while the tab is hidden, and reading resumes when it shows", %{
+      conn: conn,
+      node: node
+    } do
+      {:ok, view, _html} = live(conn, @relay)
+      render_hook(view, "refresh_visibility", %{"hidden" => true})
+      reads = reads(node, :activity)
+
+      for _tick <- 1..3, do: tick(view)
+      assert reads(node, :activity) == reads
+
+      render_hook(view, "refresh_visibility", %{"hidden" => false})
+      assert reads(node, :activity) == reads + 1
+    end
+
+    test "a refused activity read keeps the structure and drops the figures", %{
+      conn: conn,
+      node: node
+    } do
+      rate = ~s(data-testid="topo-rate-wire-channel-trades_in-tasklet-ohlc-trades_in")
+      tasklet_activity(node, 10_000, %{admitted_total: 100})
+      {:ok, view, _html} = live(conn, @relay)
+      tasklet_activity(node, 20_000, %{admitted_total: 150})
+      snapshot(node, [{"relay_a", 1, 1}])
+      assert tick(view) =~ rate
+
+      FakeController.set(node, {Relay, :activity}, FakeController.error("relay.not_found"))
+      snapshot(node, [{"relay_a", 2, 2}])
+      html = tick(view)
+
+      assert html =~ ~s(data-testid="topo-node-tasklet-ohlc")
+      refute html =~ rate
+    end
+
+    test "a runner that announced no graph, or a controller without one, says why", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Relay, :graph},
+        {:ok, %{inside_graph() | graph: nil, reason: "not_announced"}}
+      )
+
+      {:ok, _view, html} = live(conn, @relay)
+      assert html =~ "the runners of factory market announced no graph"
+      refute html =~ ~s(data-testid="topo-node-tasklet-ohlc")
+      assert FakeController.calls(node, {Relay, :activity}) == []
+
+      FakeController.set(
+        node,
+        {Relay, :graph},
+        {:error, {:api_missing, Relay, :graph, 3}}
+      )
+
+      {:ok, _view, html} = live(conn, @relay)
+      assert html =~ "this controller does not report relay graphs"
+    end
+  end
+
   describe "payload tap" do
     setup %{node: node} do
       stack(node)

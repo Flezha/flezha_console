@@ -141,6 +141,30 @@ defmodule FakeController do
     do: %{subs: %{on_input: [%{plugin_id: plugin_id, provider: Flezha.Plugin.Provider.StdOut}]}}
 
   @doc """
+  A channel of the graph `Relay.graph/3` answers, as the controller stores a
+  runner's announcement.
+  """
+  def graph_channel(name, kind, producer, consumers, plugin_end \\ "none") do
+    %{
+      name: name,
+      kind: kind,
+      producer: producer,
+      consumers: consumers,
+      plugin_end: plugin_end,
+      call_target: nil,
+      overflow: "drop_nothing"
+    }
+  end
+
+  @doc "One tasklet's row of `Relay.activity/3`'s answer: `figures` over an idle tasklet."
+  def activity_row(tasklet, figures \\ %{}),
+    do:
+      Map.merge(
+        %{tasklet: tasklet, cells: 1, queued: 0, queued_max: 0, admitted_total: 0},
+        figures
+      )
+
+  @doc """
   A relay row shaped as `Flezha.Service.Relay.relay_rows/2` answers one, with
   `overrides` applied.
 
@@ -383,6 +407,14 @@ defmodule Flezha.Service.Relay do
   defstub info(ns, %{source: :ui} = ctx), do: {:ok, %{namespace: ns, groups: [], relays: []}}
   defstub cell_state(ns, id, cell, %{source: :ui} = ctx), do: {:ok, "{}", 0}
   defstub overwatch_state(ns, id, %{source: :ui} = ctx), do: {:ok, %{}}
+
+  defstub graph(ns, id, %{source: :ui} = ctx),
+    do:
+      {:ok,
+       %{relay: id, factory: "store_input", graph: nil, disagree: false, reason: "not_announced"}}
+
+  defstub activity(ns, id, %{source: :ui} = ctx),
+    do: {:ok, %{relay: id, runner: "runner-a", read_at_ms: 0, instance_seq: 1, tasklets: []}}
 
   # The id the relay runs under: the one asked for, or one the controller draws.
   defstub start(ns, relay, %{source: :ui} = ctx),

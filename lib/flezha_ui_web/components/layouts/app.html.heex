@@ -90,7 +90,9 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
 
   <div class="flz-app-main" phx-mounted={JS.ignore_attributes(["inert"])}>
     <header class="flz-topbar" data-testid="topbar">
-      <div class="flz-topbar-group">
+      <%!-- Beside the rail the bar keeps one row: a long node name or principal
+           truncates instead. --%>
+      <div class="flz-topbar-group lg:flex-nowrap">
         <.nav_toggle
           class="flz-chrome-icon-btn relative"
           aria-label="Menu"
@@ -105,8 +107,12 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
           />
         </.nav_toggle>
 
-        <span :if={node} class="flex items-center gap-1.5" data-shell-at="desk">
-          <span class="fui-shape fui-tone-positive" data-shape="dot" aria-hidden="true"></span>{node}
+        <span :if={node} class="flex min-w-0 items-center gap-1.5" data-shell-at="desk">
+          <span class="fui-shape fui-tone-positive shrink-0" data-shape="dot" aria-hidden="true">
+          </span><span
+            class="truncate"
+            title={node}
+          >{node}</span>
         </span>
         <span :if={!node} class="flz-topbar-muted flex items-center gap-1.5">
           <span class="fui-shape fui-tone-negative" data-shape="dot" aria-hidden="true"></span>
@@ -151,13 +157,16 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
         </div>
       </div>
 
-      <div class="flz-topbar-group">
+      <div class="flz-topbar-group lg:flex-nowrap">
         <div
           :if={assigns[:refresh_interval]}
           data-testid="liveness"
           class="flex items-center gap-2"
         >
-          <span class="flz-topbar-muted" data-testid="liveness-state">
+          <span
+            class="flz-topbar-muted whitespace-nowrap tabular-nums"
+            data-testid="liveness-state"
+          >
             <span :if={assigns[:refresh_paused]}>Paused</span>
             <span :if={!assigns[:refresh_paused]}>
               <span data-shell-at="desk compact">

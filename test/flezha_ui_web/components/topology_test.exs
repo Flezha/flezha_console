@@ -417,6 +417,482 @@ defmodule FlezhaUiWeb.TopologyTest do
     end
   end
 
+  # The dev stack's `market` class as its runner announces it.
+  defp market_graph do
+    channels = [
+      FakeController.graph_channel(
+        "trades_in",
+        "entry",
+        nil,
+        ~w(route_latest ohlc sma ema rsi trades ticker_stats)
+      ),
+      FakeController.graph_channel("book_in", "entry", nil, ~w(order_book)),
+      FakeController.graph_channel("config_in", "entry", nil, ~w(route_latest)),
+      FakeController.graph_channel(
+        "config_out",
+        "inter_tasklet",
+        "route_latest",
+        ~w(price_signal volume_signal)
+      ),
+      FakeController.graph_channel(
+        "ohlc_out",
+        "inter_tasklet",
+        "ohlc",
+        ~w(adr atr volume_signal),
+        "output"
+      ),
+      FakeController.graph_channel("sma_out", "inter_tasklet", "sma", ~w(bollinger), "output"),
+      FakeController.graph_channel("ema_out", "inter_tasklet", "ema", ~w(macd), "output"),
+      FakeController.graph_channel("rsi_out", "plugin_bound", "rsi", [], "output"),
+      FakeController.graph_channel("trades_out", "plugin_bound", "trades", [], "output"),
+      FakeController.graph_channel(
+        "ticker_out",
+        "inter_tasklet",
+        "ticker_stats",
+        ~w(price_signal),
+        "output"
+      ),
+      FakeController.graph_channel("book_out", "plugin_bound", "order_book", [], "output"),
+      FakeController.graph_channel("adr_out", "plugin_bound", "adr", [], "output"),
+      FakeController.graph_channel("atr_out", "plugin_bound", "atr", [], "output"),
+      FakeController.graph_channel("macd_out", "plugin_bound", "macd", [], "output"),
+      FakeController.graph_channel("boll_out", "plugin_bound", "bollinger", [], "output"),
+      FakeController.graph_channel(
+        "price_signal_out",
+        "plugin_bound",
+        "price_signal",
+        [],
+        "output"
+      ),
+      FakeController.graph_channel(
+        "volume_signal_out",
+        "plugin_bound",
+        "volume_signal",
+        [],
+        "output"
+      )
+    ]
+
+    tasklets =
+      for name <- ~w(route_latest ohlc sma ema rsi trades ticker_stats order_book adr atr macd
+                    bollinger price_signal volume_signal),
+          do: %{name: name, mode: "dynamic", cell_keys: [], mailbox_capacity: 1024}
+
+    %{channels: channels, tasklets: tasklets}
+  end
+
+  defp announced(graph, disagree \\ false),
+    do:
+      {:ok, %{relay: "relay_a", factory: "market", graph: graph, disagree: disagree, reason: nil}}
+
+  defp source(id, entry),
+    do: %{plugin_id: id, provider: "Flezha.Plugin.Provider.Websocket", channel: [entry]}
+
+  defp bound(id, hook, position, channel),
+    do:
+      %{binding(id, hook, position) | provider: "FlezhaKafka.Producer"}
+      |> Map.put(:channel, channel)
+
+  defp market(overrides \\ %{}) do
+    bindings = [
+      bound("io_filter", "on_input", 0, nil),
+      bound("demo_ohlc", "on_output", 0, ["ohlc_out"]),
+      bound("demo_book", "on_output", 1, ["book_out"]),
+      bound("demo_trades", "on_output", 2, ["trades_out"]),
+      bound("demo_ticker", "on_output", 3, ["ticker_out"]),
+      bound("demo_indicators", "on_output", 4, ~w(sma_out ema_out rsi_out macd_out boll_out)),
+      bound("demo_events", "on_output", 5, ~w(price_signal_out volume_signal_out))
+    ]
+
+    sources = [source("trade_ws", "trades_in"), source("book_ws", "book_in")]
+
+    pipeline_input(
+      Map.merge(
+        %{
+          facts: facts(%{bindings: bindings, sources: sources}),
+          graph: announced(market_graph())
+        },
+        overrides
+      )
+    )
+  end
+
+  defp activity(read_at, rows, instance \\ 1) do
+    %{
+      relay: "relay_a",
+      runner: "runner-a",
+      read_at_ms: read_at,
+      instance_seq: instance,
+      tasklets: rows
+    }
+  end
+
+  defp boundary(graph), do: node(graph, "relay_a")
+
+  # The classes of the first graph node drawn for `id`.
+  defp role(html, id) do
+    [_, classes] =
+      Regex.run(~r/data-testid="topo-node-#{id}".*?class="(flz-graph-node[^"]*)"/s, html)
+
+    classes
+  end
+
+  defp inside?(graph, node) do
+    core = boundary(graph)
+
+    node.x >= core.x and node.x + node.w <= core.x + core.w and node.y >= core.y and
+      node.y + node.h <= core.y + core.h
+  end
+
+  describe "pipeline/1 with an announced graph" do
+    test "the relay is a boundary holding its tasklets in columns by depth" do
+      graph = Topology.pipeline(market())
+      core = boundary(graph)
+      column = &node(graph, "tasklet-#{&1}").x
+
+      assert core.boundary?
+      assert graph.inside == nil
+      assert column.("ohlc") == column.("order_book")
+      assert column.("ohlc") < column.("adr")
+      assert column.("adr") == column.("price_signal") and column.("adr") == column.("macd")
+
+      tasklets = Enum.filter(graph.nodes, &(&1.kind == :tasklet))
+      assert length(tasklets) == 14
+      assert Enum.all?(tasklets, &inside?(graph, &1))
+    end
+
+    test "entries sit on the left edge, plugin-bound channels on the right, a hybrid on both" do
+      graph = Topology.pipeline(market())
+      core = boundary(graph)
+      ohlc_out = node(graph, "channel-ohlc_out")
+
+      for entry <- ~w(trades_in book_in config_in),
+          do: assert(node(graph, "channel-#{entry}").x + 8 == core.x)
+
+      assert ohlc_out.role == :exit and ohlc_out.x + ohlc_out.w - 8 == core.x + core.w
+      assert edge(graph, "wire-tasklet-ohlc-tasklet-adr-ohlc_out").kind == :inner
+      assert edge(graph, "wire-tasklet-ohlc-channel-ohlc_out-ohlc_out")
+      assert node(graph, "channel-config_out-wire").role == :inner
+      # A hybrid channel is named on its wire as well as at its port.
+      assert node(graph, "channel-ohlc_out-wire").role == :inner
+
+      assert edge(graph, "wire-tasklet-route_latest-tasklet-price_signal-config_out")
+      exits = Enum.filter(graph.nodes, &(&1[:role] == :exit))
+      assert length(exits) == 13
+    end
+
+    test "input plugins attach to their entries, output plugins branch from their channels" do
+      graph = Topology.pipeline(market())
+      core = boundary(graph)
+
+      assert edge(graph, "wire-plugin-trade_ws-source-channel-trades_in-trades_in").kind ==
+               :branch
+
+      assert edge(graph, "wire-plugin-book_ws-source-channel-book_in-book_in").kind == :branch
+
+      assert edge(graph, "wire-channel-ohlc_out-plugin-demo_ohlc-on_output-ohlc_out").kind ==
+               :branch
+
+      assert edge(graph, "wire-channel-trades_out-plugin-demo_trades-on_output-trades_out").kind ==
+               :branch
+
+      for out <- ~w(sma_out ema_out rsi_out macd_out boll_out),
+          do: assert(edge(graph, "wire-channel-#{out}-plugin-demo_indicators-on_output-#{out}"))
+
+      refute Enum.any?(graph.edges, &(&1.id =~ "demo_ohlc" and &1.id =~ "demo_trades"))
+
+      plugins = Enum.filter(graph.nodes, &(&1.kind == :plugin))
+      refute Enum.any?(plugins, &inside?(graph, &1))
+      trade_ws = node(graph, "plugin-trade_ws-source")
+      assert trade_ws.x + trade_ws.w < core.x
+      assert node(graph, "plugin-demo_ohlc-on_output").x > core.x + core.w
+
+      html = render_component(&Topology.pipeline_graph/1, topology: graph, tapped: nil)
+      assert role(html, "tasklet-ohlc") =~ "flz-graph-node--tasklet"
+      assert role(html, "plugin-demo_ohlc-on_output") =~ "flz-graph-node--plugin"
+      assert role(html, "relay_a") =~ "topo-boundary"
+      refute role(html, "relay_a") =~ "flz-graph-node--tasklet"
+
+      # The keyboard walks the record path as before; the inside is a lane below it.
+      assert html =~ ~r/data-testid="topo-node-relay_a"[^>]*data-lane="record"/
+      assert html =~ ~r/data-testid="topo-node-tasklet-ohlc"[^>]*data-lane="inside"/
+      assert html =~ ~s(class="topo-boundary-outline")
+    end
+
+    test "a plugin naming no channel, or one the relay lacks, stays on the relay as a whole" do
+      input =
+        market(%{
+          facts:
+            facts(%{
+              bindings: [
+                bound("io_filter", "on_input", 0, nil),
+                bound("typo", "on_output", 0, ["ohcl_out"])
+              ]
+            })
+        })
+
+      graph = Topology.pipeline(input)
+      typo = node(graph, "plugin-typo-on_output")
+
+      assert lane(graph, :record) |> Enum.take(3) == [:ingest, :plugin, :core]
+      assert typo.y == boundary(graph).y and typo.every_channel?
+      assert typo.missing == ["ohcl_out"]
+      assert node(graph, "plugin-io_filter-on_input").every_channel?
+
+      html =
+        render_component(&Topology.pipeline_graph/1,
+          topology: %{graph | selected: typo},
+          tapped: nil
+        )
+
+      assert html =~ ~s(data-testid="topo-mark-plugin-typo-on_output")
+      assert html =~ ~s(data-testid="topology-plugin-missing")
+      assert html =~ "The relay has no channel named"
+      assert html =~ "ohcl_out"
+      assert html =~ "runs every on_output plugin in position order"
+    end
+
+    test "a source feeding an entry the relay lacks says so, and acts on no channel" do
+      input =
+        market(%{facts: facts(%{bindings: [], sources: [source("ghost", "nope")]})})
+
+      graph = Topology.pipeline(input)
+      ghost = node(graph, "plugin-ghost-source")
+
+      refute ghost.every_channel?
+      assert ghost.missing == ["nope"]
+
+      html = render_component(&Topology.pipeline_graph/1, topology: graph, tapped: nil)
+      assert html =~ ~r/data-testid="topo-mark-plugin-ghost-source"[^>]*>\s*no such entry/
+    end
+
+    test "plugins on one channel stand in position order, in their own column" do
+      input =
+        market(%{
+          facts:
+            facts(%{
+              bindings: [
+                bound("second", "on_output", 1, ["book_out"]),
+                bound("first", "on_output", 0, ["book_out"])
+              ]
+            })
+        })
+
+      graph = Topology.pipeline(input)
+      first = node(graph, "plugin-first-on_output")
+      second = node(graph, "plugin-second-on_output")
+
+      assert first.x == second.x and first.y < second.y
+      assert first.sub =~ "#0" and second.sub =~ "#1"
+    end
+
+    test "a tick moves nothing: positions depend on the graph and the bindings alone" do
+      quiet = Topology.pipeline(market())
+
+      busy =
+        Topology.pipeline(
+          market(%{
+            history: [%{{:tasklet, "ohlc"} => 4.0, in: 9, out: 9}],
+            activity: activity(2_000, [FakeController.activity_row("ohlc", %{queued_max: 3})]),
+            prev_activity:
+              activity(1_000, [FakeController.activity_row("ohlc", %{queued_max: 3})]),
+            selected: "tasklet-ohlc"
+          })
+        )
+
+      at = &Map.new(&1.nodes, fn n -> {n.id, {n.x, n.y, n.w, n.h}} end)
+      assert at.(quiet) == at.(busy)
+      assert {quiet.width, quiet.height} == {busy.width, busy.height}
+    end
+
+    test "without an announced graph the relay is one box, and the line says why" do
+      graph = Topology.pipeline(market(%{graph: {:ok, %{factory: "market", graph: nil}}}))
+
+      assert lane(graph, :record) ==
+               [:ingest, :plugin, :core] ++ List.duplicate(:plugin, 6) ++ [:channel, :output]
+
+      refute Enum.any?(graph.nodes, &(&1.kind in [:tasklet, :relay_channel]))
+      assert graph.inside == {:not_announced, "market"}
+      assert graph.plugin_count == 7
+
+      missing =
+        Topology.pipeline(
+          market(%{graph: {:error, {:api_missing, Flezha.Service.Relay, :graph, 3}}})
+        )
+
+      assert missing.inside == :not_supported
+
+      html = render_component(&Topology.pipeline_graph/1, topology: graph, tapped: nil)
+      assert html =~ ~s(data-testid="topology-inside-note")
+      assert html =~ "the runners of factory market announced no graph"
+      assert role(html, "relay_a") =~ "flz-graph-node--tasklet"
+    end
+
+    test "runners that disagree are drawn from the latest, and say so" do
+      graph = Topology.pipeline(market(%{graph: announced(market_graph(), true)}))
+      html = render_component(&Topology.pipeline_graph/1, topology: graph, tapped: nil)
+
+      assert html =~ ~s(data-testid="topology-inside-disagree")
+    end
+  end
+
+  describe "pipeline/1 with an awkward graph" do
+    test "two channels between one pair of tasklets keep their own ids and labels" do
+      graph = %{
+        channels: [
+          FakeController.graph_channel("in", "entry", nil, ~w(a)),
+          FakeController.graph_channel("c1", "inter_tasklet", "a", ~w(b)),
+          FakeController.graph_channel("c2", "inter_tasklet", "a", ~w(b c)),
+          FakeController.graph_channel("in2", "entry", nil, ~w(c), "output")
+        ],
+        tasklets:
+          for(n <- ~w(a b c), do: %{name: n, mode: "single", cell_keys: [], mailbox_capacity: 8})
+      }
+
+      topology = Topology.pipeline(market(%{graph: announced(graph)}))
+      ids = Enum.map(topology.nodes, & &1.id) ++ Enum.map(topology.edges, & &1.id)
+
+      assert ids == Enum.uniq(ids)
+      assert edge(topology, "wire-tasklet-a-tasklet-b-c1")
+      assert edge(topology, "wire-tasklet-a-tasklet-b-c2")
+      refute node(topology, "channel-c1-wire").y == node(topology, "channel-c2-wire").y
+      assert node(topology, "channel-in2").role == :entry
+    end
+
+    test "a plugin naming one channel it has and one the relay lacks hangs off the first" do
+      input =
+        market(%{
+          facts: facts(%{bindings: [bound("half", "on_output", 0, ~w(rsi_out rsi_ot trades_in))]})
+        })
+
+      topology = Topology.pipeline(input)
+      half = node(topology, "plugin-half-on_output")
+
+      assert half.ports == ["rsi_out"] and half.missing == ["rsi_ot"] and not half.every_channel?
+
+      html =
+        render_component(&Topology.pipeline_graph/1,
+          topology: %{topology | selected: half},
+          tapped: nil
+        )
+
+      assert html =~ ~r/The relay has no channel named\s*<span class="font-mono">rsi_ot<\/span>\./
+      refute html =~ "drawn on the relay as a whole"
+    end
+  end
+
+  describe "tasklet figures" do
+    test "a rate is the advance of admitted_total over the advance of read_at_ms" do
+      before = activity(10_000, [FakeController.activity_row("ohlc", %{admitted_total: 100})])
+      now = activity(20_000, [FakeController.activity_row("ohlc", %{admitted_total: 150})])
+
+      assert Topology.tasklet_rates(now, before) == %{{:tasklet, "ohlc"} => 5.0}
+    end
+
+    test "a falling counter clamps to zero, and another instance gives no rate" do
+      before = activity(10_000, [FakeController.activity_row("ohlc", %{admitted_total: 150})])
+
+      assert Topology.tasklet_rates(
+               activity(20_000, [FakeController.activity_row("ohlc", %{admitted_total: 9})]),
+               before
+             ) ==
+               %{{:tasklet, "ohlc"} => 0.0}
+
+      assert Topology.tasklet_rates(
+               activity(20_000, [FakeController.activity_row("ohlc", %{admitted_total: 200})], 2),
+               before
+             ) == %{}
+
+      assert Topology.tasklet_rates(activity(10_000, []), before) == %{}
+      assert Topology.tasklet_rates(before, nil) == %{}
+    end
+
+    test "a single-input tasklet's rate rides its wire; a fan-in's sits on the node" do
+      history = [%{{:tasklet, "ohlc"} => 4.0, {:tasklet, "price_signal"} => 2.0, in: 1}]
+
+      graph =
+        Topology.pipeline(
+          market(%{
+            history: history,
+            activity:
+              activity(2_000, [
+                FakeController.activity_row("ohlc", %{}),
+                FakeController.activity_row("price_signal", %{})
+              ]),
+            prev_activity:
+              activity(1_000, [
+                FakeController.activity_row("ohlc", %{}),
+                FakeController.activity_row("price_signal", %{})
+              ])
+          })
+        )
+
+      assert edge(graph, "wire-channel-trades_in-tasklet-ohlc-trades_in").label == "4.0/s"
+      assert node(graph, "tasklet-ohlc").sub == "dynamic"
+      assert node(graph, "tasklet-price_signal").sub == "dynamic · 2.0/s"
+      assert edge(graph, "wire-tasklet-ticker_stats-tasklet-price_signal-ticker_out").label == nil
+      assert edge(graph, "wire-tasklet-route_latest-tasklet-price_signal-config_out").label == nil
+      assert edge(graph, "wire-channel-ohlc_out-plugin-demo_ohlc-on_output-ohlc_out").label == nil
+    end
+
+    test "without this tick's activity no tasklet carries a figure" do
+      graph =
+        Topology.pipeline(
+          market(%{history: [%{{:tasklet, "ohlc"} => 4.0, in: 1}], activity: nil})
+        )
+
+      assert edge(graph, "wire-channel-trades_in-tasklet-ohlc-trades_in").label == nil
+      assert node(graph, "tasklet-ohlc").figure == nil
+    end
+
+    test "a queue held over two readings is a backlog, deepest first; a drop is shed" do
+      previous =
+        activity(1_000, [
+          FakeController.activity_row("book", %{queued_max: 40, queued: 40}),
+          FakeController.activity_row("ohlc", %{queued_max: 2, queued: 5}),
+          FakeController.activity_row("ticks", %{dropped_oldest_total: 4}),
+          FakeController.activity_row("sma", %{queued_max: 0})
+        ])
+
+      current =
+        activity(2_000, [
+          FakeController.activity_row("book", %{queued_max: 40, queued: 0}),
+          FakeController.activity_row("ohlc", %{queued_max: 3, queued: 6}),
+          FakeController.activity_row("ticks", %{dropped_oldest_total: 7}),
+          FakeController.activity_row("sma", %{queued_max: 9})
+        ])
+
+      graph =
+        market_graph()
+        |> Map.update!(:tasklets, fn tasklets ->
+          tasklets ++
+            for name <- ~w(book ticks),
+                do: %{name: name, mode: "single", cell_keys: [], mailbox_capacity: 8}
+        end)
+        |> announced()
+
+      topology =
+        Topology.pipeline(market(%{graph: graph, activity: current, prev_activity: previous}))
+
+      figure = &node(topology, "tasklet-#{&1}").figure
+
+      assert %{backlog: 40, deepest?: true} = figure.("book")
+      assert %{backlog: 3, deepest?: false} = figure.("ohlc")
+      assert %{backlog: nil} = figure.("sma")
+      assert %{shed: 3, backlog: nil} = figure.("ticks")
+
+      html = render_component(&Topology.pipeline_graph/1, topology: topology, tapped: nil)
+      assert html =~ ~s(aria-label="book, single, 40 queued")
+      assert html =~ ~s(aria-label="ticks, single, 3 shed")
+
+      assert html =~
+               ~r/data-testid="topo-backlog-book"[^>]*class="topo-backlog is-deepest"[^>]*>\s*40 queued/
+
+      assert html =~ ~r/data-testid="topo-shed-ticks"[^>]*>\s*3 shed/
+      refute html =~ ~s(data-testid="topo-backlog-sma")
+    end
+  end
+
   describe "pipeline_graph/1" do
     test "renders the ports, the dock hint, the timeline and the not-counted tooltip" do
       bindings = [binding("a", "on_input", 0), binding("b", "on_input", 1)]

@@ -22,18 +22,28 @@ import {
 const RELAY = '/namespaces/default/relays/testnet_store_1';
 const FLOW_BUCKETS = /topo-flow-(idle|slow|medium|fast)/;
 
-/** Every node's box on the canvas, to compare before and after something that must not move it. */
+/**
+ * Every node's box, measured from the canvas, to compare before and after
+ * something that must not move it. Opening a dock panel may scroll the page to
+ * reveal it, which moves the canvas and the nodes together.
+ */
 async function nodeBoxes(page: Page): Promise<string> {
   return page
     .locator('[data-testid^="topo-node-"]')
-    .evaluateAll((nodes) =>
-      JSON.stringify(
+    .evaluateAll((nodes) => {
+      const canvas = document.querySelector('[data-testid="topology-canvas"]')!.getBoundingClientRect();
+      return JSON.stringify(
         nodes.map((n) => {
           const b = n.getBoundingClientRect();
-          return [n.getAttribute('data-testid'), Math.round(b.x), Math.round(b.y), Math.round(b.width)];
+          return [
+            n.getAttribute('data-testid'),
+            Math.round(b.x - canvas.x),
+            Math.round(b.y - canvas.y),
+            Math.round(b.width),
+          ];
         }),
-      ),
-    );
+      );
+    });
 }
 
 /** How many listeners a port counts; none when its badge is absent. */
@@ -169,9 +179,12 @@ test.describe('Pipeline graph', () => {
 
   test('selecting a node docks its inspector below and leaves the canvas where it was', async ({ page }) => {
     const canvas = page.getByTestId('topology-canvas');
+    const relay = page.getByTestId('topo-node-testnet_store_1');
+    // In view first, so the click scrolls nothing and any move is the canvas's own.
+    await relay.scrollIntoViewIfNeeded();
     const before = await canvas.boundingBox();
 
-    await page.getByTestId('topo-node-testnet_store_1').click();
+    await relay.click();
 
     const panel = page.getByTestId('topology-detail');
     await expect(panel).toBeVisible();
@@ -230,10 +243,12 @@ test.describe('Payload tap', () => {
   });
 
   test('opens from the IN port, counts its listener there, and moves nothing', async ({ page }) => {
+    const port = page.getByTestId('topo-port-in');
+    await port.scrollIntoViewIfNeeded();
     const boxes = await nodeBoxes(page);
     const before = await observers(page, 'in');
 
-    await page.getByTestId('topo-port-in').click();
+    await port.click();
 
     // Figures come from the payloads the listener delivers, because nothing on
     // the data plane counts bytes.
