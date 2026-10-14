@@ -118,6 +118,8 @@ config :flezha_ui, :dev_setup,
     %{id: "testnet_store_3", factory_id: "store_input", init_values: %{}},
     %{id: "testnet_filter", factory_id: "compare_filter", init_values: %{}},
     %{id: "testnet_noop", factory_id: "do_nothing", init_values: %{}},
+    # Two tasklets in a row, so the relay graph has an inner channel to draw.
+    %{id: "testnet_chain", factory_id: "static_cell", init_values: %{}},
     # A long-lived durable steps relay, so the steps, task journal and input
     # log panels have something to show, and a run-once one that completes so
     # the finished-relay listing is not empty either.
@@ -145,7 +147,8 @@ config :flezha_ui, :dev_setup,
           {"ws_store_2", "testnet_store_2", "ETH/DEMO1", 2500, 2},
           {"ws_store_3", "testnet_store_3", "EUR/USD", 1.085, 5},
           {"ws_filter", "testnet_filter", "GBP/USD", 1.34, 5},
-          {"ws_noop", "testnet_noop", "USD/JPY", 149.5, 3}
+          {"ws_noop", "testnet_noop", "USD/JPY", 149.5, 3},
+          {"ws_chain", "testnet_chain", "XAU/USD", 2400, 2}
         ],
         # The testnet's `trade` generator keeps one price walk per pair, so each
         # source gets its own pair and the relays' inputs stay distinguishable.
