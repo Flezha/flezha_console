@@ -140,7 +140,7 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
         <.runtime_error error={@error} />
         """)
 
-      assert html =~ "relay &#39;r1&#39; is not running"
+      assert html =~ "relay <code>r1</code> is not running"
       assert html =~ ~s(data-testid="runtime-error-hint")
       assert html =~ "start it first"
       refute html =~ "refused"

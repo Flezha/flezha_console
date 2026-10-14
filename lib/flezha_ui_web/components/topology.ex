@@ -2056,7 +2056,7 @@ defmodule FlezhaUiWeb.Topology do
       data-testid="topology-inside-note"
       class="text-sm topo-muted"
     >
-      The relay's inside is not shown: {inside_reason(@inside)}
+      The relay's inside is not shown: {code_names(inside_reason(@inside))}
     </p>
     """
   end
@@ -3886,7 +3886,9 @@ defmodule FlezhaUiWeb.Topology do
       kind={:error}
       testid="topology-stall-refused"
     >
-      Stall detection is unavailable: {error_message(elem(Map.get(@topology, :stall_notice), 1))}
+      Stall detection is unavailable: {code_names(
+        error_message(elem(Map.get(@topology, :stall_notice), 1))
+      )}
     </.notice>
 
     <.notice

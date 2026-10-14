@@ -396,7 +396,7 @@
     </.stat>
   </dl>
   <.notice :if={@travel_error} kind={:error} testid="travel-error" class="mt-4">
-    {travel_reason(@travel_error)}
+    {code_names(travel_reason(@travel_error))}
   </.notice>
   <div data-testid="outbox" class="mt-6 space-y-2">
     <h3 class="fui-eyebrow">Outbox</h3>

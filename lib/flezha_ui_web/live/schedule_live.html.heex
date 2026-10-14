@@ -143,7 +143,7 @@
   />
 
   <.notice :if={@form_error} kind={:error} testid="schedule-form-error">
-    {@form_error}
+    {code_names(@form_error)}
   </.notice>
 
   <form phx-submit="create" phx-change="form_change" class="space-y-4">

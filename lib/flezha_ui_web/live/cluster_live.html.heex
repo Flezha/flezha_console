@@ -58,7 +58,7 @@
       <%= cond do %>
         <% ns.hub_error -> %>
           <span data-testid={"hub-nodes-#{ns.name}"} class="fui-tone-warning">
-            {error_message(ns.hub_error, "the hub read")}
+            {code_names(error_message(ns.hub_error, "the hub read"))}
           </span>
         <% ns.hub_nodes == [] -> %>
           <span data-testid={"hub-nodes-#{ns.name}"}>no node — no hub running</span>

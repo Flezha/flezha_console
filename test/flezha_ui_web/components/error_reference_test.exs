@@ -79,7 +79,7 @@ defmodule FlezhaUiWeb.ErrorReferenceTest do
     html = render_error(finding)
 
     assert html =~
-             ~s(<p class="fui-note-title">plugin &#39;p&#39; bound to relay &#39;r&#39; is unhealthy.</p>)
+             ~s(<p class="fui-note-title">plugin <code>p</code> bound to relay <code>r</code> is unhealthy.</p>)
 
     assert html =~ ~r/data-testid="runtime-error-reason"[^>]*>\{:poll_failing/
   end
@@ -95,6 +95,17 @@ defmodule FlezhaUiWeb.ErrorReferenceTest do
 
     assert html =~ "is unhealthy: connection refused"
     refute html =~ "runtime-error-reason"
+  end
+
+  test "a quoted name reads as code, while an apostrophe in a word stays" do
+    html =
+      render_error(%{
+        code: "authz.role_insufficient",
+        message: "the caller's role cannot stop relay '<b>' on runner 'r1'"
+      })
+
+    assert html =~
+             "the caller&#39;s role cannot stop relay <code>&lt;b&gt;</code> on runner <code>r1</code>"
   end
 end
 

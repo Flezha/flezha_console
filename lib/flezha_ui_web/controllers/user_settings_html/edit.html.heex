@@ -72,7 +72,7 @@
         </.stat>
         <.stat :if={is_nil(@authz.principal)} label="Bound identity">
           None — {if @authz.reason,
-            do: FlezhaUiWeb.CoreComponents.error_message(@authz.reason),
+            do: code_names(error_message(@authz.reason)),
             else: "no token is presented."}
         </.stat>
       </dl>

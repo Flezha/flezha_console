@@ -230,7 +230,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       html = create(view, %{name: "analytics"})
 
       assert html =~ ~s(data-testid="create-namespace-error")
-      assert html =~ "namespace &#39;analytics&#39; already exists"
+      assert html =~ "namespace <code>analytics</code> already exists"
     end
 
     test "a refusal names its code", %{conn: conn, node: node} do

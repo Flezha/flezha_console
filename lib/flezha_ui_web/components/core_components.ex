@@ -415,7 +415,7 @@ defmodule FlezhaUiWeb.CoreComponents do
         <option :if={@prompt} value="">{@prompt}</option>
         {Phoenix.HTML.Form.options_for_select(@options, @value)}
       </select>
-      <p :if={@hint} class="fui-hint">{@hint}</p>
+      <p :if={@hint} class="fui-hint">{code_names(@hint)}</p>
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
     """
@@ -432,7 +432,7 @@ defmodule FlezhaUiWeb.CoreComponents do
         aria-invalid={@errors != [] && "true"}
         {@rest}
       >{Phoenix.HTML.Form.normalize_value("textarea", @value)}</textarea>
-      <p :if={@hint} class="fui-hint">{@hint}</p>
+      <p :if={@hint} class="fui-hint">{code_names(@hint)}</p>
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
     """
@@ -451,7 +451,7 @@ defmodule FlezhaUiWeb.CoreComponents do
         aria-invalid={@errors != [] && "true"}
         {@rest}
       />
-      <p :if={@hint} class="fui-hint">{@hint}</p>
+      <p :if={@hint} class="fui-hint">{code_names(@hint)}</p>
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
     """
@@ -1375,7 +1375,7 @@ defmodule FlezhaUiWeb.CoreComponents do
 
     ~H"""
     <.notice :if={@error} kind={@kind} testid="runtime-error" class={@class}>
-      <p class="fui-note-title">{@text}</p>
+      <p class="fui-note-title">{code_names(@text)}</p>
       <.code_block :if={@reason} testid="runtime-error-reason">{@reason}</.code_block>
       <div :if={@error.hint}>
         <p class="fui-eyebrow mb-1">Next step</p>
@@ -1389,7 +1389,7 @@ defmodule FlezhaUiWeb.CoreComponents do
           rel="noopener noreferrer"
           data-testid="runtime-error-reference"
         >
-          What {@error.code} means
+          What <code>{@error.code}</code> means
         </a>
       </p>
       <.link :if={@settings_link?} href={~p"/users/settings"}>
@@ -1430,7 +1430,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   def form_error(assigns) do
     ~H"""
     <.notice :if={is_binary(@error)} kind={:error} testid={@testid}>
-      {@error}
+      {code_names(@error)}
     </.notice>
     <div :if={@error && !is_binary(@error)} data-testid={@testid}>
       <.runtime_error error={@error} action={@action} />
@@ -1469,6 +1469,30 @@ defmodule FlezhaUiWeb.CoreComponents do
   defp error_text(%{message: message}, _action), do: message
 
   @doc """
+  Shows each name a controller message wraps in single quotes, like
+  `relay 'orders'`, as code without the quotes. A value that is not a string
+  is returned unchanged.
+  """
+  def code_names("" <> text) do
+    # Apostrophes sit inside words ("the caller's role"), so a name's quote
+    # must not touch a word character on its outer side.
+    parts =
+      ~r/(?<!\w)'[^'\n]+'(?!\w)/u
+      |> Regex.split(text, include_captures: true)
+      |> Enum.with_index()
+      |> Enum.map(fn
+        {part, index} when rem(index, 2) == 0 -> escape(part)
+        {quoted, _index} -> ["<code>", escape(String.slice(quoted, 1..-2//1)), "</code>"]
+      end)
+
+    {:safe, parts}
+  end
+
+  def code_names(other), do: other
+
+  defp escape(text), do: Phoenix.HTML.Engine.html_escape(text)
+
+  @doc """
   Scrolls the element with `id` into view and marks it briefly, for a result
   that renders away from the control that asked for it. The `fui:reveal`
   listener in app.js does the scrolling.
@@ -1503,7 +1527,7 @@ defmodule FlezhaUiWeb.CoreComponents do
     >
       <span :if={@status.token?}>
         The flezha token this console presents did not bind an identity — {@status.reason &&
-          error_message(@status.reason)}
+          code_names(error_message(@status.reason))}
       </span>
       <span :if={!@status.token?}>No flezha token is bound to this console.</span>
       Reads of the audit log and observability, and every mutation, will be refused.
@@ -1787,7 +1811,7 @@ defmodule FlezhaUiWeb.CoreComponents do
       />
       <div class="min-w-0 flex-1">
         <p :if={@title} class="fui-toast-title">{@title}</p>
-        <p>{msg}</p>
+        <p>{code_names(msg)}</p>
       </div>
       <button
         type="button"
