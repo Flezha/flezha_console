@@ -6,6 +6,8 @@ defmodule FlezhaUiWeb.LandingController do
   the scope being shown. A remembered namespace the token no longer reaches
   falls back to the first one it does, and a token reaching none to the
   namespace list, which says so.
+
+  Also the not-found page for any address no other route takes.
   """
   use FlezhaUiWeb, :controller
 
@@ -18,5 +20,15 @@ defmodule FlezhaUiWeb.LandingController do
       scope |> FlezhaUi.Accounts.Scope.flezha_token() |> NodeManager.scoped_namespaces()
 
     redirect(conn, to: FlezhaUiWeb.Layouts.landing(scope.user.last_namespace, reachable))
+  end
+
+  # Answered rather than raised, so dev's debugger keeps to real failures and an
+  # unknown address shows the same page in every environment.
+  def not_found(conn, _params) do
+    conn
+    |> put_status(:not_found)
+    |> put_layout(false)
+    |> put_view(html: FlezhaUiWeb.ErrorHTML)
+    |> render(:"404")
   end
 end

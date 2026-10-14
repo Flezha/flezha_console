@@ -22,7 +22,7 @@ defmodule Mix.Tasks.Assets.Stylebook do
     "assets/logo/flezha-ui-badger-line-text-white.svg" => "flezha-ui-badger-line-text-white.svg",
     "assets/logo/flezha-favicon-badger-mark-dark-32.png" => "favicon-mark-dark-32.png",
     "assets/logo/flezha-favicon-badger-mark-white-32.png" => "favicon-mark-white-32.png",
-    "assets/honey-badger/not-found.webp" => "badger-not-found.webp"
+    "assets/honey-badger/not-found.png" => "badger-not-found.png"
   }
   @favicons %{"assets/logo/flezha-favicon-badger-adaptive.svg" => "favicon.svg"}
   @fonts ~w(Inter-latin.woff2 JetBrainsMono-latin.woff2 SpaceGrotesk-latin.woff2)

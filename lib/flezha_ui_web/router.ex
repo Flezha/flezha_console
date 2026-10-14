@@ -90,4 +90,10 @@ defmodule FlezhaUiWeb.Router do
       live "/audit", AuditLive
     end
   end
+
+  scope "/", FlezhaUiWeb do
+    pipe_through [:browser]
+
+    get "/*path", LandingController, :not_found
+  end
 end

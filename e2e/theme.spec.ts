@@ -217,8 +217,6 @@ test.describe('Theme contract', () => {
 /**
  * The brand on the screens outside the shell: the login screen, in each
  * theme. The page-health guards fail any logo or favicon that does not load.
- * The 404 page is asserted in `error_html_test.exs`, since the dev server
- * answers an unknown route with Phoenix's debug page.
  */
 test.describe('Brand outside the shell', () => {
   test.use({ storageState: { cookies: [], origins: [] } });
@@ -253,5 +251,17 @@ test.describe('Brand outside the shell', () => {
     // Left on the light login screen by the loop above.
     await page.getByTestId('theme-toggle').click();
     await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
+  });
+
+  test('an unknown address shows the not-found page with its mascot, not the debugger', async ({ page, pageHealth }) => {
+    pageHealth.allow(/no-such-relay/, 'the address is unknown on purpose');
+    const response = await page.goto('/default/relays/no-such-relay');
+    expect(response!.status()).toBe(404);
+
+    await expect(page.getByTestId('not-found')).toBeVisible();
+    const mascot = page.locator('img[src*="badger-not-found.png"]');
+    await expect
+      .poll(() => mascot.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))
+      .toBe(true);
   });
 });
