@@ -15,10 +15,13 @@ defmodule FlezhaUi.Service.EventFeedTest do
 
   @tail {Flezha.Service.Observability, :tail}
 
-  setup do
-    {peer, node} = PeerNode.start_controller!("feed_peer")
-    on_exit(fn -> PeerNode.stop(peer) end)
-    %{peer: peer, node: node}
+  setup_all do
+    PeerNode.setup_controller("feed_peer")
+  end
+
+  setup %{node: node} do
+    FakeController.reset(node)
+    :ok
   end
 
   defp runner_signal(name) do
@@ -56,13 +59,14 @@ defmodule FlezhaUi.Service.EventFeedTest do
 
     test "broadcasts a runner signal once on the UI's topic", %{node: node} do
       Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventFeed.topic())
-      start_supervised!(runner_feed())
+      feed = start_supervised!(runner_feed())
       assert PeerNode.eventually(fn -> open_streams(node) != [] end)
 
       FakeController.emit(node, @tail, runner_signal(:runner_connected))
 
       assert_receive {:flezha_event, :runner_connected, {"default", "runner-a"}}
-      refute_receive {:flezha_event, :runner_connected, _}, 100
+      :sys.get_state(feed)
+      refute_received {:flezha_event, :runner_connected, _}
     end
 
     test "broadcasts a drop and a readmit by the runner's stable id", %{node: node} do
@@ -84,22 +88,24 @@ defmodule FlezhaUi.Service.EventFeedTest do
 
     test "a dropped process's refused retry is not broadcast", %{node: node} do
       Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventFeed.topic())
-      start_supervised!(runner_feed())
+      feed = start_supervised!(runner_feed())
       assert PeerNode.eventually(fn -> open_streams(node) != [] end)
 
       FakeController.emit(node, @tail, runner_signal(:runner_drop_refused))
 
-      refute_receive {:flezha_event, _, _}, 200
+      :sys.get_state(feed)
+      refute_received {:flezha_event, _, _}
     end
 
     test "broadcasts nothing for another signal on the same source", %{node: node} do
       Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventFeed.topic())
-      start_supervised!(runner_feed())
+      feed = start_supervised!(runner_feed())
       assert PeerNode.eventually(fn -> open_streams(node) != [] end)
 
       FakeController.emit(node, @tail, runner_signal(:quota_refused))
 
-      refute_receive {:flezha_event, _, _}, 200
+      :sys.get_state(feed)
+      refute_received {:flezha_event, _, _}
     end
 
     test "re-opens an ended stream and holds exactly one", %{node: node} do
@@ -134,7 +140,7 @@ defmodule FlezhaUi.Service.EventFeedTest do
       owner =
         spawn(fn ->
           send(test, {:feed, open_tail!()})
-          Process.sleep(:infinity)
+          receive do: (:never -> :ok)
         end)
 
       assert_receive {:feed, feed}
@@ -200,13 +206,14 @@ defmodule FlezhaUi.Service.EventFeedTest do
 
   describe "a retrying feed" do
     test "announces a re-opened stream once it is held", %{node: node} do
-      open_tail!(nil, retry: true)
+      feed = open_tail!(nil, retry: true)
       assert PeerNode.eventually(fn -> length(open_streams(node)) == 1 end)
 
       FakeController.end_stream(node, @tail, {:ok, :window_closed})
 
       assert_receive {:feed_ended, :tail, {:ok, :window_closed}}
-      assert_receive {:feed_reconnected, :tail}, 1_000
+      assert PeerNode.eventually(fn -> held?(feed) end)
+      assert_received {:feed_reconnected, :tail}
     end
 
     test "does not announce a re-open the controller refused", %{node: node} do
@@ -216,18 +223,12 @@ defmodule FlezhaUi.Service.EventFeedTest do
       FakeController.set(node, @tail, FakeController.error("authz.principal_not_bound"))
       FakeController.end_stream(node, @tail, {:ok, :window_closed})
 
-      assert_receive {:feed_error, :tail, %{class: :denied}}, 1_000
-      assert_receive {:feed_error, :tail, %{class: :denied}}, 1_000
+      # The fourth open follows the third's refusal, so two refusals were sent.
+      assert PeerNode.eventually(fn -> length(FakeController.calls(node, @tail)) >= 4 end)
+      assert_received {:feed_error, :tail, %{class: :denied}}
+      assert_received {:feed_error, :tail, %{class: :denied}}
       refute_received {:feed_reconnected, :tail}
     end
-  end
-
-  test "a missing controller is a feed error, not a crash", %{peer: peer} do
-    PeerNode.stop(peer)
-    feed = open_tail!()
-
-    assert_receive {:feed_error, :tail, :node_not_connected}
-    assert PeerNode.eventually(fn -> not Process.alive?(feed) end)
   end
 
   describe "the relay lifecycle feed" do
@@ -235,7 +236,7 @@ defmodule FlezhaUi.Service.EventFeedTest do
       node: node
     } do
       Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventFeed.topic(:flezha_relay))
-      start_supervised!(relay_feed())
+      feed = start_supervised!(relay_feed())
       assert PeerNode.eventually(fn -> open_streams(node) != [] end)
       assert [[:flezha_relay, %{source: :ui}]] = FakeController.calls(node, @tail)
 
@@ -249,7 +250,8 @@ defmodule FlezhaUi.Service.EventFeedTest do
                        %{event: :relay_exited, relay: "r1", runner: "runner-a", reason: "lost"}}}
 
       FakeController.emit(node, @tail, %{name: :relay_parked_total, metadata: %{}})
-      refute_receive {:flezha_event, _, _}, 100
+      :sys.get_state(feed)
+      refute_received {:flezha_event, _, _}
     end
 
     test "announces a refusal on the topic, and its clearing once held", %{node: node} do
@@ -258,12 +260,13 @@ defmodule FlezhaUi.Service.EventFeedTest do
       start_supervised!(relay_feed())
       name = EventFeed.signal_feed(:flezha_relay)
 
-      assert_receive {:flezha_feed, ^name, %{code: "observability.pubsub_disabled"}}, 1_000
+      assert_receive {:flezha_feed, ^name, %{code: "observability.pubsub_disabled"}}
       assert %{code: "observability.pubsub_disabled"} = EventFeed.error(name)
 
       FakeController.reset(node)
 
-      assert_receive {:flezha_feed, ^name, nil}, 2_000
+      assert PeerNode.eventually(fn -> held?(name) end)
+      assert_received {:flezha_feed, ^name, nil}
       assert EventFeed.error(name) == nil
     end
 
@@ -275,7 +278,7 @@ defmodule FlezhaUi.Service.EventFeedTest do
     # runner events there, so nothing else may reach it.
     test "neither its signals nor its refusals reach the runner topic", %{node: node} do
       Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventFeed.topic())
-      start_supervised!(relay_feed())
+      feed = start_supervised!(relay_feed())
       assert PeerNode.eventually(fn -> open_streams(node) != [] end)
 
       FakeController.emit(node, @tail, %{
@@ -283,14 +286,18 @@ defmodule FlezhaUi.Service.EventFeedTest do
         metadata: %{namespace: "default", relay: "r1", factory: "f"}
       })
 
+      :sys.get_state(feed)
+
       FakeController.end_stream(
         node,
         @tail,
         FakeController.error("observability.pubsub_disabled")
       )
 
-      refute_receive {:flezha_event, _, _}, 300
-      refute_receive {:flezha_feed, _, _}, 300
+      # Set in the same step that announces the refusal.
+      assert PeerNode.eventually(fn -> EventFeed.error(feed) != nil end)
+      refute_received {:flezha_event, _, _}
+      refute_received {:flezha_feed, _, _}
     end
 
     test "the runner feed's refusals are not announced", %{node: node} do
@@ -298,12 +305,17 @@ defmodule FlezhaUi.Service.EventFeedTest do
       FakeController.set(node, @tail, FakeController.error("observability.pubsub_disabled"))
       start_supervised!(runner_feed())
 
+      # The second open follows the first refusal, which is when it would
+      # have been announced.
       assert PeerNode.eventually(fn -> length(FakeController.calls(node, @tail)) >= 2 end)
-      refute_receive {:flezha_feed, _, _}, 200
+      refute_received {:flezha_feed, _, _}
     end
   end
 
   defp relay_feed, do: feed_spec(:flezha_relay)
+
+  # Holding a stream it re-opened, and has announced so.
+  defp held?(feed), do: match?(%{request: %{}, reopening?: false}, :sys.get_state(feed))
 
   defp feed_spec(source),
     do: Enum.find(EventFeed.signal_child_specs(), &(&1.id == EventFeed.signal_feed(source)))

@@ -572,9 +572,15 @@ Hooks.FlzPipeline = {
     for (const wire of this.el.querySelectorAll(`[data-flow="${flight.route}"]`)) {
       if (flight.lit.has(wire) || Number(wire.dataset.at) > t) { continue }
       flight.lit.add(wire)
+      // Reduced motion takes the fade away, so the light is held for as long
+      // instead, through LiveView's class ops: a tick's patch would take a
+      // plain class off with it.
+      if (this.reduced.matches) {
+        this.js().addClass(wire, "is-lit")
+        setTimeout(() => this.js().removeClass(wire, "is-lit"), AFTERGLOW_MS)
+        continue
+      }
       wire.classList.add("is-lit")
-      // Reduced motion takes the fade away, so the light is held for as long instead.
-      if (this.reduced.matches) { setTimeout(() => wire.classList.remove("is-lit"), AFTERGLOW_MS); continue }
       requestAnimationFrame(() => requestAnimationFrame(() => wire.classList.remove("is-lit")))
     }
   },

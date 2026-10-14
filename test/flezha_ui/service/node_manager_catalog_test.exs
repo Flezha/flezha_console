@@ -16,8 +16,13 @@ defmodule FlezhaUi.Service.NodeManagerCatalogTest do
 
   @moduletag :distributed
 
-  setup do
+  setup_all do
     PeerNode.setup_controller("nm_catalog_peer")
+  end
+
+  setup %{node: node} do
+    FakeController.reset(node)
+    :ok
   end
 
   defp with_factories(node, factories) do

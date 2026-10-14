@@ -1,5 +1,5 @@
 defmodule FlezhaUiWeb.PageControllerTest do
-  use FlezhaUiWeb.ConnCase
+  use FlezhaUiWeb.ConnCase, async: true
 
   test "GET / redirects to login when unauthenticated", %{conn: conn} do
     conn = get(conn, ~p"/")

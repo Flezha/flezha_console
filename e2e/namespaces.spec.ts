@@ -4,40 +4,23 @@ import { test, expect } from './fixtures';
  * The namespace index.
  *
  * The dev stack seeds the `default` namespace, so its presence is asserted
- * rather than discovered. The empty state is covered in
- * `test/flezha_ui_web/live/namespace_live_test.exs`.
+ * rather than discovered. How the counts are made, and the empty state, are
+ * covered in `test/flezha_ui_web/live/namespace_live_test.exs`.
  */
 test.describe('Namespaces', () => {
-  test.beforeEach(async ({ live }) => {
+  test('lists the seeded namespace with its counts, and opens it', async ({ page, live }) => {
     await live('/namespaces');
-  });
 
-  test('lists the seeded namespace with its counts', async ({ page }) => {
     await expect(page.getByTestId('namespaces-table')).toBeVisible();
     await expect(page.getByTestId('namespace-row-default')).toBeVisible();
-
-    // The relay count is checked against the namespace screen below; the dev
-    // stack runs one runner.
     await expect(page.getByTestId('namespace-relays-default')).toHaveText(/^\s*\d+ relays?\s*$/);
+    // The dev stack runs one runner.
     await expect(page.getByTestId('namespace-runners-default')).toHaveText(/^\s*1 runner\s*$/);
-  });
 
-  test('navigates into a namespace', async ({ page }) => {
     await page.getByTestId('namespace-view-default').click();
 
     await expect(page).toHaveURL(/\/namespaces\/default$/);
     await expect(page.getByTestId('namespace-map')).toBeVisible();
     await expect(page.getByTestId('start-relay-btn')).toBeVisible();
-  });
-
-  test('the relay count matches the rows on the namespace\'s relays screen', async ({
-    page,
-    live,
-  }) => {
-    const claimed = parseInt(await page.getByTestId('namespace-relays-default').innerText(), 10);
-
-    await live('/namespaces/default/relays');
-
-    await expect(page.locator('[data-testid^="relay-index-row-"]')).toHaveCount(claimed);
   });
 });

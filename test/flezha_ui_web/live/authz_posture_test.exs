@@ -11,13 +11,13 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
 
   alias Flezha.AuthZ
   alias Flezha.AuthZ.TokenStore
+  alias FlezhaUi.TestEnv
 
   setup %{node: node} do
     # The layout caches posture and identity briefly; a token per test keeps one
     # test's answer out of the next one's cache.
     token = "flz_posture_#{System.unique_integer([:positive])}"
-    System.put_env("FLEZHA_TOKEN", token)
-    on_exit(fn -> System.delete_env("FLEZHA_TOKEN") end)
+    TestEnv.put_system("FLEZHA_TOKEN", token)
 
     %{node: node, token: token}
   end

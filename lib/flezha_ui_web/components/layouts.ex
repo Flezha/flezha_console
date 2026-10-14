@@ -523,9 +523,10 @@ defmodule FlezhaUiWeb.Layouts do
   One pulse: the open problems of every reachable namespace, read with the
   socket's own token, assigned as `:shell_pulse`:
 
-      %{items:, checked_at:}
+      %{items:, checked_at:, error:}
 
-  Items keep the time they were first seen across pulses.
+  Items keep the time they were first seen across pulses. `error` is why the
+  namespaces could not be listed, so no problem list stands for an all-clear.
   """
   def pulse(socket) do
     token = FlezhaUi.Accounts.Scope.flezha_token(socket.assigns[:current_scope])
@@ -566,7 +567,11 @@ defmodule FlezhaUiWeb.Layouts do
     {items, _appeared, _cleared} =
       Attention.track(Attention.by_id((previous && previous.items) || []), items, now)
 
-    Phoenix.Component.assign(socket, :shell_pulse, %{items: items, checked_at: now})
+    Phoenix.Component.assign(socket, :shell_pulse, %{
+      items: items,
+      checked_at: now,
+      error: catalog_error
+    })
   end
 
   defp skew(errors) do

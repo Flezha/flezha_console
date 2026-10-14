@@ -44,6 +44,14 @@ config :phoenix_live_view,
 config :flezha_ui, :event_feed_retry_interval_ms, 100
 config :flezha_ui, :event_feed_settle_interval_ms, 50
 
+# A test drives a screen's refresh by sending it the tick, so a timer must
+# never fire one in its place; a tap shows what it heard almost at once.
+config :flezha_ui, :refresh_interval_ms, :timer.hours(1)
+config :flezha_ui, :tap_flush_ms, 5
+
+# Retry a lost controller node promptly, for the same reason as the feed.
+config :flezha_ui, :node_connector_retry_interval_ms, 20
+
 # Tests start their own feeds against a peer node; a supervised singleton
 # would tail that peer and race the test that owns it.
 config :flezha_ui, :start_event_feed, false

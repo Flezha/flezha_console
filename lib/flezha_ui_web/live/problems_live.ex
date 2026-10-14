@@ -29,6 +29,10 @@ defmodule FlezhaUiWeb.ProblemsLive do
         <%= cond do %>
           <% is_nil(@shell_pulse) -> %>
             Checking every namespace you can reach…
+          <% @shell_pulse.error -> %>
+            The
+            <.term key="namespace">namespaces</.term>
+            you can reach could not be checked.
           <% @shell_pulse.items == [] -> %>
             Nothing needs attention in any <.term key="namespace" /> you can reach.
           <% true -> %>
@@ -44,8 +48,10 @@ defmodule FlezhaUiWeb.ProblemsLive do
 
     <.skeleton :if={is_nil(@shell_pulse)} testid="problems-loading" />
 
+    <.runtime_error :if={@shell_pulse} error={@shell_pulse.error} action="list the namespaces" />
+
     <.empty_state
-      :if={@shell_pulse && @shell_pulse.items == []}
+      :if={@shell_pulse && is_nil(@shell_pulse.error) && @shell_pulse.items == []}
       icon="hero-check-circle"
       testid="problems-clear"
     >

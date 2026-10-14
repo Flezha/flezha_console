@@ -19,7 +19,6 @@ defmodule FlezhaUiWeb.BrandTest do
 
       refute html =~ ~s(data-theme=")
       assert html =~ "prefers-color-scheme: light"
-      refute html =~ ~s(id="html-root")
     end
 
     test "hydration is inlined in the head, ahead of the stylesheet", %{conn: conn} do
@@ -30,13 +29,6 @@ defmodule FlezhaUiWeb.BrandTest do
       # Ahead of the stylesheet, or the first paint uses the wrong theme.
       [head | _] = String.split(html, "</head>")
       assert :binary.match(head, "flezha-theme") < :binary.match(head, "/assets/app.css")
-    end
-
-    test "the superseded contract is gone", %{conn: conn} do
-      html = conn |> get(~p"/users/log-in") |> html_response(200)
-
-      refute html =~ "toggleTheme()"
-      refute html =~ ~s(class="light")
     end
   end
 
@@ -79,8 +71,6 @@ defmodule FlezhaUiWeb.BrandTest do
       assert html =~ ~s(class="fui-brand fui-brand--canvas")
       assert html =~ "mask-image: url(/images/flezha-ui-badger-line-text-white.svg)"
       assert html =~ ~s(role="img" aria-label="Flezha UI")
-      refute html =~ "flezha-ui-purple"
-      refute html =~ "flezha-ui-gold"
     end
 
     test "the lockup it masks with is served", %{conn: conn} do
@@ -96,19 +86,14 @@ defmodule FlezhaUiWeb.BrandTest do
       assert html =~ ~s(<span class="flz-brand">)
       assert html =~ "mask-image: url(/images/flezha-ui-badger-line-text-white.svg)"
       assert html =~ ~s(aria-label="Flezha UI")
-      refute html =~ "flezha-ui-gold"
     end
 
-    test "the login screen is one centred form with no mascot and a theme toggle", %{conn: conn} do
+    test "the signed-out canvas offers the theme toggle but no help", %{conn: conn} do
       html = conn |> get(~p"/users/log-in") |> html_response(200)
 
-      assert html =~ ~s(data-testid="auth-canvas")
-      refute html =~ "badger-laptop"
-      refute html =~ "fui-auth-mascot"
+      assert html =~ ~s(data-testid="theme-toggle")
       # The signed-out canvas has no help overlay for a ? to open.
       refute html =~ ~s(data-testid="page-help")
-      assert html =~ ~s(data-testid="theme-toggle")
-      assert html =~ "mask-image: url(/images/flezha-ui-badger-line-text-white.svg)"
     end
   end
 
@@ -144,8 +129,6 @@ defmodule FlezhaUiWeb.BrandTest do
 
       assert [] =
                doc |> LazyHTML.query(~s(#account-menu [data-flz-theme-toggle])) |> Enum.to_list()
-
-      assert html =~ ~s(class="flz-sidebar")
     end
   end
 end

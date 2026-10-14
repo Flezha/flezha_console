@@ -2,8 +2,8 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
   @moduledoc """
   The shell every screen is rendered inside: the rail and its Problems count,
   the topbar and its namespace picker, the scope carried in the route, the
-  crumb trail, the tabs on a relay, the palette and its actions, the account
-  menu, liveness, the toasts, help, and where `/` lands.
+  crumb trail, the tabs on a relay, the palette and its actions, liveness, and
+  where `/` lands.
 
   Covered here rather than per screen, because none of it belongs to a screen —
   a regression in any of it would otherwise surface as fourteen unrelated
@@ -14,6 +14,7 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
 
   alias Flezha.Service.PluginManager
   alias Flezha.Service.Relay
+  alias FlezhaUi.TestEnv
 
   defp with_fleet(node, namespaces, rows_by_namespace \\ %{}) do
     FakeController.set_fleet(node,
@@ -34,9 +35,6 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
   end
 
   defp hrefs(fragment), do: fragment |> LazyHTML.query("a") |> LazyHTML.attribute("href")
-
-  defp testids(fragment, selector),
-    do: fragment |> LazyHTML.query(selector) |> LazyHTML.attribute("data-testid")
 
   defp attr(element, name), do: element |> LazyHTML.attribute(name) |> List.first()
 
@@ -66,70 +64,6 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
       :ok
     end
 
-    test "the rail is four labelled groups under the brand", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
-
-      headings =
-        html
-        |> rail()
-        |> LazyHTML.query(".flz-sidebar-section")
-        |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
-
-      assert [scoped, "Attention", "Platform", "Monitoring"] = headings
-      assert scoped =~ ~r/^Namespace\s*default$/
-
-      assert html |> within(~s(.flz-sidebar [data-testid="brand-link"])) |> attr("aria-label") ==
-               "Flezha UI"
-    end
-
-    test "the namespace group opens on Home, and attention on Problems", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
-
-      assert html |> rail() |> hrefs() ==
-               ~w(/namespaces/default /namespaces/default/relays /namespaces/default/plugins /namespaces/default/schedules) ++
-                 ~w(/problems /dlq /namespaces /cluster /controller /observability /audit)
-
-      refute html |> rail() |> LazyHTML.text() =~ "Fleet"
-
-      refute html |> rail() |> LazyHTML.text() =~ "Dashboard"
-    end
-
-    test "says so when nothing is in scope, rather than pointing nowhere", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/cluster")
-
-      assert html =~ ~s(data-testid="no-namespace-scoped")
-    end
-
-    test "marks exactly one destination, on a scoped route as on a flat one", %{conn: conn} do
-      for path <- [
-            ~p"/namespaces/default/relays",
-            ~p"/namespaces/default",
-            ~p"/audit",
-            ~p"/problems"
-          ] do
-        {:ok, _view, html} = live(conn, path)
-
-        assert Enum.count(current_entries(rail(html))) == 1,
-               "#{path} did not mark exactly one rail entry"
-      end
-    end
-
-    test "a scoped route marks its own entry, not the platform twin", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default/relays")
-
-      assert [entry] = Enum.to_list(current_entries(rail(html)))
-      assert attr(entry, "href") == "/namespaces/default/relays"
-    end
-
-    test "every screen's title has a ? that opens its help", %{conn: conn} do
-      for path <- [~p"/namespaces/default", ~p"/cluster", ~p"/observability"] do
-        {:ok, _view, html} = live(conn, path)
-
-        assert html |> within(~s([data-testid="page-help"])) |> attr("data-fui-help-open") == "",
-               "#{path} has no help beside its title"
-      end
-    end
-
     test "the all-namespaces relays are the Relays screen's switch, not a destination", %{
       conn: conn
     } do
@@ -148,78 +82,12 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
         assert get(conn, path).status == 404
       end
     end
-
-    test "the topbar holds the connection, the picker, liveness, help and the account", %{
-      conn: conn
-    } do
-      {:ok, _view, html} = live(conn, ~p"/relays")
-      topbar = within(html, ~s([data-testid="topbar"]))
-
-      for testid <- ~w(namespace-picker liveness help-btn account-menu) do
-        assert testids(topbar, ~s([data-testid="#{testid}"])) == [testid], "#{testid} is missing"
-      end
-
-      assert topbar |> LazyHTML.query(~s([data-testid="help-btn"])) |> attr("aria-label") ==
-               "Help for this screen"
-    end
-
-    test "the settings page shows the same rail and topbar, without a problem count", %{
-      conn: conn
-    } do
-      html = conn |> get(~p"/users/settings") |> html_response(200)
-
-      assert html =~ "flz-sidebar-nav"
-      assert html =~ ~s(data-testid="topbar")
-      refute html =~ ~s(data-testid="problems-count")
-    end
-
-    test "every keyboard shortcut has a link it follows", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/cluster")
-
-      links = within(html, "[data-shortcut]")
-
-      assert LazyHTML.attribute(links, "data-shortcut") == ~w(h r p c)
-      assert hrefs(LazyHTML.from_fragment(html)) |> Enum.member?("/problems")
-    end
   end
 
   describe "the narrow shell" do
     setup %{node: node} do
       with_fleet(node, ["default"], %{"default" => ["relay_a"]})
       :ok
-    end
-
-    test "both menu controls name the rail as the drawer they open", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
-
-      assert html |> within("#shell-nav") |> attr("class") =~ "flz-sidebar"
-
-      for testid <- ~w(nav-toggle tabbar-menu) do
-        toggle = within(html, ~s([data-testid="#{testid}"]))
-        assert attr(toggle, "data-fui-nav-toggle"), testid
-        assert attr(toggle, "aria-controls") == "shell-nav"
-        assert attr(toggle, "aria-expanded") == "false"
-      end
-    end
-
-    test "the bar is Home, Relays, Problems, Search and Menu, and marks where you are", %{
-      conn: conn
-    } do
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default/relays")
-      bar = within(html, ".flz-tabbar")
-
-      assert testids(bar, "a, button") ==
-               ~w(tabbar-home tabbar-relays tabbar-problems tabbar-cluster tabbar-search tabbar-menu)
-
-      assert bar |> LazyHTML.query(~s([data-testid="tabbar-cluster"])) |> attr("hidden")
-      assert bar |> current_entries() |> LazyHTML.attribute("data-testid") == ["tabbar-relays"]
-
-      assert hrefs(bar) == [
-               "/namespaces/default",
-               "/namespaces/default/relays",
-               "/problems",
-               "/cluster"
-             ]
     end
 
     test "with no namespace in scope, Home and Relays fall back as the shortcuts do", %{
@@ -260,57 +128,19 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
       refute render(view) =~ ~s(data-testid="nav-toggle-problems-count")
     end
 
-    test "Search in the bar and in the topbar opens the palette", %{conn: conn} do
+    test "Search in the bar and in the topbar opens the palette, and Cancel closes it", %{
+      conn: conn
+    } do
       for testid <- ~w(tabbar-search search-open) do
         {:ok, view, _html} = live(conn, ~p"/cluster")
         refute has_element?(view, ~s([data-testid="command-palette"]))
 
         view |> element(~s([data-testid="#{testid}"])) |> render_click()
-
         assert has_element?(view, ~s([data-testid="command-palette"])), testid
+
+        view |> element(~s([data-testid="command-palette-close"])) |> render_click()
+        refute has_element?(view, ~s([data-testid="command-palette"])), testid
       end
-    end
-
-    test "the palette's Cancel closes it", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cluster")
-      open_palette(view)
-
-      view |> element(~s([data-testid="command-palette-close"])) |> render_click()
-
-      refute has_element?(view, ~s([data-testid="command-palette"]))
-    end
-
-    test "the settings page offers the menu but no search, having no palette", %{conn: conn} do
-      html = conn |> get(~p"/users/settings") |> html_response(200)
-
-      assert html =~ ~s(data-testid="tabbar-menu")
-      refute html =~ ~s(data-testid="tabbar-search")
-      refute html =~ ~s(data-testid="search-open")
-    end
-
-    test "each part the narrow topbar leaves out has one copy per width", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/cluster")
-
-      shown_at = fn testid ->
-        html |> within(~s([data-testid="#{testid}"])) |> attr("data-shell-at")
-      end
-
-      assert shown_at.("theme-toggle") == "desk compact"
-      assert shown_at.("drawer-theme-toggle") == "phone"
-      assert shown_at.("help-btn") == "desk compact"
-      assert shown_at.("search-open") == "compact"
-      assert shown_at.("nav-toggle") == "compact"
-      assert shown_at.("tabbar") == "phone"
-    end
-
-    test "on a phone liveness keeps the time and drops the interval", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/cluster")
-      state = within(html, ~s([data-testid="liveness-state"]))
-
-      assert state |> LazyHTML.query(~s([data-shell-at="desk compact"])) |> LazyHTML.text() =~
-               "Every"
-
-      assert LazyHTML.text(state) =~ ~r/\d\d:\d\d:\d\d/
     end
   end
 
@@ -318,13 +148,6 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     setup %{node: node} do
       with_fleet(node, ["default"], %{"default" => ["relay_a"]})
       :ok
-    end
-
-    test "a destination carries none", %{conn: conn} do
-      for path <- [~p"/namespaces/default", ~p"/cluster", ~p"/namespaces/default/relays"] do
-        {:ok, _view, html} = live(conn, path)
-        refute html =~ ~s(data-testid="breadcrumb"), "#{path} drew a trail"
-      end
     end
 
     test "a deep screen names its ancestors in its page header, and only they are links", %{
@@ -344,17 +167,6 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
              ]
 
       assert trail |> LazyHTML.query("[aria-current=page]") |> LazyHTML.text() =~ "State"
-    end
-
-    test "the listen view's last crumb reads Listen", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default/relays/relay_a/listen")
-
-      assert html |> within(~s([data-testid="breadcrumb"] [aria-current=page])) |> LazyHTML.text() =~
-               "Listen"
-    end
-
-    test "the bare back arrow is gone" do
-      refute File.read!("lib/flezha_ui_web/components/core_components.ex") =~ "attr :back"
     end
   end
 
@@ -384,27 +196,6 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
              |> element(~s([data-testid="namespace-picker-billing"]))
              |> render_click()
              |> follow_redirect(conn, ~p"/namespaces/billing/plugins")
-    end
-
-    test "goes to the namespace's relays from one relay", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default/relays/relay_a")
-
-      assert view
-             |> element(~s([data-testid="namespace-picker-billing"]))
-             |> render_click()
-             |> follow_redirect(conn, ~p"/namespaces/billing/relays")
-    end
-
-    test "goes to the namespace's Home from a platform screen and from an all-namespaces form",
-         %{conn: conn} do
-      for path <- [~p"/audit", ~p"/relays"] do
-        {:ok, view, _html} = live(conn, path)
-
-        assert view
-               |> element(~s([data-testid="namespace-picker-billing"]))
-               |> render_click()
-               |> follow_redirect(conn, ~p"/namespaces/billing")
-      end
     end
 
     test "a platform screen keeps the namespace last worked in", %{conn: conn} do
@@ -522,65 +313,6 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     end
   end
 
-  describe "where / lands" do
-    test "on the Home of the namespace last worked in", %{conn: conn, node: node, user: user} do
-      with_fleet(node, ["billing", "default"])
-      FlezhaUi.Accounts.remember_namespace(user, "billing")
-
-      assert redirected_to(get(conn, ~p"/")) == "/namespaces/billing"
-    end
-
-    test "on the first reachable namespace when the remembered one is gone", %{
-      conn: conn,
-      node: node,
-      user: user
-    } do
-      with_fleet(node, ["zeta", "default"])
-      FlezhaUi.Accounts.remember_namespace(user, "gone")
-
-      assert redirected_to(get(conn, ~p"/")) == "/namespaces/default"
-    end
-
-    test "on the namespace list when none is reachable", %{conn: conn, node: node} do
-      with_fleet(node, [])
-
-      assert redirected_to(get(conn, ~p"/")) == "/namespaces"
-    end
-
-    test "the dashboard is gone" do
-      refute Code.ensure_loaded?(FlezhaUiWeb.DashboardLive)
-      refute File.exists?("lib/flezha_ui_web/live/dashboard_live.ex")
-    end
-  end
-
-  describe "the account menu" do
-    setup %{node: node} do
-      with_fleet(node, ["default"])
-      :ok
-    end
-
-    test "holds the identity, settings and log out; the theme toggle sits in the topbar", %{
-      conn: conn
-    } do
-      {:ok, _view, html} = live(conn, ~p"/cluster")
-
-      menu = within(html, ~s(#account-menu))
-
-      assert testids(menu, "[data-testid]") |> Enum.member?("account-identity")
-      assert "/users/settings" in hrefs(menu)
-      assert menu |> LazyHTML.query("[data-flz-theme-toggle]") |> Enum.count() == 0
-      assert html |> within(~s(.flz-topbar [data-testid="theme-toggle"])) |> Enum.count() == 1
-      assert testids(menu, ~s([data-testid="log-out"])) == ["log-out"]
-    end
-
-    test "no log-out control sits outside it", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/cluster")
-
-      assert html |> within(~s([data-testid="log-out"])) |> Enum.count() == 1
-      assert html |> within(~s(#account-menu [data-testid="log-out"])) |> Enum.count() == 1
-    end
-  end
-
   describe "namespace-scoped routes" do
     setup %{node: node} do
       with_fleet(node, ["billing", "default"], %{
@@ -623,29 +355,12 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
       assert namespaces == ["default"]
     end
 
-    test "schedules states that its scope is a view filter", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default/schedules")
-
-      assert html =~ ~s(data-testid="schedule-scope-notice")
-      assert html =~ "a filter over it"
-    end
-
     test "a scoped schedule form opens aimed at the scoped namespace", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/namespaces/billing/schedules")
 
-      html = render_click(view, "open_form", %{})
+      html = view |> element(~s([data-testid="schedule-new-btn"])) |> render_click()
 
       assert html =~ ~s(value="billing")
-    end
-
-    test "each pair of routes is served by one LiveView", %{conn: _conn} do
-      for {platform, scoped} <- [
-            {"/relays", "/namespaces/default/relays"},
-            {"/plugins", "/namespaces/default/plugins"},
-            {"/schedules", "/namespaces/default/schedules"}
-          ] do
-        assert route_module(platform) == route_module(scoped)
-      end
     end
   end
 
@@ -662,7 +377,9 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     test "filtering writes the filter into the query string", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/relays")
 
-      render_change(view, "filter", %{"filters" => %{"namespace" => "billing"}})
+      view
+      |> element(~s(form[phx-change="filter"]))
+      |> render_change(%{"filters" => %{"namespace" => "billing"}})
 
       assert_patch(view, ~p"/relays?namespace=billing")
     end
@@ -677,7 +394,9 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     test "clearing a filter clears it, so the back button reverses one", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/relays?namespace=billing")
 
-      render_change(view, "filter", %{"filters" => %{"namespace" => ""}})
+      view
+      |> element(~s(form[phx-change="filter"]))
+      |> render_change(%{"filters" => %{"namespace" => ""}})
 
       assert_patch(view, ~p"/relays")
       assert render(view) =~ "relay_default"
@@ -686,7 +405,9 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     test "a scoped route keeps its namespace out of the query string", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/namespaces/billing/relays")
 
-      render_change(view, "filter", %{"filters" => %{"health" => "healthy"}})
+      view
+      |> element(~s(form[phx-change="filter"]))
+      |> render_change(%{"filters" => %{"health" => "healthy"}})
 
       assert_patch(view, ~p"/namespaces/billing/relays?health=healthy")
     end
@@ -694,9 +415,24 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     test "a run filter is written into the query string as run", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/relays")
 
-      render_change(view, "filter", %{"filters" => %{"run" => "steps"}})
+      view
+      |> element(~s(form[phx-change="filter"]))
+      |> render_change(%{"filters" => %{"run" => "steps"}})
 
       assert_patch(view, ~p"/relays?run=steps")
+    end
+  end
+
+  describe "where / lands" do
+    test "on the first reachable namespace when the remembered one is gone", %{
+      conn: conn,
+      node: node,
+      user: user
+    } do
+      with_fleet(node, ["zeta", "default"])
+      FlezhaUi.Accounts.remember_namespace(user, "gone")
+
+      assert redirected_to(get(conn, ~p"/")) == "/namespaces/default"
     end
   end
 
@@ -704,22 +440,6 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     setup %{node: node} do
       with_fleet(node, ["default"], %{"default" => ["relay_a"]})
       :ok
-    end
-
-    test "Live, Listen and State sit in the page header, each marked on itself", %{conn: conn} do
-      for {path, current} <- [
-            {~p"/namespaces/default/relays/relay_a", "live"},
-            {~p"/namespaces/default/relays/relay_a/listen", "listen"},
-            {~p"/namespaces/default/relays/relay_a/state", "state"}
-          ] do
-        {:ok, _view, html} = live(conn, path)
-        tabs = within(html, ~s([data-testid="page-header"] nav[aria-label="Relay views"]))
-
-        assert testids(tabs, "a") == ~w(relay-tab-live relay-tab-listen relay-tab-state)
-
-        assert tabs |> LazyHTML.query("[aria-current=page]") |> LazyHTML.attribute("data-testid") ==
-                 ["relay-tab-#{current}"]
-      end
     end
 
     test "a tab navigates rather than toggling a panel", %{conn: conn} do
@@ -746,42 +466,6 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     end
   end
 
-  describe "a folded section" do
-    setup %{node: node} do
-      with_fleet(node, ["default"], %{"default" => ["relay_a"]})
-      :ok
-    end
-
-    test "carries the id its hook needs, the state it restores, and what it holds", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default/relays/relay_a")
-
-      section = within(html, ~s([data-section-key="plugins"]))
-
-      # Without an id LiveView refuses to mount the hook, and the viewer's own
-      # choice is silently never restored.
-      assert attr(section, "id") == "plugins"
-      assert attr(section, "phx-hook") == "FlzSection"
-      assert attr(section, "data-open") == "false"
-
-      assert section |> LazyHTML.query(~s([data-testid="section-digest"])) |> LazyHTML.text() =~
-               "plugins bound"
-
-      toggle = LazyHTML.query(section, ~s([data-testid="section-toggle-plugins"]))
-      assert attr(toggle, "aria-expanded") == "false"
-    end
-
-    test "a section with no fold carries neither the hook nor its markings", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
-
-      sections = within(html, ".fui-section")
-      hooks = LazyHTML.attribute(sections, "phx-hook")
-
-      assert Enum.uniq(hooks) == ["FlzSection"]
-      assert length(hooks) < Enum.count(sections)
-      assert length(hooks) == Enum.count(within(html, "[data-section-key]"))
-    end
-  end
-
   describe "the command palette" do
     setup %{node: node} do
       with_fleet(node, ["default"], %{"default" => ["relay_a", "relay_b"]})
@@ -792,13 +476,6 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
       {:ok, _view, _html} = live(conn, ~p"/audit")
 
       assert FakeController.calls(node, {Relay, :list}) == []
-    end
-
-    test "it opens from its keyboard hook", %{conn: conn} do
-      {:ok, view, html} = live(conn, ~p"/audit")
-
-      assert html |> within("#command-palette") |> attr("phx-hook") == "FlzPalette"
-      assert open_palette(view) =~ ~s(data-testid="command-palette-input")
     end
 
     test "it offers a relay by id, with its namespace and health", %{conn: conn} do
@@ -932,14 +609,23 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
       :ok
     end
 
-    test "states its interval and last refresh, beside a pause control", %{conn: conn} do
+    test "states the configured interval and last refresh, beside a pause control", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/relays")
 
-      assert html |> within(~s([data-testid="liveness-state"])) |> LazyHTML.text() =~ "Every 5s ·"
+      assert html |> within(~s([data-testid="liveness-state"])) |> LazyHTML.text() =~
+               "Every 1h 0m ·"
 
       toggle = within(html, ~s([data-testid="liveness-toggle"]))
       assert attr(toggle, "aria-label") == "Pause refreshing"
       assert attr(toggle, "aria-pressed") == "false"
+    end
+
+    test "with no interval configured, a screen refreshes at its own", %{conn: conn} do
+      TestEnv.put_app(:refresh_interval_ms, nil)
+
+      {:ok, _view, html} = live(conn, ~p"/relays")
+
+      assert html |> within(~s([data-testid="liveness-state"])) |> LazyHTML.text() =~ "Every 5s ·"
     end
 
     test "a screen with no timer states no liveness", %{conn: conn} do
@@ -965,10 +651,11 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     test "resuming refreshes at once and keeps ticking", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, ~p"/relays")
 
-      render_click(view, "refresh_toggle", %{})
+      toggle = element(view, ~s([data-testid="liveness-toggle"]))
+      render_click(toggle)
       with_fleet(node, ["default"], %{"default" => ["relay_later"]})
 
-      html = render_click(view, "refresh_toggle", %{})
+      html = render_click(toggle)
 
       refute html =~ "Paused"
       assert html =~ "relay_later"
@@ -983,7 +670,7 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     test "a screen that suspends for its own modal still does", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, ~p"/relays")
 
-      render_click(view, "launcher_open", %{})
+      view |> element(~s([data-testid="start-relay-btn"])) |> render_click()
       with_fleet(node, ["default"], %{"default" => ["relay_later"]})
       send(view.pid, :refresh)
       html = render(view)
@@ -1016,67 +703,6 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
         assert html =~ ~s(aria-busy="true")
         refute html =~ ~s(data-testid="#{empty}"), "#{path} claims to be empty"
       end
-    end
-  end
-
-  describe "toasts" do
-    setup %{node: node} do
-      with_fleet(node, ["default"], %{"default" => ["relay_a"]})
-      :ok
-    end
-
-    test "a message is a toast at the bottom right, announced and dismissible", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-
-      render_click(view, "confirm_stop", %{"relay_id" => "relay_a"})
-      html = render_click(view, "stop_relay", %{"relay_id" => "relay_a"})
-
-      toast = within(html, ~s(.fui-toasts [data-testid="toast-info"]))
-
-      assert LazyHTML.text(toast) =~ "relay_a"
-      assert attr(toast, "role") == "status"
-      assert attr(toast, "phx-hook") == "FlzToast"
-      assert attr(toast, "data-kind") == "info"
-      assert toast |> LazyHTML.query("[data-toast-dismiss]") |> attr("aria-label") == "Dismiss"
-    end
-
-    test "an error toast is an alert and is not timed", %{conn: conn, node: node} do
-      FakeController.set(node, {Relay, :stop}, FakeController.error("relay.not_found"))
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-
-      render_click(view, "confirm_stop", %{"relay_id" => "relay_a"})
-      html = render_click(view, "stop_relay", %{"relay_id" => "relay_a"})
-
-      toast = within(html, ~s([data-testid="toast-error"]))
-      assert attr(toast, "role") == "alert"
-      assert attr(toast, "data-kind") == "error"
-    end
-  end
-
-  describe "help" do
-    setup %{node: node} do
-      with_fleet(node, ["default"], %{"default" => ["relay_a"]})
-      :ok
-    end
-
-    test "the overlay explains the screen, its terms and the shortcuts", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
-
-      help = within(html, "#help-overlay")
-
-      assert attr(help, "data-testid") == "help-overlay"
-      assert testids(help, ~s([data-testid="help-close"])) == ["help-close"]
-      assert testids(help, ~s([data-testid="help-terms"])) == ["help-terms"]
-
-      assert help |> LazyHTML.query(~s([data-testid="help-purpose"])) |> LazyHTML.text() =~
-               "Home draws"
-
-      assert testids(help, ~s([data-testid^="help-term-"])) |> Enum.member?("help-term-runner")
-
-      assert help |> LazyHTML.query(~s([data-testid="help-shortcuts"])) |> LazyHTML.text() =~
-               "Go to Open problems"
-
-      assert html |> within(~s([data-testid="help-btn"])) |> attr("data-fui-help-open") == ""
     end
   end
 
@@ -1115,10 +741,6 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
   end
 
   # ---- Helpers ----
-
-  defp route_module(path) do
-    Phoenix.Router.route_info(FlezhaUiWeb.Router, "GET", path, "localhost").plug_opts
-  end
 
   # The controller holds a listen open while the screen's feed lives.
   defp listening?(node), do: FakeController.streams(node, {Relay, :listen}) != []

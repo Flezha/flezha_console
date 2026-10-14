@@ -1,4 +1,4 @@
-import { test, expect, readFigure, startRelay, stopRelay, uniqueId, visitLive } from './fixtures';
+import { test, expect, readFigure, sendToRelay, startRelay, stopRelay, uniqueId, visitLive } from './fixtures';
 
 /**
  * The relay's own graph inside its boundary, against flezha_trader's dev stack.
@@ -16,6 +16,13 @@ import { test, expect, readFigure, startRelay, stopRelay, uniqueId, visitLive } 
  */
 
 const MARKET = '/namespaces/default/relays/demo%23p0';
+
+/** One Kraken v2 trade frame, as the `trades_in` entry parses it. */
+const TRADE_FRAME = JSON.stringify({
+  channel: 'trade',
+  type: 'update',
+  data: [{ symbol: 'BTC/DEMO1', side: 'buy', price: 62345.6, qty: 0.01, timestamp: '2026-08-07T12:34:56.123456Z' }],
+});
 
 /** Each output producer of `demo#p0`, with the channels it names. */
 const OUTPUTS: Record<string, string[]> = {
@@ -72,15 +79,17 @@ test.describe("A relay's data flow", () => {
     expect(producer.x).toBeGreaterThan(boundary.x + boundary.width);
   });
 
-  test('the seeded trades give the ohlc tasklet a rate above zero, and its inspector its figures', async ({
+  test('a trade sent to its entry gives the ohlc tasklet a rate above zero, and its inspector its figures', async ({
     page,
   }) => {
     await visitLive(page, MARKET);
 
-    // Two activity reads make the first rate; it is drawn on the one wire into ohlc.
+    // The page's first read is the baseline; the read after the trade makes
+    // the first rate, drawn on the one wire into ohlc.
+    await sendToRelay(page, TRADE_FRAME, { channel: 'trades_in' });
     const rate = page.getByTestId('topo-rate-wire-channel-trades_in-tasklet-ohlc-trades_in');
-    await expect(rate).toHaveText(/\/s/, { timeout: 15_000 });
-    await expect.poll(() => readFigure(rate), { timeout: 15_000 }).toBeGreaterThan(0);
+    await expect(rate).toHaveText(/\/s/);
+    await expect.poll(() => readFigure(rate)).toBeGreaterThan(0);
 
     await page.getByTestId('topo-node-tasklet-ohlc').click();
     const detail = page.getByTestId('topology-detail');

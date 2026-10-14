@@ -3,9 +3,9 @@ defmodule FlezhaUiWeb.PluginLiveTest do
   The plugins screen: the plugins enabled in each reachable namespace, the
   relays bound to each, the providers on offer and the installed packages.
 
-  A refused namespace, an unavailable installer and a plugin bound to no relay
-  are states a live controller will not be put into on demand, which is why
-  they are produced here.
+  A refused namespace and an unavailable installer are states a live
+  controller will not be put into on demand, which is why they are produced
+  here.
   """
 
   use FlezhaUiWeb.LiveCase
@@ -42,15 +42,6 @@ defmodule FlezhaUiWeb.PluginLiveTest do
   end
 
   describe "listing" do
-    test "renders the empty state when nothing is enabled", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/plugins")
-
-      assert html =~ ~s(data-testid="plugins-empty")
-      assert html =~ ~s(data-testid="enable-plugin-empty-btn")
-      assert html =~ ~s(data-testid="scope-switch")
-      refute html =~ ~s(data-testid="plugin-row-)
-    end
-
     test "lists each enabled plugin with provider, namespace, relays and hooks", %{
       conn: conn,
       node: node
@@ -99,14 +90,6 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       asked = node |> FakeController.calls({PluginManager, :enabled}) |> Enum.map(&hd/1)
       assert Enum.sort(Enum.uniq(asked)) == ["default", "staging"]
-    end
-
-    test "a plugin bound to no relay shows a placeholder", %{conn: conn, node: node} do
-      with_namespaces(node, %{"default" => {:ok, [plugin("plug_1", %{relays: []})]}})
-
-      {:ok, view, _html} = live(conn, ~p"/plugins")
-
-      assert view |> element(~s([data-testid="plugin-relays-plug_1"])) |> render() =~ "—"
     end
 
     test "one refused namespace is stated while the others still list", %{
@@ -188,20 +171,10 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       :ok
     end
 
-    test "is confirm-gated, and cancelling reaches nothing", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, ~p"/plugins")
-
-      render_click(view, "confirm_disable", %{"name" => "plug_1", "namespace" => "default"})
-      render_click(view, "cancel_disable", %{})
-
-      assert FakeController.calls(node, {PluginManager, :disable}) == []
-    end
-
     test "confirming disables it by name in its namespace", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, ~p"/plugins")
-      render_click(view, "confirm_disable", %{"name" => "plug_1", "namespace" => "default"})
 
-      assert render_click(view, "disable_plugin", %{"name" => "plug_1", "namespace" => "default"}) =~
+      assert disable(view, "plug_1") =~
                "Plugin plug_1 disabled."
 
       assert [["plug_1", [namespace: "default"], %{source: :ui}]] =
@@ -216,9 +189,8 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/plugins")
-      render_click(view, "confirm_disable", %{"name" => "plug_1", "namespace" => "default"})
 
-      assert render_click(view, "disable_plugin", %{"name" => "plug_1", "namespace" => "default"}) =~
+      assert disable(view, "plug_1") =~
                "The controller does not know a plugin named plug_1."
     end
   end
@@ -250,15 +222,6 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       assert html =~ "1.2.0"
       assert view |> element(~s([data-testid="installed-status-s3"])) |> render() =~ "Refused"
       assert html =~ "digest mismatch"
-    end
-
-    test "no control installs, upgrades or uninstalls, and flz is named", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/plugins")
-
-      assert html =~ "flz plugin"
-      refute html =~ "phx-click=\"install_plugin\""
-      refute html =~ "phx-click=\"uninstall_plugin\""
-      refute html =~ "phx-click=\"upgrade_plugin\""
     end
 
     test "an unavailable installer states so and the enabled list still renders", %{
@@ -300,12 +263,12 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/plugins")
 
-      assert html =~ ~r/data-testid="installed-providers-http"[^>]*>\s*http_push/
-      assert html =~ ~s(data-testid="installed-error-s3")
-      assert html =~ "bad manifest"
-      assert html =~ ~s(<code data-testid="runtime-error-code">plugin.package_invalid</code>)
-      assert html =~ "flz plugin install --force"
-      assert html =~ ~s(href="https://docs.flezha.com/errors.html#plugin")
+      assert text_of(html, ~s([data-testid="installed-providers-http"])) == "http_push"
+
+      error = text_of(html, ~s([data-testid="installed-error-s3"]))
+      assert error =~ "plugin.package_invalid"
+      assert error =~ "bad manifest"
+      assert error =~ "flz plugin install --force"
     end
 
     # The controller lists only the providers of packages it loaded.
@@ -339,7 +302,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/plugins")
 
-      assert html =~ ~r/data-testid="installed-loaded-http"[^>]*>\s*1.0.0 still loaded/
+      assert text_of(html, ~s([data-testid="installed-loaded-http"])) =~ "1.0.0 still loaded"
     end
 
     test "the provider listing states how many packages were refused", %{conn: conn, node: node} do
@@ -350,14 +313,6 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       assert html =~ ~s(data-testid="providers-refused")
       assert html =~ "refused 2 installed packages"
-    end
-
-    test "nothing refused, nothing stated", %{conn: conn, node: node} do
-      providers(node, [provider("relay_stdout", :relay)], 0)
-
-      {:ok, _view, html} = live(conn, ~p"/plugins")
-
-      refute html =~ ~s(data-testid="providers-refused")
     end
   end
 
@@ -370,7 +325,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
       open_enable(view)
-      html = render_click(view, "plugin_form_provider", %{"provider" => "relay_stdout"})
+      html = choose(view, "relay_stdout")
 
       assert html =~ ~s(data-testid="input-plugin-relay")
       assert html =~ ~s(<option value="relay_b")
@@ -388,7 +343,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
       open_enable(view)
-      html = render_click(view, "plugin_form_provider", %{"provider" => "hook_webhook"})
+      html = choose(view, "hook_webhook")
 
       refute html =~ ~s(data-testid="input-plugin-relay")
       assert html =~ "Controller hooks"
@@ -396,13 +351,11 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       assert html =~ ~s(data-testid="input-plugin-single")
 
       html =
-        render_submit(view, "plugin_form_submit", %{
-          "plugin" => %{
-            "name" => "hooks_1",
-            "hooks" => ["", "on_relay_started", "on_relay_stopped"],
-            "single" => "true",
-            "opts" => ~s({"url": "http://hooks.test"})
-          }
+        submit(view, %{
+          "name" => "hooks_1",
+          "hooks" => ["", "on_relay_started", "on_relay_stopped"],
+          "single" => "true",
+          "opts" => ~s({"url": "http://hooks.test"})
         })
 
       assert [["hooks_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
@@ -427,9 +380,9 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
       open_enable(view)
-      render_click(view, "plugin_form_provider", %{"provider" => "hook_webhook"})
+      choose(view, "hook_webhook")
 
-      html = render_submit(view, "plugin_form_submit", %{"plugin" => %{"name" => "hooks_1"}})
+      html = submit(view, %{"name" => "hooks_1"})
 
       assert html =~
                "Plugin hooks_1 enabled. It does not run on flezha@node-b, which lacks its provider."
@@ -442,9 +395,9 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
       open_enable(view)
-      render_click(view, "plugin_form_provider", %{"provider" => "hook_webhook"})
+      choose(view, "hook_webhook")
 
-      html = render_submit(view, "plugin_form_submit", %{"plugin" => %{"name" => "hooks_1"}})
+      html = submit(view, %{"name" => "hooks_1"})
 
       assert html =~ "Plugin hooks_1 enabled."
       refute html =~ "does not run on"
@@ -463,9 +416,9 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
       open_enable(view)
-      render_click(view, "plugin_form_provider", %{"provider" => "hook_webhook"})
+      choose(view, "hook_webhook")
 
-      assert render_submit(view, "plugin_form_submit", %{"plugin" => %{"name" => "hooks_1"}}) =~
+      assert submit(view, %{"name" => "hooks_1"}) =~
                "Plugin hooks_1 was already enabled."
     end
 
@@ -482,9 +435,9 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/plugins")
       open_enable(view)
-      render_click(view, "plugin_form_provider", %{"provider" => "relay_stdout"})
+      choose(view, "relay_stdout")
 
-      html = render_change(view, "plugin_form_change", %{"plugin" => %{"namespace" => "staging"}})
+      html = change(view, %{"namespace" => "staging"})
 
       assert html =~ ~s(<option value="stage_1")
       refute html =~ ~s(<option value="relay_a")
@@ -497,12 +450,10 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/plugins")
       open_enable(view)
-      html = render_click(view, "plugin_form_provider", %{"provider" => "hook_webhook"})
+      html = choose(view, "hook_webhook")
       assert html =~ ~s(data-testid="input-plugin-namespace")
 
-      render_submit(view, "plugin_form_submit", %{
-        "plugin" => %{"name" => "hooks_1", "namespace" => "staging"}
-      })
+      submit(view, %{"name" => "hooks_1", "namespace" => "staging"})
 
       assert [["hooks_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
       assert fields[:namespace] == "staging"
@@ -535,9 +486,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       assert html =~ ~s(data-testid="input-plugin-channel")
 
       html =
-        render_submit(view, "plugin_form_submit", %{
-          "plugin" => %{"relay_id" => "relay_b", "hooks" => ["", "on_output"], "channel" => "out"}
-        })
+        submit(view, %{"relay_id" => "relay_b", "hooks" => ["", "on_output"], "channel" => "out"})
 
       assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :bind})
       assert fields[:relay_id] == "relay_b"
@@ -552,7 +501,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       {:ok, view, _html} = live(conn, ~p"/plugins")
       view |> element(~s([data-testid="plugin-bind-out_1"])) |> render_click()
 
-      assert render_submit(view, "plugin_form_submit", %{"plugin" => %{"relay_id" => "relay_a"}}) =~
+      assert submit(view, %{"relay_id" => "relay_a"}) =~
                "relay_a already holds plugin out_1."
     end
 
@@ -573,17 +522,6 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       refute html =~ ~s(data-testid="plugin-bind-hooks_1")
       assert html =~ ~s(data-testid="plugin-update-hooks_1")
-    end
-
-    test "an unbind asks first, and dismissing it calls nothing", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, ~p"/plugins")
-
-      html = view |> element(~s([data-testid="plugin-unbind-out_1-relay_a"])) |> render_click()
-      assert html =~ ~s(data-testid="plugin-unbind-modal")
-      assert html =~ "stays enabled"
-
-      view |> element(~s([data-testid="plugin-unbind-cancel"])) |> render_click()
-      assert FakeController.calls(node, {PluginManager, :unbind}) == []
     end
 
     test "a confirmed unbind keeps the plugin enabled without the relay", %{
@@ -622,10 +560,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
         assert html =~ "merged into the options the plugin has"
         refute html =~ ~s(data-testid="input-hooks")
 
-        html =
-          render_submit(view, "plugin_form_submit", %{
-            "plugin" => %{"opts" => ~s({"prefix": "x"})}
-          })
+        html = submit(view, %{"opts" => ~s({"prefix": "x"})})
 
         assert html =~ "Plugin out_1 updated: #{said}. Bound to relay_a."
       end
@@ -751,18 +686,14 @@ defmodule FlezhaUiWeb.PluginLiveTest do
     defp choose_webhook(conn) do
       {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
       open_enable(view)
-      render_click(view, "plugin_form_provider", %{"provider" => "hook_webhook"})
+      choose(view, "hook_webhook")
       view
     end
 
     defp option(name), do: ~s([data-testid="input-option-#{name}"])
     defp option_error(name), do: option(name) <> " ~ .fui-error"
 
-    defp enable(view, opts, extra \\ %{}) do
-      render_submit(view, "plugin_form_submit", %{
-        "plugin" => Map.merge(%{"name" => "hooks_1", "opts" => opts}, extra)
-      })
-    end
+    defp enable(view, opts), do: submit(view, %{"name" => "hooks_1", "opts" => opts})
 
     test "each option is a field of the control its type needs", %{conn: conn} do
       view = choose_webhook(conn)
@@ -939,10 +870,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       assert has_element?(view, option("timeout_ms") <> " ~ .fui-hint", "changed in place")
       assert has_element?(view, option("headers"))
 
-      html =
-        render_submit(view, "plugin_form_submit", %{
-          "plugin" => %{"opts" => %{"timeout_ms" => "7000", "url" => ""}}
-        })
+      html = submit(view, %{"opts" => %{"timeout_ms" => "7000", "url" => ""}})
 
       assert html =~ "Plugin out_1 updated: applied live."
       assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :update})
@@ -976,7 +904,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       {:ok, view, _html} = live(conn, ~p"/plugins")
       view |> element(~s([data-testid="plugin-update-out_1"])) |> render_click()
 
-      assert render_submit(view, "plugin_form_submit", %{}) =~
+      assert submit(view, %{}) =~
                "Plugin out_1 updated: nothing changed."
 
       assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :update})
@@ -1037,7 +965,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
     defp secret_form(conn) do
       {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
       open_enable(view)
-      render_click(view, "plugin_form_provider", %{"provider" => "hook_webhook"})
+      choose(view, "hook_webhook")
       view
     end
 
@@ -1068,10 +996,10 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       view = secret_form(conn)
       secret = %{"api_key" => @secret}
 
-      html = render_change(view, "plugin_form_change", %{"plugin" => %{"secret" => secret}})
+      html = change(view, %{"secret" => secret})
       refute html =~ @secret
 
-      html = render_submit(view, "plugin_form_submit", %{"plugin" => %{"secret" => secret}})
+      html = submit(view, %{"secret" => secret})
 
       assert has_element?(
                view,
@@ -1083,12 +1011,10 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       assert FakeController.calls(node, {PluginManager, :enable}) == []
 
       html =
-        render_submit(view, "plugin_form_submit", %{
-          "plugin" => %{
-            "name" => "hooks_1",
-            "opts" => %{"url" => "http://h.test"},
-            "secret" => secret
-          }
+        submit(view, %{
+          "name" => "hooks_1",
+          "opts" => %{"url" => "http://h.test"},
+          "secret" => secret
         })
 
       refute html =~ @secret
@@ -1114,9 +1040,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
         view |> element(~s([data-testid="plugin-update-out_1"])) |> render_click()
         opts = if secret == "", do: %{"url" => "http://h.test"}, else: %{}
 
-        render_submit(view, "plugin_form_submit", %{
-          "plugin" => %{"opts" => opts, "secret" => %{"api_key" => secret}}
-        })
+        submit(view, %{"opts" => opts, "secret" => %{"api_key" => secret}})
 
         assert [["out_1", fields, _ctx] | _] =
                  node |> FakeController.calls({PluginManager, :update}) |> Enum.reverse()
@@ -1202,6 +1126,26 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       if options == :absent, do: described, else: Map.put(described, :options, options)
 
     FakeController.set(node, {Fleet, :provider}, {:ok, described})
+  end
+
+  defp choose(view, provider),
+    do: view |> element(~s([data-testid="provider-btn-#{provider}"])) |> render_click()
+
+  defp submit(view, fields) do
+    view
+    |> form(~s(form[phx-submit="plugin_form_submit"]), plugin: fields)
+    |> render_submit()
+  end
+
+  defp change(view, fields) do
+    view
+    |> form(~s(form[phx-change="plugin_form_change"]), plugin: fields)
+    |> render_change()
+  end
+
+  defp disable(view, name) do
+    view |> element(~s([data-testid="plugin-disable-#{name}"])) |> render_click()
+    view |> element(~s([data-testid="plugin-disable-confirm"])) |> render_click()
   end
 
   defp open_enable(view),

@@ -10,10 +10,10 @@ defmodule FlezhaUiWeb.ControllerStopDisconnectTest do
   use FlezhaUiWeb.LiveCase
 
   alias Flezha.Service.Controller
+  alias FlezhaUi.TestEnv
 
   setup do
-    System.put_env("FLEZHA_TOKEN", "flz_stop_#{System.unique_integer([:positive])}")
-    on_exit(fn -> System.delete_env("FLEZHA_TOKEN") end)
+    TestEnv.put_system("FLEZHA_TOKEN", "flz_stop_#{System.unique_integer([:positive])}")
     :ok
   end
 

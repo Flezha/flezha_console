@@ -1,49 +1,87 @@
 defmodule FlezhaUiWeb.DisconnectedScreensTest do
   @moduledoc """
-  Every screen this change adds, rendered with no controller connected at all.
+  Every screen rendered with no controller connected at all.
 
   A screen that crashes when the controller is away is worse than one that says
   so, and "away" is the state an operator is most likely to be looking at the
   UI during. No peer is started here: `NodeManager.connected_node/0` reads the
   VM's connection list, so the absence has to be real rather than mocked.
+
+  Each screen is a row: its route and the element that states the condition.
+  A screen added to the router takes one row.
   """
 
   use FlezhaUiWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
+  import FlezhaUiWeb.LiveCase, only: [text_of: 2]
+
+  alias FlezhaUi.PeerNode
+  alias FlezhaUi.Service.NodeManager
+
+  @condition "Not connected to a flezha controller"
 
   setup %{conn: conn} do
     %{conn: log_in_user(conn, FlezhaUi.AccountsFixtures.user_fixture())}
   end
 
-  for {route, name} <- [
-        {"/namespaces/default", "namespace home"},
-        {"/namespaces", "namespaces"},
-        {"/relays", "relays index"},
-        {"/controller", "controller health"},
-        {"/observability", "observability"},
-        {"/cluster", "cluster"},
-        {"/plugins", "plugins"},
-        {"/schedules", "schedules"},
-        {"/dlq", "dead-letter queue"},
-        {"/audit", "audit log"},
-        {"/namespaces/default/relays/relay_a", "relay detail"},
-        {"/namespaces/default/relays/relay_a/listen", "relay listen"},
-        {"/namespaces/default/relays/relay_a/state", "relay state"}
-      ] do
-    test "the #{name} screen renders without a controller", %{conn: conn} do
-      assert {:ok, _view, html} = live(conn, unquote(route))
+  # `section` is a folded panel that holds the statement; `async` marks a
+  # screen whose condition arrives after mount; `never` is the all-clear a
+  # screen must not show in its place.
+  @screens [
+    %{name: "namespace home", route: "/namespaces/default", says: "topology-disconnected"},
+    %{name: "namespaces", route: "/namespaces", says: "runtime-error"},
+    %{name: "relays index", route: "/relays", says: "runtime-error"},
+    %{name: "controller health", route: "/controller", says: "runtime-error"},
+    %{name: "observability", route: "/observability", says: "runtime-error"},
+    %{name: "cluster", route: "/cluster", says: "runtime-error"},
+    %{name: "plugins", route: "/plugins", says: "runtime-error", never: "plugins-empty"},
+    %{
+      name: "problems",
+      route: "/problems",
+      says: "runtime-error",
+      async: true,
+      never: "problems-clear"
+    },
+    %{name: "schedules", route: "/schedules", says: "runtime-error"},
+    %{name: "dead-letter queue", route: "/dlq", says: "runtime-error"},
+    %{name: "audit log", route: "/audit", says: "runtime-error"},
+    %{name: "relay detail", route: "/namespaces/default/relays/relay_a", says: "runtime-error"},
+    %{
+      name: "relay listen",
+      route: "/namespaces/default/relays/relay_a/listen",
+      says: "listen-error",
+      async: true
+    },
+    %{
+      name: "relay state",
+      route: "/namespaces/default/relays/relay_a/state",
+      says: "runtime-error"
+    }
+  ]
 
-      # It rendered rather than raising, and it claims no health it cannot know.
-      assert html =~ "flezha"
+  for screen <- @screens do
+    @screen screen
+
+    test "the #{screen.name} screen says no controller is connected", %{conn: conn} do
+      %{route: route, says: says} = @screen
+      selector = ~s([data-testid="#{says}"])
+
+      assert {:ok, view, html} = live(conn, route)
+
+      html =
+        if section = @screen[:section],
+          do: view |> element(~s([data-testid="section-toggle-#{section}"])) |> render_click(),
+          else: html
+
+      if @screen[:async],
+        do: assert(PeerNode.eventually(fn -> render(view) =~ @condition end)),
+        else: assert(text_of(html, selector) =~ @condition)
+
+      assert has_element?(view, selector)
       refute html =~ ~s(data-health="healthy")
+      if never = @screen[:never], do: refute(has_element?(view, ~s([data-testid="#{never}"])))
     end
-  end
-
-  test "Home says no controller is connected rather than drawing an empty map", %{conn: conn} do
-    {:ok, _view, html} = live(conn, ~p"/namespaces/default")
-
-    assert html =~ ~s(data-testid="topology-disconnected")
   end
 
   test "the cluster screen says it knows of no node", %{conn: conn} do
@@ -53,49 +91,35 @@ defmodule FlezhaUiWeb.DisconnectedScreensTest do
     assert has_element?(view, ~s([data-testid="cluster-disconnected"]))
   end
 
-  test "the start form still opens, asking for no run", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/relays")
+  describe "the start form" do
+    setup %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/relays")
+      view |> element(~s([data-testid="start-relay-btn"])) |> render_click()
+      %{view: view}
+    end
 
-    html = render_click(view, "launcher_open", %{})
+    test "still opens, taking a typed factory and asking for no run", %{view: view} do
+      # The factories could not be read, so the field takes a typed id, and how
+      # the relay runs is never a field.
+      assert has_element?(view, ~s([data-testid="start-modal"]))
+      assert has_element?(view, ~s([data-testid="input-factory-id"]))
+      refute has_element?(view, ~s([name="start[run]"]))
+      refute has_element?(view, ~s([data-testid="factory-run"]))
+    end
 
-    # The factories could not be read, so the field takes a typed id, and how
-    # the relay runs is never a field.
-    assert html =~ ~s(data-testid="start-modal")
-    assert has_element?(view, ~s([data-testid="input-factory-id"]))
-    refute has_element?(view, ~s([name="start[run]"]))
-    refute has_element?(view, ~s([data-testid="factory-run"]))
-  end
+    test "refuses a start with nothing to start into rather than attempting it", %{view: view} do
+      view
+      |> form(~s(form[phx-submit="launcher_pick"]), factory: "store_input")
+      |> render_submit()
 
-  test "a start with nothing to start into is refused rather than attempted", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/relays")
-    render_click(view, "launcher_open", %{})
+      html = view |> form("#start-details", start: %{id: "relay_a"}) |> render_submit()
 
-    html =
-      render_submit(view, "launcher_submit", %{
-        "start" => %{
-          "namespace" => "",
-          "id" => "relay_a",
-          "factory_id" => "store_input",
-          "init_values" => ""
-        }
-      })
-
-    assert html =~ ~s(data-testid="start-error")
-    assert html =~ "A namespace is required."
-  end
-
-  test "the listen screen says it could not attach rather than spinning", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/namespaces/default/relays/relay_a/listen")
-
-    # The feed reports its refusal to the screen asynchronously.
-    assert FlezhaUi.PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="listen-error") end)
-    assert render(view) =~ "Not connected to a flezha controller"
+      assert text_of(html, ~s([data-testid="start-error"])) =~ "A namespace is required."
+      refute html =~ ~s(data-testid="start-review")
+    end
   end
 
   test "the seam reports no connection rather than raising", _context do
-    # The shape every one of those screens depends on.
-    alias FlezhaUi.Service.NodeManager
-
     assert NodeManager.connected_node() == nil
     assert {:error, :node_not_connected} = NodeManager.relay_list("default", nil)
     assert {:error, :node_not_connected} = NodeManager.enforcement_posture()

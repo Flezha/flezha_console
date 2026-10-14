@@ -36,9 +36,22 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
     FakeController.set(node, {Steps, :cells}, {:ok, answer})
   end
 
+  defp select_cell(view),
+    do: view |> element(~s([data-testid="select-relay_a/orders/k1"])) |> render_click()
+
   defp select_and_target(view, kind, value) do
-    render_click(view, "select_cell", %{"cell" => "relay_a/orders/k1"})
-    render_change(view, "travel_change", %{"travel" => %{"kind" => kind, "value" => value}})
+    select_cell(view)
+
+    # The kind's combobox sets its hidden input from JS, so the change carries it.
+    view
+    |> form(~s(form[phx-change="travel_change"]))
+    |> render_change(%{"travel" => %{"kind" => kind, "value" => value}})
+  end
+
+  defp set_retention(view, hours) do
+    view
+    |> form(~s([data-testid="retention-form"]), %{"retention" => %{"hours" => hours}})
+    |> render_submit()
   end
 
   defp run(node, run),
@@ -53,10 +66,7 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert html =~ ~s(data-testid="cells-panel")
-      assert html =~ ~s(data-testid="tasklet-orders")
       assert html =~ ~s(data-testid="cell-relay_a/orders/k1")
-      assert html =~ ~s(data-testid="cell-menu-relay_a/orders/k1")
       assert html =~ "120"
       assert html =~ "100"
     end
@@ -192,7 +202,7 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       {:ok, view, html} = live(conn, @url)
       assert html =~ "lasts until the controller next boots"
 
-      html = render_submit(view, "set_retention", %{"retention" => %{"hours" => "6"}})
+      html = set_retention(view, "6")
 
       assert [["relay_a", 6, _ctx]] = FakeController.calls(node, {Steps, :set_retention})
       assert html =~ "History retention set to 6 hours until the controller next boots."
@@ -207,7 +217,7 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       {:ok, view, _html} = live(conn, @url)
 
       for hours <- ["-1", "six", ""] do
-        html = render_submit(view, "set_retention", %{"retention" => %{"hours" => hours}})
+        html = set_retention(view, hours)
         assert html =~ "Hours must be a whole number of zero or more."
       end
 
@@ -236,7 +246,7 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       )
 
       {:ok, view, _html} = live(conn, @url)
-      html = render_click(view, "select_cell", %{"cell" => "relay_a/orders/k1"})
+      html = select_cell(view)
 
       assert [["relay_a/orders/k1", _ctx]] = FakeController.calls(node, {Steps, :outbox})
       assert html =~ ~r/data-testid="outbox-durable-seq"[^>]*>\s*118/
@@ -262,7 +272,7 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       )
 
       {:ok, view, _html} = live(conn, @url)
-      html = render_click(view, "select_cell", %{"cell" => "relay_a/orders/k1"})
+      html = select_cell(view)
 
       assert html =~ ~r/data-testid="outbox-pending"[^>]*>\s*Unknown — writer not running/
       assert html =~ ~r/data-testid="outbox-held"[^>]*>\s*Unknown — writer not running/
@@ -301,20 +311,6 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       assert length(FakeController.calls(node, {Steps, :cells})) > cells_before
       assert html =~ ~s(data-testid="state-empty")
     end
-
-    test "a dismissed confirmation calls nothing", %{conn: conn, node: node} do
-      cells(node, [cell("orders", "k1")])
-      {:ok, view, _html} = live(conn, @url)
-
-      for action <- ~w(rotate delete) do
-        view |> element(~s([data-testid="#{action}-relay_a/orders/k1"])) |> render_click()
-        html = view |> element(~s([data-testid="state-confirm-cancel"])) |> render_click()
-        refute html =~ ~s(data-testid="state-confirm-modal")
-      end
-
-      assert FakeController.calls(node, {Steps, :rotate}) == []
-      assert FakeController.calls(node, {Steps, :delete}) == []
-    end
   end
 
   describe "replaying a flow relay's cell" do
@@ -334,7 +330,10 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       html = view |> element(~s([data-testid="replay-open"])) |> render_click()
       assert html =~ "retained inputs are run again"
 
-      html = view |> element(~s([data-testid="state-confirm-btn"])) |> render_click()
+      html =
+        view
+        |> element(~s([data-testid="state-confirm-btn"][phx-click="replay"]))
+        |> render_click()
 
       assert [["default", "relay_a/orders/k1", "40", _ctx]] =
                FakeController.calls(node, {Relay, :replay})
@@ -349,22 +348,13 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       select_and_target(view, "time", "2026-10-06T12:00:00Z")
 
       view |> element(~s([data-testid="replay-open"])) |> render_click()
-      view |> element(~s([data-testid="state-confirm-btn"])) |> render_click()
+
+      view
+      |> element(~s([data-testid="state-confirm-btn"][phx-click="replay"]))
+      |> render_click()
 
       assert [["default", "relay_a/orders/k1", "2026-10-06T12:00:00Z", _ctx]] =
                FakeController.calls(node, {Relay, :replay})
-    end
-
-    test "a dismissed replay calls nothing", %{conn: conn, node: node} do
-      run(node, :flow)
-      cells(node, [cell("orders", "k1")])
-      {:ok, view, _html} = live(conn, @url)
-      select_and_target(view, "seq", "40")
-
-      view |> element(~s([data-testid="replay-open"])) |> render_click()
-      view |> element(~s([data-testid="state-confirm-cancel"])) |> render_click()
-
-      assert FakeController.calls(node, {Relay, :replay}) == []
     end
 
     test "a steps relay offers no replay", %{conn: conn, node: node} do
@@ -372,7 +362,7 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       cells(node, [cell("orders", "k1")])
       {:ok, view, _html} = live(conn, @url)
 
-      html = render_click(view, "select_cell", %{"cell" => "relay_a/orders/k1"})
+      html = select_cell(view)
 
       assert html =~ ~s(data-testid="time-travel")
       refute html =~ ~s(data-testid="replay-open")
@@ -380,19 +370,6 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
   end
 
   describe "the lag series" do
-    test "states that it is sampled by this UI, not recorded by the controller", %{
-      conn: conn,
-      node: node
-    } do
-      cells(node, [cell("orders", "k1")])
-
-      {:ok, _view, html} = live(conn, @url)
-
-      assert html =~ ~s(data-testid="chart-provenance")
-      assert html =~ "Sampled by this console"
-      assert html =~ "never interpolated"
-    end
-
     test "a tick the controller could not answer records no point", %{conn: conn, node: node} do
       cells(node, [cell("orders", "k1")])
       {:ok, view, _html} = live(conn, @url)
@@ -415,9 +392,8 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
     end
 
     defp select_and_travel(view, kind, value) do
-      render_click(view, "select_cell", %{"cell" => "relay_a/orders/k1"})
-      render_change(view, "travel_change", %{"travel" => %{"kind" => kind, "value" => value}})
-      render_click(view, "travel", %{})
+      select_and_target(view, kind, value)
+      view |> element(~s([data-testid="travel-submit"])) |> render_click()
     end
 
     test "reading at a sequence shows the resolved sequence and the sizes", %{
@@ -440,22 +416,12 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
       {:ok, view, _html} = live(conn, @url)
       html = select_and_travel(view, "seq", "42")
 
-      assert html =~ ~s(data-testid="travel-result")
-      assert html =~ ~s(data-testid="travel-target")
       assert html =~ ~r/data-testid="travel-seq"[^>]*>\s*41/
       assert html =~ "2.0 KB"
       assert html =~ "512 B"
 
       assert [["relay_a/orders/k1", "42", %{source: :ui}]] =
                FakeController.calls(node, {Steps, :time_travel})
-    end
-
-    test "the answer is not presented as the cell's state", %{conn: conn} do
-      {:ok, view, _html} = live(conn, @url)
-      html = select_and_travel(view, "seq", "42")
-
-      refute html =~ ~s(data-testid="state-json")
-      refute html =~ "balance"
     end
 
     test "reading at a time sends it as an ISO 8601 time", %{conn: conn, node: node} do

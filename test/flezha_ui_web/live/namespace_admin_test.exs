@@ -13,6 +13,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
   alias Flezha.AuthZ.TokenStore
   alias Flezha.Service.Namespace
   alias Flezha.Service.Relay
+  alias FlezhaUi.TestEnv
 
   defp record(name, quotas \\ %{}) do
     %{
@@ -53,16 +54,6 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
 
       assert html =~ ~s(data-testid="namespace-row-default")
       assert html =~ "Declared and running"
-    end
-
-    test "a declared namespace's tile carries its health and its menu", %{conn: conn, node: node} do
-      with_catalog(node, records: [record("default")], running: ["default"])
-      FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
-
-      {:ok, _view, html} = live(conn, ~p"/namespaces")
-
-      assert html =~ ~s(data-testid="namespace-strip-default")
-      assert html =~ ~s(data-testid="namespace-menu-default")
     end
 
     test "a declared namespace with no hub is listed with zero counts", %{conn: conn, node: node} do
@@ -107,8 +98,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       node: node
     } do
       token = "flzt_team_#{System.unique_integer([:positive])}"
-      System.put_env("FLEZHA_TOKEN", token)
-      on_exit(fn -> System.delete_env("FLEZHA_TOKEN") end)
+      TestEnv.put_system("FLEZHA_TOKEN", token)
 
       FakeController.set(
         node,
@@ -203,11 +193,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       with_catalog(node, running: [])
 
       {:ok, view, _html} = live(conn, ~p"/namespaces")
-      render_click(view, "open_create", %{})
-
-      render_submit(view, "create", %{
-        "create" => %{"name" => "analytics", "max_relays" => "10", "max_runners" => ""}
-      })
+      create(view, %{name: "analytics", max_relays: "10", max_runners: ""})
 
       assert [["analytics", opts, %{source: :ui}]] =
                FakeController.calls(node, {Namespace, :create})
@@ -222,12 +208,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       with_catalog(node, running: [])
 
       {:ok, view, _html} = live(conn, ~p"/namespaces")
-      render_click(view, "open_create", %{})
-
-      html =
-        render_submit(view, "create", %{
-          "create" => %{"name" => "analytics", "max_relays" => "-1", "max_runners" => ""}
-        })
+      html = create(view, %{name: "analytics", max_relays: "-1", max_runners: ""})
 
       assert html =~ "max_relays must be a whole number of 0 or more."
       assert FakeController.calls(node, {Namespace, :create}) == []
@@ -246,8 +227,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces")
-      render_click(view, "open_create", %{})
-      html = render_submit(view, "create", %{"create" => %{"name" => "analytics"}})
+      html = create(view, %{name: "analytics"})
 
       assert html =~ ~s(data-testid="create-namespace-error")
       assert html =~ "namespace &#39;analytics&#39; already exists"
@@ -263,8 +243,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces")
-      render_click(view, "open_create", %{})
-      html = render_submit(view, "create", %{"create" => %{"name" => "analytics"}})
+      html = create(view, %{name: "analytics"})
 
       assert html =~ "refused the namespace create"
       assert html =~ "authz.role_insufficient"
@@ -274,36 +253,35 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       with_catalog(node, records: [record("doomed")], cold: ["doomed"])
 
       {:ok, view, _html} = live(conn, ~p"/namespaces")
-      render_click(view, "confirm_delete", %{"name" => "doomed"})
+      view |> element(~s([data-testid="namespace-delete-doomed"])) |> render_click()
 
-      # Confirmed with the wrong name: nothing happens.
-      render_change(view, "delete_confirmation_change", %{"confirm" => %{"name" => "nope"}})
-      render_click(view, "delete", %{})
-      assert FakeController.calls(node, {Namespace, :delete}) == []
+      type_name(view, "nope")
+      assert has_element?(view, ~s([data-testid="delete-namespace-confirm"][disabled]))
 
-      render_change(view, "delete_confirmation_change", %{"confirm" => %{"name" => "doomed"}})
-      render_click(view, "delete", %{})
+      type_name(view, "doomed")
+      view |> element(~s([data-testid="delete-namespace-confirm"])) |> render_click()
       assert [["doomed", %{source: :ui}]] = FakeController.calls(node, {Namespace, :delete})
     end
 
-    test "dismissing the delete confirmation calls nothing", %{conn: conn, node: node} do
+    test "a forged delete with the wrong name typed deletes nothing", %{conn: conn, node: node} do
       with_catalog(node, records: [record("doomed")], cold: ["doomed"])
 
       {:ok, view, _html} = live(conn, ~p"/namespaces")
-      render_click(view, "confirm_delete", %{"name" => "doomed"})
-      html = render_click(view, "cancel_delete", %{})
+      view |> element(~s([data-testid="namespace-delete-doomed"])) |> render_click()
+      type_name(view, "nope")
 
-      refute html =~ ~s(data-testid="delete-namespace-modal")
+      render_click(view, "delete", %{})
+
       assert FakeController.calls(node, {Namespace, :delete}) == []
+      assert has_element?(view, ~s([data-testid="delete-namespace-modal"]))
     end
 
     test "saving quotas sends every limit, the edited one changed", %{conn: conn, node: node} do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      render_click(view, "open_quotas", %{})
-      render_change(view, "quota_change", %{"quota" => %{"max_relays" => "250"}})
-      render_click(view, "save_quotas", %{})
+      edit_quotas(view, %{max_relays: "250"})
+      save_quotas(view)
 
       assert [["default", sent, %{source: :ui}]] =
                FakeController.calls(node, {Namespace, :set_quotas})
@@ -318,9 +296,8 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      render_click(view, "open_quotas", %{})
-      render_change(view, "quota_change", %{"quota" => %{"max_relays" => "lots"}})
-      html = render_click(view, "save_quotas", %{})
+      edit_quotas(view, %{max_relays: "lots"})
+      html = save_quotas(view)
 
       assert html =~ ~s(data-testid="quota-error")
       assert html =~ "max_relays must be a whole number of 0 or more."
@@ -338,8 +315,8 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      render_click(view, "open_quotas", %{})
-      html = render_click(view, "save_quotas", %{})
+      edit_quotas(view, %{})
+      html = save_quotas(view)
 
       assert html =~ ~s(data-testid="quota-error")
       assert html =~ "authz.role_insufficient"
@@ -391,10 +368,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         {:ok, [%{principal: "carol", namespace: "default", roles: [:ops]}]}
       )
 
-      html =
-        render_submit(view, "bind_role", %{
-          "binding" => %{"principal" => "carol", "role" => "ops"}
-        })
+      html = bind(view, "carol", "ops")
 
       assert [["carol", "ops", "default", _ctx]] =
                FakeController.calls(node, {Namespace, :bind_role})
@@ -421,7 +395,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       assert html =~ ~s(placeholder="ops@acme")
     end
 
-    test "an unknown role is refused with the message naming the roles", %{
+    test "a role the controller does not know is refused with its message", %{
       conn: conn,
       node: node
     } do
@@ -432,7 +406,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         {Namespace, :bind_role},
         FakeController.error(
           "authz.unknown_role",
-          "unknown role boss; roles are admin, ops, app, viewer"
+          "unknown role stopper; roles are admin, ops, app, viewer"
         )
       )
 
@@ -440,10 +414,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       open_section(view, "access")
       view |> element(~s([data-testid="bind-role-btn"])) |> render_click()
 
-      html =
-        render_submit(view, "bind_role", %{
-          "binding" => %{"principal" => "carol", "role" => "boss"}
-        })
+      html = bind(view, "carol", "stopper")
 
       assert html =~ ~s(data-testid="bind-role-error")
       assert html =~ "roles are admin, ops, app, viewer"
@@ -518,23 +489,6 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       assert text_of(html, ~s([data-testid="unbind-role-modal"])) =~ ~r/holds in\s+_system\?/
       assert html =~ ~s(data-testid="unbind-cluster-wide")
     end
-
-    test "a dismissed unbind calls nothing", %{conn: conn, node: node} do
-      with_catalog(node, running: ["default"], get: {:ok, record("default")})
-
-      FakeController.set(
-        node,
-        {Namespace, :roles},
-        {:ok, [%{principal: "alice", namespace: "default", roles: [:ops]}]}
-      )
-
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      open_section(view, "access")
-      view |> element(~s([data-testid="unbind-binding-alice"])) |> render_click()
-      view |> element(~s([data-testid="unbind-role-cancel"])) |> render_click()
-
-      assert FakeController.calls(node, {Namespace, :unbind_role}) == []
-    end
   end
 
   describe "tokens" do
@@ -568,15 +522,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
       open_issue(view)
 
-      html =
-        render_submit(view, "issue_token", %{
-          "token" => %{
-            "principal" => "ci",
-            "role" => "app",
-            "ttl" => "3600",
-            "label" => "deploys"
-          }
-        })
+      html = issue(view, %{principal: "ci", role: "app", ttl: "3600", label: "deploys"})
 
       assert [["ci", "default", "app", [ttl: 3600, label: "deploys"], _ctx]] =
                FakeController.calls(node, {Namespace, :issue_token})
@@ -599,9 +545,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
       open_issue(view)
 
-      render_submit(view, "issue_token", %{
-        "token" => %{"principal" => "ci", "role" => "viewer", "ttl" => "never", "label" => ""}
-      })
+      issue(view, %{principal: "ci", role: "viewer", ttl: "never", label: ""})
 
       assert [["ci", "default", "viewer", [ttl: "never"], _ctx]] =
                FakeController.calls(node, {Namespace, :issue_token})
@@ -613,10 +557,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       open_issue(view)
 
       for ttl <- ["0", "-5", "soon", ""] do
-        html =
-          render_submit(view, "issue_token", %{
-            "token" => %{"principal" => "ci", "role" => "app", "ttl" => ttl}
-          })
+        html = issue(view, %{principal: "ci", role: "app", ttl: ttl})
 
         assert html =~ "The lifetime must be a positive number of seconds or never."
       end
@@ -635,10 +576,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
           {:ok, view, _html} = live(conn, ~p"/namespaces/default")
           open_issue(view)
 
-          html =
-            render_submit(view, "issue_token", %{
-              "token" => %{"principal" => "ci", "role" => "app", "ttl" => "60"}
-            })
+          html = issue(view, %{principal: "ci", role: "app", ttl: "60"})
 
           assert html =~ @secret
           view |> element(~s([data-testid="issued-token-done"])) |> render_click()
@@ -670,18 +608,6 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       assert html =~ ~r/data-testid="token-status-tok-1"[^>]*>\s*Revoked/
       refute html =~ ~s(data-testid="revoke-token-tok-1")
     end
-
-    test "a dismissed revocation calls nothing", %{conn: conn, node: node} do
-      with_catalog(node, running: ["default"], get: {:ok, record("default")})
-      FakeController.set(node, {Namespace, :tokens}, {:ok, [token_row("tok-1")]})
-
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      open_section(view, "access")
-      view |> element(~s([data-testid="revoke-token-tok-1"])) |> render_click()
-      view |> element(~s([data-testid="revoke-token-cancel"])) |> render_click()
-
-      assert FakeController.calls(node, {Namespace, :revoke_token}) == []
-    end
   end
 
   defp token_row(id, overrides \\ %{}) do
@@ -697,6 +623,37 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       overrides
     )
   end
+
+  defp create(view, fields) do
+    view |> element(~s([data-testid="create-namespace-btn"])) |> render_click()
+
+    view
+    |> form(~s([data-testid="create-namespace-form"]), create: fields)
+    |> render_submit()
+  end
+
+  defp type_name(view, name) do
+    view
+    |> form(~s(form[phx-change="delete_confirmation_change"]), confirm: %{name: name})
+    |> render_change()
+  end
+
+  defp edit_quotas(view, limits) do
+    view |> element(~s([data-testid="edit-quotas-btn"])) |> render_click()
+    view |> form(~s(form[phx-change="quota_change"]), quota: limits) |> render_change()
+  end
+
+  defp save_quotas(view),
+    do: view |> element(~s([data-testid="quota-save"])) |> render_click()
+
+  defp bind(view, principal, role) do
+    view
+    |> form(~s(form[phx-submit="bind_role"]), binding: %{principal: principal, role: role})
+    |> render_submit()
+  end
+
+  defp issue(view, fields),
+    do: view |> form(~s(form[phx-submit="issue_token"]), token: fields) |> render_submit()
 
   # The tokens sit in the folded access section.
   defp open_issue(view) do

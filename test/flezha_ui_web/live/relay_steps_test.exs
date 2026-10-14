@@ -41,6 +41,11 @@ defmodule FlezhaUiWeb.RelayStepsTest do
     )
   end
 
+  defp open_rewind(view),
+    do: view |> element(~s([data-testid="open-rewind-btn"])) |> render_click()
+
+  defp rewind(view), do: view |> element(~s([data-testid="rewind-confirm-btn"])) |> render_click()
+
   describe "the steps panel" do
     test "states the relay's steps facts", %{conn: conn, node: node} do
       steps(node, %{
@@ -51,8 +56,6 @@ defmodule FlezhaUiWeb.RelayStepsTest do
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert html =~ ~s(data-testid="steps-panel")
-      assert html =~ ~s(data-testid="steps-durable")
       assert html =~ ~s(data-testid="steps-correction-window")
       assert html =~ "30s"
     end
@@ -353,12 +356,6 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       refute html =~ ~s(data-testid="finished-row-relay_live")
     end
 
-    test "with none finished, the panel says so", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-
-      assert open_section(view, "finished-relays") =~ "None has finished"
-    end
-
     test "the listing is read on open and on request, never on a tick", %{
       conn: conn,
       node: node
@@ -370,7 +367,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       _rendered = render(view)
       assert length(FakeController.calls(node, {Relay, :info})) == before
 
-      render_click(view, "reload_finished", %{})
+      view |> element(~s([data-testid="reload-finished"])) |> render_click()
       assert length(FakeController.calls(node, {Relay, :info})) == before + 1
     end
 
@@ -407,10 +404,8 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       FakeController.set(node, {Steps, :committed_iterations}, {:ok, [2, 5]})
 
       {:ok, view, _html} = live(conn, @url)
-      html = render_click(view, "open_rewind", %{})
+      html = open_rewind(view)
 
-      assert html =~ ~s(data-testid="rewind-modal")
-      assert html =~ ~s(data-testid="rewind-iteration")
       assert html =~ ~s(value="2")
       assert html =~ ~s(value="5")
       # Iterations the journal never committed are not offered at all.
@@ -425,10 +420,13 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       FakeController.set(node, {Steps, :committed_iterations}, {:ok, [2, 5]})
 
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "open_rewind", %{})
-      render_change(view, "select_rewind", %{"rewind" => %{"iteration" => "5"}})
+      open_rewind(view)
 
-      assert render_click(view, "rewind", %{}) =~ "Rewound to iteration 5."
+      view
+      |> form(~s(form[phx-change="select_rewind"]), %{"rewind" => %{"iteration" => "5"}})
+      |> render_change()
+
+      assert rewind(view) =~ "Rewound to iteration 5."
 
       assert [["default", "relay_steps", 5, %{source: :ui}]] =
                FakeController.calls(node, {Steps, :rewind})
@@ -448,26 +446,14 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       )
 
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "open_rewind", %{})
-      html = render_click(view, "rewind", %{})
+      open_rewind(view)
+      html = rewind(view)
 
       assert html =~ "iteration 2 has not committed"
       refute html =~ "Rewound to"
     end
 
-    test "dismissing the confirmation calls nothing", %{conn: conn, node: node} do
-      steps(node)
-      FakeController.set(node, {Steps, :committed_iterations}, {:ok, [2]})
-
-      {:ok, view, _html} = live(conn, @url)
-      render_click(view, "open_rewind", %{})
-      html = render_click(view, "cancel_rewind", %{})
-
-      refute html =~ ~s(data-testid="rewind-modal")
-      assert FakeController.calls(node, {Steps, :rewind}) == []
-    end
-
-    test "an iteration the journal never committed is refused before the controller", %{
+    test "a forged iteration the journal never committed is refused before the controller", %{
       conn: conn,
       node: node
     } do
@@ -475,9 +461,10 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       FakeController.set(node, {Steps, :committed_iterations}, {:ok, [2]})
 
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "open_rewind", %{})
+      open_rewind(view)
+      # The select offers only committed iterations, so 99 is pushed past it.
       render_change(view, "select_rewind", %{"rewind" => %{"iteration" => "99"}})
-      render_click(view, "rewind", %{})
+      rewind(view)
 
       assert FakeController.calls(node, {Steps, :rewind}) == []
     end
@@ -505,25 +492,15 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
       open_section(view, "partition-groups")
       view |> element(~s([data-testid="rescale-orders"])) |> render_click()
-      assert has_element?(view, ~s([data-testid="rescale-modal"]))
-      assert has_element?(view, ~s([data-testid="rescale-target"]))
-      render_change(view, "select_rescale", %{"rescale" => %{"target" => "4"}})
+
+      view
+      |> form(~s(form[phx-change="select_rescale"]), %{"rescale" => %{"target" => "4"}})
+      |> render_change()
+
       view |> element(~s([data-testid="rescale-confirm-btn"])) |> render_click()
 
       assert [["default", "orders", 4, [], %{source: :ui}]] =
                FakeController.calls(node, {Steps, :rescale})
-    end
-
-    test "dismissing the confirmation calls nothing", %{conn: conn, node: node} do
-      with_group(node)
-
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      open_section(view, "partition-groups")
-      view |> element(~s([data-testid="rescale-orders"])) |> render_click()
-      html = view |> element(~s([data-testid="rescale-cancel-btn"])) |> render_click()
-
-      refute html =~ ~s(data-testid="rescale-modal")
-      assert FakeController.calls(node, {Steps, :rescale}) == []
     end
   end
 end

@@ -13,10 +13,14 @@ defmodule FlezhaUi.PeerNode do
   @doc """
   Ensures this VM is distributed, then starts a peer and returns `{peer, node}`.
 
+  `peer_opts` are merged into `:peer.start_link/1`'s options. With
+  `connection: :standard_io` the peer is controlled over its stdio rather than
+  over distribution, so it outlives `Node.disconnect/1`.
+
   The caller is responsible for stopping the peer; `ExUnit`'s `on_exit/1` is
   the usual place.
   """
-  def start!(prefix \\ "peer", modules \\ []) do
+  def start!(prefix \\ "peer", modules \\ [], peer_opts \\ %{}) do
     ensure_distributed!()
 
     # Anything still connected from an earlier test would compete to be the
@@ -25,12 +29,15 @@ defmodule FlezhaUi.PeerNode do
     disconnect_all()
 
     {:ok, peer, node} =
-      :peer.start_link(%{
-        name: :"#{prefix}_#{System.unique_integer([:positive])}",
-        host: ~c"127.0.0.1",
-        longnames: true,
-        args: [~c"-setcookie", Atom.to_charlist(@cookie) | code_path_args()]
-      })
+      :peer.start_link(
+        %{
+          name: :"#{prefix}_#{System.unique_integer([:positive])}",
+          host: ~c"127.0.0.1",
+          longnames: true,
+          args: [~c"-setcookie", Atom.to_charlist(@cookie) | code_path_args()]
+        }
+        |> Map.merge(peer_opts)
+      )
 
     # A peer starts as a bare Erlang node. The controller it stands in for is an
     # Elixir application, so Elixir has to be running for the peer to behave
@@ -125,7 +132,8 @@ defmodule FlezhaUi.PeerNode do
     end
   end
 
-  defp ensure_distributed! do
+  @doc "Makes this VM a distributed node, if it is not one already."
+  def ensure_distributed! do
     # Named per OS process, so two test runs on one host do not collide.
     case :net_kernel.start([:"flezha_ui_test_#{System.pid()}@127.0.0.1", :longnames]) do
       {:ok, _} -> :ok

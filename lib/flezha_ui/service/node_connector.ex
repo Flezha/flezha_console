@@ -11,7 +11,7 @@ defmodule FlezhaUi.Service.NodeConnector do
   use GenServer
   require Logger
 
-  @retry_interval_ms 3_000
+  @default_retry_interval_ms 3_000
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -39,9 +39,7 @@ defmodule FlezhaUi.Service.NodeConnector do
   # Called by the Erlang node monitor when a node goes down
   @impl true
   def handle_info({:nodedown, node}, state) do
-    Logger.warning(
-      "[NodeConnector] Node #{node} went down, will retry in #{@retry_interval_ms}ms"
-    )
+    Logger.warning("[NodeConnector] Node #{node} went down, will retry in #{retry_interval()}ms")
 
     schedule_retry()
     {:noreply, state}
@@ -55,7 +53,7 @@ defmodule FlezhaUi.Service.NodeConnector do
 
       false ->
         Logger.warning(
-          "[NodeConnector] Could not connect to #{node}, retrying in #{@retry_interval_ms}ms"
+          "[NodeConnector] Could not connect to #{node}, retrying in #{retry_interval()}ms"
         )
 
         schedule_retry()
@@ -68,8 +66,16 @@ defmodule FlezhaUi.Service.NodeConnector do
   end
 
   defp schedule_retry do
-    Process.send_after(self(), :retry, @retry_interval_ms)
+    Process.send_after(self(), :retry, retry_interval())
   end
+
+  defp retry_interval,
+    do:
+      Application.get_env(
+        :flezha_ui,
+        :node_connector_retry_interval_ms,
+        @default_retry_interval_ms
+      )
 
   defp target_node do
     case System.get_env("FLEZHA_NODE") do

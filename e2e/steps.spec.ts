@@ -1,134 +1,91 @@
 import {
+  ownRelay,
   test,
   expect,
   openSection,
   sendToRelay,
-  startRelay,
   stopRelay,
-  withStepsRelay,
-  ADVANCE_WINDOW_MS,
 } from './fixtures';
 
 /**
- * The steps panel, task journal and input log, against a durable steps relay
- * each test starts for itself, and a finished relay made by stopping one.
+ * The steps panel, task journal and input log of a durable steps relay this
+ * file starts for itself, and the finished relay it leaves once stopped.
  *
  * Whether a steps relay suspends, or how many iterations its journal holds,
  * depends on inputs a browser cannot send yet, so those states are asserted in
  * ExUnit against the fake controller rather than read off the live stack.
  */
+const { id } = ownRelay('pw_steps', { run: 'steps' });
+
 test.describe('Steps relays', () => {
-  test('a durable steps relay shows its steps panel', async ({ page, live }) => {
-    await withStepsRelay(page, async (id) => {
-      await live(`/namespaces/default/relays/${id}`);
-      await expect(page.getByTestId('relay-run')).toHaveText('A steps relay');
-
-      // Its steps facts are sentences on State.
-      await live(`/namespaces/default/relays/${id}/state`);
-      const panel = page.getByTestId('steps-panel');
-      await expect(panel).toBeVisible();
-      await expect(page.getByTestId('steps-durable')).toContainText('It is durable');
-      await expect(panel).toContainText(/exactly once|at least once/);
-
-      // It initialised, so no init error is shown.
-      await expect(page.getByTestId('steps-init-error')).toHaveCount(0);
-    });
-  });
-
-  test('the task journal states its committed iterations and leaf tasklets', async ({
+  test('a durable steps relay states its steps, retains an input, and rewinds', async ({
     page,
     live,
   }) => {
-    await withStepsRelay(page, async (id) => {
-      await live(`/namespaces/default/relays/${id}/state`);
-      await openSection(page, 'journal');
+    await live(`/namespaces/default/relays/${id}`);
+    await expect(page.getByTestId('relay-run')).toHaveText('A steps relay');
 
-      await expect(page.getByTestId('task-journal-panel')).toBeVisible();
-      await expect(page.getByTestId('task-journal-committed')).toContainText(
-        'Committed iterations',
-      );
-      await expect(page.getByTestId('task-journal-leaves')).toContainText('leaf tasklets');
-    });
-  });
+    // Its steps facts are sentences on State.
+    await live(`/namespaces/default/relays/${id}/state`);
+    const panel = page.getByTestId('steps-panel');
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId('steps-durable')).toContainText('It is durable');
+    await expect(panel).toContainText(/exactly once|at least once/);
+    await expect(page.getByTestId('steps-init-error')).toHaveCount(0);
+    await expect(page.getByTestId('history-retention')).toContainText(/\d+ hours/);
+    await expect(page.getByTestId('finished-retention')).toContainText(/\d+ hours/);
 
-  test('a committed iteration can be rewound to, after a confirmation', async ({ page, live }) => {
-    await withStepsRelay(page, async (id) => {
-      await live(`/namespaces/default/relays/${id}`);
-      await sendToRelay(page, 'hello');
-      await live(`/namespaces/default/relays/${id}/state`);
-      await openSection(page, 'journal');
+    // Nothing sent yet: nothing pending, and an empty log said in words,
+    // never as an offset of -1.
+    await openSection(page, 'input-log');
+    await expect(page.getByTestId('input-log-undelivered')).toHaveText(/^\s*0\s*$/);
+    await expect(page.getByTestId('input-log-last-offset')).toHaveText(/^\s*no records\s*$/);
 
-      const open = page.getByTestId('open-rewind-btn');
-      await expect(open).toBeVisible({ timeout: ADVANCE_WINDOW_MS });
+    await live(`/namespaces/default/relays/${id}`);
+    await sendToRelay(page, 'hello');
+    await live(`/namespaces/default/relays/${id}/state`);
 
-      await open.click();
-      await expect(page.getByTestId('rewind-modal')).toBeVisible();
-      const iteration = await page.getByTestId('rewind-iteration').inputValue();
-      await page.getByTestId('rewind-cancel-btn').click();
-      await expect(page.getByTestId('rewind-modal')).toHaveCount(0);
-      await expect(page.locator('body')).not.toContainText('Rewound to iteration');
+    // The input just delivered is retained, with its size.
+    await openSection(page, 'input-log');
+    const records = page.getByTestId('inbox-records');
+    await expect(records.getByTestId('inbox-floor')).toContainText('Payloads are not shown.');
+    await expect(records.locator('[data-testid^="inbox-entry-"]').first()).toContainText(/\d+ B/);
 
-      await open.click();
-      await page.getByTestId('rewind-confirm-btn').click();
-      await expect(page.getByTestId('rewind-modal')).toHaveCount(0);
-      await expect(page.locator('body')).toContainText(`Rewound to iteration ${iteration}.`);
-    });
-  });
+    await openSection(page, 'journal');
+    await expect(page.getByTestId('task-journal-committed')).toContainText('Committed iterations');
+    await expect(page.getByTestId('task-journal-leaves')).toContainText('leaf tasklets');
 
-  test('the input log reports its depth and offsets', async ({ page, live }) => {
-    await withStepsRelay(page, async (id) => {
-      await live(`/namespaces/default/relays/${id}/state`);
-      await openSection(page, 'input-log');
+    const open = page.getByTestId('open-rewind-btn');
+    await open.click();
+    await expect(page.getByTestId('rewind-modal')).toBeVisible();
+    const iteration = await page.getByTestId('rewind-iteration').inputValue();
+    await page.getByTestId('rewind-cancel-btn').click();
+    await expect(page.getByTestId('rewind-modal')).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText('Rewound to iteration');
 
-      await expect(page.getByTestId('input-log-panel')).toBeVisible();
-      // A relay nothing was sent to: nothing pending, and an empty log said
-      // in words, never as an offset of -1.
-      await expect(page.getByTestId('input-log-undelivered')).toHaveText(/^\s*0\s*$/);
-      await expect(page.getByTestId('input-log-last-offset')).toHaveText(/^\s*no records\s*$/);
-    });
-  });
-
-  test('a flow relay gets no steps, task journal or input log panel', async ({ page, live }) => {
-    await live('/namespaces/default/relays/testnet_store_1/state');
-
-    await expect(page.getByTestId('steps-panel')).toHaveCount(0);
-    await expect(page.getByTestId('task-journal-panel')).toHaveCount(0);
-    await expect(page.getByTestId('input-log-panel')).toHaveCount(0);
+    await open.click();
+    await page.getByTestId('rewind-confirm-btn').click();
+    await expect(page.getByTestId('rewind-modal')).toHaveCount(0);
+    await expect(page.locator('body')).toContainText(`Rewound to iteration ${iteration}.`);
   });
 
   test('a stopped steps relay is listed as finished, with its completion record', async ({
     page,
     live,
   }) => {
-    const id = `pw_fin_${Date.now().toString(36)}`;
-
-    await live('/namespaces/default');
-    await startRelay(page, id, { run: 'steps' });
-    // A steps relay stops cooperatively and completes as cancelled.
+    // A steps relay stops cooperatively, leaves the listing once it has
+    // completed, and completes as cancelled.
     await stopRelay(page, id);
 
     await live('/namespaces/default');
     await openSection(page, 'finished-relays');
+    await page.getByTestId('reload-finished').click();
     const row = page.getByTestId(`finished-row-${id}`);
-    await expect
-      .poll(
-        async () => {
-          await page.getByTestId('reload-finished').click();
-          return row.count();
-        },
-        // Each read costs the controller an overwatch per live relay, so the
-        // reload is not pressed faster than one read completes.
-        { timeout: 30_000, intervals: [3_000] },
-      )
-      .toBe(1);
     await expect(row).toContainText('Cancelled');
 
     await row.getByRole('link').click();
     await expect(page).toHaveURL(new RegExp(`/relays/${id}$`));
-
-    const record = page.getByTestId('completion-record');
-    await expect(record).toBeVisible();
-    await expect(record).toContainText('Cancelled');
+    await expect(page.getByTestId('completion-record')).toContainText('Cancelled');
 
     // Actions that need a live relay are absent rather than failing.
     await expect(page.getByTestId('task-journal-panel')).toHaveCount(0);

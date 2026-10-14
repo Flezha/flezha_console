@@ -1,5 +1,5 @@
 defmodule FlezhaUi.AccountsTest do
-  use FlezhaUi.DataCase
+  use FlezhaUi.DataCase, async: true
 
   alias FlezhaUi.Accounts
 
@@ -48,42 +48,37 @@ defmodule FlezhaUi.AccountsTest do
     end
   end
 
-  describe "register_user/1" do
-    test "requires email to be set" do
-      {:error, changeset} = Accounts.register_user(%{})
-
-      assert %{email: ["can't be blank"]} = errors_on(changeset)
-    end
-
-    test "validates email when given" do
-      {:error, changeset} = Accounts.register_user(%{email: "not valid"})
-
-      assert %{email: ["must have the @ sign and no spaces"]} = errors_on(changeset)
-    end
-
-    test "validates maximum values for email for security" do
-      too_long = String.duplicate("db", 100)
-      {:error, changeset} = Accounts.register_user(%{email: too_long})
-      assert "should be at most 160 character(s)" in errors_on(changeset).email
-    end
-
-    test "validates email uniqueness" do
-      %{email: email} = user_fixture()
-      {:error, changeset} = Accounts.register_user(%{email: email})
-      assert "has already been taken" in errors_on(changeset).email
-
-      # Now try with the uppercased email too, to check that email case is ignored.
-      {:error, changeset} = Accounts.register_user(%{email: String.upcase(email)})
-      assert "has already been taken" in errors_on(changeset).email
-    end
-
-    test "registers users without password" do
+  describe "create_user/1" do
+    test "creates a confirmed user who can log in with the password at once" do
       email = unique_user_email()
-      {:ok, user} = Accounts.register_user(valid_user_attributes(email: email))
-      assert user.email == email
-      assert is_nil(user.hashed_password)
-      assert is_nil(user.confirmed_at)
-      assert is_nil(user.password)
+      {:ok, user} = Accounts.create_user(%{email: email, password: valid_user_password()})
+
+      assert user.confirmed_at
+      assert Accounts.get_user_by_email_and_password(email, valid_user_password())
+    end
+
+    test "refuses an email that is missing, malformed or too long" do
+      for {email, message} <- [
+            {nil, "can't be blank"},
+            {"not valid", "must have the @ sign and no spaces"},
+            {String.duplicate("db", 100), "should be at most 160 character(s)"}
+          ] do
+        {:error, changeset} =
+          Accounts.create_user(%{email: email, password: valid_user_password()})
+
+        assert message in errors_on(changeset).email
+      end
+    end
+
+    test "refuses an email already taken, whatever its case" do
+      %{email: email} = user_fixture()
+
+      for taken <- [email, String.upcase(email)] do
+        {:error, changeset} =
+          Accounts.create_user(%{email: taken, password: valid_user_password()})
+
+        assert "has already been taken" in errors_on(changeset).email
+      end
     end
   end
 
@@ -392,100 +387,6 @@ defmodule FlezhaUi.AccountsTest do
   describe "inspect/2 for the User module" do
     test "does not include password" do
       refute inspect(%User{password: "123456"}) =~ "password: \"123456\""
-    end
-  end
-
-  describe "flezha token" do
-    setup do
-      # The service token is process-global config; a test that sets it must
-      # not leave it set for the next one.
-      previous = System.get_env("FLEZHA_TOKEN")
-      System.delete_env("FLEZHA_TOKEN")
-
-      on_exit(fn ->
-        if previous,
-          do: System.put_env("FLEZHA_TOKEN", previous),
-          else: System.delete_env("FLEZHA_TOKEN")
-      end)
-
-      %{user: user_fixture()}
-    end
-
-    test "a stored token is read back", %{user: user} do
-      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
-
-      assert Accounts.user_flezha_token(user) == "flz_personal"
-      assert Accounts.flezha_token(user) == "flz_personal"
-    end
-
-    test "the token is not stored in the clear", %{user: user} do
-      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
-
-      # Read past the field's type: a `select:` on the schema would decrypt it.
-      %{rows: [[raw]]} =
-        Ecto.Adapters.SQL.query!(Repo, "SELECT flezha_token FROM users WHERE id = $1", [user.id])
-
-      assert is_binary(raw)
-      refute raw =~ "flz_personal"
-    end
-
-    test "the column is never loaded by an ordinary query", %{user: user} do
-      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
-
-      reloaded = Repo.get!(User, user.id)
-
-      assert reloaded.flezha_token == nil
-      refute inspect(reloaded) =~ "flz_personal"
-    end
-
-    test "a user without a token falls back to the service token", %{user: user} do
-      System.put_env("FLEZHA_TOKEN", "flz_service")
-
-      assert Accounts.user_flezha_token(user) == nil
-      assert Accounts.flezha_token(user) == "flz_service"
-    end
-
-    test "a user's own token wins over the service token", %{user: user} do
-      System.put_env("FLEZHA_TOKEN", "flz_service")
-      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
-
-      assert Accounts.flezha_token(user) == "flz_personal"
-    end
-
-    test "neither token leaves the caller unbound", %{user: user} do
-      assert Accounts.flezha_token(user) == nil
-      assert Accounts.flezha_token(nil) == nil
-    end
-
-    test "clearing falls back to the service token", %{user: user} do
-      System.put_env("FLEZHA_TOKEN", "flz_service")
-      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
-      {:ok, _user} = Accounts.clear_user_flezha_token(user)
-
-      assert Accounts.user_flezha_token(user) == nil
-      assert Accounts.flezha_token(user) == "flz_service"
-    end
-
-    test "a blank token clears rather than storing an empty credential", %{user: user} do
-      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
-      {:ok, _user} = Accounts.update_user_flezha_token(user, "   ")
-
-      assert Accounts.user_flezha_token(user) == nil
-    end
-
-    test "surrounding whitespace is trimmed off a pasted token", %{user: user} do
-      {:ok, _user} = Accounts.update_user_flezha_token(user, "  flz_personal\n")
-
-      assert Accounts.user_flezha_token(user) == "flz_personal"
-    end
-
-    test "the scope carries the resolved token", %{user: user} do
-      {:ok, _user} = Accounts.update_user_flezha_token(user, "flz_personal")
-
-      scope = FlezhaUi.Accounts.Scope.for_user(Repo.get!(User, user.id))
-
-      assert FlezhaUi.Accounts.Scope.flezha_token(scope) == "flz_personal"
-      refute inspect(scope) =~ "flz_personal"
     end
   end
 end

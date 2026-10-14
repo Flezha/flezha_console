@@ -70,6 +70,9 @@ defmodule Flezha.Error do
     "runner.untrackable" => :invalid
   }
 
+  @doc "Every code the fake answers, with its class."
+  def classes, do: @classes
+
   @doc """
   An error for `code`, with the class the catalogue gives it and its `details`
   keyed by text, as core keeps them.

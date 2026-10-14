@@ -121,8 +121,14 @@ defmodule FakeController do
   """
   def set(node, key, value), do: :erpc.call(node, __MODULE__, :put, [key, value])
 
-  @doc "Clears every answer and call record on `node`, so one test cannot leak into the next."
-  def reset(node), do: :erpc.call(node, __MODULE__, :clear, [])
+  @doc """
+  Clears every answer and call record on `node`, and the identities and posture
+  this VM cached from earlier answers, so one test cannot leak into the next.
+  """
+  def reset(node) do
+    :ets.delete_all_objects(:flezha_ui_authz_cache)
+    :erpc.call(node, __MODULE__, :clear, [])
+  end
 
   @doc "The argument lists `{module, function}` was called with, oldest first."
   def calls(node, key), do: :erpc.call(node, __MODULE__, :recorded, [key])
@@ -160,7 +166,19 @@ defmodule FakeController do
   def activity_row(tasklet, figures \\ %{}),
     do:
       Map.merge(
-        %{tasklet: tasklet, cells: 1, queued: 0, queued_max: 0, admitted_total: 0},
+        %{
+          tasklet: tasklet,
+          cells: 1,
+          queued: 0,
+          queued_max: 0,
+          admitted_total: 0,
+          blocked_total: 0,
+          dropped_newest_total: 0,
+          dropped_oldest_total: 0,
+          dropped_capped_total: nil,
+          cells_created_total: nil,
+          cells_evicted_total: nil
+        },
         figures
       )
 
@@ -204,7 +222,12 @@ defmodule FakeController do
   """
   def registry_entry(run, opts \\ []) do
     builder = %{id: nil, factory_id: "store_input", run: run, init_values: %{}, opts: opts}
-    {%{start: {Flezha.Relay, :start_link, [{"default", builder}]}}, [], %{}}
+
+    {%{
+       id: "relay",
+       restart: :temporary,
+       start: {Flezha.Relay, :start_link, [{"default", "runner-a", builder}]}
+     }, [], %{}}
   end
 
   @doc """
@@ -404,7 +427,10 @@ defmodule Flezha.Service.Relay do
   defstub relay_plugins(ns, %{source: :ui} = ctx), do: {:ok, []}
   defstub registry(ns, %{source: :ui} = ctx), do: {:ok, %{}}
   defstub partition_groups(rows, %{source: :ui} = ctx), do: {:ok, []}
-  defstub info(ns, %{source: :ui} = ctx), do: {:ok, %{namespace: ns, groups: [], relays: []}}
+
+  defstub info(ns, %{source: :ui} = ctx),
+    do: {:ok, %{namespace: ns, groups: [], relays: [], key_groups: 0}}
+
   defstub cell_state(ns, id, cell, %{source: :ui} = ctx), do: {:ok, "{}", 0}
   defstub overwatch_state(ns, id, %{source: :ui} = ctx), do: {:ok, %{}}
 
@@ -649,7 +675,7 @@ defmodule Flezha.Service.Controller do
        %{
          shutdown_in_progress: false,
          shutdown_phase: nil,
-         signal_handler_status: :installed,
+         signal_handler_status: :ok,
          graceful_shutdown_enabled: true,
          graceful_shutdown_timeout_ms: 60_000,
          durability_backend: :none,
@@ -658,6 +684,8 @@ defmodule Flezha.Service.Controller do
          durability_levels: %{},
          durability_superseded: 0,
          node: :"flezha@node-a",
+         file_plugin_root: "/flezha/plugins",
+         state_root: "/flezha/state",
          monotonic_us: System.monotonic_time(:microsecond)
        }}
 
@@ -665,7 +693,17 @@ defmodule Flezha.Service.Controller do
     do: {:ok, %{readiness: :ready, preconditions: [], namespaces: []}}
 
   defstub cluster_status(ns, %{source: :ui} = ctx),
-    do: {:ok, %{namespace: ns, nodes: [], unplaced_relays: 0, relay_health: %{}}}
+    do:
+      {:ok,
+       %{
+         namespace: ns,
+         nodes: [],
+         unplaced_relays: 0,
+         relay_health: %{},
+         is_leader: true,
+         leader: :"flezha@node-a",
+         local_node: :"flezha@node-a"
+       }}
 
   defstub durability_breaches(%{source: :ui} = ctx), do: {:ok, []}
   defstub mem_top(%{source: :ui} = ctx), do: {:ok, %{}}
@@ -677,7 +715,7 @@ defmodule Flezha.Service.Controller do
        %{
          shutdown_in_progress: false,
          shutdown_phase: nil,
-         signal_handler_status: :installed,
+         signal_handler_status: :ok,
          graceful_shutdown_enabled: true,
          graceful_shutdown_timeout_ms: 60_000
        }}

@@ -39,15 +39,6 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       assert html =~ "flezha@node-b"
     end
 
-    test "a relay with no live node reads as unplaced", %{conn: conn, node: node} do
-      overwatch(node, %{factory_id: "store_input"})
-      registry_row(node, %{node: nil})
-
-      {:ok, _view, html} = live(conn, @url)
-
-      assert html =~ "unplaced"
-    end
-
     test "a partition member shows its index, key range and group", %{conn: conn, node: node} do
       overwatch(node, %{factory_id: "store_input"})
 
@@ -107,21 +98,12 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       assert html =~ ~s(data-testid="relay-effectively-once")
     end
 
-    test "takes the run from the builder, and a builder without one runs as flow", %{
-      conn: conn,
-      node: node
-    } do
+    test "a steps relay's header links to its steps facts on State", %{conn: conn, node: node} do
       overwatch(node, %{factory_id: "store_input", builder: %{run: :steps, opts: []}})
       {:ok, _view, html} = live(conn, @url)
-      assert text_of(html, ~s([data-testid="relay-run"])) == "A steps relay"
 
-      # Its steps facts are on State, and the header says so.
       assert html =~
                ~r/href="\/namespaces\/default\/relays\/relay_a\/state#steps"[^>]*data-testid="relay-steps-link"|data-testid="relay-steps-link"[^>]*href="\/namespaces\/default\/relays\/relay_a\/state#steps"/
-
-      overwatch(node, %{factory_id: "store_input", builder: %{opts: []}})
-      {:ok, _view, html} = live(conn, @url)
-      assert text_of(html, ~s([data-testid="relay-run"])) == "A flow relay"
     end
 
     test "a relay that failed to initialise does not read as healthy", %{conn: conn, node: node} do
@@ -141,22 +123,6 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
       assert text_of(html, ~s([data-testid="relay-health"])) =~
                "suspended at a committed boundary"
-    end
-
-    test "renders a controller refusal with its code instead of crashing", %{
-      conn: conn,
-      node: node
-    } do
-      FakeController.set(
-        node,
-        {Relay, :overwatch_state},
-        FakeController.error("authz.role_insufficient", "your role cannot read this relay")
-      )
-
-      {:ok, _view, html} = live(conn, @url)
-
-      assert html =~ "authz.role_insufficient"
-      assert html =~ "your role cannot read this relay"
     end
 
     test "reports version skew by naming the missing call", %{conn: conn, node: node} do
@@ -264,23 +230,6 @@ defmodule FlezhaUiWeb.RelayLiveTest do
                FakeController.calls(node, {PluginManager, :unbind})
     end
 
-    test "unbinding is confirm-gated and cancelling reaches nothing", %{conn: conn, node: node} do
-      overwatch(node, %{
-        factory_id: "store_input",
-        extensions: FakeController.hook_table("plug_1")
-      })
-
-      {:ok, view, _html} = live(conn, @url)
-      open_section(view, "plugins")
-
-      html = view |> element(~s([data-testid="unbind-btn-plug_1"])) |> render_click()
-      assert html =~ ~s(data-testid="unbind-confirm-modal")
-
-      html = view |> element(~s([data-testid="unbind-cancel-btn"])) |> render_click()
-      refute html =~ ~s(data-testid="unbind-confirm-modal")
-      assert FakeController.calls(node, {PluginManager, :unbind}) == []
-    end
-
     test "confirming unbinds this relay alone and leaves the plugin enabled", %{
       conn: conn,
       node: node
@@ -319,9 +268,10 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       )
 
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "confirm_unbind", %{"plugin_id" => "plug_1"})
+      open_section(view, "plugins")
+      view |> element(~s([data-testid="unbind-btn-plug_1"])) |> render_click()
 
-      html = render_click(view, "unbind_plugin", %{"plugin_id" => "plug_1"})
+      html = view |> element(~s([data-testid="unbind-confirm-btn"])) |> render_click()
       assert html =~ "plugin.not_found (test)"
       refute html =~ "unbound from"
     end
@@ -360,7 +310,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       {:ok, view, _html} = live(conn, @url)
 
       assert open_attach(view) =~ ~s(data-testid="provider-btn-relay_stdout")
-      html = render_click(view, "plugin_form_provider", %{"provider" => "relay_stdout"})
+      html = choose_stdout(view)
 
       assert html =~ ~s(data-testid="input-hook-on_input")
       assert html =~ ~s(data-testid="input-hook-on_output")
@@ -373,16 +323,9 @@ defmodule FlezhaUiWeb.RelayLiveTest do
     } do
       {:ok, view, _html} = live(conn, @url)
       open_attach(view)
-      render_click(view, "plugin_form_provider", %{"provider" => "relay_stdout"})
+      choose_stdout(view)
 
-      html =
-        render_submit(view, "plugin_form_submit", %{
-          "plugin" => %{
-            "name" => "out_1",
-            "hooks" => ["", "on_output"],
-            "opts" => ~s({"prefix": "out"})
-          }
-        })
+      html = attach(view, name: "out_1", hooks: ["", "on_output"], opts: ~s({"prefix": "out"}))
 
       assert html =~ "Plugin out_1 enabled and bound to relay_a."
 
@@ -402,12 +345,9 @@ defmodule FlezhaUiWeb.RelayLiveTest do
     } do
       {:ok, view, _html} = live(conn, @url)
       open_attach(view)
-      render_click(view, "plugin_form_provider", %{"provider" => "relay_stdout"})
+      choose_stdout(view)
 
-      html =
-        render_submit(view, "plugin_form_submit", %{
-          "plugin" => %{"name" => "out_1", "opts" => "[1, 2]"}
-        })
+      html = attach(view, name: "out_1", opts: "[1, 2]")
 
       assert html =~ "Options must be a JSON object."
       assert FakeController.calls(node, {PluginManager, :enable}) == []
@@ -422,9 +362,9 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
       {:ok, view, _html} = live(conn, @url)
       open_attach(view)
-      render_click(view, "plugin_form_provider", %{"provider" => "relay_stdout"})
+      choose_stdout(view)
 
-      assert render_submit(view, "plugin_form_submit", %{"plugin" => %{"name" => "out_1"}}) =~
+      assert attach(view, name: "out_1") =~
                "Plugin out_1 was already enabled; this relay is bound to it."
     end
 
@@ -440,9 +380,9 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
       {:ok, view, _html} = live(conn, @url)
       open_attach(view)
-      render_click(view, "plugin_form_provider", %{"provider" => "relay_stdout"})
+      choose_stdout(view)
 
-      html = render_submit(view, "plugin_form_submit", %{"plugin" => %{"name" => "out_1"}})
+      html = attach(view, name: "out_1")
       assert html =~ ~s(data-testid="attach-error")
       assert html =~ "a relay_stdout plugin has no option x"
     end
@@ -454,39 +394,9 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       :ok
     end
 
-    test "listens to the chosen direction and meters what arrives", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, @url)
-      render_click(view, "graph_tap", %{"direction" => "output"})
-
-      key = {Relay, :listen}
-      assert PeerNode.eventually(fn -> FakeController.streams(node, key) != [] end)
-
-      assert [["default", "relay_a", :output, [], %{source: :ui}]] =
-               FakeController.calls(node, key)
-
-      FakeController.emit(node, key, {:output, "hello", %{}})
-
-      assert PeerNode.eventually(fn -> render(view) =~ "hello" end)
-      html = render(view)
-      assert html =~ ~s(data-testid="tap-figures")
-      assert html =~ "5 B"
-    end
-
-    test "closing the tap ends the listen on the controller", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, @url)
-      render_click(view, "graph_tap", %{"direction" => "input"})
-
-      key = {Relay, :listen}
-      assert PeerNode.eventually(fn -> FakeController.streams(node, key) != [] end)
-
-      render_click(view, "graph_tap_close", %{})
-
-      assert PeerNode.eventually(fn -> FakeController.streams(node, key) == [] end)
-    end
-
     test "a tap whose listen ended says so", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "graph_tap", %{"direction" => "output"})
+      view |> element(~s([data-testid="topo-port-out"])) |> render_click()
 
       key = {Relay, :listen}
       assert PeerNode.eventually(fn -> FakeController.streams(node, key) != [] end)
@@ -496,20 +406,6 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tap-ended") end)
       refute render(view) =~ "Waiting for a record"
     end
-
-    test "a refused tap states the refusal", %{conn: conn, node: node} do
-      FakeController.set(
-        node,
-        {Relay, :listen},
-        FakeController.error("authz.role_insufficient", "no listening for you")
-      )
-
-      {:ok, view, _html} = live(conn, @url)
-      render_click(view, "graph_tap", %{"direction" => "output"})
-
-      assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tap-error") end)
-      assert render(view) =~ "no listening for you"
-    end
   end
 
   describe "stopping the relay" do
@@ -518,22 +414,10 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       :ok
     end
 
-    test "is confirm-gated, and cancelling reaches nothing", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, @url)
-
-      assert render_click(view, "confirm_stop", %{}) =~ "Stop relay?"
-
-      html = render_click(view, "cancel_stop", %{})
-      refute html =~ "Stop relay?"
-      assert FakeController.calls(node, {Relay, :stop}) == []
-    end
-
     test "confirming stops it and returns to the namespace", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "confirm_stop", %{})
 
-      {:ok, _view, html} =
-        view |> render_click("stop_relay", %{}) |> follow_redirect(conn, "/namespaces/default")
+      {:ok, _view, html} = view |> stop() |> follow_redirect(conn, "/namespaces/default")
 
       assert html =~ "Relay relay_a stopped."
 
@@ -551,10 +435,8 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       )
 
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "confirm_stop", %{})
 
-      {:ok, _view, html} =
-        view |> render_click("stop_relay", %{}) |> follow_redirect(conn, "/namespaces/default")
+      {:ok, _view, html} = view |> stop() |> follow_redirect(conn, "/namespaces/default")
 
       assert html =~ "finishes its in-flight work"
     end
@@ -563,9 +445,8 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       FakeController.set(node, {Relay, :stop}, FakeController.error("relay.not_running"))
 
       {:ok, view, _html} = live(conn, @url)
-      render_click(view, "confirm_stop", %{})
 
-      assert render_click(view, "stop_relay", %{}) =~ "relay.not_running (test)"
+      assert stop(view) =~ "relay.not_running (test)"
     end
   end
 
@@ -581,7 +462,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
       {:ok, view, _html} = live(conn, @url <> "/state")
       open_section(view, "sdk-state")
-      html = render_click(view, "fetch_state", %{})
+      html = fetch_state(view)
 
       assert html =~ ~s(data-testid="sdk-state-panel")
       assert html =~ ~s(data-testid="state-json")
@@ -593,12 +474,11 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       node: node
     } do
       {:ok, view, _html} = live(conn, @url <> "/state")
+      open_section(view, "sdk-state")
 
-      render_change(view, "selector_change", %{
-        "selector" => %{"tasklet" => "charge", "cell_key" => "cust-9"}
-      })
+      select_cell(view, %{tasklet: "charge", cell_key: "cust-9"})
 
-      render_click(view, "fetch_state", %{})
+      fetch_state(view)
 
       assert [["default", "relay_a", "charge/cust-9", %{source: :ui}]] =
                FakeController.calls(node, {Relay, :cell_state})
@@ -606,7 +486,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
     test "no tasklet reads every cell", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, @url <> "/state")
-      render_click(view, "fetch_state", %{})
+      fetch_state(view)
 
       assert [["default", "relay_a", nil, %{source: :ui}]] =
                FakeController.calls(node, {Relay, :cell_state})
@@ -616,8 +496,8 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       {:ok, view, _html} = live(conn, @url <> "/state")
       open_section(view, "sdk-state")
 
-      render_change(view, "selector_change", %{"selector" => %{"cell_key" => "cust-9"}})
-      html = render_click(view, "fetch_state", %{})
+      select_cell(view, %{cell_key: "cust-9"})
+      html = fetch_state(view)
 
       assert html =~ "name the tasklet too"
       assert FakeController.calls(node, {Relay, :cell_state}) == []
@@ -633,7 +513,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       {:ok, view, _html} = live(conn, @url <> "/state")
       open_section(view, "sdk-state")
 
-      html = render_click(view, "fetch_state", %{})
+      html = fetch_state(view)
       assert html =~ ~s(data-testid="state-notice")
       assert html =~ "persistence off"
     end
@@ -644,8 +524,31 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       {:ok, view, _html} = live(conn, @url <> "/state")
       open_section(view, "sdk-state")
 
-      assert render_click(view, "fetch_state", %{}) =~ "not held in memory"
+      assert fetch_state(view) =~ "not held in memory"
     end
+  end
+
+  defp stop(view) do
+    view |> element(~s([data-testid="stop-relay-btn"])) |> render_click()
+    view |> element(~s([data-testid="stop-confirm-btn"])) |> render_click()
+  end
+
+  defp fetch_state(view),
+    do: view |> element(~s([data-testid="fetch-state-btn"])) |> render_click()
+
+  defp select_cell(view, selector) do
+    view
+    |> form(~s(form[phx-change="selector_change"]), selector: selector)
+    |> render_change()
+  end
+
+  defp choose_stdout(view),
+    do: view |> element(~s([data-testid="provider-btn-relay_stdout"])) |> render_click()
+
+  defp attach(view, fields) do
+    view
+    |> form(~s(form[phx-submit="plugin_form_submit"]), plugin: Map.new(fields))
+    |> render_submit()
   end
 
   # The relay screen opens the shared plugin form with this relay fixed.

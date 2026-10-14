@@ -39,10 +39,16 @@
   <.runtime_error error={reason} action={"the plugin listing of #{namespace}"} />
 </div>
 
+<.runtime_error error={@namespaces_error} action="list the namespaces" />
+
 <.skeleton :if={!@loaded?} rows={4} testid="plugins-loading" />
 
 <%!-- Enabled plugins --%>
-<.empty_state :if={@loaded? and @plugins == []} icon="hero-puzzle-piece" testid="plugins-empty">
+<.empty_state
+  :if={@loaded? and @plugins == [] and is_nil(@namespaces_error)}
+  icon="hero-puzzle-piece"
+  testid="plugins-empty"
+>
   A plugin adds behaviour to relays — reading their input, carrying their output — once a provider
   is enabled by name. <span :if={@scoped_namespace}>None is enabled in {@scoped_namespace}.</span>
   <span :if={!@scoped_namespace}>None is enabled.</span>

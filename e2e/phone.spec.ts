@@ -108,8 +108,9 @@ test.describe('The console on a phone', () => {
       expect(behind, `tab ${i + 1} reached the page behind the drawer`).toBe(false);
     }
 
+    // The clock it shows moves on with the screen's refresh.
     const before = await page.getByTestId('liveness-state').textContent();
-    await expect(page.getByTestId('liveness-state')).not.toHaveText(before!, { timeout: 15_000 });
+    await expect(page.getByTestId('liveness-state')).not.toHaveText(before!);
     await expect(drawer(page)).toBeVisible();
   });
 
@@ -165,7 +166,7 @@ test.describe('The console on a phone', () => {
   test('a table reads as cards, each value under its column', async ({ page, live }) => {
     await live('/namespaces/default/relays');
 
-    const row = page.getByTestId('relay-index-row-testnet_store_1');
+    const row = page.locator('[data-testid^="relay-index-row-"]').first();
     const health = row.locator('td[data-label="Health"]');
     await health.scrollIntoViewIfNeeded();
     await expect(health).toBeInViewport();
@@ -205,8 +206,15 @@ test.describe('The console on a phone', () => {
     await page.getByTestId('start-cancel-btn').tap();
   });
 
-  test('every control a finger meets is at least 44px tall', async ({ page, live }) => {
+  test('every control a finger meets is at least 44px tall, and no routed screen scrolls sideways', async ({
+    page,
+    live,
+  }) => {
+    const scrollsSideways = () =>
+      page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+
     for (const path of ROUTES) {
+      await page.setViewportSize({ width: 390, height: 844 });
       await visit(page, live, path);
 
       // A term or an identifier is a target inside a line of text, which keeps
@@ -223,25 +231,13 @@ test.describe('The console on a phone', () => {
           })
           .map((el) => `${el.tagName.toLowerCase()} ${el.getAttribute('data-testid') ?? el.className} ${Math.round(el.getBoundingClientRect().height)}px`),
       );
-
       expect.soft(small, `${path} has controls under 44px`).toEqual([]);
+      expect.soft(await scrollsSideways(), `${path} scrolls sideways at 390px`).toBe(false);
+
+      await page.setViewportSize({ width: 360, height: 844 });
+      expect.soft(await scrollsSideways(), `${path} scrolls sideways at 360px`).toBe(false);
     }
   });
-
-  for (const width of [390, 360]) {
-    test(`no routed screen scrolls sideways at ${width}px`, async ({ page, live }) => {
-      await page.setViewportSize({ width, height: 844 });
-
-      for (const path of ROUTES) {
-        await visit(page, live, path);
-        const { scroll, client } = await page.evaluate(() => ({
-          scroll: document.documentElement.scrollWidth,
-          client: document.documentElement.clientWidth,
-        }));
-        expect.soft(scroll, `${path} scrolls sideways`).toBeLessThanOrEqual(client);
-      }
-    });
-  }
 });
 
 test.describe('The console on a tablet', () => {

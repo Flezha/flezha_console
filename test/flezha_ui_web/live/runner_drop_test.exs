@@ -74,13 +74,11 @@ defmodule FlezhaUiWeb.RunnerDropTest do
         grant(node, ["Fleet.runners", "Fleet.drop_runner", "Fleet.readmit_runner"])
         view = unquote(open)(conn)
 
-        assert has_element?(view, ~s([data-testid="runner-menu-runner-a"]))
         view |> element(~s([data-testid="drop-runner-runner-a"])) |> render_click()
         dialog = view |> element(~s([data-testid="drop-runner-modal"])) |> render()
         assert dialog =~ "runner-a"
         assert dialog =~ "pid 4242"
         assert dialog =~ "refuses this same"
-        assert dialog =~ "fui-btn--danger"
 
         FakeController.set(node, {Fleet, :runners}, {:ok, []})
 
@@ -96,20 +94,15 @@ defmodule FlezhaUiWeb.RunnerDropTest do
         refute has_element?(view, ~s([data-testid="drop-runner-modal"]))
         refute has_element?(view, ~s([data-testid="runner-runner-a"]))
 
-        mark = view |> element(~s([data-testid="runner-mark-stable-a"])) |> render()
-        assert mark =~ "fui-badge--negative"
+        mark = text_of(render(view), ~s([data-testid="runner-mark-stable-a"]))
+        assert mark =~ "Dropped"
         assert mark =~ "5151"
-      end
+        assert mark =~ "ops@default"
 
-      test "a cancelled drop calls nothing", %{conn: conn, node: node} do
-        grant(node, ["Fleet.runners", "Fleet.drop_runner"])
-        view = unquote(open)(conn)
-
-        view |> element(~s([data-testid="drop-runner-runner-a"])) |> render_click()
-        view |> element(~s([data-testid="drop-runner-cancel"])) |> render_click()
-
-        assert FakeController.calls(node, {Fleet, :drop_runner}) == []
-        assert has_element?(view, ~s([data-testid="runner-runner-a"]))
+        # The dropped process keeps retrying and keeps being refused.
+        send(view.pid, :refresh)
+        refute has_element?(view, ~s([data-testid="runner-runner-a"]))
+        assert has_element?(view, ~s([data-testid="runner-mark-stable-a"]))
       end
 
       test "a confirmed readmit lifts the mark", %{conn: conn, node: node} do
@@ -117,8 +110,13 @@ defmodule FlezhaUiWeb.RunnerDropTest do
         grant(node, ["Fleet.runners", "Fleet.drop_runner", "Fleet.readmit_runner"])
         view = unquote(open)(conn)
 
-        assert has_element?(view, ~s([data-testid="mark-menu-stable-b"]))
+        assert text_of(render(view), ~s([data-testid="runner-mark-stable-b"])) =~ "Dropped"
+
         view |> element(~s([data-testid="readmit-runner-stable-b"])) |> render_click()
+
+        assert view |> element(~s([data-testid="readmit-runner-modal"])) |> render() =~
+                 "stable-b"
+
         FakeController.set(node, {Fleet, :dropped_runners}, {:ok, []})
         view |> element(~s([data-testid="readmit-runner-confirm"])) |> render_click()
 
@@ -126,6 +124,11 @@ defmodule FlezhaUiWeb.RunnerDropTest do
                  FakeController.calls(node, {Fleet, :readmit_runner})
 
         refute has_element?(view, ~s([data-testid="runner-mark-stable-b"]))
+
+        # Readmitted, the same process is admitted on its next retry.
+        FakeController.set(node, {Fleet, :runners}, {:ok, [%{@runner | id: "runner-b"}]})
+        send(view.pid, :refresh)
+        assert has_element?(view, ~s([data-testid="runner-runner-b"]))
       end
 
       test "a refused drop is shown with its code and hint", %{conn: conn, node: node} do

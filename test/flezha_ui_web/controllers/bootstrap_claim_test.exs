@@ -13,18 +13,12 @@ defmodule FlezhaUiWeb.BootstrapClaimTest do
 
   alias Flezha.Service.Namespace
   alias FlezhaUi.Accounts
+  alias FlezhaUi.TestEnv
 
   @minted "flzt_minted_admin_secret"
 
   setup %{user: user, node: node} do
-    previous = System.get_env("FLEZHA_TOKEN")
-    System.delete_env("FLEZHA_TOKEN")
-
-    on_exit(fn ->
-      if previous,
-        do: System.put_env("FLEZHA_TOKEN", previous),
-        else: System.delete_env("FLEZHA_TOKEN")
-    end)
+    TestEnv.put_system("FLEZHA_TOKEN", nil)
 
     {:ok, _user} =
       Accounts.update_user_flezha_token(user, "flzt_before_#{System.unique_integer([:positive])}")

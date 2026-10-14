@@ -270,6 +270,9 @@ services:
       # A config or dependency change stops the console, and the restart
       # policy below brings it back with the new configuration.
       FLEZHA_UI_RESTART_ON_CONFIG_CHANGE: "true"
+      # Every screen re-reads twice a second, so what a browser test caused
+      # shows without waiting out a screen's own cadence.
+      FLEZHA_UI_REFRESH_INTERVAL_MS: "500"
     depends_on:
       db:
         condition: service_healthy

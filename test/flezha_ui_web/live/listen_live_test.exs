@@ -24,6 +24,10 @@ defmodule FlezhaUiWeb.ListenLiveTest do
   # The count is a live value, so its figure sits in its own element.
   defp received(count), do: ~r/id="listen-count-value"[^>]*data-value="#{count}"/
 
+  defp filter(view, value) do
+    view |> form(~s(form[phx-change="set_filter"]), %{"filter" => value}) |> render_change()
+  end
+
   defp listening(conn) do
     {:ok, view, _html} = live(conn, @url)
     eventually_renders(view, ~s(data-testid="listen-empty"))
@@ -93,7 +97,6 @@ defmodule FlezhaUiWeb.ListenLiveTest do
       FakeController.emit(node, @listen, {:output, "hello from the relay", %{}})
       html = eventually_renders(view, "hello from the relay")
 
-      assert html =~ ~s(data-testid="listen-message")
       assert html =~ received(1)
     end
 
@@ -109,7 +112,7 @@ defmodule FlezhaUiWeb.ListenLiveTest do
     end
 
     test "a paused feed still counts but does not render", %{view: view, node: node} do
-      render_click(view, "toggle_pause", %{})
+      view |> element(~s([data-testid="listen-pause"])) |> render_click()
 
       FakeController.emit(node, @listen, {:output, "arrived while paused", %{}})
       html = eventually_renders(view, received(1))
@@ -122,7 +125,7 @@ defmodule FlezhaUiWeb.ListenLiveTest do
       FakeController.emit(node, @listen, {:output, "first", %{}})
       eventually_renders(view, "first")
 
-      html = render_click(view, "clear", %{})
+      html = view |> element(~s([data-testid="listen-clear"])) |> render_click()
 
       refute html =~ "first"
       assert html =~ received(0)
@@ -136,7 +139,7 @@ defmodule FlezhaUiWeb.ListenLiveTest do
       FakeController.emit(node, @listen, {:output, "drop me", %{}})
       eventually_renders(view, received(2))
 
-      html = render_change(view, "set_filter", %{"filter" => "keep"})
+      html = filter(view, "keep")
 
       assert html =~ "keep me"
       refute html =~ "drop me"
@@ -148,13 +151,12 @@ defmodule FlezhaUiWeb.ListenLiveTest do
       FakeController.emit(node, @listen, {:output, "still here", %{}})
       eventually_renders(view, "still here")
 
-      html = render_change(view, "set_filter", %{"filter" => "["})
+      html = filter(view, "[")
 
-      assert html =~ ~s(data-testid="listen-filter-error")
       assert html =~ "Not a regular expression"
       assert html =~ "still here"
 
-      refute render_change(view, "set_filter", %{"filter" => "still"}) =~ "listen-filter-error"
+      refute filter(view, "still") =~ "listen-filter-error"
     end
   end
 

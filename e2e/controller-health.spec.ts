@@ -4,8 +4,10 @@ import { test, expect } from './fixtures';
  * The controller-health screen.
  *
  * The dev stack runs `local_only` with no remote tier, so that posture is the
- * one asserted; a controller reporting another one is a changed stack. A breached RPO and a shutdown in progress cannot be arranged
- * against a controller that is meant to keep serving; both are covered in
+ * one asserted; a controller reporting another one is a changed stack. A
+ * breached RPO and a shutdown in progress cannot be arranged against a
+ * controller that is meant to keep serving, and stopping it would stop every
+ * session on the stack; all three are covered in
  * `test/flezha_ui_web/live/controller_live_test.exs`.
  */
 test.describe('Controller health', () => {
@@ -13,8 +15,9 @@ test.describe('Controller health', () => {
     await live('/controller');
   });
 
-  test('shows the durability backend, posture and counts', async ({ page }) => {
-    await expect(page.getByTestId('durability-panel')).toBeVisible();
+  test('states the durability posture, shutdown, boot, authz and shipper of the running controller', async ({
+    page,
+  }) => {
     // local_only ships nowhere, so it has no backend and nothing to breach.
     await expect(page.getByTestId('durability-backend')).toHaveText('None');
     await expect(
@@ -23,26 +26,20 @@ test.describe('Controller health', () => {
     ).toContainText('one copy, on the node that wrote it');
     await expect(page.getByTestId('durability-breaches')).toHaveText('0');
     await expect(page.getByTestId('durability-superseded')).toHaveText('0');
-  });
 
-  test('local_only is stated as a posture rather than raised as an alarm', async ({ page }) => {
-    const notice = page.getByTestId('durability-local-only');
-    await expect(notice).toBeVisible();
-    await expect(notice).toContainText('exactly one copy');
     // Informational, not an error: an alarm would carry the alert role.
+    const notice = page.getByTestId('durability-local-only');
+    await expect(notice).toContainText('exactly one copy');
     await expect(notice).not.toHaveAttribute('role', 'alert');
-  });
 
-  test('shutdown, boot and authz state render', async ({ page }) => {
-    await expect(page.getByTestId('shutdown-panel')).toBeVisible();
     await expect(page.getByTestId('shutdown-in-progress')).toHaveText('No');
     // Said in words, never the raw `nil` a not-shutting-down coordinator reports.
     await expect(page.getByTestId('shutdown-phase')).toHaveText('Not stopping');
-
     await expect(page.getByTestId('boot-default')).toContainText('Serving');
-
-    await expect(page.getByTestId('authz-panel')).toBeVisible();
     await expect(page.getByTestId('authz-posture')).toContainText('Enforced');
+
+    await expect(page.getByTestId('shipper-not-applicable')).toBeVisible();
+    await expect(page.getByTestId('shipper-table')).toHaveCount(0);
   });
 
   test('the memory snapshot is taken only when asked, and labelled when taken', async ({
@@ -62,12 +59,9 @@ test.describe('Controller health', () => {
     await expect(page.getByTestId('memory-top-processes')).toBeVisible();
   });
 
-  test('the shipper is stated as not applicable on a local-only controller', async ({ page }) => {
-    await expect(page.getByTestId('shipper-not-applicable')).toBeVisible();
-    await expect(page.getByTestId('shipper-table')).toHaveCount(0);
-  });
-
-  test('stopping asks for the node name, and cancelling stops nothing', async ({ page }) => {
+  test('stopping asks for the node name, and cancelling or closing stops nothing', async ({
+    page,
+  }) => {
     await page.getByTestId('stop-controller-btn').click();
     const modal = page.getByTestId('stop-controller-modal');
     await expect(modal).toBeVisible();
@@ -90,17 +84,11 @@ test.describe('Controller health', () => {
 
     await page.getByTestId('stop-cancel').click();
     await expect(modal).toHaveCount(0);
-    await expect(page.getByTestId('shutdown-in-progress')).toHaveText('No');
-  });
 
-  test('the stop dialog also closes from its close control, stopping nothing', async ({ page }) => {
     await page.getByTestId('stop-controller-btn').click();
-    await expect(page.getByTestId('stop-controller-modal')).toBeVisible();
-
+    await expect(modal).toBeVisible();
     await page.getByTestId('stop-controller-close').click();
-    await expect(page.getByTestId('stop-controller-modal')).toHaveCount(0);
+    await expect(modal).toHaveCount(0);
     await expect(page.getByTestId('shutdown-in-progress')).toHaveText('No');
-    await expect(page.getByTestId('shutdown-phase')).not.toHaveText(/drain|finalise/);
   });
 });
-

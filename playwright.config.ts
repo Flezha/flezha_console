@@ -14,13 +14,11 @@ const MARKET_STACK = process.env.E2E_MARKET_STACK === '1';
 export default defineConfig({
   testDir: './e2e',
 
-  // The dev stack is one controller with one shared `default` namespace and one
-  // shared `testnet_store_1` relay. Several specs assert that a count
-  // returns to its starting value — which is what catches a leaked relay or
-  // binding — and concurrent workers mutating that state would make those
-  // assertions lie in both directions.
+  // Spec files run side by side, each test owning what it asserts on: relays
+  // it started, records it sent, and its worker's own console user. Tests in
+  // one file run in order, so a file can share one setup.
   fullyParallel: false,
-  workers: 1,
+  workers: Number(process.env.E2E_WORKERS ?? 4),
 
   // A test that only passes on a retry is a test that is lying about the state
   // it needs; failures here are meant to be read, not smoothed over.
@@ -28,14 +26,16 @@ export default defineConfig({
 
   reporter: [['list'], ['html', { open: 'never' }]],
 
-  expect: { timeout: 10_000 },
+  // Caps, not budgets: a test waits only for what it caused, so a test that
+  // needs longer is waiting on time and fails here.
+  timeout: 20_000,
+  expect: { timeout: 5_000 },
 
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:4000',
-    storageState: 'e2e/.auth/user.json',
     viewport: { width: 1280, height: 720 },
-    navigationTimeout: 30_000,
-    actionTimeout: 10_000,
+    navigationTimeout: 10_000,
+    actionTimeout: 5_000,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },

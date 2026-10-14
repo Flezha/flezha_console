@@ -6,60 +6,30 @@ import {
   openSection,
   timelineSamples,
   withStepsRelay,
-  ADVANCE_WINDOW_MS,
-  expectAdvances,
   openPage,
+  type Page,
 } from './fixtures';
 
 /**
- * The shell, in a browser: the four-section rail, the scope in the route, the
- * crumb trail, the tabs on a relay, the palette's keyboard, and a section
- * remembering it was folded.
+ * The shell, in a browser: the rail, the picker, the crumb trail, the tabs on
+ * a relay, the palette's keyboard, a section remembering it was folded, and a
+ * screen's own refresh.
  *
- * The LiveView suite proves the server renders these. What only a browser can
- * prove is that the keyboard reaches the palette, that a tab navigates to its
- * own route, and that a fold survives a reload — all of which live in the
- * client.
+ * The LiveView suite proves the server renders these, including which rail
+ * entry is marked and how the scope reads. What only a browser can prove is
+ * that the keyboard reaches the palette, that a tab or a crumb navigates to its
+ * own route, that a fold survives a reload, and that a tick lands on its own —
+ * all of which live in the client or the socket.
  */
 
 const RELAY = '/namespaces/default/relays/testnet_store_1';
 
+/** When the screen last refreshed, as its liveness states it. */
+async function lastRefresh(page: Page): Promise<string | undefined> {
+  return (await page.getByTestId('liveness-state').textContent())?.match(/\d\d:\d\d:\d\d\.\d{3}/)?.[0];
+}
+
 test.describe('The console shell', () => {
-  test('the rail groups the namespace, what needs attention, the platform and monitoring', async ({
-    page,
-    live,
-  }) => {
-    await live('/namespaces/default');
-
-    const rail = page.locator('.flz-sidebar-nav');
-    await expect(rail.locator('.flz-sidebar-section')).toHaveText([
-      /Namespace\s*default/,
-      'Attention',
-      'Platform',
-      'Monitoring',
-    ]);
-    // Every relay across namespaces is the Relays screen's own switch.
-    await expect(rail.locator('a[href="/relays"]')).toHaveCount(0);
-    await expect(rail.locator('a[href="/namespaces/default/relays"]')).toBeVisible();
-    await expect(rail.locator('a[href="/namespaces/default/plugins"]')).toBeVisible();
-    await expect(rail.locator('a[href="/namespaces/default/schedules"]')).toBeVisible();
-  });
-
-  test('a platform screen keeps the namespace last worked in', async ({ page, live }) => {
-    await live('/namespaces/default/relays');
-
-    // The address names no namespace from here on, so only the remembered
-    // scope can keep the rail and the picker on it.
-    await page.locator('.flz-sidebar-nav a[href="/cluster"]').click();
-    await expect(page).toHaveURL(/\/cluster$/);
-
-    await expect(page.getByTestId('namespace-picker')).toContainText('default');
-    await expect(page.getByTestId('no-namespace-scoped')).toHaveCount(0);
-    await expect(
-      page.locator('.flz-sidebar-nav a[href="/namespaces/default/relays"]'),
-    ).toBeVisible();
-  });
-
   test('every rail entry reaches its own screen and is marked there', async ({ page, live }) => {
     await live('/namespaces/default');
     const rail = page.locator('.flz-sidebar-nav');
@@ -77,17 +47,6 @@ test.describe('The console shell', () => {
     }
   });
 
-  test('a scoped route marks its own entry and not the platform twin', async ({ page, live }) => {
-    await live('/namespaces/default/relays');
-
-    const rail = page.locator('.flz-sidebar-nav');
-    await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
-    await expect(rail.locator('a[href="/namespaces/default/relays"]')).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-  });
-
   test('the picker names the scope and keeps the screen kind', async ({ page, live }) => {
     await live('/namespaces/default/plugins');
 
@@ -98,33 +57,6 @@ test.describe('The console shell', () => {
     await page.getByTestId('namespace-picker-default').click();
 
     await expect(page).toHaveURL(/\/namespaces\/default\/plugins$/);
-  });
-
-  test('a deep screen names its ancestors and they navigate', async ({ page, live }) => {
-    await live(`${RELAY}/state`);
-
-    const trail = page.getByTestId('breadcrumb');
-    await expect(trail).toBeVisible();
-    await expect(trail).toContainText('default');
-    await expect(trail).toContainText('testnet_store_1');
-
-    // The current view is the last crumb, marked and not a link.
-    await expect(trail.locator('[aria-current="page"]')).toHaveText('State');
-
-    // Every ancestor is a link to its own screen.
-    const crumbs = await trail.locator('a').evaluateAll((links) => links.map((a) => a.getAttribute('href')!));
-    expect(crumbs).toEqual(
-      expect.arrayContaining(['/namespaces/default', '/namespaces/default/relays', RELAY]),
-    );
-    for (const href of crumbs) {
-      await live(`${RELAY}/state`);
-      await page.getByTestId('breadcrumb').locator(`a[href="${href}"]`).click();
-      await expect(page).toHaveURL((url) => url.pathname === href);
-    }
-
-    // A rail destination has no trail to render.
-    await live('/cluster');
-    await expect(page.getByTestId('breadcrumb')).toHaveCount(0);
   });
 
   test('the account controls are one menu, and the theme toggle is always in the topbar', async ({
@@ -146,7 +78,10 @@ test.describe('The console shell', () => {
 });
 
 test.describe("A relay's views", () => {
-  test('are a tab strip that navigates between three routes', async ({ page, live }) => {
+  test('are a tab strip that navigates between three routes, under crumbs that navigate', async ({
+    page,
+    live,
+  }) => {
     await live(RELAY);
 
     const tabs = page.getByRole('navigation', { name: 'Relay views' });
@@ -166,6 +101,16 @@ test.describe("A relay's views", () => {
 
     await page.getByTestId('relay-tab-live').click();
     await expect(page).toHaveURL(new RegExp(`${RELAY}$`));
+
+    // The current view is the last crumb, marked and not a link; its
+    // ancestors are links to their own screens.
+    await page.getByTestId('relay-tab-state').click();
+    const trail = page.getByTestId('breadcrumb');
+    await expect(trail.locator('[aria-current="page"]')).toHaveText('State');
+    await trail.locator(`a[href="${RELAY}"]`).click();
+    await expect(page).toHaveURL((url) => url.pathname === RELAY);
+    await page.getByTestId('breadcrumb').locator('a[href="/namespaces/default/relays"]').click();
+    await expect(page).toHaveURL((url) => url.pathname === '/namespaces/default/relays');
   });
 });
 
@@ -227,10 +172,16 @@ test.describe('A browser that refuses to store the preference', () => {
 });
 
 test.describe('The command palette', () => {
-  test('opens on the shortcut and reaches a relay by id', async ({ page, live }) => {
+  test('opens on the shortcut, says when nothing matches, and reaches a relay by id and a screen by name', async ({
+    page,
+    live,
+  }) => {
     await live('/audit');
 
     await openPalette(page);
+    await page.getByTestId('command-palette-input').fill('nothing-is-called-this');
+    await expect(page.getByTestId('command-palette-empty')).toBeVisible();
+
     await page.getByTestId('command-palette-input').fill('testnet_store_1');
 
     await expect(page.getByTestId('command-palette-results')).toContainText('testnet_store_1');
@@ -240,18 +191,10 @@ test.describe('The command palette', () => {
 
     await match.click();
     await expect(page).toHaveURL(new RegExp(`${RELAY}$`));
-  });
-
-  test('reaches a screen by name, and says when nothing matches', async ({ page, live }) => {
-    await live('/audit');
 
     await openPalette(page);
-    await page.getByTestId('command-palette-input').fill('nothing-is-called-this');
-    await expect(page.getByTestId('command-palette-empty')).toBeVisible();
-
     await page.getByTestId('command-palette-input').fill('dead');
     await page.getByTestId('command-palette-screen-Dead-letter').click();
-
     await expect(page).toHaveURL(/\/dlq$/);
   });
 
@@ -283,44 +226,31 @@ test.describe('The command palette', () => {
 });
 
 test.describe('A screen that refreshes', () => {
-  test('moves its controller-fed figures on its own, and holds them still while paused', async ({
-    page,
-    live,
-  }) => {
-    const relay = '/namespaces/default/relays/testnet_store_1';
+  test('ticks on its own, and holds its figures still while paused', async ({ page, live }) => {
+    await live(RELAY);
 
-    await live(relay);
-    await expect(page.getByTestId('topology-timeline')).toBeVisible({ timeout: ADVANCE_WINDOW_MS });
-    await expectAdvances(() => timelineSamples(page), 'the refreshing timeline');
+    const state = page.getByTestId('liveness-state');
+    await expect(state).toContainText('Every');
+    const first = await lastRefresh(page);
+    await expect.poll(() => lastRefresh(page), { message: 'the screen never refreshed' }).not.toBe(first);
 
     await page.getByTestId('liveness-toggle').click();
-    await expect(page.getByTestId('liveness-state')).toContainText('Paused');
+    await expect(state).toContainText('Paused');
     const held = await timelineSamples(page);
 
     // A second copy of the screen keeps refreshing; once it has ticked twice,
     // the paused one has missed at least one tick it would have taken.
-    const other = await openPage(page, relay);
-    await expect(other.getByTestId('topology-timeline')).toBeVisible({ timeout: ADVANCE_WINDOW_MS });
-    await expectAdvances(() => timelineSamples(other), 'the other copy, once');
-    await expectAdvances(() => timelineSamples(other), 'the other copy, twice');
+    const other = await openPage(page, RELAY);
+    for (const tick of ['once', 'twice']) {
+      const before = await lastRefresh(other);
+      await expect.poll(() => lastRefresh(other), { message: `the other copy did not tick ${tick}` }).not.toBe(before);
+    }
     await other.close();
 
     expect(await timelineSamples(page)).toBe(held);
     await page.getByTestId('liveness-toggle').click();
-    await expectAdvances(() => timelineSamples(page), 'the resumed timeline');
-  });
-
-  test('states its liveness and can be held still', async ({ page, live }) => {
-    await live('/relays');
-
-    const state = page.getByTestId('liveness-state');
-    await expect(state).toContainText('Every 5s');
-
-    await page.getByTestId('liveness-toggle').click();
-    await expect(state).toContainText('Paused');
-
-    await page.getByTestId('liveness-toggle').click();
-    await expect(state).toContainText('Every 5s');
+    await expect(state).toContainText('Every');
+    await expect.poll(() => timelineSamples(page), { message: 'the resumed timeline' }).toBeGreaterThan(held);
   });
 });
 
@@ -344,18 +274,5 @@ test.describe('Relay list filters', () => {
       await expect(page).not.toHaveURL(/run=steps/);
       await expect(page.getByTestId('relay-index-row-testnet_store_1')).toBeVisible();
     });
-  });
-
-  test('a scoped listing keeps its namespace out of the query string', async ({ page, live }) => {
-    await live('/namespaces/default/relays');
-
-    await expect(page.getByTestId('scope-namespace')).toHaveAttribute('aria-current', 'true');
-    await expect(page.getByTestId('scope-namespace')).toContainText('default');
-    await expect(page.getByTestId('filter-namespace')).toHaveCount(0);
-
-    await page.getByTestId('filter-health').click();
-    await page.getByTestId('filter-health-healthy').click();
-
-    await expect(page).toHaveURL(/\/namespaces\/default\/relays\?health=healthy$/);
   });
 });

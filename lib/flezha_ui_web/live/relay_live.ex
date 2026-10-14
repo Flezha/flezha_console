@@ -121,7 +121,7 @@ defmodule FlezhaUiWeb.RelayLive do
   # draws each record on the tapped side: coalesced under one timer, so a busy
   # relay sends one push per flush rather than one per record.
 
-  @tap_flush_ms 250
+  @default_tap_flush_ms 250
   @tap_previews 6
   @tap_preview_chars 40
 
@@ -424,10 +424,12 @@ defmodule FlezhaUiWeb.RelayLive do
 
   defp arm_flush(%{flush: nil} = tap) do
     ref = make_ref()
-    %{tap | flush: {ref, Process.send_after(self(), {:tap_flush, ref}, @tap_flush_ms)}}
+    %{tap | flush: {ref, Process.send_after(self(), {:tap_flush, ref}, tap_flush_ms())}}
   end
 
   defp arm_flush(tap), do: tap
+
+  defp tap_flush_ms, do: Application.get_env(:flezha_ui, :tap_flush_ms, @default_tap_flush_ms)
 
   defp listen_feed(socket, direction, tag) do
     %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns

@@ -11,12 +11,12 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
 
   alias Flezha.AuthZ
   alias Flezha.Service.Controller
+  alias FlezhaUi.TestEnv
 
   setup do
     # Posture and identity are cached per token for a refresh tick, so a token
     # per test keeps one test's posture out of the next one's cache.
-    System.put_env("FLEZHA_TOKEN", "flz_controller_#{System.unique_integer([:positive])}")
-    on_exit(fn -> System.delete_env("FLEZHA_TOKEN") end)
+    TestEnv.put_system("FLEZHA_TOKEN", "flz_controller_#{System.unique_integer([:positive])}")
     :ok
   end
 
@@ -108,35 +108,9 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       assert html =~ "orders/p0"
       assert html =~ "1m 30s"
     end
-
-    test "a refused status read is stated with its code and the rest renders", %{
-      conn: conn,
-      node: node
-    } do
-      FakeController.set(
-        node,
-        {Controller, :status},
-        FakeController.error("authz.role_insufficient")
-      )
-
-      {:ok, _view, html} = live(conn, ~p"/controller")
-
-      assert html =~ "authz.role_insufficient"
-      assert html =~ ~s(data-testid="shutdown-unavailable")
-      assert html =~ ~s(data-testid="boot-panel")
-    end
   end
 
   describe "shutdown and boot" do
-    test "a controller running normally states so with its configuration", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/controller")
-
-      assert html =~ ~s(data-testid="controller-sentence")
-      assert html =~ ~s(data-testid="shutdown-in-progress")
-      assert html =~ ~s(data-testid="shutdown-phase")
-      assert html =~ "On, within"
-    end
-
     test "a shutdown in progress shows its phase", %{conn: conn, node: node} do
       with_status(node, %{shutdown_in_progress: true, shutdown_phase: :draining})
 
@@ -180,19 +154,12 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       assert html =~ ~s(data-testid="authz-open")
       assert html =~ "Authorization is disabled"
     end
-
-    test "an enforced controller states that it is enforced", %{conn: conn, node: node} do
-      FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
-
-      {:ok, _view, html} = live(conn, ~p"/controller")
-
-      assert html =~ ~s(data-testid="authz-posture")
-      assert html =~ "enforced"
-      refute html =~ ~s(data-testid="authz-open")
-    end
   end
 
   describe "memory snapshot" do
+    defp snapshot_now(view),
+      do: view |> element(~s([data-testid="memory-snapshot-btn"])) |> render_click()
+
     test "the refresh tick takes no memory snapshot", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, ~p"/controller")
       send(view.pid, :refresh)
@@ -216,7 +183,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/controller")
-      busy = render_click(view, "memory_snapshot", %{})
+      busy = snapshot_now(view)
 
       # The scan runs aside: the button says so at once, then the result lands.
       assert busy =~ "Taking snapshot…"
@@ -239,7 +206,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       FakeController.set(node, {Controller, :mem_top}, {:ok, snapshot(%{})})
 
       {:ok, view, _html} = live(conn, ~p"/controller")
-      render_click(view, "memory_snapshot", %{})
+      snapshot_now(view)
       render_async(view)
       send(view.pid, :refresh)
       html = render(view)
@@ -256,7 +223,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/controller")
-      render_click(view, "memory_snapshot", %{})
+      snapshot_now(view)
       html = render_async(view)
 
       assert html =~ "authz.role_insufficient"
@@ -365,7 +332,8 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       refute has_element?(view, ~s([data-testid="stop-controller-btn"]))
     end
 
-    test "confirm stays disabled until the node name is typed", %{conn: conn, node: node} do
+    test "confirm stays disabled until the node name is typed, and a forged submit stops nothing",
+         %{conn: conn, node: node} do
       view = open_stop(conn, node)
       node_name = Atom.to_string(node)
 
@@ -378,14 +346,6 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
 
       typed(view, node_name)
       refute has_element?(view, ~s([data-testid="stop-confirm"][disabled]))
-    end
-
-    test "cancelling calls nothing", %{conn: conn, node: node} do
-      view = open_stop(conn, node)
-      view |> element(~s([data-testid="stop-cancel"])) |> render_click()
-
-      refute has_element?(view, ~s([data-testid="stop-controller-modal"]))
-      assert FakeController.calls(node, {Controller, :stop}) == []
     end
 
     test "a confirmed stop streams its phases and follows the shutdown status", %{
@@ -446,7 +406,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       FakeController.end_stream(node, {Controller, :stop}, {:ok, %{outcome: :forced}})
     end
 
-    test "a timeout that is not a whole number of seconds keeps confirm disabled", %{
+    test "a fractional timeout keeps confirm disabled, and a forged submit stops nothing", %{
       conn: conn,
       node: node
     } do
@@ -470,7 +430,7 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
                FakeController.streams(node, {Controller, :stop}) != []
              end)
 
-      render_click(view, "open_stop", %{})
+      view |> element(~s([data-testid="stop-controller-btn"])) |> render_click()
       assert has_element?(view, ~s([data-testid="stop-state"]))
 
       FakeController.end_stream(node, {Controller, :stop}, {:ok, %{outcome: :clean}})

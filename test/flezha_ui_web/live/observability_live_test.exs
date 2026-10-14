@@ -15,6 +15,11 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
     FakeController.set(node, {Observability, :list_sources}, {:ok, list})
   end
 
+  defp toggle(view, source),
+    do: view |> element(~s([data-testid="toggle-#{source}"])) |> render_click()
+
+  defp tail(view), do: view |> element(~s([data-testid="tail-flezha_health"])) |> render_click()
+
   describe "finding a source" do
     test "a name narrows each area's sources, and the area still counts them all", %{
       conn: conn,
@@ -32,7 +37,6 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
         |> element(~s([data-testid="source-filter-form"]))
         |> render_change(%{"q" => "authz"})
 
-      assert html =~ ~s(data-testid="source-filter")
       assert html =~ ~s(data-testid="source-platform_authz")
       refute html =~ ~s(data-testid="source-flezha_health")
       assert html =~ ~s(data-testid="source-group-relay")
@@ -61,13 +65,9 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/observability")
 
-      assert html =~ ~s(data-testid="source-flezha_health")
-      assert html =~ ~s(data-testid="source-enabled-platform_authz")
-      assert html =~ ~s(data-testid="sink-pubsub")
       assert html =~ ~r/data-testid="source-enabled-flezha_health"[^>]*data-enabled="true"/
       assert html =~ ~r/data-testid="source-enabled-platform_authz"[^>]*data-enabled="false"/
       # A sink has no enabled flag — a live pid is what "running" means.
-      assert html =~ ~s(data-testid="sink-running-pubsub")
       assert html =~ "Running"
       assert html =~ "Not running"
     end
@@ -85,20 +85,6 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       assert html =~ "switched off"
       refute html =~ ~s(data-testid="sources-panel")
     end
-
-    test "a refusal names the reason rather than showing an empty list", %{conn: conn, node: node} do
-      FakeController.set(
-        node,
-        {Observability, :list_sources},
-        FakeController.error("authz.principal_not_bound")
-      )
-
-      {:ok, _view, html} = live(conn, ~p"/observability")
-
-      assert html =~ ~s(data-testid="runtime-error")
-      assert html =~ "refused"
-      assert html =~ "authz.principal_not_bound"
-    end
   end
 
   describe "toggling" do
@@ -109,7 +95,7 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       sources(node, [%{name: :platform_authz, status: :disabled}])
 
       {:ok, view, _html} = live(conn, ~p"/observability")
-      render_click(view, "toggle_source", %{"source" => "platform_authz"})
+      toggle(view, "platform_authz")
 
       assert [[:platform_authz, %{source: :ui}]] =
                FakeController.calls(node, {Observability, :enable_source})
@@ -119,7 +105,7 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       sources(node, [%{name: :platform_authz, status: :active}])
 
       {:ok, view, _html} = live(conn, ~p"/observability")
-      render_click(view, "toggle_source", %{"source" => "platform_authz"})
+      toggle(view, "platform_authz")
 
       assert [[:platform_authz, _ctx]] =
                FakeController.calls(node, {Observability, :disable_source})
@@ -135,15 +121,17 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/observability")
-      html = render_click(view, "toggle_source", %{"source" => "platform_authz"})
+      html = toggle(view, "platform_authz")
 
       assert html =~ "refused"
       assert html =~ "authz.role_insufficient"
-      # The listing still reports it disabled.
-      assert html =~ ~s(data-testid="source-enabled-platform_authz")
+      assert html =~ ~r/data-testid="source-enabled-platform_authz"[^>]*data-enabled="false"/
     end
 
-    test "a source the listing does not name is never toggled", %{conn: conn, node: node} do
+    test "a forged toggle of a source the listing does not name calls nothing", %{
+      conn: conn,
+      node: node
+    } do
       sources(node, [%{name: :platform_authz, status: :disabled}])
 
       {:ok, view, _html} = live(conn, ~p"/observability")
@@ -163,15 +151,13 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
 
     defp start_tail(conn, node) do
       {:ok, view, _html} = live(conn, ~p"/observability")
-      render_click(view, "start_tail", %{"source" => "flezha_health"})
+      tail(view)
       assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
       view
     end
 
     test "tailing takes the published tail with the UI's context", %{conn: conn, node: node} do
-      view = start_tail(conn, node)
-
-      assert render(view) =~ ~s(data-testid="tail-panel")
+      start_tail(conn, node)
 
       assert [[:flezha_health, %{source: :ui, emit: emit}]] =
                FakeController.calls(node, @tail)
@@ -220,23 +206,6 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       assert Process.alive?(view.pid)
     end
 
-    test "stopping the tail ends the controller's stream", %{conn: conn, node: node} do
-      view = start_tail(conn, node)
-
-      render_click(view, "stop_tail", %{})
-
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) == [] end)
-    end
-
-    test "leaving the screen ends the controller's stream", %{conn: conn, node: node} do
-      view = start_tail(conn, node)
-
-      Process.flag(:trap_exit, true)
-      Process.exit(view.pid, :kill)
-
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) == [] end)
-    end
-
     test "a disabled pubsub sink states that live tailing is unavailable", %{
       conn: conn,
       node: node
@@ -244,7 +213,7 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       FakeController.set(node, @tail, FakeController.error("observability.pubsub_disabled"))
 
       {:ok, view, _html} = live(conn, ~p"/observability")
-      render_click(view, "start_tail", %{"source" => "flezha_health"})
+      tail(view)
 
       # The refusal is the stream's answer, so it arrives after the click returns.
       assert PeerNode.eventually(fn ->
@@ -258,7 +227,7 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       FakeController.set(node, @tail, FakeController.error("authz.role_insufficient"))
 
       {:ok, view, _html} = live(conn, ~p"/observability")
-      render_click(view, "start_tail", %{"source" => "flezha_health"})
+      tail(view)
 
       assert PeerNode.eventually(fn -> render(view) =~ "authz.role_insufficient" end)
       refute render(view) =~ ~s(data-testid="pubsub-sink-disabled")

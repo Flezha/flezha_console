@@ -80,10 +80,26 @@ defmodule FlezhaUiWeb.RelayCallsTest do
 
   defp talk(view), do: view |> element(~s([data-testid="talk-open-btn"])) |> render_click()
 
+  defp submit_channel(view, talk) do
+    view
+    |> form(~s([data-testid="talk-channel-form"]), %{"talk" => talk})
+    |> render_submit()
+  end
+
+  defp submit_raw(view, fields, action) do
+    view
+    |> form(~s([data-testid="talk-raw-form"]), %{"talk" => fields})
+    |> put_submitter(~s([data-testid="talk-#{action}-btn"]))
+    |> render_submit()
+  end
+
   defp raw(view, fields, action) do
-    render_submit(view, "talk_submit", %{"talk" => Map.put(fields, "action", action)})
+    submit_raw(view, fields, action)
     render_async(view)
   end
+
+  defp close_talk(view),
+    do: view |> element(~s([data-testid="talk-close-btn"])) |> render_click()
 
   describe "diagnosis" do
     test "a relay with only notes is ok, each note listed with its code", %{
@@ -254,8 +270,9 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       {:ok, view, _html} = live(conn, @url)
       talk(view)
 
-      render_submit(view, "talk_submit", %{
-        "talk" => %{"value" => %{"pair" => "BTC-EUR", "amount" => "1.5"}, "deadline_ms" => "500"}
+      submit_channel(view, %{
+        "value" => %{"pair" => "BTC-EUR", "amount" => "1.5"},
+        "deadline_ms" => "500"
       })
 
       html = render_async(view)
@@ -278,7 +295,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       html = talk(view)
       assert html =~ "does not answer"
 
-      render_submit(view, "talk_submit", %{"talk" => %{"json" => "a line"}})
+      submit_channel(view, %{"json" => "a line"})
 
       assert render_async(view) =~ "The relay accepted the input."
 
@@ -297,7 +314,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       {:ok, view, _html} = live(conn, @url)
       talk(view)
 
-      render_submit(view, "talk_submit", %{"talk" => %{"value" => %{"lots" => "2"}}})
+      submit_channel(view, %{"value" => %{"lots" => "2"}})
       render_async(view)
 
       assert [["default", "relay_a", "place", %{"lots" => 2}, _opts, _ctx]] =
@@ -309,7 +326,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       {:ok, view, _html} = live(conn, @url)
       talk(view)
 
-      render_submit(view, "talk_submit", %{"talk" => %{"value" => %{"pair" => "BTC-EUR"}}})
+      submit_channel(view, %{"value" => %{"pair" => "BTC-EUR"}})
 
       assert has_element?(view, field_error("amount"), "is required")
       refute has_element?(view, field_error("pair"))
@@ -341,9 +358,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       {:ok, view, _html} = live(conn, @url)
       talk(view)
 
-      render_submit(view, "talk_submit", %{
-        "talk" => %{"value" => %{"lots" => "1.5", "price" => "cheap"}}
-      })
+      submit_channel(view, %{"value" => %{"lots" => "1.5", "price" => "cheap"}})
 
       assert has_element?(view, field_error("lots"), "must be a whole number")
       assert has_element?(view, field_error("price"), "must be a number")
@@ -364,7 +379,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
 
       assert talk(view) =~ ~s(data-testid="talk-json")
 
-      html = render_submit(view, "talk_submit", %{"talk" => %{"json" => "{not json"}})
+      html = submit_channel(view, %{"json" => "{not json"})
 
       assert html =~ "The value must be valid JSON."
       assert FakeController.calls(node, {Relay, :call_channel}) == []
@@ -381,7 +396,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
 
       {:ok, view, _html} = live(conn, @url)
       talk(view)
-      render_submit(view, "talk_submit", %{"talk" => %{"json" => "x"}})
+      submit_channel(view, %{"json" => "x"})
       html = render_async(view)
 
       assert html =~ ~s(data-testid="talk-result")
@@ -464,10 +479,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       talk(view)
 
       for deadline <- ["", "0", "soon", "300001"] do
-        html =
-          render_submit(view, "talk_submit", %{
-            "talk" => %{"payload" => "ping", "deadline_ms" => deadline, "action" => "call"}
-          })
+        html = submit_raw(view, %{"payload" => "ping", "deadline_ms" => deadline}, "call")
 
         assert html =~ "The deadline must be a whole number of milliseconds from 1 to 300000."
       end
@@ -502,7 +514,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       talk(view)
       raw(view, %{"payload" => "kept"}, "call")
 
-      refute render_click(view, "talk_close", %{}) =~ ~s(data-testid="talk-results")
+      refute close_talk(view) =~ ~s(data-testid="talk-results")
       html = talk(view)
 
       assert html =~ ~s(data-testid="talk-results")
@@ -541,10 +553,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       assert html =~ "no answer in 100ms"
       assert html =~ ~s(<code data-testid="runtime-error-code">call.timeout</code>)
 
-      html =
-        render_submit(view, "talk_submit", %{
-          "talk" => %{"payload" => "ping", "deadline_ms" => "soon", "action" => "call"}
-        })
+      html = submit_raw(view, %{"payload" => "ping", "deadline_ms" => "soon"}, "call")
 
       assert html =~ ~s(data-testid="talk-error")
       assert results(html) == 1
@@ -598,10 +607,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       {:ok, view, _html} = live(conn, @url)
       talk(view)
 
-      html =
-        render_submit(view, "talk_submit", %{
-          "talk" => %{"payload" => "ping", "deadline_ms" => "1000", "action" => "call"}
-        })
+      html = submit_raw(view, %{"payload" => "ping", "deadline_ms" => "1000"}, "call")
 
       assert html =~ ~s(data-testid="talk-waiting")
 
@@ -617,11 +623,9 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       {:ok, view, _html} = live(conn, @url)
       talk(view)
 
-      render_submit(view, "talk_submit", %{
-        "talk" => %{"payload" => "ping", "deadline_ms" => "1000", "action" => "call"}
-      })
+      submit_raw(view, %{"payload" => "ping", "deadline_ms" => "1000"}, "call")
 
-      html = render_click(view, "talk_close", %{})
+      html = close_talk(view)
       refute html =~ ~s(data-testid="talk-modal")
 
       html = render_async(view)

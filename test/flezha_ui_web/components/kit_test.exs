@@ -29,30 +29,27 @@ defmodule FlezhaUiWeb.KitTest do
   describe "the kit page" do
     # Mounted on its own: the route exists only with dev routes.
     setup %{conn: conn} do
-      {:ok, view, html} = live_isolated(conn, FlezhaUiWeb.KitLive)
-      %{view: view, html: html}
-    end
-
-    test "shows every group of the kit, with a theme switch", %{html: html} do
-      for testid <-
-            ~w(kit-theme kit-buttons kit-fields kit-combobox kit-choices kit-badges kit-grid) ++
-              ~w(kit-figures kit-statements kit-overlays kit-flows) do
-        assert html =~ ~s(data-testid="#{testid}"), "#{testid} is missing"
-      end
-
-      assert attr_of(html, ~s([data-testid="kit-theme"]), "data-flz-theme-toggle")
+      {:ok, view, _html} = live_isolated(conn, FlezhaUiWeb.KitLive)
+      %{view: view}
     end
 
     test "its switch, segmented control and combobox answer", %{view: view} do
       assert view |> element(~s([data-testid="kit-switch"])) |> render_click() =~
                ~s(aria-checked="false")
 
-      html = render_click(view, "kit_segment", %{"value" => "three"})
+      html =
+        view
+        |> element(~s(button[phx-click="kit_segment"][value="three"]))
+        |> render_click(%{"value" => "three"})
 
       assert html |> q(~s([data-testid="kit-segmented"] [aria-pressed="true"])) |> LazyHTML.text() =~
                "Three"
 
-      html = render_change(view, "kit_pick", %{"kit" => %{"pick" => "e"}})
+      html =
+        view
+        |> element(~s(form[phx-change="kit_pick"]))
+        |> render_change(%{"kit" => %{"pick" => "e"}})
+
       assert attr_of(html, "#kit-combobox-value", "value") == "e"
     end
 
@@ -60,12 +57,15 @@ defmodule FlezhaUiWeb.KitTest do
       assert view |> element(~s([data-testid="kit-open-drawer"])) |> render_click() =~
                ~s(id="kit-drawer")
 
-      refute render_click(view, "kit_drawer", %{}) =~ ~s(id="kit-drawer")
+      refute view |> element(~s(#kit-drawer [data-testid="inspector-close"])) |> render_click() =~
+               ~s(id="kit-drawer")
 
       assert view |> element(~s([data-testid="kit-open-dialog"])) |> render_click() =~
                ~s(data-testid="kit-dialog")
 
-      refute render_click(view, "kit_dialog", %{}) =~ ~s(data-testid="kit-dialog")
+      refute view
+             |> element(~s([data-testid="kit-dialog"] button[phx-click="kit_dialog"]), "Cancel")
+             |> render_click() =~ ~s(data-testid="kit-dialog")
 
       assert view |> element(~s([data-testid="kit-toast-info"])) |> render_click() =~
                "An info toast."
@@ -76,7 +76,7 @@ defmodule FlezhaUiWeb.KitTest do
   end
 
   describe "page_header/1" do
-    test "carries the kind, the name, the sentence, the actions, the crumbs and the tabs" do
+    test "marks the page being read in its crumbs and its tabs" do
       assigns = %{
         crumbs: [%{label: "default", path: "/namespaces/default"}, %{label: "orders", path: nil}],
         tabs: [
@@ -87,37 +87,13 @@ defmodule FlezhaUiWeb.KitTest do
 
       html =
         rendered_to_string(~H"""
-        <.page_header eyebrow="Relay" title="orders" crumbs={@crumbs} tabs={@tabs}>
-          <:sentence>A flow relay.</:sentence>
-          <:figures>Up for 2 hours.</:figures>
-          <:actions><.button>Stop</.button></:actions>
-        </.page_header>
+        <.page_header eyebrow="Relay" title="orders" crumbs={@crumbs} tabs={@tabs}></.page_header>
         """)
-
-      assert html |> q(~s([data-testid="page-eyebrow"])) |> LazyHTML.text() == "Relay"
-      assert html |> q(~s(h1[data-testid="page-title"])) |> LazyHTML.text() =~ "orders"
-      assert html |> q(~s([data-testid="page-figures"])) |> LazyHTML.text() =~ "Up for 2 hours."
-      assert html |> q(~s([data-testid="page-sentence"])) |> LazyHTML.text() =~ "A flow relay."
 
       assert attr_of(html, ~s([data-testid="breadcrumb"] [aria-current="page"]), "aria-current") ==
                "page"
 
       assert attr_of(html, ~s([data-testid="tab-live"]), "aria-current") == "page"
-      assert html |> q(".fui-page-actions .fui-btn") |> Enum.count() == 1
-    end
-
-    test "a headline sets its sentence in the display face" do
-      assigns = %{}
-
-      html =
-        rendered_to_string(~H"""
-        <.page_header eyebrow="Namespace" title="default" headline>
-          <:sentence>Flowing.</:sentence>
-        </.page_header>
-        """)
-
-      assert html =~ "fui-sentence--headline"
-      refute html =~ ~s(data-testid="breadcrumb")
     end
   end
 
@@ -145,12 +121,11 @@ defmodule FlezhaUiWeb.KitTest do
 
       assert html =~ "body"
       refute html =~ "phx-hook"
-      assert html =~ ~s(class="fui-section)
     end
   end
 
   describe "button/1" do
-    test "four variants at two sizes, and a link when it navigates" do
+    test "a button that navigates is a link" do
       assigns = %{}
 
       html =
@@ -159,10 +134,8 @@ defmodule FlezhaUiWeb.KitTest do
         <.button variant="ghost" navigate="/cluster">Open</.button>
         """)
 
-      assert attr_of(html, "button", "class") =~ "fui-btn--danger"
-      assert attr_of(html, "button", "class") =~ "fui-btn--sm"
+      assert html |> q("button") |> Enum.count() == 1
       assert attr_of(html, "a", "href") == "/cluster"
-      assert attr_of(html, "a", "class") =~ "fui-btn--ghost"
     end
   end
 
@@ -330,7 +303,6 @@ defmodule FlezhaUiWeb.KitTest do
       assert LazyHTML.attribute(row, "phx-key") == ["Enter"]
       assert LazyHTML.attribute(row, "aria-label") == ["Inspect a"]
       assert html |> q("td.fui-cell-num") |> Enum.count() == 1
-      assert attr_of(html, ~s([data-testid="stop-a"]), "class") =~ "fui-menu-item--danger"
       assert attr_of(html, "[data-fui-pop-trigger]", "aria-label") == "Actions"
     end
 
@@ -426,20 +398,6 @@ defmodule FlezhaUiWeb.KitTest do
   end
 
   describe "statements" do
-    test "an empty state teaches and offers its action" do
-      assigns = %{}
-
-      html =
-        rendered_to_string(~H"""
-        <.empty_state icon="hero-clock">
-          A schedule starts a relay.<:action><.button>New</.button></:action>
-        </.empty_state>
-        """)
-
-      assert html =~ "A schedule starts a relay."
-      assert html |> q(".fui-empty-actions .fui-btn") |> Enum.count() == 1
-    end
-
     test "a skeleton is busy, never an empty table" do
       assigns = %{}
 

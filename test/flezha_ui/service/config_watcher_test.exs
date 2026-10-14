@@ -4,15 +4,13 @@ defmodule FlezhaUi.Service.ConfigWatcherTest do
   monitor sends them and a stop function that reports instead of stopping.
   """
 
-  # The gating cases set application env, which every test would see.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   @moduletag :capture_log
 
   alias FlezhaUi.Service.ConfigWatcher
 
   @root "/flezha_ui"
-  @settle_ms 50
   @files for file <- ~w(mix.exs mix.lock config/config.exs config/dev.exs),
              do: Path.join(@root, file)
 
@@ -30,7 +28,7 @@ defmodule FlezhaUi.Service.ConfigWatcherTest do
           {:"$gen_call", {from, _tag} = reply_to, :subscribe} ->
             GenServer.reply(reply_to, :ok)
             send(test_pid, {:subscribed, from})
-            Process.sleep(:infinity)
+            receive do: (:never -> :ok)
         end
       end)
 
@@ -39,15 +37,18 @@ defmodule FlezhaUi.Service.ConfigWatcherTest do
     {name, pid}
   end
 
-  defp start_watcher({monitor, _pid} \\ start_monitor(self())) do
+  # By default a settle time no test waits out: a test settles the watcher
+  # itself, with the token of the timer a write armed.
+  defp start_watcher(opts \\ []) do
     test_pid = self()
+    {monitor, _pid} = Keyword.get_lazy(opts, :monitor, fn -> start_monitor(test_pid) end)
 
     watcher =
       start_supervised!(
         {ConfigWatcher,
          monitor: monitor,
          files: @files,
-         settle_ms: @settle_ms,
+         settle_ms: Keyword.get(opts, :settle_ms, :timer.hours(1)),
          stop: &send(test_pid, {:stopped, &1})}
       )
 
@@ -55,33 +56,60 @@ defmodule FlezhaUi.Service.ConfigWatcherTest do
     watcher
   end
 
-  defp write(watcher, path),
-    do: send(watcher, {:file_event, self(), {Path.join(@root, path), [:modified, :closed]}})
+  # Answers the token of the settle timer the write armed, or nil for none.
+  defp write(watcher, path) do
+    send(watcher, {:file_event, self(), {Path.join(@root, path), [:modified, :closed]}})
+
+    case :sys.get_state(watcher).pending do
+      %{token: token} -> token
+      nil -> nil
+    end
+  end
+
+  defp settle(watcher, token) do
+    send(watcher, {:settled, token})
+    :sys.get_state(watcher)
+  end
 
   test "a config file written stops the VM once, non-zero" do
     watcher = start_watcher()
+    token = write(watcher, "config/dev.exs")
+
+    settle(watcher, token)
+    assert_received {:stopped, 1}
+
+    settle(watcher, token)
+    refute_received {:stopped, _}
+  end
+
+  test "the armed timer itself stops the VM" do
+    watcher = start_watcher(settle_ms: 0)
     write(watcher, "config/dev.exs")
 
-    assert_receive {:stopped, 1}, 500
-    refute_receive {:stopped, _}, 3 * @settle_ms
+    assert_receive {:stopped, 1}
   end
 
   test "three writes of one save within the settle time stop once" do
     watcher = start_watcher()
-    for _ <- 1..3, do: write(watcher, "config/config.exs")
+    [first, second, last] = for _ <- 1..3, do: write(watcher, "config/config.exs")
 
-    assert_receive {:stopped, 1}, 500
-    refute_receive {:stopped, _}, 3 * @settle_ms
+    settle(watcher, first)
+    settle(watcher, second)
+    refute_received {:stopped, _}
+
+    settle(watcher, last)
+    assert_received {:stopped, 1}
+    refute_received {:stopped, _}
   end
 
   test "mix.exs and mix.lock count as configuration" do
     watcher = start_watcher()
 
-    write(watcher, "mix.lock")
-    assert_receive {:stopped, 1}, 500
+    settle(watcher, write(watcher, "mix.lock"))
+    assert_received {:stopped, 1}
 
-    write(watcher, "mix.exs")
-    assert_receive {:stopped, 1}, 500
+    settle(watcher, write(watcher, "mix.exs"))
+    assert_received {:stopped, 1}
   end
 
   test "a file that is not configuration stops nothing" do
@@ -90,16 +118,14 @@ defmodule FlezhaUi.Service.ConfigWatcherTest do
     for path <-
           ~w(lib/flezha_ui/format.ex config/notes.txt assets/config/app.exs priv/mix.exs
              config/.#dev.exs config/flycheck_dev.exs config/dev.exs~ config/prod.exs),
-        do: write(watcher, path)
-
-    refute_receive {:stopped, _}, 3 * @settle_ms
+        do: assert(write(watcher, path) == nil)
   end
 
   test "a superseded settle timer is ignored" do
     watcher = start_watcher()
-    send(watcher, {:settled, make_ref()})
+    settle(watcher, make_ref())
 
-    refute_receive {:stopped, _}, 3 * @settle_ms
+    refute_received {:stopped, _}
     assert Process.alive?(watcher)
   end
 
@@ -119,7 +145,7 @@ defmodule FlezhaUi.Service.ConfigWatcherTest do
 
   test "the monitor exiting ends the watcher" do
     {_name, monitor_pid} = monitor = start_monitor(self())
-    watcher = start_watcher(monitor)
+    watcher = start_watcher(monitor: monitor)
     ref = Process.monitor(watcher)
 
     Process.exit(monitor_pid, :kill)
@@ -140,50 +166,42 @@ defmodule FlezhaUi.Service.ConfigWatcherTest do
     assert :ignore =
              ConfigWatcher.start_link(monitor: :no_such_monitor, stop: fn _ -> :ok end)
   end
+end
 
-  describe "the application" do
-    @endpoint {:flezha_ui, FlezhaUiWeb.Endpoint}
+defmodule FlezhaUi.Service.ConfigWatcherApplicationTest do
+  @moduledoc "When the application starts the config watcher."
 
-    setup do
-      flag = Application.get_env(:flezha_ui, :restart_on_config_change)
-      endpoint = Application.get_env(:flezha_ui, FlezhaUiWeb.Endpoint)
+  # Sets application env, which every test would see.
+  use ExUnit.Case, async: false
 
-      on_exit(fn ->
-        Application.put_env(:flezha_ui, FlezhaUiWeb.Endpoint, endpoint)
+  alias FlezhaUi.Service.ConfigWatcher
+  alias FlezhaUi.TestEnv
 
-        if flag == nil,
-          do: Application.delete_env(:flezha_ui, :restart_on_config_change),
-          else: Application.put_env(:flezha_ui, :restart_on_config_change, flag)
-      end)
-    end
+  # What `mix phx.server` amounts to for `Phoenix.Endpoint.server?/2`.
+  defp serving(server?) do
+    conf = Application.get_env(:flezha_ui, FlezhaUiWeb.Endpoint)
+    TestEnv.put_app(FlezhaUiWeb.Endpoint, Keyword.put(conf, :server, server?))
+  end
 
-    # What `mix phx.server` amounts to for `Phoenix.Endpoint.server?/2`.
-    defp serving(server?) do
-      {app, endpoint} = @endpoint
-      conf = Application.get_env(app, endpoint)
-      Application.put_env(app, endpoint, Keyword.put(conf, :server, server?))
-    end
+  test "starts no watcher while the flag is off" do
+    serving(true)
+    TestEnv.put_app(:restart_on_config_change, false)
 
-    test "starts no watcher while the flag is off" do
-      serving(true)
-      Application.put_env(:flezha_ui, :restart_on_config_change, false)
+    assert FlezhaUi.Application.config_watcher_children() == []
+    assert Process.whereis(ConfigWatcher) == nil
+  end
 
-      assert FlezhaUi.Application.config_watcher_children() == []
-      assert Process.whereis(ConfigWatcher) == nil
-    end
+  test "starts no watcher in a VM that does not serve the endpoint" do
+    serving(false)
+    TestEnv.put_app(:restart_on_config_change, true)
 
-    test "starts no watcher in a VM that does not serve the endpoint" do
-      serving(false)
-      Application.put_env(:flezha_ui, :restart_on_config_change, true)
+    assert FlezhaUi.Application.config_watcher_children() == []
+  end
 
-      assert FlezhaUi.Application.config_watcher_children() == []
-    end
+  test "starts the watcher in the serving VM with the flag on" do
+    serving(true)
+    TestEnv.put_app(:restart_on_config_change, true)
 
-    test "starts the watcher in the serving VM with the flag on" do
-      serving(true)
-      Application.put_env(:flezha_ui, :restart_on_config_change, true)
-
-      assert FlezhaUi.Application.config_watcher_children() == [ConfigWatcher]
-    end
+    assert FlezhaUi.Application.config_watcher_children() == [ConfigWatcher]
   end
 end

@@ -33,6 +33,41 @@ defmodule FlezhaUiWeb.AttentionTest do
            ] = item.actions
   end
 
+  # Every verdict but healthy is a problem; a verdict this table misses fails
+  # the coverage assertion rather than slipping through as a warning.
+  @verdicts %{
+    unknown: {:warning, "The Convergence Loop has not observed it yet."},
+    suspended:
+      {:warning,
+       "The controller reports it suspended: parked at a committed boundary with no runner to resume on."},
+    degraded:
+      {:warning, "The Convergence Loop classifies it degraded: it runs, but not as declared."},
+    recovering: {:warning, "The controller is moving it off a runner that went away."},
+    unbound: {:warning, "No runner serves its factory, so it is waiting for one to connect."},
+    failed: {:negative, "The Convergence Loop classifies it failed: it is not running."},
+    parked: {:negative, "It is parked and processes no input until it is resumed."}
+  }
+
+  test "every health verdict but healthy is a problem with its own severity and why" do
+    assert Enum.sort(Map.keys(@verdicts)) ==
+             Enum.sort(FlezhaUi.Service.NodeManager.health_verdicts() -- [:healthy])
+
+    for {health, {severity, why}} <- @verdicts do
+      assert [item] = Attention.relay_items("default", [row("r", %{health: health})]),
+             "#{health} raised no item"
+
+      assert {item.reason, item.severity, item.why} == {health, severity, why}
+      assert item.what =~ ~r/^r is \S/
+    end
+
+    assert Attention.relay_items("default", [row("r")]) == []
+  end
+
+  test "a row with no health reads as unknown, never as healthy" do
+    assert [%{reason: :unknown, severity: :warning}] =
+             Attention.relay_items("default", [Map.delete(row("r"), :health)])
+  end
+
   test "a failed or parked relay is negative; an unplaced one and a faulted group are found too" do
     items =
       Attention.derive(%{

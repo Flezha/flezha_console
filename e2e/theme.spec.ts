@@ -33,21 +33,16 @@ async function freshVisit(page: Page, live: (path: string) => Promise<void>, sch
 }
 
 test.describe('Theme contract', () => {
-  test('a first visit follows the device, light or dark', async ({ page, live }) => {
-    await freshVisit(page, live, 'light');
-    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
-
-    await freshVisit(page, live, 'dark');
-    await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
-    expect(await stored(page)).toBeNull();
-  });
-
-  test('with nothing stored, a device switch is followed live', async ({ page, live }) => {
+  test('with nothing stored, the theme follows the device, on a first visit and live', async ({ page, live }) => {
     await freshVisit(page, live, 'light');
     await expect(theme(page)).toHaveAttribute('data-theme', 'light');
 
     await page.emulateMedia({ colorScheme: 'dark' });
     await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
+
+    await freshVisit(page, live, 'dark');
+    await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
+    expect(await stored(page)).toBeNull();
   });
 
   test('a stored preference is applied before the page paints', async ({ page, live }) => {
@@ -221,13 +216,14 @@ test.describe('Theme contract', () => {
 
 /**
  * The brand on the screens outside the shell: the login screen, in each
- * theme, and the 404 page's mascot. The page-health guards fail any
- * logo, mascot or favicon that does not load.
+ * theme. The page-health guards fail any logo or favicon that does not load.
+ * The 404 page is asserted in `error_html_test.exs`, since the dev server
+ * answers an unknown route with Phoenix's debug page.
  */
 test.describe('Brand outside the shell', () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
-  test('the login screen is one centred form, its lockup in the logo\'s own two colours', async ({
+  test('the login screen is one centred form, its lockup in the logo\'s own two colours, its toggle working', async ({
     page,
   }) => {
     const ink = { dark: 'rgb(255, 255, 255)', light: 'rgb(40, 11, 42)' };
@@ -253,20 +249,9 @@ test.describe('Brand outside the shell', () => {
       const width = page.viewportSize()!.width;
       expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(4);
     }
-  });
 
-  test('the theme toggle on the login screen switches the theme', async ({ page }) => {
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await page.goto('/users/log-in');
+    // Left on the light login screen by the loop above.
     await page.getByTestId('theme-toggle').click();
-    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
-  });
-
-  test('the 404 page’s mascot is served', async ({ page }) => {
-    // The dev server answers an unknown route with Phoenix's debug page, so
-    // the 404 page itself is asserted in `error_html_test.exs`.
-    const res = await page.request.get('/images/badger-not-found.webp');
-    expect(res.status()).toBe(200);
-    expect(res.headers()['content-type']).toContain('image/webp');
+    await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
   });
 });

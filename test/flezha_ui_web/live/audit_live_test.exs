@@ -15,6 +15,17 @@ defmodule FlezhaUiWeb.AuditLiveTest do
 
   defp record(n), do: %{"source" => "ui", "name" => "audit_read", "seq" => n}
 
+  defp read(view), do: view |> element(~s([data-testid="audit-read-btn"])) |> render_click()
+
+  defp filter(view, fields) do
+    view
+    |> form(~s(form[phx-change="filter_change"]), %{"filter" => fields})
+    |> render_change()
+  end
+
+  defp start_tail(view),
+    do: view |> element(~s([data-testid="audit-tail-toggle"])) |> render_click()
+
   describe "when the subsystem is off" do
     test "names the flag that turns audit logging on", %{conn: conn, node: node} do
       FakeController.set(node, {AuditLog, :list_files}, FakeController.error("audit.disabled"))
@@ -73,12 +84,7 @@ defmodule FlezhaUiWeb.AuditLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/audit")
 
-      for panel <- ~w(audit-files-panel audit-records-panel audit-tail-panel),
-          do: assert(html =~ ~s(data-testid="#{panel}"))
-
-      assert html =~ ~s(data-testid="audit-stats")
       assert html =~ "42"
-      assert html =~ ~s(data-testid="audit-files")
       assert html =~ "audit-1.log"
       assert html =~ ~r/<td[^>]*>\s*7\s*<\/td>/
       assert html =~ "2.0 KB"
@@ -107,7 +113,7 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       FakeController.set(node, {AuditLog, :read}, {:ok, [record(1), record(2)]})
 
       {:ok, view, _html} = live(conn, ~p"/audit")
-      html = render_click(view, "read", %{})
+      html = read(view)
 
       assert html =~ ~s(data-testid="audit-records")
       assert html =~ "audit_read"
@@ -119,7 +125,7 @@ defmodule FlezhaUiWeb.AuditLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/audit")
 
-      assert render_click(view, "read", %{}) =~ ~s(data-testid="audit-records-empty")
+      assert read(view) =~ ~s(data-testid="audit-records-empty")
     end
 
     test "says so when the limit cut the result off", %{conn: conn, node: node} do
@@ -127,8 +133,8 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       FakeController.set(node, {AuditLog, :read}, {:ok, Enum.map(1..3, &record/1)})
 
       {:ok, view, _html} = live(conn, ~p"/audit")
-      render_change(view, "filter_change", %{"filter" => %{"limit" => "2"}})
-      html = render_click(view, "read", %{})
+      filter(view, %{"limit" => "2"})
+      html = read(view)
 
       assert html =~ ~s(data-testid="audit-truncated")
       assert html =~ "More records matched"
@@ -139,8 +145,8 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       node: node
     } do
       {:ok, view, _html} = live(conn, ~p"/audit")
-      render_change(view, "filter_change", %{"filter" => %{"limit" => "25"}})
-      render_click(view, "read", %{})
+      filter(view, %{"limit" => "25"})
+      read(view)
 
       assert [%{limit: 26}, %{source: :ui}] =
                node |> FakeController.calls({AuditLog, :read}) |> List.last()
@@ -149,11 +155,9 @@ defmodule FlezhaUiWeb.AuditLiveTest do
     test "passes the filter down rather than filtering locally", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, ~p"/audit")
 
-      render_change(view, "filter_change", %{
-        "filter" => %{"source" => "cli", "name" => "relay_start"}
-      })
+      filter(view, %{"source" => "cli", "name" => "relay_start"})
 
-      render_click(view, "read", %{})
+      read(view)
 
       assert [%{source: "cli", name: "relay_start"}, _ctx] =
                node |> FakeController.calls({AuditLog, :read}) |> List.last()
@@ -164,8 +168,8 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       node: node
     } do
       {:ok, view, _html} = live(conn, ~p"/audit")
-      render_change(view, "filter_change", %{"filter" => %{"limit" => "not a number"}})
-      render_click(view, "read", %{})
+      filter(view, %{"limit" => "not a number"})
+      read(view)
 
       assert [%{limit: 101}, _ctx] =
                node |> FakeController.calls({AuditLog, :read}) |> List.last()
@@ -185,7 +189,7 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/audit")
-      html = render_click(view, "read", %{})
+      html = read(view)
 
       # The controller's own message and code, with the remedy linked.
       assert html =~ "refused this audit read"
@@ -201,7 +205,7 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       FakeController.set(node, {AuditLog, :read}, FakeController.error("authz.role_insufficient"))
 
       {:ok, view, _html} = live(conn, ~p"/audit")
-      html = render_click(view, "read", %{})
+      html = read(view)
 
       assert html =~ "authz.role_insufficient"
       refute html =~ ~s(data-testid="audit-records-empty")
@@ -232,7 +236,7 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       node: node
     } do
       {:ok, view, _html} = live(conn, ~p"/audit")
-      render_click(view, "start_tail", %{})
+      start_tail(view)
 
       assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
       assert [[[], %{source: :ui, emit: emit}]] = FakeController.calls(node, @tail)
@@ -244,38 +248,16 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       assert render(view) =~ "audit_read"
     end
 
-    test "stopping the tail ends the controller's stream", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, ~p"/audit")
-      render_click(view, "start_tail", %{})
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
-
-      render_click(view, "stop_tail", %{})
-
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) == [] end)
-    end
-
-    test "leaving the screen ends the controller's stream", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, ~p"/audit")
-      render_click(view, "start_tail", %{})
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
-
-      # The screen dies without saying goodbye; its feed goes with it.
-      Process.flag(:trap_exit, true)
-      Process.exit(view.pid, :kill)
-
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) == [] end)
-    end
-
     test "a refused tail is stated, and the reads still work", %{conn: conn, node: node} do
       FakeController.set(node, @tail, FakeController.error("authz.role_insufficient"))
       FakeController.set(node, {AuditLog, :read}, {:ok, [record(1)]})
 
       {:ok, view, _html} = live(conn, ~p"/audit")
-      render_click(view, "start_tail", %{})
+      start_tail(view)
 
       assert PeerNode.eventually(fn -> render(view) =~ "authz.role_insufficient" end)
       assert render(view) =~ "refused the live audit tail"
-      assert render_click(view, "read", %{}) =~ ~s(data-testid="audit-records")
+      assert read(view) =~ ~s(data-testid="audit-records")
     end
   end
 

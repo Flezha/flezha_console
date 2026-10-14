@@ -36,20 +36,23 @@ defmodule FlezhaUiWeb.DlqLiveTest do
 
   defp with_entries(node, entries), do: FakeController.set(node, {Dlq, :list}, {:ok, entries})
 
+  # Each verb opens its confirm gate from the row's menu and confirms it.
+  defp drop(view) do
+    view |> element(~s([data-testid="dlq-drop-#{@ref}"])) |> render_click()
+    view |> element(~s([data-testid="dlq-confirm-submit"][phx-click="drop"])) |> render_click()
+  end
+
   defp replay(view) do
-    render_click(view, "confirm", %{"action" => "replay", "ref" => @ref})
-    render_click(view, "replay", %{"ref" => @ref})
+    view |> element(~s([data-testid="dlq-replay-#{@ref}"])) |> render_click()
+    view |> element(~s([data-testid="dlq-confirm-submit"][phx-click="replay"])) |> render_click()
+  end
+
+  defp replayed(view) do
+    replay(view)
     render_async(view)
   end
 
   describe "listing" do
-    test "renders the empty state when nothing is parked", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/dlq")
-
-      assert html =~ "The queue is empty."
-      refute html =~ ~s(data-testid="dlq-table")
-    end
-
     test "renders the parked entries with their cell key", %{conn: conn, node: node} do
       with_entries(node, [entry(), entry(%{"id" => "18", "cell_key" => "cust-4"})])
 
@@ -107,7 +110,11 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       with_entries(node, [entry()])
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      render_change(view, "filter", %{"filter" => %{"relay_class" => "orders"}})
+      view
+      |> element(~s(form[phx-change="filter"]))
+      |> render_change(%{"filter" => %{"relay_class" => "orders"}})
+
+      assert_patch(view, ~p"/dlq?class=orders")
 
       # The filter is pushed down to the controller rather than applied to a
       # full list here.
@@ -122,15 +129,6 @@ defmodule FlezhaUiWeb.DlqLiveTest do
 
       assert [nil, _ctx] = node |> FakeController.calls({Dlq, :list}) |> List.last()
     end
-
-    test "renders the controller's refusal instead of crashing", %{conn: conn, node: node} do
-      FakeController.set(node, {Dlq, :list}, FakeController.error("authz.role_insufficient"))
-
-      {:ok, _view, html} = live(conn, ~p"/dlq")
-
-      assert html =~ ~s(data-testid="runtime-error")
-      assert html =~ "authz.role_insufficient"
-    end
   end
 
   describe "inspecting an entry" do
@@ -143,19 +141,12 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       view |> element(~s([data-testid="dlq-inspect-#{@ref}"])) |> render_click()
       assert_patch(view, ~p"/dlq?#{[inspect: "entry:#{@ref}"]}")
 
-      html = render(view)
-      assert html =~ ~s(data-testid="dlq-menu-#{@ref}")
-      assert html =~ ~s(data-testid="inspector-entry")
-      assert html =~ ~s(data-testid="inspector-entry-meta")
-
       assert view |> element(~s([data-testid="inspector-payload"])) |> render() =~
                "the parked payload"
 
-      assert html =~ ~s(data-testid="inspector-replay")
-      assert html =~ ~s(data-testid="inspector-drop")
-
-      html = render_click(view, "inspect_close", %{})
-      refute html =~ ~s(data-testid="inspector-entry")
+      view |> element(~s([data-testid="inspector-close"])) |> render_click()
+      assert_patch(view, ~p"/dlq")
+      refute render(view) =~ ~s(data-testid="inspector-entry")
     end
 
     test "an address naming a kind this screen does not inspect opens nothing", %{conn: conn} do
@@ -175,7 +166,9 @@ defmodule FlezhaUiWeb.DlqLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      assert render_click(view, "inspect", %{"kind" => "entry", "id" => @ref}) =~ "is not parked"
+      view |> element(~s([data-testid="dlq-inspect-#{@ref}"])) |> render_click()
+
+      assert render(view) =~ "is not parked"
     end
   end
 
@@ -185,27 +178,10 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       :ok
     end
 
-    test "dropping asks first, and cancelling leaves the entry alone", %{
-      conn: conn,
-      node: node
-    } do
-      {:ok, view, _html} = live(conn, ~p"/dlq")
-
-      html = render_click(view, "confirm", %{"action" => "drop", "ref" => @ref})
-      assert html =~ ~s(data-testid="dlq-confirm-modal")
-
-      html = render_click(view, "cancel_confirm", %{})
-      refute html =~ ~s(data-testid="dlq-confirm-modal")
-      assert html =~ ~s(data-testid="dlq-row-#{@ref}")
-
-      assert FakeController.calls(node, {Dlq, :drop}) == []
-    end
-
     test "confirming a drop reaches the controller and reports it", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      render_click(view, "confirm", %{"action" => "drop", "ref" => @ref})
-      html = render_click(view, "drop", %{"ref" => @ref})
+      html = drop(view)
 
       assert html =~ "Entry dropped"
       assert [[@ref, %{source: :ui}]] = FakeController.calls(node, {Dlq, :drop})
@@ -215,19 +191,8 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       FakeController.set(node, {Dlq, :drop}, FakeController.error("authz.role_insufficient"))
 
       {:ok, view, _html} = live(conn, ~p"/dlq")
-      render_click(view, "confirm", %{"action" => "drop", "ref" => @ref})
 
-      assert render_click(view, "drop", %{"ref" => @ref}) =~ "authz.role_insufficient"
-    end
-
-    test "dismissing the replay confirmation attempts nothing", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, ~p"/dlq")
-
-      html = render_click(view, "confirm", %{"action" => "replay", "ref" => @ref})
-      assert html =~ ~s(data-testid="dlq-confirm-modal")
-
-      render_click(view, "cancel_confirm", %{})
-      assert FakeController.calls(node, {Dlq, :replay}) == []
+      assert drop(view) =~ "authz.role_insufficient"
     end
   end
 
@@ -240,10 +205,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
     test "says it is waiting while the controller's grace period runs", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      render_click(view, "confirm", %{"action" => "replay", "ref" => @ref})
-      html = render_click(view, "replay", %{"ref" => @ref})
-
-      assert html =~ ~s(data-testid="replay-pending")
+      assert replay(view) =~ ~s(data-testid="replay-pending")
     end
 
     test "re-sends through the controller's replay and reports the entry gone", %{
@@ -252,7 +214,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
     } do
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      html = replay(view)
+      html = replayed(view)
 
       assert html =~ ~s(data-testid="replay-succeeded")
       assert [[@ref, %{source: :ui}]] = FakeController.calls(node, {Dlq, :replay})
@@ -263,7 +225,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      html = replay(view)
+      html = replayed(view)
       assert html =~ ~s(data-testid="replay-reparked")
       assert html =~ "generation 3"
     end
@@ -277,7 +239,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      html = replay(view)
+      html = replayed(view)
       assert html =~ ~s(data-testid="replay-refused")
       assert html =~ "is not running; start it first"
       assert html =~ ~s(data-testid="dlq-row-#{@ref}")
@@ -295,7 +257,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      html = replay(view)
+      html = replayed(view)
       assert html =~ ~s(data-testid="replay-refused")
       assert html =~ "entry carries no payload bytes"
     end

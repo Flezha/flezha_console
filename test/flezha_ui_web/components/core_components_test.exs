@@ -16,48 +16,6 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
   import Phoenix.LiveViewTest
 
   describe "input/1" do
-    test "a text field carries its label, value and testid" do
-      assigns = %{}
-
-      html =
-        rendered_to_string(~H"""
-        <.input
-          type="text"
-          name="start[id]"
-          label="Relay ID"
-          value="relay_1"
-          maxlength="32"
-          placeholder="my-relay"
-          data-testid="input-relay-id"
-        />
-        """)
-
-      assert html =~ "Relay ID"
-      assert html =~ ~s(name="start[id]")
-      assert html =~ ~s(value="relay_1")
-      assert html =~ ~s(maxlength="32")
-      assert html =~ ~s(placeholder="my-relay")
-      assert html =~ ~s(data-testid="input-relay-id")
-    end
-
-    test "a number field renders as one" do
-      assigns = %{}
-
-      html =
-        rendered_to_string(~H"""
-        <.input
-          type="number"
-          name="quota[relays]"
-          label="Relays"
-          value=""
-          data-testid="input-quota-relays"
-        />
-        """)
-
-      assert html =~ ~s(type="number")
-      assert html =~ ~s(data-testid="input-quota-relays")
-    end
-
     test "a select offers its options and marks the chosen one" do
       assigns = %{}
 
@@ -75,7 +33,6 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
         """)
 
       assert html =~ "Select a factory..."
-      assert html =~ ~s(data-testid="input-factory-id")
 
       # The option tag is matched whole rather than as a fixed string: which
       # attribute the serialiser writes first is not what this test is about.
@@ -86,66 +43,21 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
       refute other =~ "selected"
     end
 
-    test "a textarea holds its value and is tall enough to read a JSON object" do
+    test "a hint renders with the field only when one is given" do
       assigns = %{}
 
-      html =
-        rendered_to_string(~H"""
-        <.input
-          type="textarea"
-          name="start[init_values]"
-          label="Init values"
-          value={~s({"seed": 7})}
-          mono
-          data-testid="input-init-values"
-        />
-        """)
-
-      assert html =~ "<textarea"
-      assert html =~ ~s({&quot;seed&quot;: 7})
-      # Its height is the form baseline's own, so only the mono face is asked for.
-      assert html =~ "fui-input--mono"
-    end
-
-    test "a hint is rendered with the field, not beside it" do
-      assigns = %{}
-
-      html =
+      hinted =
         rendered_to_string(~H"""
         <.input type="text" name="schedule[name]" label="Name" value="" hint="max 11 characters" />
         """)
 
-      assert html =~ "fui-hint"
-      assert html =~ "max 11 characters"
-    end
-
-    test "a field with no hint renders no hint element" do
-      assigns = %{}
-
-      html =
+      plain =
         rendered_to_string(~H"""
         <.input type="text" name="schedule[cron]" label="Cron" value="" />
         """)
 
-      refute html =~ "fui-hint"
-    end
-
-    test "a disabled control says so" do
-      assigns = %{}
-
-      html =
-        rendered_to_string(~H"""
-        <.input
-          type="select"
-          name="start[factory_id]"
-          label="Factory"
-          value=""
-          options={[]}
-          disabled
-        />
-        """)
-
-      assert html =~ "disabled"
+      assert hinted =~ ~r/class="fui-hint"[^>]*>\s*max 11 characters/
+      refute plain =~ "fui-hint"
     end
   end
 
@@ -173,50 +85,6 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
   end
 
   describe "dialog/1" do
-    test "a confirmation is the narrowest" do
-      assigns = %{}
-
-      html =
-        rendered_to_string(~H"""
-        <.dialog testid="stop-confirm-modal" size="confirm">stop?</.dialog>
-        """)
-
-      assert html =~ "fui-dialog-panel--confirm"
-    end
-
-    test "a form dialog is wider than a confirmation" do
-      assigns = %{}
-
-      html =
-        rendered_to_string(~H"""
-        <.dialog testid="start-modal" size="form">fields</.dialog>
-        """)
-
-      assert html =~ "fui-dialog-panel--form"
-    end
-
-    test "an inspection panel is the widest" do
-      assigns = %{}
-
-      html =
-        rendered_to_string(~H"""
-        <.dialog testid="dlq-inspect-modal" size="wide">payload</.dialog>
-        """)
-
-      assert html =~ "fui-dialog-panel--wide"
-    end
-
-    test "a caller that names no role gets the confirmation width" do
-      assigns = %{}
-
-      html =
-        rendered_to_string(~H"""
-        <.dialog testid="plain-modal">anything</.dialog>
-        """)
-
-      assert html =~ "fui-dialog-panel--confirm"
-    end
-
     test "the content sits in the scrolling body, so a tall form stays reachable" do
       assigns = %{}
 

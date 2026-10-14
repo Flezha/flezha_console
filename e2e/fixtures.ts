@@ -1,29 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { test as base, expect, type Locator, type Page } from '@playwright/test';
-import { submitLogin } from './global-setup';
+import { test as base, expect, type Browser, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { devElixir, submitLogin, uniqueId, workerState, workerUser } from './global-setup';
 
-/** Unique per test, so a leftover from a failed run cannot collide. */
-export function uniqueId(prefix: string): string {
-  const ts = Date.now().toString(36).slice(-4);
-  const rand = Math.random().toString(36).slice(2, 5);
-  return `${prefix}_${ts}_${rand}`;
-}
-
-/**
- * Runs `elixir` inside `fui_web` as a distributed node of the dev stack, so a
- * script can reach the console and the controller, and answers its output.
- * Throws with the script's output when it fails.
- */
-function devElixir(what: string, args: string[]): string {
-  const argv = ['exec', 'fui_web', 'elixir', '--sname', uniqueId('pw_cli'), '--cookie', 'flezha_dev_cookie', ...args];
-
-  try {
-    return execFileSync('docker', argv, { encoding: 'utf8', stdio: 'pipe' });
-  } catch (error) {
-    const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string };
-    throw new Error(`${what} failed:\n${stdout}${stderr}`);
-  }
-}
+export { uniqueId };
 
 /**
  * Runs the published operation `door` on the dev controller as `flz` sends it
@@ -36,19 +15,18 @@ export function cliCall(door: string, args: unknown[]): unknown {
   );
 }
 
-// Run inside the console's own node: the email arrives as an argument, never
-// as code.
-const DELETE_USER = `
-{:ok, host} = :inet.gethostname()
-node = :"flezha_ui@#{host}"
-true = Node.connect(node)
-[email] = System.argv()
-
-case :erpc.call(node, FlezhaUi.Accounts, :get_user_by_email, [email]) do
-  nil -> :ok
-  user -> :erpc.call(node, FlezhaUi.Repo, :delete!, [user])
-end
-`;
+/**
+ * Sends each of `payloads` to `relay`'s `channel` as `flz relay send` does, in
+ * order and from one node, so a test that needs many records pays for one
+ * boot. Throws when any send is refused.
+ */
+export function sendRecords(relay: string, payloads: string[], channel = 'input', namespace = 'default'): void {
+  devElixir(`sending ${payloads.length} records to ${relay}`, [
+    '/flezha_ui/priv/dev/cli_call.exs',
+    'Relay.send',
+    ...payloads.map((payload) => JSON.stringify([namespace, relay, payload, channel])),
+  ]);
+}
 
 /**
  * Creates a confirmed console user through `mix flezha_ui.create_user`, the
@@ -74,7 +52,7 @@ export function createConsoleUser(email: string, password: string): void {
  * it here. Safe from `finally`: an email with no user is left alone.
  */
 export function deleteConsoleUser(email: string): void {
-  devElixir(`deleting ${email}`, ['--hidden', '-e', DELETE_USER, email]);
+  devElixir(`deleting ${email}`, ['/flezha_ui/priv/dev/console_users.exs', 'delete', email]);
 }
 
 /**
@@ -88,8 +66,8 @@ export async function visitLive(page: Page, path: string): Promise<void> {
   await page.goto(path);
 
   const main = page.locator('[data-phx-main]');
-  await main.waitFor({ state: 'attached', timeout: 15_000 });
-  await expect(main).not.toHaveClass(/phx-loading/, { timeout: 15_000 });
+  await main.waitFor({ state: 'attached' });
+  await expect(main).not.toHaveClass(/phx-loading/);
 }
 
 /**
@@ -285,9 +263,7 @@ export async function menuAction(page: Page, menu: string, item: string): Promis
  * Stops `id` from its namespace's relays listing, which it opens itself.
  *
  * Tolerating an already-stopped relay is what makes this safe to call from
- * `finally` after the test stopped it itself; it never skips an assertion. A
- * steps relay stops cooperatively and leaves the listing once its in-flight
- * work is done, so the wait allows for that.
+ * `finally` after the test stopped it itself; it never skips an assertion.
  */
 export async function stopRelay(page: Page, id: string, namespace = 'default'): Promise<void> {
   await visitLive(page, `/namespaces/${namespace}/relays`);
@@ -297,7 +273,7 @@ export async function stopRelay(page: Page, id: string, namespace = 'default'): 
   await menuAction(page, `relay-menu-${id}`, `stop-relay-${id}`);
   await expect(page.getByTestId('stop-confirm-modal')).toBeVisible();
   await page.getByTestId('stop-confirm-btn').click();
-  await expect(row).toHaveCount(0, { timeout: 20_000 });
+  await expect(row).toHaveCount(0);
 }
 
 /**
@@ -339,7 +315,7 @@ async function foldSection(page: Page, key: string, open: boolean): Promise<void
     await (open
       ? expect(body).toBeVisible({ timeout: 2_000 })
       : expect(body).toHaveCount(0, { timeout: 2_000 }));
-  }).toPass({ timeout: 10_000 });
+  }).toPass({ timeout: 4_000 });
 }
 
 /** Unfolds a section, for a spec reading what is inside it. */
@@ -502,7 +478,8 @@ export async function disablePlugin(page: Page, name: string): Promise<void> {
 /**
  * Opens the settings screen, by address or by `open` — following a link to it.
  * Settings sits behind sudo mode, whose window is shorter than a full suite
- * run, so this re-authenticates rather than trusting the shared session. The
+ * run, so this re-authenticates as the worker's user rather than trusting its
+ * stored session. The
  * email field is readonly on the re-auth form — only the password is asked for.
  */
 export async function openSettings(
@@ -513,7 +490,7 @@ export async function openSettings(
   await page.waitForURL(/\/users\/(settings|log-in)$/);
 
   if (page.url().includes('/users/log-in')) {
-    await submitLogin(page);
+    await submitLogin(page, { password: workerUser(base.info().parallelIndex).password });
     await page.waitForURL(/\/users\/settings$/);
   }
 
@@ -533,11 +510,6 @@ export async function clearStoredToken(page: Page): Promise<void> {
   }
 }
 
-// The dev sources push one trade per relay each `interval` of the testnet
-// generator subscription in `config/dev.exs` (5 s). Longer than two intervals,
-// so a live figure has had the chance to move twice.
-export const ADVANCE_WINDOW_MS = 12_000;
-
 const UNIT_FACTOR: Record<string, number> = { B: 1, KB: 1_024, MB: 1_048_576 };
 
 /** The first number a figure shows, scaled by its byte unit when it has one. */
@@ -550,29 +522,61 @@ export async function readFigure(figure: Locator): Promise<number> {
 }
 
 /**
- * Asserts `figure` grows past its current value within the advance window,
- * after `cause` when the test makes the traffic itself. A figure is a number
- * shown on the page, or a function reading one, such as a count of rows.
- * Returns as soon as it grows, and names the figure when it does not.
+ * Asserts `figure` grows past its current value once `cause` — the traffic or
+ * action the test makes — has run. A figure is a number shown on the page, or
+ * a function reading one, such as a count of rows. Returns as soon as it
+ * grows, and names the figure when it does not.
  */
 export async function expectAdvances(
   figure: Locator | (() => Promise<number>),
   name: string,
-  cause?: () => Promise<void>,
+  cause: () => Promise<void> | void,
 ): Promise<number> {
   const read = typeof figure === 'function' ? figure : () => readFigure(figure);
   const before = await read();
-  if (cause) await cause();
+  await cause();
 
   let after = before;
   await expect
-    .poll(async () => (after = await read()), {
-      message: `${name} did not advance from ${before}`,
-      timeout: ADVANCE_WINDOW_MS,
-    })
+    .poll(async () => (after = await read()), { message: `${name} did not advance from ${before}` })
     .toBeGreaterThan(before);
 
   return after;
+}
+
+/**
+ * A page signed in as the worker's user, for a `beforeAll` or `afterAll`,
+ * which get no `page` of their own. The caller closes its context.
+ */
+export async function workerPage(browser: Browser, testInfo: TestInfo): Promise<Page> {
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    storageState: workerState(testInfo.parallelIndex),
+  });
+  return context.newPage();
+}
+
+/**
+ * A relay of the spec file's own, under a run-unique id: started from the
+ * namespace screen in `beforeAll` and stopped in `afterAll`, so every test in
+ * the file can assert on it without another worker's traffic reaching it.
+ */
+export function ownRelay(prefix: string, opts: { run?: Run; factory?: string } = {}): { readonly id: string } {
+  const id = uniqueId(prefix);
+  let admin: Page;
+
+  test.beforeAll(async ({ browser }, testInfo) => {
+    admin = await workerPage(browser, testInfo);
+    await visitLive(admin, '/namespaces/default');
+    await startRelay(admin, id, opts);
+  });
+
+  test.afterAll(async () => {
+    await stopRelay(admin, id);
+    await admin.context().close();
+  });
+
+  return { id };
 }
 
 /** Opens `path` in a second page of the same session, beside the one under test. */
@@ -614,7 +618,7 @@ export async function sendToRelay(page: Page, payload: string, opts: { channel?:
   if (opts.key) await page.getByTestId('talk-key').fill(opts.key);
   if (opts.msgId) await page.getByTestId('talk-msg-id').fill(opts.msgId);
   await page.getByTestId('talk-send-btn').click();
-  await expect(page.getByTestId('talk-result').first()).toContainText('Delivered to', { timeout: 20_000 });
+  await expect(page.getByTestId('talk-result').first()).toContainText('Delivered to');
   await page.getByTestId('talk-close-btn').click();
 }
 
@@ -719,6 +723,12 @@ function liveViewFrameProblem(payload: string | Buffer): string | null {
  * test at teardown, whatever it asserted.
  */
 export const test = base.extend<{ live: (path: string) => Promise<void>; pageHealth: PageHealth }>({
+  // A project naming its own session keeps it; every other test runs as its
+  // worker's user, so per-user state never crosses workers.
+  storageState: async ({ storageState }, use, testInfo) => {
+    await use(storageState ?? workerState(testInfo.parallelIndex));
+  },
+
   live: async ({ page }, use) => {
     await use((path: string) => visitLive(page, path));
   },

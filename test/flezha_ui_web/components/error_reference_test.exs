@@ -2,18 +2,16 @@ defmodule FlezhaUiWeb.ErrorReferenceTest do
   @moduledoc """
   The one error renderer, as it explains a controller error: its code, its
   hint, and a link to the code's family in core's errors reference.
-
-  Not async: one test points the reference at another address through the
-  application environment, which every rendering reads.
   """
 
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   use FlezhaUiWeb, :html
 
   import Phoenix.LiveViewTest
 
-  defp render_error(error) do
+  @doc false
+  def render_error(error) do
     assigns = %{error: error}
 
     rendered_to_string(~H"""
@@ -38,16 +36,6 @@ defmodule FlezhaUiWeb.ErrorReferenceTest do
 
     refute html =~ "runtime-error-hint"
     assert html =~ ~s(href="https://docs.flezha.com/errors.html#relay")
-  end
-
-  test "a configured docs address is the one every link uses" do
-    previous = Application.fetch_env!(:flezha_ui, :core_docs_url)
-    Application.put_env(:flezha_ui, :core_docs_url, "https://docs.example.test")
-    on_exit(fn -> Application.put_env(:flezha_ui, :core_docs_url, previous) end)
-
-    html = render_error(Flezha.Error.new("authz.unknown_role"))
-
-    assert html =~ ~s(href="https://docs.example.test/errors.html#authz")
   end
 
   test "a transport failure keeps its message and has no reference" do
@@ -107,5 +95,23 @@ defmodule FlezhaUiWeb.ErrorReferenceTest do
 
     assert html =~ "is unhealthy: connection refused"
     refute html =~ "runtime-error-reason"
+  end
+end
+
+defmodule FlezhaUiWeb.ErrorReferenceDocsUrlTest do
+  # Points the reference at another address through the application
+  # environment, which every rendering reads.
+  use ExUnit.Case, async: false
+
+  import FlezhaUiWeb.ErrorReferenceTest, only: [render_error: 1]
+
+  alias FlezhaUi.TestEnv
+
+  test "a configured docs address is the one every link uses" do
+    TestEnv.put_app(:core_docs_url, "https://docs.example.test")
+
+    html = render_error(Flezha.Error.new("authz.unknown_role"))
+
+    assert html =~ ~s(href="https://docs.example.test/errors.html#authz")
   end
 end

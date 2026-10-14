@@ -281,31 +281,33 @@ defined but never referenced, and any ink/surface pairing below its WCAG AA
 floor in either theme — so a colour that only looks fine in dark mode is caught
 before it ships.
 
-`npm run e2e` drives the running dev stack at `http://localhost:4000`, so bring
-it up first with `docker compose -f docker-compose.dev.yml up`. When the stack
-is published on another port, set `E2E_BASE_URL`, for example
-`E2E_BASE_URL=http://localhost:4001 npm run e2e`. A failing test
-means the stack is not in the shape the suite requires — the specs assert
-unconditionally rather than skipping, so a green run means the assertions ran.
+`npm run e2e` drives the running dev stack at `http://localhost:4000` in four
+parallel workers, each logged in as its own console user, so bring the stack up
+first with `docker compose -f docker-compose.dev.yml up`. When the stack is
+published on another port, set `E2E_BASE_URL`, for example
+`E2E_BASE_URL=http://localhost:4001 npm run e2e`.
 
-The ExUnit LiveView tests boot a peer BEAM node with this app's own `ebin`
-excluded from its code path, standing in for a controller that carries none of
-this application's code. `test/support/fake_controller.ex` answers as the
-published `Flezha.Service.*` modules by name, in their real return shapes and
-with `%Flezha.Error{}` failures, which is how states a live stack refuses to
-enter —
-a populated dead-letter queue, audit switched off, a disconnected or
-version-skewed controller — get covered at all.
+No test waits for time to pass: a test causes what it asserts and waits only for
+that, and `mix test` fails on a sleep, a timer or a long timeout in either
+suite. Every ExUnit test is capped at 5 s and every browser test at 20 s; the
+whole of `mix test` runs in under forty seconds and the browser suite in about
+three minutes.
 
-Every browser test also fails on a broken page, whatever it asserted: a script
-or console error, a LiveView that crashed, or a request answered 400 or above.
-A figure the controller feeds is asserted to move, not merely to be there. And
-`mix test` fails when a test id or event in `lib/` is driven by no test at all
+The ExUnit LiveView tests run against `test/support/fake_controller.ex`, which
+answers as the published `Flezha.Service.*` modules by name, on a peer BEAM node
+that carries none of this application's code. That is how states a live stack
+refuses to enter — a disconnected or version-skewed controller, audit switched
+off, a confirmed controller stop — get covered at all. The fake's error classes
+are checked against core's catalogue, and its answers against shapes recorded
+from the dev controller, which every browser run re-checks.
+
+Every browser test also fails on a broken page, whatever it asserted, and
+`mix test` fails when an event in `lib/` is driven through its markup by no test
 (`test/flezha_ui/coverage_ledger_test.exs`).
 
-See [docs/e2e-tests.md](docs/e2e-tests.md) for the browser suite's layout, the
-guards and their exemptions, the coverage ledger, and the rule for deciding
-which layer a new assertion belongs to.
+See [docs/testing.md](docs/testing.md) for the rules a new test follows: which
+layer it belongs to, how it causes what it asserts, the state it owns, the
+table-driven mechanics, the caps, and the gates that enforce them.
 
 ## How it looks
 

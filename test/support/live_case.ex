@@ -33,7 +33,13 @@ defmodule FlezhaUiWeb.LiveCase do
       import Phoenix.LiveViewTest
 
       import FlezhaUiWeb.LiveCase,
-        only: [open_section: 2, text_of: 2, enforce_operations: 3, grant_operations: 3]
+        only: [
+          open_section: 2,
+          text_of: 2,
+          tick: 1,
+          enforce_operations: 3,
+          grant_operations: 3
+        ]
 
       alias FlezhaUi.PeerNode
       alias FlezhaUi.Service.NodeManager
@@ -62,7 +68,24 @@ defmodule FlezhaUiWeb.LiveCase do
   test that reads one says so first — the same click an operator makes.
   """
   def open_section(view, key) do
-    Phoenix.LiveViewTest.render_click(view, "section_toggle", %{"key" => key})
+    view
+    |> Phoenix.LiveViewTest.element(~s([data-testid="section-toggle-#{key}"]))
+    |> Phoenix.LiveViewTest.render_click()
+  end
+
+  @doc """
+  One refresh tick of a screen that shows rates, answered with the render.
+
+  A rate divides a delta by the time since the last reading, so the last
+  reading is moved a second into the past rather than waited for.
+  """
+  def tick(view) do
+    :sys.replace_state(view.pid, fn %{socket: socket} = state ->
+      %{state | socket: update_in(socket.assigns.topology_state.prev_at, &(&1 && &1 - 1_000))}
+    end)
+
+    send(view.pid, :refresh)
+    Phoenix.LiveViewTest.render(view)
   end
 
   @doc """

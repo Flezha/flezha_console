@@ -2,7 +2,7 @@ defmodule FlezhaUiWeb.ProblemsLiveTest do
   @moduledoc """
   The open problems screen: what the shell's pulse gathered across every
   reachable namespace, worst first, each with why and the action that fixes
-  it — and Home's own share of the same list.
+  it.
   """
 
   use FlezhaUiWeb.LiveCase
@@ -73,17 +73,5 @@ defmodule FlezhaUiWeb.ProblemsLiveTest do
     refute html =~ ~s(data-testid="problem-relay:default:relay_s")
     assert html =~ ~s(data-testid="problems-clear")
     assert html =~ "All clear"
-  end
-
-  test "Home shows its first three and links to the rest", %{conn: conn, node: node} do
-    fleet(node, Enum.map(1..5, &row("relay_#{&1}", :suspended)))
-
-    {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-    html = render(view)
-
-    assert length(item_ids(html)) == 3
-
-    assert view |> element(~s(a[data-testid="problems-more"][href="/problems"])) |> render() =~
-             "2 more problems"
   end
 end

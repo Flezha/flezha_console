@@ -48,6 +48,13 @@ defmodule FlezhaUiWeb.Live.Refresh do
     end
   end
 
+  @doc """
+  The interval a screen declaring `declared` refreshes at: `:refresh_interval_ms`
+  when it is configured, which runs every screen at one cadence, else its own.
+  """
+  def interval(declared),
+    do: Application.get_env(:flezha_ui, :refresh_interval_ms, declared)
+
   @doc false
   def mark_refreshed(socket) do
     Phoenix.Component.assign(socket, :refresh_at, DateTime.utc_now())
@@ -147,7 +154,13 @@ defmodule FlezhaUiWeb.Live.Refresh do
       @refresh_events unquote(events)
 
       @doc false
-      def schedule_refresh, do: Process.send_after(self(), :refresh, @refresh_interval)
+      def schedule_refresh,
+        do:
+          Process.send_after(
+            self(),
+            :refresh,
+            FlezhaUiWeb.Live.Refresh.interval(@refresh_interval)
+          )
 
       @doc """
       Arms the tick and, when this screen listens for them, the forwarded events.
@@ -159,7 +172,7 @@ defmodule FlezhaUiWeb.Live.Refresh do
           socket
           |> FlezhaUiWeb.Live.Refresh.assign_token()
           |> Phoenix.Component.assign(
-            refresh_interval: @refresh_interval,
+            refresh_interval: FlezhaUiWeb.Live.Refresh.interval(@refresh_interval),
             refresh_paused: false
           )
           # Arming is immediately followed by the screen's own first load, so

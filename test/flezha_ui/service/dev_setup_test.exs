@@ -15,24 +15,24 @@ defmodule FlezhaUi.Service.DevSetupTest do
   alias Flezha.Service.Relay
   alias FlezhaUi.PeerNode
   alias FlezhaUi.Service.DevSetup
+  alias FlezhaUi.TestEnv
 
   @moduletag :distributed
 
   @namespace "seeded"
 
-  setup do
-    %{node: node} = context = PeerNode.setup_controller("dev_setup_peer")
+  setup_all do
+    PeerNode.setup_controller("dev_setup_peer")
+  end
+
+  setup %{node: node} do
+    FakeController.reset(node)
 
     FakeController.set(
       node,
       {Relay, :list_namespaces},
       {:ok, [%{namespace: @namespace, running: true}]}
     )
-
-    previous = Application.get_env(:flezha_ui, :dev_setup)
-    on_exit(fn -> Application.put_env(:flezha_ui, :dev_setup, previous) end)
-
-    context
   end
 
   defp configure(overrides) do
@@ -48,7 +48,7 @@ defmodule FlezhaUi.Service.DevSetupTest do
         overrides
       )
 
-    Application.put_env(:flezha_ui, :dev_setup, config)
+    TestEnv.put_app(:dev_setup, config)
   end
 
   defp relay(id, factory_id \\ "store_input"),

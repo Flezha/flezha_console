@@ -205,3 +205,23 @@ When the dev console runs in the `fui_web` container and a config file Phoenix's
 - **WHEN** `mix phx.server` runs without `FLEZHA_UI_RESTART_ON_CONFIG_CHANGE=true`
 - **THEN** no watcher is started and a config change does not stop the server
 
+### Requirement: Screen refresh cadence is configurable and fast in dev
+
+Each screen's periodic refresh SHALL use the interval from `:flezha_ui, :refresh_interval_ms` when that is set, and the screen's own declared interval otherwise. The liveness readout SHALL show the interval actually in use. The dev stack SHALL set the interval to 500 ms through `FLEZHA_UI_REFRESH_INTERVAL_MS`, so that a browser test sees a tick-fed figure settle within a second. The ExUnit environment SHALL set it to one hour, so that only the ticks a test sends fire. Production SHALL leave it unset.
+
+#### Scenario: The dev stack refreshes fast
+
+- **WHEN** the dev stack is up with its compose defaults
+- **THEN** every screen with a periodic refresh re-reads every 500 ms, and its liveness readout says so
+
+#### Scenario: Unset, each screen keeps its own cadence
+
+- **WHEN** the variable is not set
+- **THEN** each screen refreshes at the interval it declares
+
+#### Scenario: ExUnit drives ticks itself
+
+- **WHEN** an ExUnit test needs a refresh
+- **THEN** it sends the tick to the view
+- **AND** no timer-driven refresh fires during the test, because the configured interval outlasts any test
+

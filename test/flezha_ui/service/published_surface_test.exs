@@ -1,6 +1,7 @@
 defmodule FlezhaUi.Service.PublishedSurfaceTest do
   @moduledoc """
-  The console and its fake controller stay on core's published consumer API.
+  The console and its fake controller stay on core's published consumer API
+  and on core's error catalogue.
 
   Read from a core checkout rather than copied: core's own extractor
   (`scripts/consumer_surface.py`) finds the calls this checkout makes, and
@@ -28,12 +29,25 @@ defmodule FlezhaUi.Service.PublishedSurfaceTest do
     end
 
     {out, 0} = System.cmd("python3", [extractor, File.cwd!()])
+    catalogue = core |> Path.join("flz_transport/errors.json") |> File.read!() |> Jason.decode!()
 
     %{
       allowed: MapSet.new(names(File.read!(published_path)) ++ @context_free),
       calls: MapSet.new(names(out)),
-      stubs: stubs()
+      stubs: stubs(),
+      classes: Map.new(catalogue["codes"], fn {code, entry} -> {code, entry["class"]} end)
     }
+  end
+
+  test "every error the fake answers has the code and class core's catalogue gives it", %{
+    classes: classes
+  } do
+    drift =
+      for {code, class} <- Flezha.Error.classes(),
+          Map.get(classes, code) != Atom.to_string(class),
+          do: {code, class, Map.get(classes, code, :not_in_core)}
+
+    assert drift == [], "fake class vs core class: #{inspect(drift)}"
   end
 
   test "the extractor finds the console's calls", %{calls: calls} do

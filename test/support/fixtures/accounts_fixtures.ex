@@ -18,13 +18,12 @@ defmodule FlezhaUi.AccountsFixtures do
     })
   end
 
+  # The console makes accounts confirmed; an unconfirmed one is inserted
+  # directly, for the login paths that still have to handle one.
   def unconfirmed_user_fixture(attrs \\ %{}) do
-    {:ok, user} =
-      attrs
-      |> valid_user_attributes()
-      |> Accounts.register_user()
-
-    user
+    %Accounts.User{}
+    |> Accounts.User.email_changeset(valid_user_attributes(attrs))
+    |> FlezhaUi.Repo.insert!()
   end
 
   def user_fixture(attrs \\ %{}) do

@@ -1,41 +1,24 @@
 import { test, expect } from './fixtures';
-import { DEV_EMAIL, DEV_PASSWORD, submitLogin } from './global-setup';
+import { submitLogin, workerUser } from './global-setup';
 
 /**
- * The login form itself.
- *
- * Runs without the stored session — every other spec starts authenticated via
- * `global-setup.ts`, so without this the login path would be assumed to work
- * rather than tested.
+ * The login form refusing a wrong password. A successful login through the
+ * same form is what `global-setup.ts` does for every worker.
  */
 test.use({ storageState: { cookies: [], origins: [] } });
 
-test.describe('Login', () => {
-  test('an unauthenticated visit is redirected to the login form', async ({ page }) => {
-    await page.goto('/');
-    await expect(page).toHaveURL(/\/users\/log-in$/);
-  });
+test('an unauthenticated visit is sent to the form, which refuses a wrong password', async ({ page }) => {
+  const { email } = workerUser(test.info().parallelIndex);
 
-  test('the seeded dev credentials land on a Home', async ({ page }) => {
-    await page.goto('/users/log-in');
+  await page.goto('/');
+  await expect(page).toHaveURL(/\/users\/log-in$/);
 
-    await submitLogin(page, { email: DEV_EMAIL, password: DEV_PASSWORD });
+  await submitLogin(page, { email, password: 'definitely_not_the_password' });
 
-    // `/` opens the Home of the namespace last worked in, or the list.
-    await expect(page).toHaveURL(/\/namespaces(\/[^/?#]+)?$/);
-    await expect(page.getByTestId('topbar')).toBeVisible();
-  });
+  await expect(page).toHaveURL(/\/users\/log-in$/);
+  await expect(page.locator('body')).toContainText(/invalid/i);
 
-  test('a wrong password does not authenticate', async ({ page }) => {
-    await page.goto('/users/log-in');
-
-    await submitLogin(page, { email: DEV_EMAIL, password: 'definitely_not_the_password' });
-
-    await expect(page).toHaveURL(/\/users\/log-in$/);
-    await expect(page.locator('body')).toContainText(/invalid/i);
-
-    // Still refused when reaching for a protected screen afterwards.
-    await page.goto('/');
-    await expect(page).toHaveURL(/\/users\/log-in$/);
-  });
+  // Still refused when reaching for a protected screen afterwards.
+  await page.goto('/');
+  await expect(page).toHaveURL(/\/users\/log-in$/);
 });

@@ -17,8 +17,8 @@ defmodule FlezhaUi.Service.NodeManagerDistributedTest do
 
   @moduletag :distributed
 
-  setup do
-    {peer, node} = PeerNode.start!("nm_peer")
+  setup_all do
+    {peer, node} = PeerNode.start!("nm_peer", [StubRemoteApi])
     on_exit(fn -> PeerNode.stop(peer) end)
     {:ok, peer: peer, node: node}
   end
@@ -87,10 +87,7 @@ defmodule FlezhaUi.Service.NodeManagerDistributedTest do
       assert [1, 2, 3] = NodeManager.erpc_call(:lists, :seq, [1, 3])
     end
 
-    test "a remote {:error, %Flezha.Error{}} is the function's own answer, not a transport failure",
-         %{node: node} do
-      PeerNode.ship!(node, StubRemoteApi)
-
+    test "a remote {:error, %Flezha.Error{}} is the function's own answer, not a transport failure" do
       assert {:error, %Flezha.Error{code: "relay.not_found"} = error} =
                NodeManager.erpc_call(StubRemoteApi, :fails, [])
 
@@ -124,8 +121,13 @@ defmodule FlezhaUi.Service.NodeManagerDataPlaneTest do
 
   @moduletag :distributed
 
-  setup do
+  setup_all do
     PeerNode.setup_controller("nm_dp_peer")
+  end
+
+  setup %{node: node} do
+    FakeController.reset(node)
+    :ok
   end
 
   test "the liveness snapshot is passed through as the controller produced it", %{node: node} do

@@ -91,6 +91,12 @@ config :swoosh, :api_client, false
 config :flezha_ui,
   restart_on_config_change: System.get_env("FLEZHA_UI_RESTART_ON_CONFIG_CHANGE") == "true"
 
+# One refresh cadence for every screen, when set: the dev stack runs them fast,
+# so a browser test sees a tick land within a second of what it caused.
+if interval = System.get_env("FLEZHA_UI_REFRESH_INTERVAL_MS") do
+  config :flezha_ui, :refresh_interval_ms, String.to_integer(interval)
+end
+
 # Auto-start testnet relays and plugins in dev mode.
 #
 # Factory ids come from the runner at `flezha/test/apps/rust_runner`; provider

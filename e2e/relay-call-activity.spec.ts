@@ -31,73 +31,46 @@ test.describe('Calls to a relay', () => {
     await live('/namespaces/default/relays/orders');
   });
 
-  test('a call from the terminal shows its source, channel, answer and duration', async ({
+  test('each call is listed with its source, channel, outcome, answer and duration', async ({
     page,
   }) => {
     await openCalls(page);
-    const pair = uniqueId('CLI');
+    const cli = uniqueId('CLI');
+    const ui = uniqueId('UI');
+    const unanswered = uniqueId('unanswered');
 
-    expect(placeFromCli(pair)).toMatchObject({ answer: { status: 'placed', pair } });
+    expect(placeFromCli(cli)).toMatchObject({ answer: { status: 'placed', pair: cli } });
 
-    const row = callRow(page, pair).first();
-    await expect(row.locator('[data-testid^="call-source-"]')).toHaveText('CLI');
-    await expect(row).toContainText('place');
-    await expect(row.locator('[data-testid^="call-outcome-"]')).toHaveText('Answered', {
-      timeout: 20_000,
-    });
-    await expect(row).toContainText('"status":"placed"');
-    await expect(row).toContainText(/\d+(ms|s)\b/);
-  });
-
-  test('a call from the dialog is a UI call, and the dialog keeps its results', async ({
-    page,
-  }) => {
-    await openCalls(page);
-    const pairs = [uniqueId('UIA'), uniqueId('UIB')];
+    const fromCli = callRow(page, cli).first();
+    await expect(fromCli.locator('[data-testid^="call-source-"]')).toHaveText('CLI');
+    await expect(fromCli).toContainText('place');
+    await expect(fromCli.locator('[data-testid^="call-outcome-"]')).toHaveText('Answered');
+    await expect(fromCli).toContainText('"status":"placed"');
+    await expect(fromCli).toContainText(/\d+(ms|s)\b/);
 
     await page.getByTestId('talk-open-btn').click();
     await page.getByTestId('talk-channel-pick').selectOption('place');
+    await page.getByTestId('talk-field-pair').fill(ui);
+    await page.getByTestId('talk-field-amount').fill('1');
+    await page.getByTestId('talk-channel-submit').click();
+    await expect(page.getByTestId('talk-answer').first()).toContainText(ui);
 
-    for (const [index, pair] of pairs.entries()) {
-      await page.getByTestId('talk-field-pair').fill(pair);
-      await page.getByTestId('talk-field-amount').fill('1');
-      await page.getByTestId('talk-channel-submit').click();
-      await expect(page.getByTestId('talk-result')).toHaveCount(index + 1, { timeout: 20_000 });
-    }
-
-    await page.getByTestId('talk-close-btn').click();
-    await page.getByTestId('talk-open-btn').click();
-    await expect(page.getByTestId('talk-result')).toHaveCount(2);
-    await expect(page.getByTestId('talk-answer').first()).toContainText(pairs[1]);
-    await page.getByTestId('talk-close-btn').click();
-
-    for (const pair of pairs) {
-      const row = callRow(page, pair).first();
-      await expect(row.locator('[data-testid^="call-source-"]')).toHaveText('UI');
-      await expect(row.locator('[data-testid^="call-outcome-"]')).toHaveText('Answered');
-    }
-  });
-
-  test('a call nobody answers in time shows as timed out', async ({ page }) => {
-    await openCalls(page);
-    const line = uniqueId('unanswered');
-
-    await page.getByTestId('talk-open-btn').click();
+    // `audit` answers nothing, so a short deadline runs out.
     await page.getByTestId('talk-mode-raw').click();
-    await page.getByTestId('talk-payload').fill(line);
+    await page.getByTestId('talk-payload').fill(unanswered);
     await page.getByTestId('talk-channel').fill('audit');
     await page.getByTestId('talk-deadline').fill('500');
     await page.getByTestId('talk-call-btn').click();
-    await expect(page.getByTestId('talk-result').first()).toContainText('call.timeout', {
-      timeout: 20_000,
-    });
+    await expect(page.getByTestId('talk-result').first()).toContainText('call.timeout');
     await page.getByTestId('talk-close-btn').click();
 
-    const row = callRow(page, line).first();
-    await expect(row.locator('[data-testid^="call-outcome-"]')).toHaveText('Timed out', {
-      timeout: 20_000,
-    });
-    await expect(row).toContainText('call.timeout');
+    const fromUi = callRow(page, ui).first();
+    await expect(fromUi.locator('[data-testid^="call-source-"]')).toHaveText('UI');
+    await expect(fromUi.locator('[data-testid^="call-outcome-"]')).toHaveText('Answered');
+
+    const timedOut = callRow(page, unanswered).first();
+    await expect(timedOut.locator('[data-testid^="call-outcome-"]')).toHaveText('Timed out');
+    await expect(timedOut).toContainText('call.timeout');
   });
 
   test('a folded panel listens to nothing', async ({ page }) => {

@@ -52,28 +52,35 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
 
   defp open_form(conn) do
     {:ok, view, _html} = live(conn, ~p"/schedules")
-    render_click(view, "open_form", %{})
+    view |> element(~s([data-testid="schedule-new-btn"])) |> render_click()
     view
+  end
+
+  defp submit(view, fields) do
+    view
+    |> form(~s(form[phx-submit="create"]), %{"schedule" => fields})
+    |> render_submit()
+  end
+
+  defp change(view, fields) do
+    view
+    |> form(~s(form[phx-change="form_change"]), %{"schedule" => fields})
+    |> render_change()
+  end
+
+  defp confirm_remove(view) do
+    view |> element(~s([data-testid="schedule-remove-nightly"])) |> render_click()
+    view |> element(~s([data-testid="schedule-remove-confirm"])) |> render_click()
   end
 
   defp adds(node), do: FakeController.calls(node, {Schedule, :add})
 
   describe "listing" do
-    test "renders the empty state", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/schedules")
-
-      assert html =~ ~s(data-testid="schedule-empty")
-      assert html =~ ~s(data-testid="schedule-new-empty-btn")
-      assert html =~ ~s(data-testid="scope-switch")
-    end
-
     test "an entry a node fires reads as active, with its next fire", %{conn: conn, node: node} do
       with_entries(node, [entry()])
 
       {:ok, view, html} = live(conn, ~p"/schedules")
 
-      assert html =~ ~s(data-testid="schedule-row-nightly")
-      assert html =~ ~s(data-testid="schedule-menu-nightly")
       status = view |> element(~s([data-testid="schedule-status-nightly"])) |> render()
       assert status =~ ~r/>\s*Active\s*</
       assert status =~ "A node holds this schedule"
@@ -114,23 +121,29 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
       refute html =~ ~s(data-testid="schedule-row-elsewhere")
       assert html =~ ~s(data-testid="schedule-scope-notice")
     end
-
-    test "renders the controller's refusal instead of crashing", %{conn: conn, node: node} do
-      FakeController.set(node, {Schedule, :list}, FakeController.error("authz.role_insufficient"))
-
-      {:ok, _view, html} = live(conn, ~p"/schedules")
-
-      assert html =~ ~s(data-testid="runtime-error")
-      assert html =~ "authz.role_insufficient"
-    end
   end
 
   describe "creating" do
+    setup %{node: node} do
+      FakeController.set(
+        node,
+        {Relay, :list_namespaces},
+        {:ok, [%{namespace: "default", running: true}]}
+      )
+
+      FakeController.set(
+        node,
+        {Fleet, :factories},
+        {:ok, [%{id: "echo_steps", description: "echoes", run: :steps}]}
+      )
+
+      :ok
+    end
+
     test "stores and arms it in one call, and reports it", %{conn: conn, node: node} do
       view = open_form(conn)
-      assert has_element?(view, ~s([data-testid="schedule-steps"]))
 
-      html = render_submit(view, "create", %{"schedule" => valid_form()})
+      html = submit(view, valid_form())
 
       assert html =~ "Schedule nightly created."
       assert [[fields, %{source: :ui}]] = adds(node)
@@ -142,7 +155,7 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
     test "requires the fields the controller requires", %{conn: conn, node: node} do
       view = open_form(conn)
 
-      html = render_submit(view, "create", %{"schedule" => valid_form(%{"name" => ""})})
+      html = submit(view, valid_form(%{"name" => ""}))
 
       assert html =~ ~s(data-testid="schedule-form-error")
       assert html =~ "Required: Name."
@@ -155,8 +168,7 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
     } do
       view = open_form(conn)
 
-      html =
-        render_submit(view, "create", %{"schedule" => valid_form(%{"init_values" => "{nope"})})
+      html = submit(view, valid_form(%{"init_values" => "{nope"}))
 
       assert html =~ "Init Values must be valid JSON."
       assert adds(node) == []
@@ -177,49 +189,10 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
 
       view = open_form(conn)
 
-      html =
-        render_submit(view, "create", %{
-          "schedule" => valid_form(%{"timezone" => "Mars/Olympus_Mons"})
-        })
+      html = submit(view, valid_form(%{"timezone" => "Mars/Olympus_Mons"}))
 
       assert html =~ "is not an IANA time zone"
       assert html =~ ~s(data-testid="schedule-form-modal")
-    end
-
-    test "a flow factory is refused with the controller's message", %{conn: conn, node: node} do
-      FakeController.set(
-        node,
-        {Schedule, :add},
-        FakeController.error(
-          "relay.factory_not_steps",
-          "factory 'store_input' is a flow relay, and only a steps one can be spawned"
-        )
-      )
-
-      view = open_form(conn)
-
-      html =
-        render_submit(view, "create", %{
-          "schedule" => valid_form(%{"factory_id" => "store_input"})
-        })
-
-      assert html =~ "only a steps one can be spawned"
-    end
-
-    test "a taken name is reported", %{conn: conn, node: node} do
-      FakeController.set(
-        node,
-        {Schedule, :add},
-        FakeController.error(
-          "schedule.already_exists",
-          "a schedule named 'nightly' already exists"
-        )
-      )
-
-      view = open_form(conn)
-
-      assert render_submit(view, "create", %{"schedule" => valid_form()}) =~
-               "a schedule named &#39;nightly&#39; already exists"
     end
   end
 
@@ -275,10 +248,7 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
     test "changing the namespace offers the new namespace's factories", %{conn: conn} do
       view = open_form(conn)
 
-      html =
-        render_change(view, "form_change", %{
-          "schedule" => valid_form(%{"namespace" => "staging"})
-        })
+      html = change(view, %{"namespace" => "staging"})
 
       assert html =~ "staging_steps"
       refute html =~ "default_steps"
@@ -287,9 +257,7 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
     test "a factory the new namespace does not register stops being chosen", %{conn: conn} do
       view = open_form(conn)
 
-      render_change(view, "form_change", %{
-        "schedule" => valid_form(%{"namespace" => "staging", "factory_id" => "default_steps"})
-      })
+      change(view, %{"namespace" => "staging", "factory_id" => "default_steps"})
 
       refute has_element?(view, ~s([data-testid="schedule-input-factory"] option[selected]))
     end
@@ -310,7 +278,7 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
 
       assert render(view) =~ "The choices could not be read"
 
-      render_submit(view, "create", %{"schedule" => valid_form()})
+      submit(view, valid_form())
 
       assert [[fields, _ctx]] = adds(node)
       assert fields[:namespace] == "default"
@@ -324,14 +292,14 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
 
       assert FakeController.calls(node, {Fleet, :factories}) == []
 
-      render_click(view, "open_form", %{})
+      view |> element(~s([data-testid="schedule-new-btn"])) |> render_click()
 
       assert [["default", %{source: :ui}]] = FakeController.calls(node, {Fleet, :factories})
     end
 
     test "a scoped screen's form opens aimed at its namespace", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/namespaces/staging/schedules")
-      html = render_click(view, "open_form", %{})
+      html = view |> element(~s([data-testid="schedule-new-btn"])) |> render_click()
 
       assert html =~ "staging_steps"
     end
@@ -343,27 +311,10 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
       :ok
     end
 
-    test "is confirm-gated, and cancelling leaves the schedule alone", %{
-      conn: conn,
-      node: node
-    } do
-      {:ok, view, _html} = live(conn, ~p"/schedules")
-
-      html = render_click(view, "confirm_remove", %{"name" => "nightly"})
-      assert html =~ ~s(data-testid="schedule-remove-modal")
-
-      html = render_click(view, "cancel_remove", %{})
-      refute html =~ ~s(data-testid="schedule-remove-modal")
-      assert html =~ ~s(data-testid="schedule-row-nightly")
-
-      assert FakeController.calls(node, {Schedule, :remove}) == []
-    end
-
     test "removes and retracts in one call", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, ~p"/schedules")
 
-      render_click(view, "confirm_remove", %{"name" => "nightly"})
-      assert render_click(view, "remove", %{"name" => "nightly"}) =~ "Schedule nightly removed."
+      assert confirm_remove(view) =~ "Schedule nightly removed."
 
       assert [["nightly", %{source: :ui}]] = FakeController.calls(node, {Schedule, :remove})
     end
@@ -376,28 +327,16 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/schedules")
-      render_click(view, "confirm_remove", %{"name" => "nightly"})
 
-      assert render_click(view, "remove", %{"name" => "nightly"}) =~ "authz.role_insufficient"
+      assert confirm_remove(view) =~ "authz.role_insufficient"
     end
   end
 
   describe "running a schedule now" do
-    test "asks first, and a cancelled run starts nothing", %{conn: conn, node: node} do
-      with_entries(node, [entry()])
-
-      {:ok, view, _html} = live(conn, ~p"/schedules")
-
-      assert view |> element(~s([data-testid="schedule-run-nightly"])) |> render_click() =~
-               ~s(data-testid="schedule-run-modal")
-
-      html = view |> element(~s([data-testid="schedule-run-cancel"])) |> render_click()
-
-      refute html =~ ~s(data-testid="schedule-run-modal")
-      assert FakeController.calls(node, {Schedule, :run}) == []
-    end
-
-    test "names the relay it started and links to it", %{conn: conn, node: node} do
+    test "names the relay it started, and a forged second click fires nothing more", %{
+      conn: conn,
+      node: node
+    } do
       with_entries(node, [entry()])
 
       FakeController.set(

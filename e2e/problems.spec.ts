@@ -5,8 +5,8 @@ import { test, expect } from './fixtures';
  *
  * Which problems a fleet has depends on the moment it is read, so this holds
  * the count and the list to one answer rather than naming a problem; what each
- * kind of problem says and offers is asserted against arranged fleets in
- * `test/flezha_ui_web/live/problems_live_test.exs`.
+ * kind of problem says and offers, and their order, are asserted against
+ * arranged fleets in `test/flezha_ui_web/live/problems_live_test.exs`.
  */
 test.describe('Open problems', () => {
   test('the rail leads to the screen, and counts what it lists', async ({ page, live }) => {
@@ -15,30 +15,20 @@ test.describe('Open problems', () => {
     await expect(page).toHaveURL(/\/problems$/);
 
     await expect(page.getByTestId('problems-loading')).toHaveCount(0);
-    const items = page.locator('[data-testid^="problem-"][data-severity]');
+    await expect(page.getByTestId('runtime-error')).toHaveCount(0);
 
-    await expect(async () => {
-      const listed = await items.count();
+    // Read in one go: the rail and the list render from the same pulse, so a
+    // read split across two renders could catch them on different pulses.
+    const seen = await page.evaluate(() => ({
+      listed: document.querySelectorAll('[data-testid^="problem-"][data-severity]').length,
+      rail: document.querySelector('[data-testid="problems-count"]')?.textContent?.trim() ?? null,
+      clear: document.querySelector('[data-testid="problems-clear"]') !== null,
+    }));
 
-      if (listed === 0) {
-        await expect(page.getByTestId('problems-clear')).toBeVisible();
-        await expect(page.getByTestId('problems-count')).toHaveCount(0);
-      } else {
-        await expect(page.getByTestId('problems-count')).toHaveText(String(listed));
-      }
-    }).toPass({ timeout: 15_000 });
-  });
-
-  test('worst first: no warning is listed above a failure', async ({ page, live }) => {
-    await live('/problems');
-    await expect(page.getByTestId('problems-loading')).toHaveCount(0);
-
-    const severities = await page
-      .locator('[data-testid^="problem-"][data-severity]')
-      .evaluateAll((els) => els.map((el) => el.getAttribute('data-severity')));
-
-    const firstWarning = severities.indexOf('warning');
-    const lastNegative = severities.lastIndexOf('negative');
-    expect(firstWarning === -1 || lastNegative < firstWarning).toBe(true);
+    expect(seen).toEqual({
+      listed: seen.listed,
+      rail: seen.listed === 0 ? null : String(seen.listed),
+      clear: seen.listed === 0,
+    });
   });
 });

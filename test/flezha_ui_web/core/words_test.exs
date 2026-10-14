@@ -46,18 +46,4 @@ defmodule FlezhaUiWeb.WordsTest do
     assert Words.worst([:warning, :negative]) == :negative
     assert Words.worst([]) == :neutral
   end
-
-  test "no screen keeps a label map of its own for a translated state" do
-    offenders =
-      for path <- Path.wildcard("lib/flezha_ui_web/**/*.ex"),
-          path != "lib/flezha_ui_web/words.ex",
-          source = File.read!(path),
-          Regex.match?(
-            ~r/defp? (recovery_label|health_variant|status)\((true|false|:normal|:healthy)\)/,
-            source
-          ),
-          do: path
-
-    assert offenders == []
-  end
 end

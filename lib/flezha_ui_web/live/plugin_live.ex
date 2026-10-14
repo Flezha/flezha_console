@@ -40,6 +40,7 @@ defmodule FlezhaUiWeb.PluginLive do
        provider_details: %{},
        plugins: [],
        refused: [],
+       namespaces_error: nil,
        available_providers: [],
        refused_packages: 0,
        providers_error: nil,
@@ -119,10 +120,10 @@ defmodule FlezhaUiWeb.PluginLive do
   defp assign_plugins(socket) do
     token = socket.assigns.flezha_token
 
-    namespaces =
+    {namespaces, namespaces_error} =
       case socket.assigns.scoped_namespace do
-        nil -> token |> NodeManager.scoped_namespaces() |> elem(0)
-        scope -> [scope]
+        nil -> NodeManager.scoped_namespaces(token)
+        scope -> {[scope], nil}
       end
 
     {plugins, refused} =
@@ -134,7 +135,11 @@ defmodule FlezhaUiWeb.PluginLive do
       end)
 
     socket
-    |> assign(plugins: Enum.sort_by(plugins, &{&1.namespace, &1.name}), refused: refused)
+    |> assign(
+      plugins: Enum.sort_by(plugins, &{&1.namespace, &1.name}),
+      refused: refused,
+      namespaces_error: namespaces_error
+    )
     |> describe_providers()
   end
 

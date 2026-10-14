@@ -167,13 +167,6 @@ defmodule FlezhaUiWeb.LayoutsTest do
 
       refute Enum.any?(entries, &(&1.path == "/relays" or &1.label == "Fleet"))
     end
-
-    test "the dashboard is gone" do
-      labels = for section <- Layouts.nav_sections("default"), e <- section.entries, do: e.label
-
-      refute "Dashboard" in labels
-      refute "Overview" in labels
-    end
   end
 
   describe "screen/1" do

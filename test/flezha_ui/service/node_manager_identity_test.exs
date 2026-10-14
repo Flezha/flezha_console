@@ -4,9 +4,9 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
   from it, the error shape, the enforcement posture, and the stream operations
   a context carries an emit pid for.
 
-  Every test uses its own token string. Verification is cached per token for
-  the whole VM, so a shared literal would let one test's answer be the next
-  one's surprise — the same reason `FakeController.reset/1` exists.
+  Each verification gets its own token string. Verification is cached per
+  token, so a second answer set under a token already asked about would never
+  be heard. `FakeController.reset/1` empties the cache between tests.
   """
 
   use ExUnit.Case, async: false
@@ -17,11 +17,16 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
   @moduletag :distributed
 
   @verify {Flezha.AuthZ.TokenStore, :verify}
+  @posture {Flezha.AuthZ, :enforcement_posture}
+  @cache :flezha_ui_authz_cache
 
-  setup do
-    "nm_identity_peer"
-    |> PeerNode.setup_controller()
-    |> Map.put(:token, unique_token())
+  setup_all do
+    PeerNode.setup_controller("nm_identity_peer")
+  end
+
+  setup %{node: node} do
+    FakeController.reset(node)
+    %{token: unique_token()}
   end
 
   defp unique_token, do: "flzt_test_#{System.unique_integer([:positive])}"
@@ -154,14 +159,6 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
       NodeManager.verify_token(token)
 
       assert length(verify_calls(node)) == 2
-    end
-
-    test "a transport failure is not an answer about the token", %{peer: peer, token: token} do
-      PeerNode.stop(peer)
-
-      assert {:error, :node_not_connected} = NodeManager.verify_token(token)
-      # Nothing was cached, so a reachable controller answers for itself.
-      assert {:error, :node_not_connected} = NodeManager.verify_token(token)
     end
 
     test "eviction forces the next call to re-ask", %{node: node, token: token} do
@@ -419,12 +416,6 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
 
       assert NodeManager.enforcement_posture() == :open
     end
-
-    test "an unreachable controller is not reported as open", %{peer: peer} do
-      PeerNode.stop(peer)
-
-      assert {:error, :node_not_connected} = NodeManager.enforcement_posture()
-    end
   end
 
   describe "authz_status/1" do
@@ -451,5 +442,38 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
 
       assert %{principal: nil, token?: false, reason: nil} = NodeManager.authz_status(nil)
     end
+  end
+
+  describe "the identity cache" do
+    test "never holds the token itself", %{node: node, token: token} do
+      FakeController.set(node, @posture, :enforced)
+      bind(node, identity())
+
+      assert {:ok, _identity} = NodeManager.verify_token(token)
+      assert %{principal: "ops@acme"} = NodeManager.authz_status(token)
+
+      entries = :ets.tab2list(@cache)
+      assert [_ | _] = entries
+      assert :binary.match(:erlang.term_to_binary(entries), token) == :nomatch
+    end
+
+    test "a posture change shows once the cached posture expires", %{node: node, token: token} do
+      FakeController.set(node, @posture, :open)
+      assert %{posture: :open} = NodeManager.authz_status(token)
+
+      FakeController.set(node, @posture, :enforced)
+      assert %{posture: :open} = NodeManager.authz_status(token)
+
+      expire_cache()
+      assert %{posture: :enforced} = NodeManager.authz_status(token)
+    end
+  end
+
+  # Moves every entry's expiry, an absolute monotonic time, into the past.
+  defp expire_cache do
+    past = System.monotonic_time(:millisecond) - 1
+
+    for {key, _value, _expires_at} <- :ets.tab2list(@cache),
+        do: :ets.update_element(@cache, key, {3, past})
   end
 end

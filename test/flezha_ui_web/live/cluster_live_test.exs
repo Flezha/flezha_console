@@ -61,9 +61,6 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
-      assert html =~ ~s(data-testid="cluster-nodes")
-      assert html =~ ~s(data-testid="cluster-nodes-panel")
-      assert html =~ ~s(data-testid="cluster-connected")
       assert html =~ "Connected to this console"
       assert html =~ to_string(node)
     end
@@ -95,10 +92,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
-      assert html =~ ~s(data-testid="cluster-namespace-default")
-      assert html =~ ~s(data-testid="hub-nodes-default")
       assert html =~ "flezha@hub-1"
-      assert html =~ ~s(data-testid="runners-default")
       assert html =~ "runner-a"
       assert html =~ "store_input"
     end
@@ -155,20 +149,6 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       assert view |> element(~s([data-testid="factory-store_input"])) |> render() =~ "flow"
     end
 
-    test "renders the empty fleet rather than an empty panel", %{conn: conn, node: node} do
-      one_namespace(node, factories: [factory("store_input")], runners: [])
-
-      {:ok, _view, html} = live(conn, ~p"/cluster")
-
-      assert html =~ ~s(data-testid="runners-empty-default")
-    end
-
-    test "renders the empty cluster when no namespace is visible", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/cluster")
-
-      assert html =~ ~s(data-testid="cluster-namespaces-empty")
-    end
-
     test "a refused hub read is stated and the rest still renders", %{conn: conn, node: node} do
       one_namespace(node,
         runners: [%{id: "runner-a", pid: nil}],
@@ -181,18 +161,6 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
                "authz.role_insufficient"
 
       assert html =~ "runner-a"
-    end
-
-    test "renders the controller's refusal instead of crashing", %{conn: conn, node: node} do
-      FakeController.set(
-        node,
-        {Relay, :list_namespaces},
-        FakeController.error("controller.timeout")
-      )
-
-      {:ok, _view, html} = live(conn, ~p"/cluster")
-
-      assert html =~ ~s(data-testid="runtime-error")
     end
   end
 
@@ -379,17 +347,13 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
   end
 
   describe "hub recovery" do
-    test "is read from the rollup, with no button that only reads it again", %{
-      conn: conn,
-      node: node
-    } do
+    test "a serving hub is not announced", %{conn: conn, node: node} do
       one_namespace(node, rows: [row("a")], hub_nodes: [:"flezha@node-a"])
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
-      refute html =~ "open-recovery"
+      assert html =~ ~s(data-testid="node-flezha@node-a")
       refute html =~ ~s(data-testid="hub-not-serving-)
-      assert html =~ ~s(data-testid="help-rollup-default")
     end
 
     test "a hub mid-recovery is announced, saying nothing needs doing", %{

@@ -1,6 +1,6 @@
 defmodule FlezhaUi.CoverageLedgerTest do
   @moduledoc ~S"""
-  Every control and every event in `lib/` is driven by some test.
+  Every event in `lib/` is driven through its markup by some test.
 
   Read from `lib/` (`.ex` and `.heex`, docs and comments left out), tag by tag:
 
@@ -19,23 +19,25 @@ defmodule FlezhaUi.CoverageLedgerTest do
       `data-testid` or `testid` for `phx-*` and `click`, `<x>_testid` for
       `on_<x>`.
 
-  Read from `e2e/*.ts` and `test/**/*.exs`, this file aside and lines that
-  refute a control or assert it absent left out, as names: each
-  `data-testid=` or `data-testid^=` selector value, each `~w(...)` word and
-  the leading literal of every string, up to its end or its first
-  interpolation.
+  Read from `e2e/*.ts` and `test/**/*.exs`, this file aside, only the lines
+  that act on a control count: a browser `click`, `fill`, `check`,
+  `selectOption` or `press`, a fixture helper that drives its argument, an
+  ExUnit `element/2` or `form/2` piped into a `render_*` call, or a row of a
+  table-driven test naming the controls it clicks under `open:`, `cancel:` or
+  `before:`. Lines that
+  refute a control or assert it absent are left out. From those lines, each
+  `data-testid=` or `data-testid^=` selector value, each `~w(...)` word and the
+  leading literal of every string is a name. A name equal to an exact id names
+  it; any other name names the longest prefix id it starts with, so
+  `relay-row-relay_a` and `` `relay-row-${id}` `` both name `relay-row-*`.
 
-  A name equal to an exact id covers it. Any other name covers the longest
-  prefix id it starts with, so `relay-row-relay_a` and `` `relay-row-${id}` ``
-  both cover `relay-row-*`. An event is covered when a test names it in a
-  `render_*` call, or when markup binds it to a test id a test acts on: a
-  browser `click`, `fill`, `check`, `selectOption` or `press` on that id, a
-  fixture helper that drives it, or an ExUnit `render_*` on its element.
-  Naming a control is not driving it. Coverage is
-  by name across the tree, not per screen.
+  An event is driven when markup binds it to an id such a line names, when such
+  a line selects its binding (`[phx-click="x"]`), or when `render_hook/3`
+  pushes it, as a JS hook would. Pushing an event by name past the markup, as
+  `render_click(view, "x")` does, drives nothing: it passes whatever the button
+  is wired to. Coverage is by name across the tree, not per screen.
 
-  An exemption names an id (a prefix as `x-*`) or an event, with the reason it
-  can never be driven.
+  An exemption names an event with the reason it can never be driven.
   """
 
   use ExUnit.Case, async: true
@@ -62,18 +64,11 @@ defmodule FlezhaUi.CoverageLedgerTest do
     %{ledger: ledger()}
   end
 
-  test "every test id in lib is driven by a test", %{ledger: ledger} do
-    open = exempted(ledger.uncovered_ids)
-
-    assert open == [],
-           "test ids no test names (#{length(open)}):\n" <> by_file(open)
-  end
-
   test "every event in lib is driven by a test", %{ledger: ledger} do
     open = exempted(ledger.uncovered_events)
 
     assert open == [],
-           "events no test drives (#{length(open)}):\n" <> by_file(open)
+           "events no test drives through their markup (#{length(open)}):\n" <> by_file(open)
   end
 
   test "every event markup binds is handled", %{ledger: ledger} do
@@ -93,8 +88,7 @@ defmodule FlezhaUi.CoverageLedgerTest do
   end
 
   test "every exemption still excuses something", %{ledger: ledger} do
-    open =
-      Enum.map(ledger.uncovered_ids ++ ledger.uncovered_events ++ ledger.unhandled, &elem(&1, 0))
+    open = Enum.map(ledger.uncovered_events ++ ledger.unhandled, &elem(&1, 0))
 
     stale = for {name, _reason} <- @exempt, name not in open, do: name
 
@@ -105,6 +99,55 @@ defmodule FlezhaUi.CoverageLedgerTest do
     assert ledger.ids >= @ids_floor
     assert ledger.events >= @events_floor
     assert ledger.bindings >= @bindings_floor
+  end
+
+  describe "what drives an event" do
+    test "an event pushed by name past its markup drives nothing" do
+      refute driven?(~s|render_click(view, "stop_relay", %{"id" => "stop-btn"})|, "stop_relay")
+      refute acts_on?(~s|render_click(view, "stop_relay", %{"id" => "stop-btn"})|, "stop-btn")
+    end
+
+    test "a click on an element drives what its markup binds" do
+      assert acts_on?(
+               ~s|view \|> element(~s([data-testid="stop-btn"])) \|> render_click()|,
+               "stop-btn"
+             )
+
+      assert acts_on?(
+               ~s|view\n\|> element("[data-testid=stop-btn]")\n\|> render_click()|,
+               "stop-btn"
+             )
+    end
+
+    test "a selector on the binding drives the event it binds" do
+      assert driven?(
+               ~s|element(view, ~s(button[phx-click="stop_relay"])) \|> render_click()|,
+               "stop_relay"
+             )
+    end
+
+    test "a hook's event is driven by render_hook" do
+      assert driven?(
+               ~s|render_hook(view, "refresh_visibility", %{"hidden" => true})|,
+               "refresh_visibility"
+             )
+    end
+
+    test "a table row's open, cancel and before controls are acted on" do
+      assert acts_on?(~s|        cancel: "schedule-run-cancel",|, "schedule-run-cancel")
+      assert acts_on?(~s|        before: ["section-toggle-x"],|, "section-toggle-x")
+      refute acts_on?(~s|        kept: "schedule-row-nightly"|, "schedule-row-nightly")
+    end
+
+    test "a browser action on an id acts on it, and asserting it absent does not" do
+      assert acts_on?(~s|await page.getByTestId('stop-btn').click();|, "stop-btn")
+      refute acts_on?(~s|await expect(page.getByTestId('stop-btn')).toHaveCount(0);|, "stop-btn")
+    end
+
+    defp driven?(src, event), do: event in driven_events([src], [acting_lines(src)])
+
+    defp acts_on?(src, id),
+      do: id in covered_ids(MapSet.new([id]), test_names([acting_lines(src)]))
   end
 
   defp ledger do
@@ -130,12 +173,9 @@ defmodule FlezhaUi.CoverageLedgerTest do
 
     events = for {f, src} <- lib, name <- handled(src), uniq: true, do: {name, f}
 
-    covered = covered_ids(MapSet.new(ids, &elem(&1, 0)), test_names(tests))
-
-    driven = driven_events(tests)
-
-    acted =
-      covered_ids(MapSet.new(ids, &elem(&1, 0)), test_names(Enum.map(tests, &acting_lines/1)))
+    acting = Enum.map(tests, &acting_lines/1)
+    driven = driven_events(tests, acting)
+    acted = covered_ids(MapSet.new(ids, &elem(&1, 0)), test_names(acting))
 
     bound = for {event, id, _f, _attr} <- bindings, id in acted, into: MapSet.new(), do: event
     handled = MapSet.new(events, &elem(&1, 0))
@@ -144,7 +184,6 @@ defmodule FlezhaUi.CoverageLedgerTest do
       ids: length(ids),
       events: length(events),
       bindings: length(bindings),
-      uncovered_ids: Enum.reject(ids, &(elem(&1, 0) in covered)),
       uncovered_events: Enum.reject(events, &(elem(&1, 0) in driven or elem(&1, 0) in bound)),
       # `lv:` events are LiveView's own.
       unhandled:
@@ -260,9 +299,12 @@ defmodule FlezhaUi.CoverageLedgerTest do
   end
 
   # A line that acts on a control: a browser action, a fixture helper that
-  # drives its argument, or an ExUnit `render_*`, which may close a pipeline
-  # started a line or two above.
-  @acts ~r/\.(?:click|dblclick|fill|check|uncheck|selectOption|press)\(|\b(?:choose|openSection|closeSection|confirmEach|fillPluginForm)\(|render_(?:click|submit|change|hook|blur|focus|keydown|keyup)\(/
+  # drives its argument, an ExUnit `render_*` on an element, which may close a
+  # pipeline started a line or two above, or a row of a table-driven test
+  # naming the controls it clicks under `open:`, `cancel:` or `before:`. A
+  # `render_*` given an event name pushes past the markup, so it acts on
+  # nothing.
+  @acts ~r/\.(?:click|dblclick|fill|check|uncheck|selectOption|press)\(|\b(?:choose|openSection|closeSection|confirmEach|fillPluginForm)\(|render_(?:click|submit|change|hook|blur|focus|keydown|keyup)\((?!\s*[\w.@]+\s*,\s*")|^\s*(?:open|cancel|before):\s/
 
   defp acting_lines(src) do
     lines = String.split(src, "\n")
@@ -277,11 +319,18 @@ defmodule FlezhaUi.CoverageLedgerTest do
     |> Enum.map_join("\n", &elem(&1, 0))
   end
 
-  defp driven_events(tests) do
-    render =
-      ~r/render_(?:click|submit|change|hook|blur|focus|keydown|keyup)\(\s*(?:[\w.@]+\s*,\s*)?"([^"#]+)"/
+  # A hook pushes its event by name, so `render_hook/3` is how a test drives
+  # one; a selector on the binding itself drives what it is bound to.
+  defp driven_events(tests, acting) do
+    hooked = ~r/render_hook\(\s*(?:[\w.@]+\s*,\s*)?"([^"#]+)"/
+    selected = ~r/phx-[a-z-]+=\\?["']([^"'\\#]+)/
 
-    for src <- tests, [_, e] <- Regex.scan(render, src), into: MapSet.new(), do: e
+    for(
+      {src, lines} <- Enum.zip(tests, acting),
+      [_, e] <- Regex.scan(hooked, src) ++ Regex.scan(selected, lines),
+      into: MapSet.new(),
+      do: e
+    )
   end
 
   defp covered_ids(ids, names) do

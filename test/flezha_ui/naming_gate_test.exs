@@ -92,6 +92,54 @@ defmodule FlezhaUi.NamingGateTest do
       assert NamingGate.judge("README.md", "Code.compile_string(src)") == []
     end
 
+    @waits [
+      {"e2e/x.spec.ts", "await page.waitForTimeout(500);"},
+      {"e2e/x.spec.ts", "await new Promise((r) => setTimeout(r, 50));"},
+      {"e2e/x.spec.ts", "test.setTimeout(90_000);"},
+      {"e2e/x.spec.ts", "test.slow();"},
+      {"e2e/x.spec.ts", "{ timeout: 30_000, intervals: [3_000] }"},
+      {"e2e/x.spec.ts", "await expect(row).toBeVisible({ timeout: 5000 });"},
+      {"e2e/x.spec.ts", "await expect(row).toBeVisible({ timeout: ADVANCE_WINDOW_MS });"},
+      {"e2e/x.spec.ts", "await expect(row).toBeVisible({ timeout: 2 * WINDOW });"},
+      {"test/x_test.exs", "Process.sleep(500)"},
+      {"test/x_test.exs", ":timer.sleep(10)"},
+      {"test/x_test.exs", "assert_receive {:done, _}, 1_000"},
+      {"test/x_test.exs", "refute_receive :tick, 2000"}
+    ]
+
+    @prompt [
+      {"e2e/x.spec.ts", "await expect(row).toBeVisible({ timeout: 2_000 });"},
+      {"test/x_test.exs", "assert_receive {:done, 1_000}"},
+      {"test/x_test.exs", "assert_receive {:done, _}, 500"},
+      {"lib/x.ex", "Process.sleep(500)"},
+      {"lib/x.ex", "Process.send_after(self(), :tick, 5_000)"},
+      {"test/x_test.exs", "{ timeout: 30_000 }"}
+    ]
+
+    for {path, line} <- @waits do
+      test "flags the wait #{inspect(line)} in #{path}" do
+        assert NamingGate.judge(unquote(path), unquote(line)) != []
+      end
+    end
+
+    for {path, line} <- @prompt do
+      test "passes #{inspect(line)} in #{path}" do
+        assert NamingGate.judge(unquote(path), unquote(line)) == []
+      end
+    end
+
+    test "an exemption for a wait is stale once nothing in its file needs it" do
+      assert Enum.any?(
+               NamingGate.stale_entries(["README.md"]),
+               &match?({"test/support/peer_node.ex", _, _}, &1)
+             )
+
+      refute Enum.any?(
+               NamingGate.stale_entries(["test/support/peer_node.ex"]),
+               &match?({"test/support/peer_node.ex", _, _}, &1)
+             )
+    end
+
     test "masks an allowlisted occurrence in its own path only" do
       assert NamingGate.judge(".claude/skills/x/SKILL.md", "the workflow") == []
       assert NamingGate.judge("README.md", "the workflow") != []

@@ -323,17 +323,20 @@ defmodule FlezhaUiWeb.TopologyTest do
   end
 
   describe "wire_mode/3" do
-    test "streams from 5/s and keeps streaming until the rate falls to 3/s" do
-      assert Topology.wire_mode(:trickling, 5.0, 0) == :streaming
-      assert Topology.wire_mode(:trickling, 4.0, 0) == :trickling
-      assert Topology.wire_mode(:streaming, 4.0, 0) == :streaming
-      assert Topology.wire_mode(:streaming, 3.0, 0) == :trickling
-    end
-
-    test "trickles while a record passed within 30 s, and is quiet after" do
-      assert Topology.wire_mode(:quiet, 0.1, 30_000) == :trickling
-      assert Topology.wire_mode(:trickling, 0.1, 30_001) == :quiet
-      assert Topology.wire_mode(:quiet, nil, nil) == :quiet
+    # {from, rate, ms since a record passed, to}: streaming starts at 5/s and
+    # holds until 3/s; trickling holds while a record passed within 30 s.
+    for {from, rate, since, to} <- [
+          {:trickling, 5.0, 0, :streaming},
+          {:trickling, 4.0, 0, :trickling},
+          {:streaming, 4.0, 0, :streaming},
+          {:streaming, 3.0, 0, :trickling},
+          {:quiet, 0.1, 30_000, :trickling},
+          {:trickling, 0.1, 30_001, :quiet},
+          {:quiet, nil, nil, :quiet}
+        ] do
+      test "#{from} at #{inspect(rate)}/s, #{inspect(since)} ms since a record, is #{to}" do
+        assert Topology.wire_mode(unquote(from), unquote(rate), unquote(since)) == unquote(to)
+      end
     end
   end
 
@@ -537,6 +540,14 @@ defmodule FlezhaUiWeb.TopologyTest do
     classes
   end
 
+  defp attr_of(html, testid, name) do
+    html
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query(~s([data-testid="#{testid}"]))
+    |> LazyHTML.attribute(name)
+    |> List.first()
+  end
+
   defp inside?(graph, node) do
     core = boundary(graph)
 
@@ -614,8 +625,8 @@ defmodule FlezhaUiWeb.TopologyTest do
       refute role(html, "relay_a") =~ "flz-graph-node--tasklet"
 
       # The keyboard walks the record path as before; the inside is a lane below it.
-      assert html =~ ~r/data-testid="topo-node-relay_a"[^>]*data-lane="record"/
-      assert html =~ ~r/data-testid="topo-node-tasklet-ohlc"[^>]*data-lane="inside"/
+      assert attr_of(html, "topo-node-relay_a", "data-lane") == "record"
+      assert attr_of(html, "topo-node-tasklet-ohlc", "data-lane") == "inside"
       assert html =~ ~s(class="topo-boundary-outline")
     end
 
@@ -894,7 +905,7 @@ defmodule FlezhaUiWeb.TopologyTest do
   end
 
   describe "pipeline_graph/1" do
-    test "renders the ports, the dock hint, the timeline and the not-counted tooltip" do
+    test "marks the tapped port, draws the timeline and the selection, and the not-counted tooltip" do
       bindings = [binding("a", "on_input", 0), binding("b", "on_input", 1)]
 
       graph =
@@ -908,15 +919,12 @@ defmodule FlezhaUiWeb.TopologyTest do
 
       html = render_component(&Topology.pipeline_graph/1, topology: graph, tapped: "output")
 
-      assert html =~ ~s(data-testid="topo-port-in")
-
-      assert html =~
-               ~r/data-testid="topo-port-out"[^>]*class="topo-port is-tapped"|class="topo-port is-tapped"[^>]*data-testid="topo-port-out"/
-
-      assert html =~ ~s(data-testid="topology-timeline" data-samples="1")
+      assert attr_of(html, "topo-port-out", "class") == "topo-port is-tapped"
+      assert attr_of(html, "topo-port-out", "aria-pressed") == "true"
+      assert attr_of(html, "topo-port-in", "aria-pressed") == "false"
+      assert attr_of(html, "topology-timeline", "data-samples") == "1"
       assert html =~ "Not counted: the controller keeps no counter between plugins"
       assert html =~ ~s(data-testid="topology-detail")
-      assert html =~ ~s(id="route-dlq")
     end
   end
 
@@ -1027,18 +1035,22 @@ defmodule FlezhaUiWeb.TopologyTest do
       assert Topology.traffic_label(older["relay_a"], :in) == "20.0 msgs/s"
     end
 
-    test "a first snapshot has no baseline and so no rates" do
-      assert Topology.rates(snapshot([counters("relay_a", 100, 90)]), nil, 2_000) == %{}
-    end
+    # {why, current received, previous received, elapsed ms}; nil is no snapshot.
+    for {why, current, previous, elapsed} <- [
+          {"a first snapshot has no baseline", 100, nil, 2_000},
+          {"a missing snapshot has nothing to advance", nil, 1, 2_000},
+          {"no elapsed time is not divided by", 140, 100, 0}
+        ] do
+      test "#{why}, so it yields no rates" do
+        reading = &(&1 && snapshot([counters("relay_a", &1, &1)]))
 
-    test "a missing snapshot yields no rates" do
-      assert Topology.rates(nil, snapshot([counters("relay_a", 1, 1)]), 2_000) == %{}
-    end
-
-    test "two snapshots with no elapsed time yield no rates rather than dividing by zero" do
-      previous = snapshot([counters("relay_a", 100, 90)])
-
-      assert Topology.rates(snapshot([counters("relay_a", 140, 120)]), previous, 0) == %{}
+        assert Topology.rates(
+                 reading.(unquote(current)),
+                 reading.(unquote(previous)),
+                 unquote(elapsed)
+               ) ==
+                 %{}
+      end
     end
 
     test "counters that went backwards clamp to zero for the tick" do
@@ -1061,38 +1073,34 @@ defmodule FlezhaUiWeb.TopologyTest do
   end
 
   describe "push_history/2" do
-    test "keeps the newest sample first" do
-      history =
-        Topology.push_history(%{"relay_a" => [%{in: 1.0, out: 1.0}]}, %{
-          "relay_a" => %{in: 2.0, out: 2.0}
-        })
+    # {samples held, samples after the push}: newest first, capped at sixty.
+    for {held, after_push} <- [{1, 2}, {59, 60}, {60, 60}] do
+      test "#{held} held samples become #{after_push}, the newest first" do
+        held = Enum.map(1..unquote(held), &%{in: &1 * 1.0, out: 0.0})
 
-      assert [%{in: 2.0}, %{in: 1.0}] = history["relay_a"]
-    end
+        history =
+          Topology.push_history(%{"relay_a" => held}, %{"relay_a" => %{in: 99.0, out: 0.0}})
 
-    test "caps each relay at sixty samples" do
-      samples = List.duplicate(%{in: 1.0, out: 1.0}, 60)
-
-      history =
-        Topology.push_history(%{"relay_a" => samples}, %{"relay_a" => %{in: 9.0, out: 9.0}})
-
-      assert length(history["relay_a"]) == 60
-      assert hd(history["relay_a"]) == %{in: 9.0, out: 9.0}
+        assert length(history["relay_a"]) == unquote(after_push)
+        assert [%{in: 99.0}, %{in: 1.0} | _rest] = history["relay_a"]
+      end
     end
   end
 
   describe "speed_bucket/1" do
-    test "no rate and no flow are both idle" do
-      assert Topology.speed_bucket(nil) == :idle
-      assert Topology.speed_bucket(+0.0) == :idle
-    end
-
-    test "each bucket ends where the next begins" do
-      assert Topology.speed_bucket(0.1) == :slow
-      assert Topology.speed_bucket(9.9) == :slow
-      assert Topology.speed_bucket(10.0) == :medium
-      assert Topology.speed_bucket(99.9) == :medium
-      assert Topology.speed_bucket(100.0) == :fast
+    # Each bucket ends where the next begins; no rate and no flow are idle.
+    for {rate, bucket} <- [
+          {nil, :idle},
+          {+0.0, :idle},
+          {0.1, :slow},
+          {9.9, :slow},
+          {10.0, :medium},
+          {99.9, :medium},
+          {100.0, :fast}
+        ] do
+      test "#{inspect(rate)} msgs/s is #{bucket}" do
+        assert Topology.speed_bucket(unquote(rate)) == unquote(bucket)
+      end
     end
   end
 

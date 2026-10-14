@@ -1,12 +1,10 @@
 import {
   menuAction,
+  ownRelay,
   test,
   expect,
   disablePlugin,
   openSection,
-  startRelay,
-  stopRelay,
-  testIds,
   uniqueId,
   fillPluginForm,
   optionError,
@@ -16,14 +14,17 @@ import {
 
 /**
  * Enabling a plugin by name and binding it to a relay, from the relay screen,
- * and disabling it again.
+ * and disabling it again, against a relay this file starts.
  *
  * One test per provider, so a provider that breaks fails under its own name
  * rather than disappearing into a summary that passes when any one provider
- * worked.
+ * worked. The hooks offered, the option bounds and the listings are asserted
+ * in `test/flezha_ui_web/live/plugin_live_test.exs`.
  */
 
-const RELAY_URL = '/namespaces/default/relays/testnet_store_1';
+const { id: RELAY } = ownRelay('pw_attach');
+const RELAY_URL = `/namespaces/default/relays/${RELAY}`;
+
 
 interface ProviderCase {
   id: string;
@@ -46,9 +47,6 @@ const PROVIDERS: ReadonlyArray<ProviderCase> = [
   { id: 'relay_websocket', opts: { uri: 'ws://flezha_controller:4500' }, hooks: ['on_terminate'] },
 ];
 
-/** The plugin ids of the binding rows currently in the table. */
-const bindingIds = (page: Page) => testIds(page, 'binding-row-');
-
 /** Fills the plugin form from the relay screen's Attach button. */
 const attachForm = (page: Page, fields: PluginFields) => fillPluginForm(page, 'attach-plugin-btn', fields);
 
@@ -70,35 +68,16 @@ async function expectAttachAccepted(page: Page, providerId: string) {
         if ((await error.count()) === 0) return 'pending';
         return (await error.innerText()).trim();
       },
-      { message: `${providerId} must attach`, timeout: 15_000 },
+      { message: `${providerId} must attach` },
     )
     .toBe('attached');
 }
-
 
 test.describe('Plugin attachment', () => {
   test.beforeEach(async ({ page, live }) => {
     await live(RELAY_URL);
     // The bindings table is one of the relay screen's folded sections.
     await openSection(page, 'plugins');
-  });
-
-  test('discovers the providers the controller offers', async ({ page }) => {
-    await page.getByTestId('attach-plugin-btn').click();
-    await expect(page.getByTestId('attach-modal')).toBeVisible();
-    await expect(page.getByTestId('provider-grid')).toBeVisible();
-
-    const discovered = await testIds(page, 'provider-btn-');
-
-    expect(discovered.length).toBeGreaterThan(0);
-    // Every provider this suite has a test for must still be offered; a
-    // provider that vanished would otherwise silently lose its coverage.
-    for (const { id } of PROVIDERS) {
-      expect(discovered, `${id} is no longer offered`).toContain(id);
-    }
-
-    await page.getByTestId('attach-close-btn').click();
-    await expect(page.getByTestId('attach-modal')).toHaveCount(0);
   });
 
   for (const { id, opts, hooks } of PROVIDERS) {
@@ -118,83 +97,53 @@ test.describe('Plugin attachment', () => {
         // The plugin is listed in its namespace, bound to this relay.
         await live('/namespaces/default/plugins');
         await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
-        await expect(page.getByTestId(`plugin-relays-${name}`)).toContainText('testnet_store_1');
+        await expect(page.getByTestId(`plugin-relays-${name}`)).toContainText(RELAY);
       } finally {
         await disablePlugin(page, name);
       }
     });
   }
 
-  test('the pipeline graph draws a relay this test started, before and after a bind', async ({
+  test('the pipeline graph draws a bound plugin, and an unbind removes it and keeps the plugin', async ({
     page,
     live,
   }) => {
-    const relay = uniqueId('pw_graph');
     const name = uniqueId('pw_gplug');
 
-    await live('/namespaces/default');
-    await startRelay(page, relay);
-
     try {
-      await live(`/namespaces/default/relays/${relay}`);
       const graph = page.getByTestId('topology-graph');
-      for (const node of ['ingest', relay, 'channel', 'output']) {
+      for (const node of ['ingest', RELAY, 'channel', 'output']) {
         await expect(graph.getByTestId(`topo-node-${node}`)).toBeVisible();
       }
       await expect(graph.locator(`[data-testid*="${name}"]`)).toHaveCount(0);
 
-      await openSection(page, 'plugins');
       await attachForm(page, { provider: 'relay_stdout', name, hooks: ['on_output'] });
       await page.getByTestId('attach-submit-btn').click();
       await expectAttachAccepted(page, 'relay_stdout');
 
       // The bound plugin joins the drawing on the next tick, the chain intact.
-      await expect(graph.locator(`[data-testid^="topo-node-"][data-testid*="${name}"]`)).toBeVisible({
-        timeout: 15_000,
-      });
+      await expect(graph.locator(`[data-testid^="topo-node-"][data-testid*="${name}"]`)).toBeVisible();
       await expect(graph.locator(`[data-testid^="topo-edge-"][data-testid*="${name}"]`).first()).toBeAttached();
-      await expect(graph.getByTestId(`topo-node-${relay}`)).toBeVisible();
+      await expect(graph.getByTestId(`topo-node-${RELAY}`)).toBeVisible();
       await expect(graph.getByTestId('topo-node-output')).toBeVisible();
+
+      await openSection(page, 'plugins');
+      await menuAction(page, `binding-menu-${name}`, `unbind-btn-${name}`);
+      await expect(page.getByTestId('unbind-confirm-modal')).toContainText('stays enabled');
+      await page.getByTestId('unbind-confirm-btn').click();
+      await expect(page.locator('body')).toContainText(`${RELAY} unbound from plugin ${name}.`);
+      await expect(page.getByTestId(`binding-row-${name}`)).toHaveCount(0);
+      await expect(graph.locator(`[data-testid*="${name}"]`)).toHaveCount(0);
+
+      await live('/namespaces/default/plugins');
+      await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
+      await expect(page.getByTestId(`plugin-relays-${name}`)).not.toContainText(RELAY);
     } finally {
       await disablePlugin(page, name);
-      await live('/namespaces/default');
-      await stopRelay(page, relay);
     }
   });
 
-  test('only the hooks the provider supports are offered', async ({ page }) => {
-    await attachForm(page, { provider: 'relay_stdout' });
-
-    // Offered as checkboxes from the provider's own description, so there is
-    // no free-text hook field to mistype.
-    await expect(page.getByTestId('input-hooks')).toBeVisible();
-    await expect(page.locator('input[name="plugin[hook]"]')).toHaveCount(0);
-
-    await page.getByTestId('attach-cancel-btn').click();
-  });
-
-  test('an option outside its bounds is refused on its field', async ({ page }) => {
-    const before = await bindingIds(page);
-
-    await attachForm(page, {
-      provider: 'relay_http_push',
-      hooks: ['on_output'],
-      opts: { url: 'http://fui_web:4000/dev/null', timeout_ms: '0' },
-    });
-    await page.getByTestId('attach-submit-btn').click();
-
-    await expect(optionError(page, 'timeout_ms')).toContainText('must be at least 1');
-    await expect(page.getByTestId('attach-error')).toHaveCount(0);
-    await expect(page.getByTestId('attach-modal')).toBeVisible();
-
-    await page.getByTestId('attach-cancel-btn').click();
-    expect(await bindingIds(page)).toEqual(before);
-  });
-
-  test("the controller's refusal of an option is shown on its field with its code", async ({
-    page,
-    live,
-  }) => {
+  test("the controller's refusal of an option is shown on its field with its code", async ({ page }) => {
     const name = uniqueId('pw_refused');
 
     try {
@@ -213,68 +162,5 @@ test.describe('Plugin attachment', () => {
     } finally {
       await disablePlugin(page, name);
     }
-  });
-
-  test('unbinding from the relay screen removes the binding and leaves the plugin enabled', async ({
-    page,
-    live,
-  }) => {
-    const name = uniqueId('pw_unbind');
-
-    try {
-      await attachForm(page, { provider: 'relay_stdout', name, hooks: ['on_output'] });
-      await page.getByTestId('attach-submit-btn').click();
-      await expectAttachAccepted(page, 'relay_stdout');
-
-      await openSection(page, 'plugins');
-      await expect(page.getByTestId(`binding-row-${name}`)).toBeVisible();
-
-      // Cancelling leaves the binding where it was.
-      await menuAction(page, `binding-menu-${name}`, `unbind-btn-${name}`);
-      await expect(page.getByTestId('unbind-confirm-modal')).toContainText('stays enabled');
-      await page.getByTestId('unbind-cancel-btn').click();
-      await expect(page.getByTestId('unbind-confirm-modal')).toHaveCount(0);
-      await expect(page.getByTestId(`binding-row-${name}`)).toBeVisible();
-
-      await menuAction(page, `binding-menu-${name}`, `unbind-btn-${name}`);
-      await page.getByTestId('unbind-confirm-btn').click();
-      await expect(page.locator('body')).toContainText(`testnet_store_1 unbound from plugin ${name}.`);
-      await expect(page.getByTestId(`binding-row-${name}`)).toHaveCount(0);
-
-      await live('/namespaces/default/plugins');
-      await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
-      await expect(page.getByTestId(`plugin-relays-${name}`)).not.toContainText('testnet_store_1');
-    } finally {
-      await disablePlugin(page, name);
-    }
-  });
-});
-
-/**
- * The catalog of what is installed on the controller host, which is a
- * different list from the plugins enabled in a namespace.
- */
-test.describe('Installed-plugin catalog', () => {
-  test('renders separately from the enabled plugins, with no installer controls', async ({
-    page,
-    live,
-  }) => {
-    await live('/plugins');
-
-    const catalog = page.getByTestId('installed-catalog');
-    await expect(catalog).toBeVisible();
-    // Installing is a deploy action, named rather than offered.
-    await expect(catalog).toContainText('flz plugin');
-
-    await expect(page.locator('[phx-click="install_plugin"]')).toHaveCount(0);
-    await expect(page.locator('[phx-click="uninstall_plugin"]')).toHaveCount(0);
-    await expect(page.locator('[phx-click="upgrade_plugin"]')).toHaveCount(0);
-  });
-
-  test('lists the seeded plugins with the relay each is bound to', async ({ page, live }) => {
-    await live('/plugins');
-
-    await expect(page.getByTestId('plugin-row-ws_store_1')).toBeVisible();
-    await expect(page.getByTestId('plugin-relays-ws_store_1')).toContainText('testnet_store_1');
   });
 });

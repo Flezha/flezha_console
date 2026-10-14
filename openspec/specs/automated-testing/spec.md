@@ -85,13 +85,12 @@ The plugin-attach suite SHALL run one test per provider so a provider that break
 
 ### Requirement: Browser tests leave no state behind
 
-Every browser test that creates controller state — a relay, a plugin enabled or bound, a schedule, a namespace, a token, a role binding — SHALL remove it before finishing, and SHALL use an identifier unique to the run so a leftover from a failed run cannot collide. A plugin a test enabled and bound SHALL be unbound from its relay before it is disabled, because a disabled plugin keeps its bindings.
+Every browser test that creates controller state — a relay, a plugin enabled or bound, a schedule, a namespace, a token, a role binding — SHALL remove it before finishing. It SHALL use an identifier unique to the run, so a leftover from a failed run cannot collide. A plugin a test enabled and bound SHALL be unbound from its relay before it is disabled, because a disabled plugin keeps its bindings.
 
 #### Scenario: A test that starts a relay
 
 - **WHEN** a relay-lifecycle test finishes
-- **THEN** every relay it started has been stopped
-- **AND** the relay count is what it was before the test
+- **THEN** every relay it started has been stopped and is no longer listed
 
 #### Scenario: A test that enables a plugin
 
@@ -100,9 +99,9 @@ Every browser test that creates controller state — a relay, a plugin enabled o
 
 #### Scenario: A bound plugin is cleaned up
 
-- **WHEN** a test cleans up a plugin it bound to a relay
+- **WHEN** a test cleans up a plugin it bound to its own relay
 - **THEN** the binding is removed from the relay before the plugin is disabled
-- **AND** the relay's binding list is what it was before the test
+- **AND** the binding the test made is no longer listed
 
 #### Scenario: A test that creates a schedule
 
@@ -116,12 +115,17 @@ Every browser test that creates controller state — a relay, a plugin enabled o
 
 ### Requirement: Login is established once per run
 
-The browser suite SHALL authenticate once by driving the real login form, reuse the resulting session across specs, and keep the stored session out of version control. The login form itself SHALL still have a test that exercises it directly.
+The browser suite SHALL create one console user per worker and authenticate each one once per run, by driving the real login form in global setup. Each worker SHALL reuse its own session across specs. Stored sessions SHALL be kept out of version control. The login form itself SHALL still have a test that exercises it directly.
 
 #### Scenario: Specs that need a logged-in session
 
 - **WHEN** a spec other than the login spec runs
-- **THEN** it starts already authenticated without submitting the login form
+- **THEN** it starts authenticated as its worker's user without submitting the login form
+
+#### Scenario: Per-user state does not cross workers
+
+- **WHEN** one worker stores a flezha token or a remembered namespace for its user
+- **THEN** no other worker's screens change
 
 #### Scenario: The login path is covered
 
@@ -131,11 +135,15 @@ The browser suite SHALL authenticate once by driving the real login form, reuse 
 #### Scenario: The stored session is not committed
 
 - **WHEN** the repository status is inspected after a browser run
-- **THEN** the stored session file is ignored by git
+- **THEN** the stored session files are ignored by git
 
 ### Requirement: Every LiveView has ExUnit coverage
 
-Each LiveView the router serves SHALL have an ExUnit test module using `Phoenix.LiveViewTest`. Coverage SHALL include the screen's rendered content, its events, and the error states `NodeManager` can return: a refusal, another `%Flezha.Error{}` failure, a missing controller function, a timeout, and no connected controller.
+Each LiveView the router serves SHALL have an ExUnit test module using `Phoenix.LiveViewTest`. That coverage SHALL include:
+- the screen's rendered content and its events;
+- the error states `NodeManager` can return: a refusal, another `%Flezha.Error{}` failure, a missing controller function, a timeout, a connection lost mid-call, and no connected controller.
+
+An error state a screen handles through a shared mechanic MAY be covered by that mechanic's table-driven test, with the screen as a row.
 
 #### Scenario: A screen renders against a controller that answers
 
@@ -156,6 +164,11 @@ Each LiveView the router serves SHALL have an ExUnit test module using `Phoenix.
 
 - **WHEN** no controller node is connected
 - **THEN** the screen renders its disconnected state and names the condition
+
+#### Scenario: The connection drops during a call
+
+- **WHEN** the controller node goes away while a call or a stream is in flight
+- **THEN** `NodeManager` answers `:node_not_connected` and the screen renders its disconnected state
 
 ### Requirement: The fake controller stands in by name
 
@@ -194,12 +207,17 @@ ExUnit's fake controller SHALL be compiled only under `MIX_ENV=test`, SHALL be l
 
 ### Requirement: Peer-backed tests are isolated and skippable
 
-Tests that boot a peer node SHALL run non-concurrently, SHALL start at most one peer per test module, and SHALL be tagged so they can be excluded from a fast local run.
+Tests that boot a peer node SHALL run non-concurrently. They SHALL boot at most one peer per test module, in the module's shared setup, and SHALL reset the fake controller and the authorization identity cache before each test. Only a test that stops or disconnects its peer SHALL boot its own, and such tests SHALL live in a module of their own. Peer-backed tests SHALL be tagged so they can be excluded from a fast local run.
 
 #### Scenario: Two peer-backed modules in one run
 
 - **WHEN** the suite runs modules that each boot a peer
 - **THEN** they do not run concurrently, and neither module's peer is mistaken for the other's controller
+
+#### Scenario: Tests within one peer-backed module
+
+- **WHEN** a module's tests run against the module's peer
+- **THEN** each starts with no canned answers, no recorded calls and no cached identity or posture from an earlier test
 
 #### Scenario: A fast local run
 
@@ -331,71 +349,44 @@ suppression of an error class SHALL NOT be used.
 
 ### Requirement: Controller-fed figures are asserted to advance
 
-A figure the console derives from live controller data SHALL be asserted to grow
-between two reads within a bounded window. This covers the listen count, a tap's
-message and byte rates, pipeline flow rates, sparkline samples, the periodic
-refresh, and every live feed the console shows — including the relay lifecycle
-feed and the audit and observability tails. Where a figure counts discrete events,
-the test SHALL cause those events itself through the console's own controls and
-assert the figure grew by them; where a figure is a rate over time, the dev stack's
-seeded traffic SHALL feed it. An assertion that such a figure exists, carries a
-unit or matches a digit pattern SHALL NOT stand alone, because a frozen feed
-satisfies it.
+A figure the console derives from live controller data SHALL be asserted to grow between two reads. This covers the listen count, a tap's message and byte rates, pipeline flow rates, sparkline samples, the periodic refresh, and every live feed the console shows, including the relay lifecycle feed and the audit and observability tails. The test SHALL cause the events that move the figure itself, through the console's own controls or a CLI call, against state it owns. It SHALL NOT rely on the dev stack's seeded traffic. An assertion that such a figure exists, carries a unit or matches a digit pattern SHALL NOT stand alone, because a frozen feed satisfies it.
 
 #### Scenario: A feed is dead
 
-- **WHEN** a live figure stays at its initial value while traffic is flowing
+- **WHEN** a live figure stays at its initial value after the test sent traffic
 - **THEN** the test asserting that figure fails and names the figure that did not move
 
 #### Scenario: The test causes the traffic
 
-- **WHEN** a test sends to a relay, starts or stops a relay, runs a schedule now, or performs an audited administration action through the console
-- **THEN** it asserts the figure or feed that reports that event grew to include it
+- **WHEN** a test sends to a relay, starts or stops a relay, runs a schedule now, or performs an audited administration action
+- **THEN** it asserts that the figure or feed reporting that event grew to include it
 
-#### Scenario: A feed is live
+#### Scenario: A rate over time
 
-- **WHEN** a live figure grows within the window
-- **THEN** the assertion passes as soon as it grows, without waiting out the window
+- **WHEN** a test asserts a rate or a sample series
+- **THEN** it sends traffic to its own relay across at least two refresh ticks of the dev stack's configured cadence
+- **AND** it waits within the default expectation timeout
 
-#### Scenario: Waiting for the figure
+#### Scenario: A figure the browser cannot move
 
-- **WHEN** a test waits for a figure to advance
-- **THEN** it polls the condition within a window longer than two seeded traffic intervals, defined in one place
-- **AND** it contains no fixed-duration sleep
-
-#### Scenario: A figure the dev stack cannot move
-
-- **WHEN** a figure cannot be made to advance by a healthy dev stack or by the console's own controls
+- **WHEN** a figure cannot be made to advance by the test's own actions against a healthy dev stack
 - **THEN** the assertion lives in ExUnit against the fake controller
 - **AND** no browser test reports success for a figure it did not observe move
 
-### Requirement: The seeded traffic is a named precondition
-
-The suite SHALL assert, in a test of its own, that the dev stack's seeded source
-traffic is bound to the seeded relays and flowing. That test SHALL fail by name when
-the traffic is absent, so a stack that produces no records is distinguishable from a
-console that does not display them.
-
-#### Scenario: The stack is not producing traffic
-
-- **WHEN** the seeded source plugins are not bound or deliver nothing
-- **THEN** the precondition test fails and names the missing traffic
-- **AND** its failure identifies the stack rather than the console
-
 ### Requirement: Every route and every control is driven by a named test
 
-Every route SHALL be reached by at least one test: every route the router serves to
-an authenticated user, plus the login, registration, account settings and logout
-paths. Every interactive control on those screens — button, link, toggle, filter,
-picker, form field, dialog, keyboard shortcut — SHALL be driven by a test that
-asserts the effect of driving it, not merely that it is visible. A control's test
-SHALL name the control, so a broken control fails under its own name.
+Every route SHALL be reached by at least one test: every route the router serves to an authenticated user, plus the login, registration, account settings and logout paths. Every interactive control on those screens — button, link, toggle, filter, picker, form field, dialog, keyboard shortcut — SHALL be driven through its markup by a test that asserts the effect of driving it, not merely that it is visible. In ExUnit, driving through the markup means `element/2` or `form/2` piped to a render function, or `render_hook/3` for an event a JS hook pushes. A test that pushes an event the markup does not offer SHALL exist only to assert that the server refuses or ignores a forged event, and SHALL say so in its name. A control's test SHALL name the control, so a broken control fails under its own name.
 
 #### Scenario: A control stops working
 
 - **WHEN** a control no longer has an effect — a button that opens nothing, a filter that does not filter, a link that does not navigate
 - **THEN** a test fails and names that control
 - **AND** the other controls on the screen still pass
+
+#### Scenario: A control is wired to the wrong event
+
+- **WHEN** a button's `phx-click` names a different event, or carries different values, than the test expects
+- **THEN** the ExUnit test that clicks it through `element/2` fails
 
 #### Scenario: A link is followed
 
@@ -416,10 +407,7 @@ SHALL name the control, so a broken control fails under its own name.
 
 ### Requirement: Stopping the controller stops at its confirmation
 
-The browser suite SHALL drive the controller's stop up to its typed confirmation and
-cancel there, asserting the controller is still serving, because a confirmed stop
-ends the dev stack for every other test and session. The confirmed stop SHALL be
-asserted in ExUnit against the fake controller.
+The browser suite SHALL drive the controller's stop up to its typed confirmation and cancel there, asserting the controller is still serving, because a confirmed stop ends the dev stack for every other test and session. The confirmed stop SHALL be asserted in ExUnit against the fake controller. Dropping a runner SHALL be treated the same way, because a dropped runner takes every worker's relays with it.
 
 #### Scenario: Stopping the controller in the browser
 
@@ -432,22 +420,24 @@ asserted in ExUnit against the fake controller.
 - **WHEN** an ExUnit test confirms the controller stop against the fake controller
 - **THEN** it asserts the call the console made and the progress and shutdown phase the screen shows
 
+#### Scenario: The confirmed runner drop
+
+- **WHEN** an ExUnit test confirms a runner drop and then readmits it against the fake controller
+- **THEN** it asserts the calls the console made, the dropped mark, the refusal shown while dropped, and the mark cleared on readmit
+
 ### Requirement: Dialogs are driven through both their confirm and cancel paths
 
-Every modal or confirmation dialog SHALL be opened, asserted, and closed by each of
-its paths in a test. The cancel path SHALL assert that what the dialog would have
-changed is unchanged. The confirm path SHALL assert the change took effect on the
-screen behind the dialog.
+Every modal or confirmation dialog SHALL be opened, asserted, and closed by each of its paths in a test. The cancel path SHALL assert that the controller was not called and that the target is unchanged. This SHALL be asserted for every dialog in one table-driven test. The confirm path SHALL assert the change took effect on the screen behind the dialog.
 
 #### Scenario: A dialog cannot be dismissed
 
 - **WHEN** a dialog's cancel or close control no longer closes it
-- **THEN** a test fails and names that dialog
+- **THEN** the table-driven cancel test fails and names that dialog
 
 #### Scenario: Cancelling does not act
 
-- **WHEN** a test cancels out of a destructive confirmation — stopping a relay, unbinding or disabling a plugin, dropping a dead letter, removing a schedule, deleting a namespace, revoking a token
-- **THEN** it asserts the target still exists and its state is unchanged
+- **WHEN** a test cancels out of a destructive confirmation — stopping a relay, unbinding or disabling a plugin, dropping a dead letter, removing a schedule, deleting a namespace, revoking a token, dropping a runner, stopping the controller
+- **THEN** it asserts no call reached the controller and the target is still shown unchanged
 
 #### Scenario: Confirming acts
 
@@ -480,32 +470,28 @@ without saying so SHALL fail its test.
 
 ### Requirement: Coverage of controls and events is checked against lib at run time
 
-An ExUnit test SHALL read `lib/` each time it runs, collect every test id and every
-LiveView event there, and fail naming each one that no browser spec under `e2e/`
-and no ExUnit test under `test/` drives. Test ids SHALL be read from both
-`data-testid` and component `testid` attributes; an interpolated id SHALL count by
-its literal prefix. Events SHALL be read from literal `handle_event/3` clauses and
-from event lists a module dispatches through a guard. The test SHALL also fail when
-markup binds a literal event name that no clause handles. The set it checks SHALL
-come from `lib/` itself, not from a hand-maintained list. Exemptions SHALL be listed
-individually with a reason, and an exemption without a reason SHALL fail the check.
+An ExUnit test SHALL read `lib/` each time it runs, collect every LiveView event there, and fail, naming each event that no test drives. An event SHALL count as driven only when:
+- an ExUnit test drives it through `element/2` or `form/2` piped to a render function;
+- a `render_hook/3` call reaches it; or
+- a browser spec under `e2e/` acts on the control bound to it.
+
+An event pushed directly by name SHALL NOT count. Events SHALL be read from literal `handle_event/3` clauses and from event lists a module dispatches through a guard. The test SHALL also fail when markup binds a literal event name that no clause handles. The set it checks SHALL come from `lib/` itself, not from a hand-maintained list. Exemptions SHALL be listed individually with a reason, and an exemption without a reason SHALL fail the check. Naming a test id in a test SHALL NOT count as covering anything.
 
 #### Scenario: New UI arrives untested
 
-- **WHEN** a control or an event is added to `lib/` and no test drives it
-- **THEN** `mix test` fails and names the identifier and the file it is in
+- **WHEN** an event is added to `lib/` and no test drives it through its markup
+- **THEN** `mix test` fails and names the event and the file it is in
 
 #### Scenario: Coverage sits in the other layer
 
-- **WHEN** an event is driven by an ExUnit test rather than a browser spec
+- **WHEN** an event is driven through its markup by an ExUnit test rather than a browser spec
 - **THEN** the check counts it as covered
 - **AND** it does not require a browser test that would have to branch on discovered state
 
-#### Scenario: A control a test only mentions
+#### Scenario: An event pushed past the markup
 
-- **WHEN** a test names a control's test id without acting on it, or only asserts it absent
-- **THEN** the event bound to that control is not counted as driven
-- **AND** the check names it until a test clicks, fills, checks or selects it, or renders it in ExUnit
+- **WHEN** the only test reaching an event calls `render_click(view, "event", params)` directly
+- **THEN** the check names the event as not driven
 
 #### Scenario: A button that does nothing
 
@@ -516,4 +502,152 @@ individually with a reason, and an exemption without a reason SHALL fail the che
 
 - **WHEN** a developer runs `mix test` with no dev stack up
 - **THEN** the coverage check runs and reports its result
+
+### Requirement: No test waits on the wall clock
+
+No test in either layer SHALL wait for time to pass. A test SHALL wait only for a condition it caused, and SHALL stop waiting as soon as the condition holds. A test SHALL NOT depend on traffic, ticks or retries it did not cause. A tree gate SHALL fail the ExUnit run naming each file and line that:
+- contains a fixed-duration wait: `waitForTimeout`, `setTimeout`, `Process.sleep` or `:timer.sleep`;
+- raises a time limit: `test.setTimeout`, `test.slow`, poll `intervals`, or a literal timeout of 5,000 ms or more in `e2e/`;
+- uses an `assert_receive` or `refute_receive` timeout of 1,000 ms or more in `test/`.
+
+Each exemption SHALL be listed individually with its reason, and an exemption nothing needs any more SHALL fail the gate.
+
+#### Scenario: A fixed sleep is added
+
+- **WHEN** a test under `test/` or `e2e/` gains `Process.sleep(500)` or `page.waitForTimeout(500)`
+- **THEN** `mix test` fails, naming the file, the line and what to do instead
+
+#### Scenario: A long timeout is added to wait out a cadence
+
+- **WHEN** a browser test passes `{ timeout: 12_000 }` to an expectation
+- **THEN** the gate fails naming it
+- **AND** the run stays red until the test causes the condition itself or an exemption with a reason is added
+
+#### Scenario: Polling a condition the test caused
+
+- **WHEN** a test sends a record and polls for the screen to show it
+- **THEN** the poll uses the layer's default timeout and returns as soon as the record shows
+
+#### Scenario: A stale exemption
+
+- **WHEN** an exempted occurrence is removed from the tree but its exemption stays
+- **THEN** the gate fails naming the exemption
+
+### Requirement: Each layer runs within a time budget
+
+ExUnit SHALL cap every test at 5 s. The browser suite SHALL cap every test at 20 s, every expectation and action at 5 s, and every navigation at 10 s. A test that cannot meet its cap SHALL be fixed or moved to the layer that can produce its state quickly. The documented budgets SHALL be 90 s for the full ExUnit run and 4 min for the full browser run on the developer machine. The testing guide SHALL state how to list the slowest tests in each layer.
+
+#### Scenario: A test exceeds its cap
+
+- **WHEN** an ExUnit test runs longer than 5 s, or a browser test longer than 20 s
+- **THEN** that test fails with a timeout naming it
+
+#### Scenario: Finding what is slow
+
+- **WHEN** a developer wants to know what dominates a run
+- **THEN** the testing guide gives the command that lists the slowest tests for each layer
+
+### Requirement: The browser suite runs in parallel workers
+
+The browser suite SHALL run spec files in parallel across workers. The default worker count SHALL be 4, overridable by an environment variable. Tests within one file SHALL run in order in one worker. A test SHALL NOT depend on another file's tests having run, or on their absence.
+
+#### Scenario: Two specs run at once
+
+- **WHEN** two spec files run in different workers against the same stack
+- **THEN** neither one's assertions are affected by the other's actions
+
+#### Scenario: A file shares an expensive setup
+
+- **WHEN** a spec file needs several dead letters parked
+- **THEN** it parks all of them in one setup step before its tests
+- **AND** its tests run in order in one worker
+
+### Requirement: Browser tests own the state they assert on
+
+A browser test SHALL assert only on state it created or caused: relays it started, plugins bound to its own relay, schedules, namespaces, tokens, records it sent. It SHALL identify that state by run-unique ids, a key, or a pair. It SHALL NOT mutate the dev stack's seeded relays. It SHALL NOT assert a global count equals a value it read earlier. Actions that affect every session on the stack, such as stopping the controller or dropping a runner, SHALL be driven to their confirmation and cancelled in the browser, with the confirmed path asserted in ExUnit.
+
+#### Scenario: Another worker starts a relay mid-test
+
+- **WHEN** a test lists relays while another worker starts one
+- **THEN** the test still passes, because it asserts that its own relay is or is not listed
+
+#### Scenario: A plugin attach test
+
+- **WHEN** a test binds a plugin
+- **THEN** it binds it to a relay that test started, never to a seeded relay
+
+#### Scenario: Dropping a runner in the browser
+
+- **WHEN** a browser test opens a runner's drop dialog
+- **THEN** it asserts the dialog's warning and cancels
+- **AND** the confirmed drop, the refused process and the readmit are asserted in ExUnit
+
+### Requirement: Test doubles are checked against the real controller
+
+The error catalogue the fake controller uses SHALL equal core's published error catalogue, read from the core checkout the published-surface test already locates. The fake controller's answers for every published read the console makes SHALL have the shape the real controller answers with: the tuple tag, map keys and value types, recursively, never the values. That shape SHALL be checked against a committed file recorded from the dev controller. Every browser run SHALL re-record the shapes and fail, naming each call whose live shape differs from the committed file.
+
+#### Scenario: Core adds or reclassifies an error code
+
+- **WHEN** core's error catalogue gives a code a different class than the fake's
+- **THEN** `mix test` fails naming the code and both classes
+
+#### Scenario: A fixture drifts from the real answer
+
+- **WHEN** a fake controller fixture returns a map missing a key the real answer carries
+- **THEN** `mix test` fails naming the call and the missing key
+
+#### Scenario: The controller changes an answer's shape
+
+- **WHEN** the dev controller answers a published read in a shape different from the committed recording
+- **THEN** the browser run fails in global setup naming the call, before any spec runs
+
+### Requirement: A shared mechanic is tested once
+
+A behaviour that several screens get from one shared module or one shared pattern SHALL be asserted by one table-driven test that iterates its screens. This covers a confirmation's cancel calling nothing, a refused primary read, an empty state, the disconnected screen, a tail closing its stream, and the relay launcher. Each row SHALL fail under its own screen's name. A per-screen copy of that assertion SHALL NOT exist alongside the table.
+
+#### Scenario: A screen breaks its cancel path
+
+- **WHEN** one screen's cancel control starts calling the controller
+- **THEN** the table-driven cancel test fails naming that screen and its control
+
+#### Scenario: A new screen with a confirmation
+
+- **WHEN** a screen with a confirmation dialog is added
+- **THEN** covering its cancel path takes one new row in the table, not a new test
+
+### Requirement: A test asserts behaviour, not presence
+
+A test SHALL fail when the behaviour it names breaks. These are not tests and SHALL NOT exist:
+- a test whose only assertions are that markup, a test id, a CSS class or a label is present;
+- a test that reads source files to prove something is absent;
+- an assertion that holds for any rendered page;
+- a test of a function the application never calls.
+
+#### Scenario: A presence-only test
+
+- **WHEN** a test only asserts that `data-testid="x"` is in the rendered HTML
+- **THEN** it is replaced by a test of what the control does, or deleted
+
+#### Scenario: A vacuous assertion
+
+- **WHEN** a test asserts `html =~ "flezha"` on a page whose layout always contains that word
+- **THEN** the assertion is replaced by one about the state under test
+
+### Requirement: One testing guide covers both layers
+
+`docs/testing.md` SHALL state:
+- the commands for each layer;
+- the rule for which layer an assertion belongs to;
+- the no-wait rule and how to cause traffic instead;
+- state ownership and parallel workers;
+- the table-driven mechanics and how to add a row;
+- the time caps and budgets;
+- how to re-record controller shapes.
+
+`README.md` SHALL point to it. `docs/e2e-tests.md` SHALL NOT exist.
+
+#### Scenario: A developer writes a new test
+
+- **WHEN** a developer reads `docs/testing.md` before writing a test
+- **THEN** it tells them which layer to use, how to make the condition they assert, and which gates will fail if they wait on time or assert presence
 

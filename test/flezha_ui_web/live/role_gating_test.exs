@@ -132,7 +132,7 @@ defmodule FlezhaUiWeb.RoleGatingTest do
     {:ok, relay, _html} = live(conn, ~p"/namespaces/default/relays/relay_a")
     open_section(relay, "plugins")
     {:ok, state, _html} = live(conn, ~p"/namespaces/default/relays/relay_a/state")
-    render_click(state, "select_cell", %{"cell" => "relay_a/orders/k1"})
+    state |> element(~s([data-testid="select-relay_a/orders/k1"])) |> render_click()
     {:ok, namespace, _html} = live(conn, ~p"/namespaces/default")
     open_section(namespace, "access")
     {:ok, plugins, _html} = live(conn, ~p"/plugins")
@@ -210,6 +210,29 @@ defmodule FlezhaUiWeb.RoleGatingTest do
     render_click(view, "calls_reopen", %{})
 
     assert FakeController.calls(node, {Relay, :listen}) == []
+  end
+
+  test "a viewer's forged stop reaches the controller as the viewer and shows its refusal", %{
+    conn: conn,
+    node: node
+  } do
+    grant(node, @viewer)
+
+    FakeController.set(
+      node,
+      {Relay, :stop},
+      FakeController.error("authz.role_insufficient", "viewer may not stop relays")
+    )
+
+    {:ok, view, html} = live(conn, ~p"/namespaces/default/relays/relay_a")
+    refute rendered?(html, "stop-relay-btn")
+
+    html = render_click(view, "stop_relay", %{})
+
+    assert [["default", "relay_a", context]] = FakeController.calls(node, {Relay, :stop})
+    assert context == %{source: :ui, principal: "p@acme", namespace: "default", role: :viewer}
+    assert html =~ "viewer may not stop relays"
+    assert html =~ "authz.role_insufficient"
   end
 
   test "whoami is read once for a token across refresh ticks", %{conn: conn, node: node} do

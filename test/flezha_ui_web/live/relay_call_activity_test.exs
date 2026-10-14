@@ -67,7 +67,6 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
     test "the panel starts folded with no listen held", %{conn: conn, node: node} do
       {:ok, _view, html} = live(conn, @url)
 
-      assert html =~ ~s(data-testid="calls-panel")
       refute html =~ ~s(data-testid="section-body-calls")
       assert FakeController.calls(node, @listen) == []
     end
@@ -331,7 +330,7 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
   describe "beside the payload tap" do
     test "a call does not move the tap, and an output adds no call", %{conn: conn, node: node} do
       view = open_calls(conn, node)
-      render_click(view, "graph_tap", %{"direction" => "output"})
+      view |> element(~s([data-testid="topo-port-out"][phx-click="graph_tap"])) |> render_click()
       assert PeerNode.eventually(fn -> length(FakeController.streams(node, @listen)) == 2 end)
 
       call(node, "c1")

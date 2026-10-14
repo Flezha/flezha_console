@@ -1,6 +1,7 @@
 defmodule FlezhaUi.NamingGate do
   @moduledoc """
-  Judges tracked files against the vocabulary core has retired.
+  Judges tracked files against the vocabulary core has retired, and the tests
+  against the waits a test must not make.
 
   Matching is by identifier component rather than by `\\b` word, so
   `max_operatives` and `entity_key` are caught while `cooperative` and
@@ -20,7 +21,7 @@ defmodule FlezhaUi.NamingGate do
   @own_files ~w(test/support/naming_gate.ex test/flezha_ui/naming_gate_test.exs)
   @legal ~w(LICENSE)
 
-  # {pattern, the term to use instead, :all | :lib}
+  # {pattern, the term to use instead, scope}
   @rules [
     {~r/(?:(?<![A-Za-z])|(?<=\\[ntr]))operatives?(?![a-z])/, "relay", :all},
     {~r/Operatives?(?![a-z])/, "Relay", :all},
@@ -67,8 +68,20 @@ defmodule FlezhaUi.NamingGate do
     {~r/(?<![A-Za-z0-9_])(?:relay_event|relay_error|tail_relay)(?![A-Za-z0-9_])/,
      "feed_event | feed_error | tail_feed", :all},
     {~r/Code\.compile_string|Node\.spawn/, "nothing: no code is run on the controller", :lib},
-    {~r/flezha-stylebook/, "flezha_stylebook", :all}
+    {~r/flezha-stylebook/, "flezha_stylebook", :all},
+    # A test waits only for a condition it caused, at its layer's default
+    # timeout; a sleep, a timer or a raised limit waits out a cadence instead.
+    {~r/\bsetTimeout\(|waitForTimeout\(|\btest\.slow\(/,
+     "a condition the test caused, at the default timeout", :tests},
+    {~r/\bintervals:/, "the default poll cadence", :e2e},
+    {~r/\btimeout:\s*(?:(?:[5-9]|[1-9]\d+)_?\d{3}(?![\d_])|\d+\s*\*|[A-Z][A-Z0-9_]+)/,
+     "the default timeout: cause the condition rather than wait for it", :e2e},
+    {~r/(?:Process|:timer)\.sleep\(/, "a message or a synchronous call the test caused", :exunit},
+    {~r/(?:assert|refute)_receive\b.*,\s*[1-9]\d*_?\d{3}\s*\)?\s*$/m,
+     "the default receive timeout, after a synchronous barrier", :exunit}
   ]
+
+  @scopes %{all: [""], lib: ["lib/"], tests: ["test/", "e2e/"], e2e: ["e2e/"], exunit: ["test/"]}
 
   # {path prefix, text, reason}
   @allowlist [
@@ -86,7 +99,11 @@ defmodule FlezhaUi.NamingGate do
      "the requirement that the retired runner events stay gone names them"},
     {"openspec/specs/automated-testing/spec.md",
      ~r/operatives?|max_entities_per_operative|on_operative_init|procedure(_id)?|ProcJournal|ProcInbox|proc_journal|proc_inbox|entit(y|ies)|entity_key|:stream|:workflow|:bounded|:unbounded|workflow|:operator|"operator"|EventRelay|compute_engine|processor|response\(\)|io_listen|StreamLive|stream_live|StreamBridge|stream_bridge|flezha-stylebook/,
-     "the naming gate's own requirement lists every name it bans"}
+     "the naming gate's own requirement lists every name it bans"},
+    {"test/support/peer_node.ex", ~r/Process\.sleep\(20\)/,
+     "eventually/2 is the one sanctioned poll: short steps toward a condition the test caused"},
+    {"test/support/fake_controller.ex", ~r/Process\.sleep\(:infinity\)/,
+     "parks the process that owns the answer table; nothing waits on it"}
   ]
 
   @type hit :: %{file: String.t(), line: non_neg_integer(), term: String.t(), use: String.t()}
@@ -112,24 +129,37 @@ defmodule FlezhaUi.NamingGate do
   @doc "Every retired name in `paths`, which are relative to `root`."
   @spec hits([String.t()], Path.t()) :: [hit()]
   def hits(paths, root \\ File.cwd!()) do
-    Enum.flat_map(paths, fn path ->
-      path_hits = for {term, use} <- judge(path, path), do: hit(path, 0, term, use)
+    paths
+    |> Task.async_stream(&file_hits(&1, root), ordered: true, timeout: :infinity)
+    |> Enum.flat_map(fn {:ok, hits} -> hits end)
+  end
 
-      line_hits =
-        root
-        |> Path.join(path)
+  defp file_hits(path, root) do
+    entries = entries_for(path)
+    path_hits = for {term, use} <- judge(path, path), do: hit(path, 0, term, use)
+    file = Path.join(root, path)
+
+    # Most files break no rule, so each rule is tried on the whole file once and
+    # only the rules it breaks are tried line by line.
+    rules = Enum.filter(rules_for(path), &Regex.match?(elem(&1, 0), mask(read(file), entries)))
+
+    line_hits =
+      if rules == [] do
+        []
+      else
+        file
         |> lines()
         |> Enum.flat_map(fn {text, n} ->
-          for {term, use} <- judge(path, text), do: hit(path, n, term, use)
+          for {term, use} <- apply_rules(rules, mask(text, entries)), do: hit(path, n, term, use)
         end)
+      end
 
-      path_hits ++ line_hits
-    end)
+    path_hits ++ line_hits
   end
 
   @doc "The retired names on one line of the file at `path`, after the allowlist."
   @spec judge(String.t(), String.t()) :: [{String.t(), String.t()}]
-  def judge(path, text), do: apply_rules(path, mask(text, entries_for(path)))
+  def judge(path, text), do: apply_rules(rules_for(path), mask(text, entries_for(path)))
 
   @doc "Allowlist entries that excuse nothing any more in `paths`."
   @spec stale_entries([String.t()], Path.t()) :: [{String.t(), Regex.t(), String.t()}]
@@ -146,7 +176,7 @@ defmodule FlezhaUi.NamingGate do
           |> Path.join(path)
           |> lines()
           |> Enum.any?(fn {text, _n} ->
-            Regex.match?(pattern, text) and apply_rules(path, mask(text, others)) != []
+            Regex.match?(pattern, text) and apply_rules(rules_for(path), mask(text, others)) != []
           end)
         end),
         do: entry
@@ -192,21 +222,24 @@ defmodule FlezhaUi.NamingGate do
     end
   end
 
-  defp lines(file) do
-    content = File.read!(file)
+  defp lines(file), do: file |> read() |> String.split("\n") |> Enum.with_index(1)
 
-    if String.valid?(content) do
-      content |> String.split("\n") |> Enum.with_index(1)
-    else
-      []
-    end
+  # A file that is not valid UTF-8 is binary to the gate, and judged as empty.
+  defp read(file) do
+    content = File.read!(file)
+    if String.valid?(content), do: content, else: ""
   end
 
   defp entries_for(path), do: Enum.filter(@allowlist, &String.starts_with?(path, elem(&1, 0)))
 
-  defp apply_rules(path, text) do
-    for {pattern, use, scope} <- @rules,
-        scope == :all or String.starts_with?(path, "lib/"),
+  defp rules_for(path) do
+    Enum.filter(@rules, fn {_pattern, _use, scope} ->
+      Enum.any?(Map.fetch!(@scopes, scope), &String.starts_with?(path, &1))
+    end)
+  end
+
+  defp apply_rules(rules, text) do
+    for {pattern, use, _scope} <- rules,
         [term | _] <- Regex.scan(pattern, text),
         uniq: true,
         do: {term, use}

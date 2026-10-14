@@ -11,7 +11,13 @@
 #     elixir --sname <unique> --cookie <cookie> priv/dev/cli_call.exs \
 #       Relay.call_channel '["default","orders","place",{"pair":"BTC-EUR","amount":1},{}]'
 #
-# Prints the door's JSON answer and exits 0, or prints the failure and exits 1.
+# Several argument arrays send that many requests, in order, from one node,
+# so a caller that needs many records pays for one boot:
+#
+#     elixir ... priv/dev/cli_call.exs Relay.send '["default","r1","input","a"]' \
+#       '["default","r1","input","b"]'
+#
+# Prints each door's JSON answer and exits 0, or prints the failure and exits 1.
 #
 # Environment:
 #   FLEZHA_NODE        the controller node, e.g. flezha@flezha_controller
@@ -20,7 +26,7 @@
 defmodule CliCall do
   @timeout_ms 60_000
 
-  def run([name, args_json]) do
+  def run([name | [_ | _] = requests]) do
     node = String.to_atom(env!("FLEZHA_NODE"))
     token = env!("FLEZHA_TOKEN_FILE") |> File.read!() |> String.trim()
 
@@ -28,18 +34,20 @@ defmodule CliCall do
 
     # The door prints on this process's group leader, which the remote process
     # inherits, so its answer lands on this script's stdout.
-    :erpc.call(
-      node,
-      Flezha.Service.Cli,
-      :call,
-      [name, args_json, [token: token, output: "json"]],
-      @timeout_ms
-    )
+    for args_json <- requests do
+      :erpc.call(
+        node,
+        Flezha.Service.Cli,
+        :call,
+        [name, args_json, [token: token, output: "json"]],
+        @timeout_ms
+      )
+    end
   catch
     kind, reason -> die("#{name} failed: #{kind} #{inspect(reason)}")
   end
 
-  def run(_argv), do: die("usage: cli_call.exs <door name> <args as a JSON array>")
+  def run(_argv), do: die("usage: cli_call.exs <door name> <args as a JSON array>...")
 
   defp env!(name) do
     case System.get_env(name) do
