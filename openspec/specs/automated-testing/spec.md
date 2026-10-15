@@ -130,7 +130,7 @@ The browser suite SHALL create one console user per worker and authenticate each
 #### Scenario: The login path is covered
 
 - **WHEN** the login spec runs
-- **THEN** it submits the form with the seeded dev credentials and asserts it lands on the dashboard
+- **THEN** it submits the form with the seeded dev credentials and asserts it lands on a namespace's Home
 
 #### Scenario: The stored session is not committed
 

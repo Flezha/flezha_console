@@ -8,19 +8,24 @@ currency.
 ### Requirement: The sidebar separates namespace-scoped from platform-global
 
 The navigation rail SHALL present two labelled sections. A `NAMESPACE` section
-SHALL hold Overview, Relays, Plugins and Schedules for the namespace in
-scope. A `PLATFORM` section SHALL hold Dashboard, Fleet, Namespaces, Cluster,
-Controller, Observability, Dead-letter and Audit, where Fleet is the listing of
-every reachable relay at `/relays`. A screen SHALL appear in the
-`NAMESPACE` section only when the controller call behind it accepts a namespace,
-or when the rows it returns each carry one. With no namespace in scope the
-`NAMESPACE` section SHALL say so rather than offer destinations it has no scope
-to point at.
+SHALL hold Home, Relays, Plugins and Schedules for the namespace in scope. A
+`PLATFORM` section SHALL hold Problems, Fleet, Namespaces, Cluster, Controller,
+Observability, Dead-letter and Audit, where Fleet is the listing of every
+reachable relay at `/relays`. A screen SHALL appear in the `NAMESPACE` section
+only when the controller call behind it accepts a namespace, or when the rows it
+returns each carry one. With no namespace in scope the `NAMESPACE` section SHALL
+say so rather than offer destinations it has no scope to point at. The rail and
+the topbar SHALL keep the stylebook's shell recipe.
 
 #### Scenario: The sections are labelled
 
 - **WHEN** an operator looks at the sidebar
 - **THEN** the two groups are separated and each carries a visible heading
+
+#### Scenario: The namespace's Home
+
+- **WHEN** a namespace is in scope
+- **THEN** the `NAMESPACE` section's first entry is Home, at `/namespaces/:ns`
 
 #### Scenario: The scoped relay entry
 
@@ -30,26 +35,26 @@ to point at.
 
 #### Scenario: No namespace is in scope
 
-- **WHEN** an operator is on a platform screen
+- **WHEN** an operator is on a platform screen whose namespace was never chosen
 - **THEN** the `NAMESPACE` section carries its heading and states that no
   namespace is in scope, offering a way to pick one
 
-#### Scenario: Dead-letter is not presented as scoped
+#### Scenario: Dead-letter and observability are not presented as scoped
 
 - **WHEN** the sidebar is rendered
-- **THEN** Dead-letter sits in the `PLATFORM` section
-- **AND** no route offers a namespace-scoped dead-letter view
-
-#### Scenario: Observability is not presented as scoped
-
-- **WHEN** the sidebar is rendered
-- **THEN** Observability sits in the `PLATFORM` section
+- **THEN** Dead-letter and Observability sit in the `PLATFORM` section
+- **AND** no route offers a namespace-scoped form of either
 
 #### Scenario: The current destination is marked
 
 - **WHEN** an operator is on a screen reachable from the sidebar
 - **THEN** that entry carries `aria-current="page"`
 - **AND** exactly one entry carries it
+
+#### Scenario: The dashboard entry is gone
+
+- **WHEN** the sidebar is rendered
+- **THEN** it offers no Dashboard entry
 
 ### Requirement: A namespace scope is carried in the route
 
@@ -76,10 +81,17 @@ display.
 
 ### Requirement: The namespace picker means one thing everywhere
 
-The shell SHALL offer a namespace picker. Choosing a namespace from a
-namespace-scoped screen SHALL navigate to the same screen kind under the chosen
-namespace. Choosing one from a platform screen SHALL navigate to the chosen
-namespace's overview.
+The topbar SHALL offer one namespace picker. Choosing a namespace SHALL navigate
+as follows:
+
+- from a namespace-scoped screen, to the same screen kind under the chosen
+  namespace;
+- from one relay, to the chosen namespace's relays;
+- from a platform screen or from an all-namespaces listing, to the chosen
+  namespace's Home.
+
+On a platform screen the picker and the rail SHALL show the namespace the operator
+last worked in.
 
 #### Scenario: Switching scope keeps the screen
 
@@ -94,7 +106,7 @@ namespace's overview.
 #### Scenario: Switching scope from a platform screen
 
 - **WHEN** an operator on Cluster picks a namespace
-- **THEN** they land on that namespace's overview
+- **THEN** they land on that namespace's Home
 
 #### Scenario: The picker offers only reachable namespaces
 
@@ -103,11 +115,11 @@ namespace's overview.
 
 ### Requirement: Every screen below the top level shows a crumb trail
 
-A screen deeper than the top level SHALL render a breadcrumb trail naming each
-ancestor in words, with every ancestor but the current screen navigable. The
-trail SHALL be derived from the route by the shell, not assembled by each screen.
-The crumb for the `relays` segment SHALL read Relays, for `listen` Listen, and for
-`state` State.
+A screen deeper than a rail destination SHALL render a crumb trail in its page
+header, above the eyebrow. The trail SHALL name each ancestor in words, with every
+ancestor but the current screen navigable. It SHALL be derived from the route by
+the shell, not assembled by each screen. The crumb for the `relays` segment SHALL
+read Relays, for `listen` Listen, and for `state` State.
 
 #### Scenario: A deep screen names its ancestors
 
@@ -125,10 +137,10 @@ The crumb for the `relays` segment SHALL read Relays, for `listen` Listen, and f
 - **WHEN** a crumb trail is rendered
 - **THEN** the last crumb is plain text and is marked as the current page
 
-#### Scenario: Top-level screens carry no trail
+#### Scenario: A rail destination carries no trail
 
-- **WHEN** an operator opens the dashboard
-- **THEN** no breadcrumb trail is rendered
+- **WHEN** an operator opens a namespace's Home or the Cluster screen
+- **THEN** no crumb trail is rendered
 
 #### Scenario: The bare back arrow is gone
 
@@ -138,14 +150,18 @@ The crumb for the `relays` segment SHALL read Relays, for `listen` Listen, and f
 ### Requirement: An object's views are presented as tabs on that object
 
 Where one object is shown by more than one route, those routes SHALL be presented
-as a tab strip on the object, with the active view marked. Each tab SHALL remain
-its own route so that a view holding a live subscription is not mounted while
-another view is being read.
+as tabs in the object's page header, with the active view marked. Each tab SHALL
+remain its own route, so that a view holding a live subscription is not mounted
+while another view is being read. A relay SHALL have three views:
+
+- **Live**, at `/namespaces/:ns/relays/:id`, for what it is doing;
+- **Listen**, at `/namespaces/:ns/relays/:id/listen`, for its records;
+- **State**, at `/namespaces/:ns/relays/:id/state`, for what it has kept.
 
 #### Scenario: A relay's three views
 
 - **WHEN** an operator opens a relay
-- **THEN** Detail, Listen and State are shown as tabs on that relay
+- **THEN** Live, Listen and State are shown as tabs on that relay
 - **AND** the active tab is marked with `aria-current`
 
 #### Scenario: Tabs navigate rather than toggle panels
@@ -160,9 +176,11 @@ another view is being read.
 
 ### Requirement: Long screens open on what matters
 
-A screen carrying more than four panels SHALL render its lower panels as sections
-that collapse, with each screen declaring which sections are open on a first
-visit. A section's open state SHALL persist per viewer.
+A screen carrying more than four sections SHALL render its lower sections so that
+they collapse, with each screen declaring which sections are open on a first
+visit. A section's open state SHALL persist per viewer. A collapsed section's
+title line SHALL state in a few words what the section holds — its count, its
+newest item or its condition — so that the operator can judge whether to open it.
 
 #### Scenario: A first visit
 
@@ -185,12 +203,21 @@ visit. A section's open state SHALL persist per viewer.
 - **WHEN** an operator moves through the screen with the keyboard
 - **THEN** each section's toggle is focusable and reports its expanded state
 
+#### Scenario: A collapsed section states what it holds
+
+- **WHEN** a relay's task journal section is collapsed
+- **THEN** its title line states how many iterations are committed and when the
+  latest was, without being opened
+
 ### Requirement: A command palette reaches any object by name
 
-The shell SHALL offer a command palette on `Cmd+K` and `Ctrl+K` that navigates to
-a relay by id, a namespace by name, or any screen by name. The palette SHALL
-NOT open while a text input has focus. Every destination the palette offers SHALL
-also be reachable by clicking.
+The shell SHALL offer a command palette on `Cmd+K` and `Ctrl+K`. It SHALL navigate to a relay by id, a namespace by name,
+or any screen by name. It SHALL also offer actions on a named object that the
+operator's operations allow: stop a relay, diagnose a relay, listen to a relay's
+output, open open problems, and run a schedule now. An action that changes state
+SHALL open the same confirmation its own screen uses, and SHALL NOT act on the
+keystroke alone. The palette SHALL NOT open while a text input has focus. Every
+destination and action the palette offers SHALL also be reachable by clicking.
 
 #### Scenario: Jumping to a relay
 
@@ -202,6 +229,17 @@ also be reachable by clicking.
 
 - **WHEN** an operator types a screen's name
 - **THEN** that screen is offered
+
+#### Scenario: Acting on a relay
+
+- **WHEN** an operator types `stop orders` and chooses the offered action
+- **THEN** the stop confirmation for `orders` opens, and nothing is stopped until
+  it is confirmed
+
+#### Scenario: An action the role does not grant
+
+- **WHEN** the operator's operations do not include stopping a relay
+- **THEN** no stop action is offered
 
 #### Scenario: The palette does not steal typing
 
@@ -220,7 +258,7 @@ also be reachable by clicking.
 
 #### Scenario: Nothing matches
 
-- **WHEN** the typed text matches no relay, namespace, or screen
+- **WHEN** the typed text matches no relay, namespace, screen or action
 - **THEN** the palette says so rather than showing an empty list
 
 ### Requirement: Account controls are one menu
@@ -290,4 +328,37 @@ SHALL answer 404.
 
 - **WHEN** any screen renders a link to a relay or a relay listing
 - **THEN** the link's path starts with `/relays` or `/namespaces/:ns/relays`
+
+### Requirement: The rail counts open problems
+
+The rail's `PLATFORM` section SHALL carry a Problems entry, leading to
+`/problems`, that shows the number of open attention items in the tone of the
+most severe of them, and nothing when there are none. The count SHALL come from
+the shell's pulse and SHALL NOT be shown on a page with no socket.
+
+#### Scenario: Two problems
+
+- **WHEN** one relay is suspended and one relay has failed
+- **THEN** the Problems entry shows 2 in the negative tone
+
+#### Scenario: All clear
+
+- **WHEN** no item is open
+- **THEN** the Problems entry shows no count
+
+#### Scenario: The settings page
+
+- **WHEN** the settings page, which is not a LiveView, is rendered
+- **THEN** it shows the same rail and topbar, without a problem count
+
+### Requirement: The topbar offers help
+
+The topbar SHALL carry a help control, labelled for assistive technology, that
+opens the help overlay for the current screen, between the screen's liveness and
+the account menu.
+
+#### Scenario: Opening help from the topbar
+
+- **WHEN** an operator activates the topbar's help control on a namespace's Home
+- **THEN** the help overlay for Home opens
 

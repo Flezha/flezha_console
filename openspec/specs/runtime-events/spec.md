@@ -45,12 +45,28 @@ Runner connect, disconnect, drop and readmit events SHALL reach the UI as the ru
 
 ### Requirement: Observability sources and sinks are listed
 
-The UI SHALL list the controller's observability sources from `Flezha.Service.Observability.list_sources/1` and its sinks from `list_sinks/1`, each with its enabled state.
+The UI SHALL list the controller's observability sources, from
+`Flezha.Service.Observability.list_sources/1`, and its sinks, from
+`list_sinks/1`, each with its enabled state. Sources SHALL be grouped by area:
+
+- relay runtime;
+- plugins and transports;
+- platform;
+- the virtual machine and host.
+
+Each group SHALL state how many of its sources are enabled. A filter SHALL narrow
+the sources by name.
 
 #### Scenario: Sources and sinks exist
 
 - **WHEN** an operator opens the observability screen
 - **THEN** every source and every sink is listed with whether it is enabled
+- **AND** sources are grouped by area, each group stating how many are enabled
+
+#### Scenario: Filtering sources
+
+- **WHEN** an operator types `http` into the source filter
+- **THEN** only sources whose name contains `http` are shown, still in their groups
 
 #### Scenario: Observability is disabled on the controller
 
@@ -64,23 +80,27 @@ The UI SHALL list the controller's observability sources from `Flezha.Service.Ob
 
 ### Requirement: Sources are toggled from the UI
 
-An operator SHALL be able to enable and disable an observability source through `Flezha.Service.Observability.enable_source/2` and `disable_source/2`, and the change SHALL be reflected in the listing without a page reload.
+An operator SHALL be able to enable and disable an observability source with the
+console kit's switch component, through `Flezha.Service.Observability.enable_source/2`
+and `disable_source/2`. The change SHALL be reflected in the listing without a
+page reload. The switch SHALL be labelled with the source's name and SHALL report
+its state to assistive technology.
 
 #### Scenario: Enabling a source
 
-- **WHEN** an operator enables a disabled source
+- **WHEN** an operator switches a disabled source on
 - **THEN** `enable_source/2` is called with the UI's caller context
 - **AND** the source is listed as enabled
 
 #### Scenario: Disabling a source
 
-- **WHEN** an operator disables an enabled source
+- **WHEN** an operator switches an enabled source off
 - **THEN** `disable_source/2` is called and the source is listed as disabled
 
 #### Scenario: The toggle is refused
 
 - **WHEN** the controller refuses the toggle
-- **THEN** the refusal is shown and the source's state is unchanged
+- **THEN** the refusal is shown and the switch returns to the source's unchanged state
 
 ### Requirement: Controller subscriptions are taken through the published tail operations
 
@@ -184,12 +204,29 @@ The UI SHALL hand the controller only data — call arguments and its caller con
 
 ### Requirement: Relay lifecycle signals reach the relays index
 
-The console SHALL receive the `relay_started`, `relay_stopped` and `relay_exited` signals of the `:flezha_relay` observability source through a supervised `Flezha.Service.Observability.tail/2` feed of the same kind that carries runner session signals, with no second subscription mechanism, broadcast on a topic of its own so that only the screens handling them receive them. The relays index, platform-wide and namespace-scoped, SHALL show the most recent fifty such signals newest first, each with its time, namespace, relay and what happened (started with its factory, stopped with its reason, exited with its runner and reason), and SHALL reload its rows when a signal arrives. Signals SHALL be narrowed to the namespaces the bound token reaches before they are shown.
+The console SHALL receive the `relay_started`, `relay_stopped` and `relay_exited`
+signals of the `:flezha_relay` observability source through a supervised
+`Flezha.Service.Observability.tail/2` feed of the same kind that carries runner
+session signals. There SHALL be no second subscription mechanism. The signals
+SHALL be broadcast on a topic of their own, so that only the screens handling
+them receive them.
+
+The relays index, platform-wide and namespace-scoped, and each namespace's Home
+SHALL show these signals in their event river, as the `live-activity` capability
+defines. Each signal SHALL carry its time, namespace, relay and what happened:
+
+- started, with its factory;
+- stopped, with its reason;
+- exited, with its runner and reason.
+
+A screen SHALL reload its rows when a signal arrives. Signals SHALL be narrowed to
+the namespaces the bound token reaches before they are shown, and, on Home, to
+that Home's namespace.
 
 #### Scenario: A relay starts
 
 - **WHEN** a relay is started while an operator has the relays index open
-- **THEN** a started entry with the relay and its factory appears at the top of the feed
+- **THEN** a started entry with the relay and its factory appears at the top of the river
 - **AND** the relay's row appears without waiting for the refresh tick
 
 #### Scenario: A relay stops
@@ -208,7 +245,7 @@ The console SHALL receive the `relay_started`, `relay_stopped` and `relay_exited
 - **WHEN** a signal names a namespace the bound token does not reach
 - **THEN** it is not shown
 
-#### Scenario: The feed is bounded
+#### Scenario: The river is bounded
 
 - **WHEN** more than fifty signals have arrived
 - **THEN** only the most recent fifty are kept
@@ -216,8 +253,8 @@ The console SHALL receive the `relay_started`, `relay_stopped` and `relay_exited
 #### Scenario: The source cannot be tailed
 
 - **WHEN** the controller refuses or cannot tail `:flezha_relay`
-- **THEN** the feed states why with the error's code and hint
-- **AND** the index keeps refreshing on its timer
+- **THEN** the river states why with the error's code and hint
+- **AND** the screen keeps refreshing on its timer
 
 ### Requirement: A relay's call activity rides the event feed
 

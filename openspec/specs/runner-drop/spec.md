@@ -113,18 +113,24 @@ refusal signal also carries the pid and the node that refused it.
 ### Requirement: The console drops and readmits runners
 
 The console SHALL render the runner listings that act on runners — the cluster
-screen's per-namespace runners and the namespace detail's runners panel — through
-one shared runner-table component. The dashboard's cross-namespace runner summary
-stays a read-only table. Each row SHALL offer a Drop action when the operations whoami answers for the
-operator include `Fleet.drop_runner`. Drop SHALL open a confirmation naming the runner id and OS pid, saying
-that the same process will be refused until a different one connects, with the solid
-danger fill on its confirm button. Below the runners, the listing SHALL show the
-namespace's standing marks from `dropped_runners/2`, each with a Readmit action when the
-operations include `Fleet.readmit_runner`. Errors SHALL be shown through the console's coded-error display.
+screen's per-namespace runners and the runners section of a namespace's Home —
+through one shared runner-table component. Each row SHALL offer a Drop action
+when the operations whoami answers for the operator include `Fleet.drop_runner`.
+
+Drop SHALL open a confirmation that:
+
+- names the runner id and OS pid;
+- says that the same process will be refused until a different one connects;
+- carries the solid danger fill on its confirm button.
+
+Below the runners, the listing SHALL show the namespace's standing marks from
+`dropped_runners/2`, each with a Readmit action when the operations include
+`Fleet.readmit_runner`. The runner inspector SHALL show a runner's facts and SHALL
+NOT offer Drop. Errors SHALL be shown through the console's coded-error display.
 
 #### Scenario: Dropping from the namespace screen
 
-- **WHEN** an ops operator confirms Drop on a runner row
+- **WHEN** an ops operator confirms Drop on a runner row in Home's runners section
 - **THEN** the console calls `drop_runner/3` and the runner leaves the list
 - **AND** a dropped mark with the runner's stable id, pid and time appears under the
   list with a negative badge
@@ -153,5 +159,5 @@ operations include `Fleet.readmit_runner`. Errors SHALL be shown through the con
 #### Scenario: The fleet follows drop activity
 
 - **WHEN** a runner is dropped or readmitted from another console or from `flz`
-- **THEN** the open runner listings update without a page reload
+- **THEN** the open runner listings and the namespace map update without a page reload
 

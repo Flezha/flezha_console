@@ -39,7 +39,7 @@ The Rust runner SHALL run as a dedicated compose service that waits for the cont
 #### Scenario: Cold start
 
 - **WHEN** an operator brings the stack up from a clean state
-- **THEN** the UI reaches the controller node and the dashboard reports a connected controller
+- **THEN** the UI reaches the controller node and the Cluster screen reports a connected controller
 
 #### Scenario: Controller restarts
 
@@ -68,7 +68,7 @@ In the dev environment the UI SHALL seed testnet relays and plugins on boot thro
 #### Scenario: First boot
 
 - **WHEN** the stack starts against an empty controller
-- **THEN** the seeded relays and plugins exist and the dashboard is populated
+- **THEN** the seeded relays and plugins exist and the `default` namespace's Home map draws them
 - **AND** each seeded plugin is bound to the relay its seed names
 
 #### Scenario: Repeated boot

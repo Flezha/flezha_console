@@ -7,34 +7,34 @@ the shared theme contract.
 ## Requirements
 ### Requirement: The console carries a Flezha UI brand lockup
 
-The console SHALL identify itself with the badger lockup: the stylebook's
-single-fill white honey-badger mark, `assets/logo/flezha-badger-white.svg`, rendered as
-a mask through the `.flz-logo` recipe so it takes the ink of the surface it sits on,
-beside the name "Flezha UI" set in the stylebook's `.flz-brand-name`, the two held
-together by `.flz-brand`. The mark SHALL NOT be a fixed-colour `<img>` or a raster
-image, and the name SHALL take its type only from `.flz-brand-name`. The F-mark
-`flezha-ui-*` lockups SHALL NOT be referenced.
+The console SHALL identify itself with the Flezha UI lockup: the badger over the
+FLEZHA name with UI beside it, `priv/static/images/flezha-ui-badger-line-text-white.svg`.
+It SHALL be rendered as a CSS mask, so that it takes the ink of the surface it
+sits on, with its aspect ratio read from the file's own `viewBox`. The mark SHALL
+NOT be a fixed-colour `<img>` or a raster image. Inside the shell, the lockup SHALL
+sit at the top of the rail, in the stylebook's chrome brand recipe.
 
-#### Scenario: A screen sitting on the chrome
+#### Scenario: A screen inside the shell
 
-- **WHEN** the sidebar renders its brand link in either theme
-- **THEN** it shows the badger mark as a `.flz-logo` mask and the "Flezha UI" name,
-  both in the chrome's ink, so they read on the pale light chrome and on the deep plum
-  dark chrome
+- **WHEN** the rail renders its brand link in either theme
+- **THEN** it shows the lockup as a mask in the chrome's ink
 - **AND** the link carries an accessible name of "Flezha UI"
 
 #### Scenario: A screen sitting on the content canvas
 
 - **WHEN** the login, registration, confirmation or not-found screen renders its
   brand mark
-- **THEN** it shows the same lockup in the brand ink `--text-brand`, with no
-  per-theme image swap
+- **THEN** it shows the same lockup in the brand ink, with no per-theme image swap
+
+#### Scenario: The lockup keeps its proportions
+
+- **WHEN** the lockup file is replaced by one with a different `viewBox`
+- **THEN** the lockup takes the new proportions without a code change
 
 #### Scenario: The old marks are gone
 
 - **WHEN** the web layer and `priv/static` are searched for `flezha-ui-purple`,
   `flezha-ui-gold`, or a brand name styled with its own font-size and font-weight
-  instead of `.flz-brand-name`
 - **THEN** no occurrence remains
 
 ### Requirement: The console ships the Flezha favicon
@@ -64,71 +64,84 @@ verbatim. It SHALL NOT ship the stock Phoenix favicon or an ICO it builds itself
 
 ### Requirement: Colour has exactly one source
 
-Every colour the console paints SHALL resolve to a `flezha_stylebook` token.
-`flezha_ui` SHALL NOT define its own colour tokens and SHALL NOT contain colour
-literals — no hex, `rgb()`, `hsl()`, or named colour — in stylesheets, templates,
-Elixir modules, JavaScript, or build configuration.
+Every colour the console paints SHALL resolve to a `flezha_stylebook` token. The
+kit SHALL read colours through its `--fui-*` roles in
+`assets/css/console/tokens.css`, each of which names the stylebook token it takes,
+so the console follows the stylebook's palette and its theme switch. The token
+file MAY define colours the stylebook has no token for — the signal colour for
+live data, the overlay scrim and shadow, and the ink laid on a solid fill in the
+dark theme — and nowhere else. `flezha_ui` SHALL NOT contain colour literals — no
+hex, `rgb()`, `hsl()`, or named colour — in stylesheets, templates, Elixir modules,
+JavaScript, or build configuration, outside that token file.
 
-#### Scenario: The private palette is removed
+#### Scenario: A role names the stylebook
 
-- **WHEN** `assets/css/app.css` is inspected
-- **THEN** the `--color-*` declarations and the `.light` palette block no longer
-  exist, and no rule declares a colour literal
+- **WHEN** `tokens.css` is read
+- **THEN** the surface, ink, line, accent, outcome and brand roles each name a
+  stylebook token, such as `--fui-ink-1: var(--text-primary)`
 
 #### Scenario: An undefined token is introduced
 
-- **WHEN** the token gate runs over `flezha_ui`'s `assets/` and `lib/`
+- **WHEN** the console gate runs over `flezha_ui`'s `assets/` and `lib/`
 - **THEN** it reports any `var()` naming a token nobody defines, and the check fails
 
 #### Scenario: A colour literal is introduced
 
 - **WHEN** a hex, `rgb()`, `rgba()`, `hsl()` or `hsla()` colour is added anywhere the
-  token gate scans in `flezha_ui`
+  console gate scans, outside the console token file
 - **THEN** the gate reports it with its file and line, and the check fails
 
-#### Scenario: The progress bar and topology graph take theme colours
+#### Scenario: The progress bar takes theme colours
 
-- **WHEN** the topbar progress indicator or the topology graph renders
-- **THEN** its colours come from stylebook tokens and change with the theme
+- **WHEN** the page-load progress indicator renders
+- **THEN** its colour comes from a `--fui-*` role and changes with the theme
 
 ### Requirement: Status colour states an outcome
 
-Colour that reports an outcome SHALL come from the semantic tokens — green for
-a healthy result, amber for one needing attention, red for a failure — and
-SHALL NOT reuse a brand colour. The accent, plum in light and gold in dark, marks
-interaction, and the magenta brand colour is a fill; neither reports status. Every
-solid fill SHALL be painted with its matched foreground token.
+Colour that reports an outcome SHALL come from the stylebook's outcome tokens,
+through the roles `--fui-positive`, `--fui-warning` and `--fui-negative`. Two
+other roles SHALL NOT report status:
+
+- `--fui-accent` marks interaction: focus, the current place, links and primary
+  actions;
+- `--fui-signal` marks live data only: flow, rates and change marks.
+
+Status SHALL never be conveyed by colour alone: a state is also stated in words or
+by a distinct shape, which keeps a warning apart from the signal colour where the
+two are close in hue. Every solid fill SHALL be painted with its matched
+`--fui-on-*` ink.
 
 #### Scenario: A relay's health is rendered
 
 - **WHEN** the health of a relay is shown in either theme
-- **THEN** healthy reads green, degraded and unbound read amber, and failed
-  reads red, each from its semantic token
+- **THEN** healthy reads in the positive role, degraded, unbound and suspended in
+  the warning role, and failed in the negative role, each also stated in words and
+  by its shape
 
 #### Scenario: A solid status fill is painted
 
-- **WHEN** a control or badge takes a solid semantic fill
-- **THEN** its text uses that fill's matched foreground token, so the pairing
-  clears WCAG AA in both themes
+- **WHEN** a control or badge takes a solid outcome fill
+- **THEN** its text uses that fill's matched ink, so the pairing clears WCAG AA in
+  both themes
 
-#### Scenario: The token gate grades the semantic colours
+#### Scenario: The gate grades the outcome colours
 
-- **WHEN** the design-token gate runs
-- **THEN** every semantic ink is graded against every surface in both themes,
-  and a value that falls below the floor fails the check
+- **WHEN** the console gate runs
+- **THEN** every outcome ink is graded against every surface in both themes, and a
+  value below the floor fails the check
 
 #### Scenario: A dropped runner is rendered
 
 - **WHEN** a runner row is in the dropped state
-- **THEN** its badge reads in the negative semantic colour, not in the accent
+- **THEN** its badge reads in the negative role, not in the accent or the signal
 
 ### Requirement: Controls share one vocabulary
 
-Every control SHALL take its skin from `flezha_stylebook`. Text inputs,
-selects, textareas and a dropdown trigger SHALL be the same box; a labelled
-control SHALL use the shared field block; a picker whose menu must be styled
-SHALL use the shared dropdown, and an exclusive set of choices the shared
-segmented control.
+Every control SHALL come from the console kit. Text inputs, selects, textareas,
+the combobox and a dropdown trigger SHALL be the same box. A labelled control SHALL
+use the kit's field block. A picker whose menu must be styled SHALL use the kit's
+popover menu. An exclusive set of choices SHALL use the kit's segmented control,
+and an on/off setting the kit's switch.
 
 #### Scenario: Two different controls sit side by side
 
@@ -138,15 +151,14 @@ segmented control.
 #### Scenario: A picker is opened
 
 - **WHEN** an operator opens a picker whose menu the console styles
-- **THEN** the menu is the stylebook's panel, the chosen row is marked and
-  filled with the brand pair, hover takes the accent pair, and the keyboard
-  moves through the rows and closes on Escape
+- **THEN** the menu is the kit's popover, the chosen row is marked, hover takes
+  the accent, and the keyboard moves through the rows and closes on Escape
 
 #### Scenario: A field is labelled
 
 - **WHEN** any form field in the console is rendered
-- **THEN** its label, hint and error come from the shared field block rather
-  than a per-screen class
+- **THEN** its label, hint and error come from the kit's field block rather than
+  a per-screen class
 
 ### Requirement: The console adopts the shared theme contract
 
@@ -203,43 +215,36 @@ the stylebook's `bindThemeToggles`.
 
 ### Requirement: Every screen is rendered on the shared component vocabulary
 
-Every LiveView template, controller template, layout, and core component SHALL
-express its surfaces, controls, and data displays through `flezha_stylebook`
-component classes rather than locally invented ones. Tailwind utilities SHALL be
-limited to layout and spacing, and SHALL NOT carry an arbitrary font size or an
-opacity modifier on a token alias.
+Every LiveView template, controller template and core component SHALL express
+its surfaces, controls and data displays through the console kit, except the
+shell's rail and topbar, which keep the stylebook's shell recipe, and the relay
+pipeline graph, which keeps its current rendering until its own redesign. Tailwind utilities SHALL be limited to layout and spacing, and SHALL NOT
+carry a colour, an arbitrary font size or an opacity modifier.
 
 #### Scenario: A control is rendered
 
 - **WHEN** a button, input, select, or textarea is rendered anywhere in the console
-- **THEN** it takes its skin from the stylebook — the `.flz-button` recipes and the
-  shared form baseline — and declares no colour, border, radius, or padding of its
-  own
+- **THEN** it is the kit's component and declares no colour, border, radius or
+  padding of its own
 
 #### Scenario: A data screen is rendered
 
-- **WHEN** a screen renders a panel, a table, a stat tile, a status badge, a modal,
-  a flash message, an empty state, a meter, or a payload block
-- **THEN** it uses the corresponding stylebook app-layer class
+- **WHEN** a screen renders a section, a grid, a figure, a state badge, a dialog,
+  a drawer, a toast, an empty state, a skeleton, a meter or a payload block
+- **THEN** it uses the corresponding kit component
 
 #### Scenario: A row action is rendered
 
-- **WHEN** a table row offers an action such as inspect, replay, remove, drop or stop
-- **THEN** it is a small ghost `.flz-button`, not a text link
-- **AND** a destructive action opens a confirmation whose confirm button is the solid
-  danger fill
+- **WHEN** a grid row offers actions such as inspect, replay, remove, drop or stop
+- **THEN** they sit in the row's menu, not as text links beside each other
+- **AND** a destructive action opens a confirmation whose confirm button is the
+  danger variant
 
 #### Scenario: A payload is shown
 
-- **WHEN** a payload, schema, token, help text or dead letter is shown in a code block
-- **THEN** the block carries `.flz-code--wrap` and long lines wrap instead of
-  scrolling sideways
-
-#### Scenario: Dead and arbitrary utilities are gone
-
-- **WHEN** `lib/` is searched for a colour utility with an opacity modifier on a
-  token alias, or for a `text-[…px]` size
-- **THEN** no occurrence remains
+- **WHEN** a payload, schema, token, help text or dead letter is shown in a code
+  block
+- **THEN** long lines wrap instead of scrolling sideways
 
 #### Scenario: Every screen survives the sweep
 
@@ -250,7 +255,7 @@ opacity modifier on a token alias.
 
 #### Scenario: Existing behaviour is untouched
 
-- **WHEN** the ExUnit and Playwright suites run after the sweep
+- **WHEN** the ExUnit and Playwright suites run after the rebuild
 - **THEN** both are green, including the topology spec that asserts on the
   `topo-flow-*` class contract
 
@@ -309,10 +314,60 @@ decorative, with an empty `alt`. No data screen SHALL show a mascot.
 
 ### Requirement: Flash messages never cover the topbar
 
-Inside the console shell, flash messages SHALL float below the topbar, so a message never covers the controls at the topbar's right end, such as the account menu.
+Inside the console shell, messages SHALL be shown as toasts stacked at the bottom
+right of the viewport, below the topbar's layer, so they never cover the topbar's
+controls. An informational toast SHALL dismiss itself after five seconds. An error
+toast SHALL stay until it is dismissed. Every toast SHALL be dismissible from the
+keyboard and SHALL be announced to assistive technology.
 
 #### Scenario: A flash after logging in
 
-- **WHEN** a flash is shown on a screen inside the shell
-- **THEN** the account menu stays reachable without dismissing it
+- **WHEN** a message is shown on a screen inside the shell
+- **THEN** it appears as a toast at the bottom right, and the account menu stays
+  reachable without dismissing it
+
+#### Scenario: An error message
+
+- **WHEN** an error toast is shown
+- **THEN** it stays until the operator dismisses it
+
+#### Scenario: An informational message
+
+- **WHEN** an informational toast is shown
+- **THEN** it dismisses itself after five seconds
+
+### Requirement: Only the rail is chrome
+
+Inside the shell, only the rail SHALL wear the chrome colour. The topbar SHALL belong
+to the page beside it: it SHALL be painted the stylebook's `--surface-sheet`, like the
+content canvas, and set apart from the canvas by a hairline in the default border, so
+that the rail and topbar do not join into a frame around the content. The canvas
+SHALL carry no border, radius or shadow of its own, and SHALL be the only part of the
+shell that scrolls. The current rail destination SHALL be marked by an accent left
+bar, a faint accent wash and bold type, and SHALL keep its left-edge marker under
+forced colours. These rules SHALL live in the stylebook's shell recipe, not in a
+console override. How the shell folds below desk width is owned by the
+small-screen layout.
+
+#### Scenario: A screen inside the shell
+
+- **WHEN** any screen inside the shell renders at desk width in either theme
+- **THEN** the rail is chrome, the topbar and the content share the page surface
+  divided by a hairline, and the content has no border, radius or shadow
+
+#### Scenario: Scrolling a long screen
+
+- **WHEN** an operator scrolls a long screen
+- **THEN** only the content moves, and the rail and topbar stay in place
+
+#### Scenario: Forced colours
+
+- **WHEN** the operating system forces colours
+- **THEN** the current rail destination is still marked by its left edge
+
+#### Scenario: The recipe has one home
+
+- **WHEN** the console's stylesheets are searched for rules on `flz-canvas`,
+  `flz-sidebar` or `flz-topbar`
+- **THEN** none are found; the shell comes from the stylebook's `components.css`
 

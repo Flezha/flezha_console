@@ -88,87 +88,132 @@ The UI SHALL read a namespace's registered factories together with the runners s
 
 ### Requirement: Relay listing within a namespace
 
-The namespace detail screen SHALL list the namespace's relays, its available factories, and its active runners. Each relay row SHALL carry the health the Convergence Loop classified, the node it is placed on, its factory, its run, and its bound runner, read from `Flezha.Service.Relay.list/2`. The screen SHALL render every health verdict the controller answers — `healthy`, `degraded`, `recovering`, `unbound`, `failed`, `parked`, `suspended`, and `unknown` — each distinctly. A relay the loop has not yet observed SHALL be shown as `unknown` and SHALL NOT be reported as healthy. Runners SHALL be read from `Flezha.Service.Fleet.runners/2`, which covers the whole cluster.
+A namespace's Home SHALL show its relays as lanes on the namespace map and its
+active runners as the map's runner bands. It SHALL also list the runners in its
+folded runners section, and SHALL offer the namespace's registered factories when
+starting a relay. Every relay SHALL be reachable from the map: directly as a lane,
+by expanding its stack, or through a band's "+N more" link.
+
+Each relay SHALL carry these fields, read from `Flezha.Service.Relay.list/2`:
+
+- the health the Convergence Loop classified;
+- the node it is placed on;
+- its factory;
+- its run;
+- its bound runner.
+
+Home and the relays index SHALL render every health verdict the controller
+answers — `healthy`, `degraded`, `recovering`, `unbound`, `failed`, `parked`,
+`suspended` and `unknown` — each distinctly. A relay the loop has not yet observed
+SHALL be shown as `unknown` and SHALL NOT be reported as healthy. Runners SHALL be
+read from `Flezha.Service.Fleet.runners/2`, which covers the whole cluster.
 
 #### Scenario: Namespace has relays
 
 - **WHEN** an operator opens a namespace that has running relays
-- **THEN** each relay id is listed with its health, node, factory, run, and runner
-- **AND** the id links to its detail screen
+- **THEN** each relay is reachable from the map with its health and run, and its
+  inspector shows its node, factory and runner
+- **AND** the inspector links to the relay's Live view
 
 #### Scenario: A relay is unhealthy
 
 - **WHEN** a relay's health is `degraded`, `unbound`, `failed`, or `parked`
-- **THEN** the row states that health distinctly from a healthy row
+- **THEN** its lane states that health distinctly from a healthy lane
 
 #### Scenario: A relay is recovering
 
 - **WHEN** the controller reports a relay as `recovering` while it moves it off a runner that went away
-- **THEN** the row reads `recovering`, distinctly from `failed` and from `healthy`
+- **THEN** the lane reads `recovering`, distinctly from `failed` and from `healthy`
 
 #### Scenario: A relay has not yet been classified
 
 - **WHEN** a row has no health from the Convergence Loop
-- **THEN** the row reads `unknown`
+- **THEN** the lane reads `unknown`
 
 #### Scenario: A relay is unplaced
 
 - **WHEN** a row has no live node
-- **THEN** the row states that it is unplaced
+- **THEN** the lane states that it is unplaced
 
 #### Scenario: Runners on other controllers are listed
 
 - **WHEN** a runner serving the namespace is connected to another controller node of the cluster
-- **THEN** it is listed among the namespace's active runners
+- **THEN** it is drawn as a band on the map and listed among the namespace's runners
 
 #### Scenario: Namespace has registered factories
 
 - **WHEN** runners in the namespace have registered factories
-- **THEN** each factory id is listed and is selectable when starting a relay
+- **THEN** each factory id is selectable when starting a relay
 
 ### Requirement: Relay lifecycle
 
-An operator SHALL be able to start a relay by supplying a namespace, a factory id, an optional id, and init values, and SHALL be able to stop a running relay. Stopping SHALL require an explicit confirmation step. The start form SHALL be reachable from both a namespace's detail screen and the cross-namespace relays index, and SHALL be one implementation rendered by both. The start SHALL go through `Flezha.Service.Relay.start/3` and SHALL NOT ask for or send how the relay runs: the run is the factory's, and the form SHALL show the chosen factory's run read-only. A stop SHALL go through `Flezha.Service.Relay.stop/3`.
+An operator SHALL be able to start a relay and to stop a running relay. Starting
+SHALL be one guided flow of three steps:
+
+1. **Factory**: a searchable list of the namespace's factories, each with its
+   description, its run (`flow` or `steps`, as its runners announced it,
+   read-only) and how many runners serve it. A factory no runner serves SHALL be
+   shown as unavailable, with that reason.
+2. **Details**: the optional id and the init values, entered through typed fields
+   where the factory declares them and as JSON otherwise.
+3. **Review**: one sentence naming the namespace, the factory, the run and the id
+   (or that the controller will generate one), then Start.
+
+The flow SHALL be reachable from a namespace's Home and from the relays index, and
+SHALL be one implementation rendered by both. The start SHALL go through
+`Flezha.Service.Relay.start/3` and SHALL NOT ask for or send how the relay runs.
+Stopping SHALL require an explicit confirmation step and SHALL go through
+`Flezha.Service.Relay.stop/3`.
 
 #### Scenario: Starting a relay succeeds
 
-- **WHEN** an operator submits a factory id, an optional id, and valid init values
+- **WHEN** an operator chooses a factory, gives an optional id and valid init values, and starts from the review step
 - **THEN** the relay is started via `Service.Relay.start/3` without a run
-- **AND** it appears in the namespace's relay list under the id the controller answered
+- **AND** it appears on the namespace's map and listing under the id the controller answered
+
+#### Scenario: The review states what will happen
+
+- **WHEN** an operator reaches the review step
+- **THEN** one sentence names the namespace, the factory, its run and the id that will be used
+
+#### Scenario: A factory nobody serves
+
+- **WHEN** no runner serves a factory
+- **THEN** it is shown as unavailable with that reason and cannot be chosen
 
 #### Scenario: Starting without an id
 
 - **WHEN** an operator leaves the id empty
 - **THEN** the controller generates one
-- **AND** the form reports the generated id and links to the relay
+- **AND** the flow reports the generated id and links to the relay
 
 #### Scenario: Starting an id that is already running
 
 - **WHEN** the controller answers the start with `outcome: :already_running`
-- **THEN** the form states that a relay with that id is already running and links to it
+- **THEN** the flow states that a relay with that id is already running and links to it
 - **AND** this is not reported as a new start
 
 #### Scenario: Starting a relay is rejected by the controller
 
 - **WHEN** the controller refuses the start, for example an unknown factory or a reached quota
-- **THEN** the controller's error message is displayed on the form
+- **THEN** the controller's error message is displayed on the review step
 - **AND** no relay is created
 
 #### Scenario: Starting from the relays index
 
-- **WHEN** an operator opens the start form from the relays index
-- **THEN** the form offers a namespace to start into, chosen from the namespaces the bound token can reach
+- **WHEN** an operator opens the flow from the all-namespaces relays index
+- **THEN** the flow first offers a namespace to start into, chosen from the namespaces the bound token can reach
 - **AND** a successful start adds the relay to the index
 
-#### Scenario: Starting from a namespace screen
+#### Scenario: Starting from a namespace's Home
 
-- **WHEN** an operator opens the start form from a namespace's detail screen
-- **THEN** the namespace is that screen's namespace and is not asked for again
+- **WHEN** an operator opens the flow from a namespace's Home
+- **THEN** the namespace is that Home's namespace and is not asked for again
 
 #### Scenario: The factory's run is shown, not chosen
 
-- **WHEN** an operator chooses a factory on the start form
-- **THEN** the form shows whether that factory runs as `flow` or `steps`, as its runners announced it
+- **WHEN** an operator looks at a factory in the first step
+- **THEN** its run is shown as `flow` or `steps`
 - **AND** no control offers to change it
 
 #### Scenario: A steps relay is started
@@ -176,17 +221,17 @@ An operator SHALL be able to start a relay by supplying a namespace, a factory i
 - **WHEN** an operator starts a relay from a factory whose run is `steps`
 - **THEN** the relays index reports its run as `steps`
 
-#### Scenario: The form is incomplete
+#### Scenario: The details are incomplete
 
-- **WHEN** an operator submits with an empty factory, or init values that are not valid JSON
-- **THEN** the form says which field is wrong
+- **WHEN** an operator tries to continue past the details step with init values that are not valid JSON
+- **THEN** the step says which field is wrong
 - **AND** no start call is made
 
 #### Scenario: Stopping a relay
 
 - **WHEN** an operator confirms stopping a relay
 - **THEN** `Service.Relay.stop/3` is called
-- **AND** the operator is returned to the namespace screen with the relay absent from the list
+- **AND** the operator is returned to the namespace's Home with the relay absent from its map
 
 #### Scenario: A steps relay stops cooperatively
 
@@ -201,17 +246,29 @@ An operator SHALL be able to start a relay by supplying a namespace, a factory i
 
 ### Requirement: Relay introspection
 
-The relay detail screen SHALL display, from the overwatch state, the relay's factory id, bound runner id, run, uptime, suspended flag, effectively-once tier, and the plugins bound to it. It SHALL additionally display the health and node the namespace's rows report for it, and — for a steps relay — the steps panel defined by the `steps-operations` capability. The screen SHALL present its Detail, Listen, and State routes as a tab strip on the relay, and SHALL render its task journal, input log, SDK state, and plugin panels as sections that collapse.
+The relay's Live view SHALL display its sentence header, assembled from:
+
+- the overwatch state: the relay's factory id, bound runner id, run, uptime,
+  suspended flag and effectively-once tier;
+- the namespace rows: its health and node.
+
+Below the header it SHALL show the relay's pipeline graph and payload tap as they
+are rendered today, then its diagnosis, calls, API and plugin bindings as sections
+that collapse. The relay's State view SHALL carry, as sections that collapse, its
+task journal, input log, SDK state, and — for a steps relay — the steps facts
+defined by the `steps-operations` capability, together with its cell state. Live,
+Listen and State SHALL be presented as tabs in the relay's page header.
 
 #### Scenario: Relay is running and bound
 
 - **WHEN** an operator opens a running relay
-- **THEN** its factory id, runner id, run, uptime, health, and node are displayed
+- **THEN** its header states its factory, runner, run, uptime, health and node in
+  one sentence
 
 #### Scenario: Relay is suspended
 
 - **WHEN** the overwatch state reports `suspended: true`
-- **THEN** the screen marks the relay as suspended
+- **THEN** the header states once that the relay is suspended
 
 #### Scenario: Relay is a partition member
 
@@ -222,14 +279,21 @@ The relay detail screen SHALL display, from the overwatch state, the relay's fac
 #### Scenario: The three views are tabs
 
 - **WHEN** an operator opens a relay
-- **THEN** Detail, Listen, and State are presented as tabs on that relay
-- **AND** reaching Listen or State does not require finding a link inside a panel
+- **THEN** Live, Listen and State are presented as tabs on that relay
+- **AND** reaching Listen or State does not require finding a link inside a section
 
-#### Scenario: The lower panels start collapsed
+#### Scenario: Live opens on the pipeline
 
 - **WHEN** an operator opens a relay for the first time
-- **THEN** the pipeline graph and the relay's facts are visible without scrolling
-- **AND** the task journal, input log, SDK state, and plugin sections are collapsed
+- **THEN** the header and the pipeline graph are visible without scrolling
+- **AND** the calls, API and plugin sections are collapsed, each stating what it
+  holds
+
+#### Scenario: Durability lives on State
+
+- **WHEN** an operator opens a durable steps relay's State view
+- **THEN** its task journal, input log, SDK state and steps facts are there, and
+  none of them is on the Live view
 
 #### Scenario: Relay is not found
 
@@ -301,16 +365,41 @@ An operator SHALL be able to listen to a running relay's inputs or outputs. The 
 
 ### Requirement: A cross-namespace relays index
 
-The UI SHALL provide a **Fleet** screen at `/relays` listing every relay across every namespace the bound token can reach, showing relay id, namespace, factory, health, run, node, runner, and plugin count, with the id linking to the relay's detail screen. The listing SHALL cost one `Service.Relay.list/2`, one `Service.Relay.relay_plugins/2`, and one `Service.Relay.registry/2` call per namespace, not one call per relay. The same LiveView SHALL additionally serve a namespace-scoped listing at `/namespaces/:ns/relays`, taking its namespace from the path rather than from the filter form. The screen's filters SHALL be written back to the query string, so a filtered view can be bookmarked, shared, and reversed with the browser's back button.
+The UI SHALL provide a relays index at `/relays`, listing every relay across every
+namespace the bound token can reach. Each row SHALL show:
+
+- relay id;
+- namespace;
+- factory;
+- health, stated once with a health bar on the row's edge;
+- run;
+- node;
+- runner;
+- plugin count;
+- the measured inbound rate with its sparkline.
+
+Activating a row SHALL open the relay's inspector in place. Row actions SHALL sit
+in a per-row menu, so that a destructive action never sits beside a benign one.
+
+The listing SHALL cost a fixed set of calls per namespace, and none per relay:
+one `Service.Relay.list/2`, one `Service.Relay.relay_plugins/2`, one
+`Service.Relay.registry/2`, and the liveness snapshot it already shares with the
+map.
+
+The same LiveView SHALL serve a namespace-scoped listing at
+`/namespaces/:ns/relays`, which takes its namespace from the path rather than from
+the filter form. A scope switch SHALL move between the two routes. The screen's
+filters SHALL be written back to the query string, so a filtered view can be
+bookmarked, shared, and reversed with the browser's back button.
 
 #### Scenario: Relays exist across namespaces
 
-- **WHEN** an operator opens the Fleet screen
+- **WHEN** an operator opens the relays index at `/relays`
 - **THEN** every relay in every reachable namespace is listed with its namespace and health
 
 #### Scenario: Filtering the index
 
-- **WHEN** an operator filters by namespace, health, or run
+- **WHEN** an operator filters by namespace, health, run, or runner
 - **THEN** only matching relays are listed
 
 #### Scenario: Every health verdict can be filtered on
@@ -320,7 +409,7 @@ The UI SHALL provide a **Fleet** screen at `/relays` listing every relay across 
 
 #### Scenario: A filtered view is a shareable URL
 
-- **WHEN** an operator filters the Fleet screen by health
+- **WHEN** an operator filters the relays index by health
 - **THEN** the query string carries that filter
 - **AND** reloading the page reproduces the same filtered listing
 
@@ -329,10 +418,11 @@ The UI SHALL provide a **Fleet** screen at `/relays` listing every relay across 
 - **WHEN** an operator applies a filter and presses the browser's back button
 - **THEN** the previous filter state is restored
 
-#### Scenario: The index is reachable from the navigation
+#### Scenario: The index is reached through the scope switch
 
-- **WHEN** an operator looks at the sidebar
-- **THEN** a Fleet entry sits in the `PLATFORM` section
+- **WHEN** an operator on a namespace's relays chooses all namespaces
+- **THEN** the browser navigates to `/relays`, and no separate Fleet destination
+  exists in the shell
 
 #### Scenario: A namespace's own relays
 
@@ -344,6 +434,11 @@ The UI SHALL provide a **Fleet** screen at `/relays` listing every relay across 
 
 - **WHEN** the codebase is inspected
 - **THEN** `/relays` and `/namespaces/:ns/relays` are served by the same LiveView module
+
+#### Scenario: Stop is not beside View
+
+- **WHEN** a row's actions are rendered
+- **THEN** they are in a menu, and Stop opens the existing confirmation
 
 #### Scenario: No relays are running
 

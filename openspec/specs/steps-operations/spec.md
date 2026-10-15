@@ -85,26 +85,41 @@ An operator SHALL be able to rescale a partition group to a target member count,
 
 ### Requirement: Steps facts are shown as their own panel
 
-For a relay whose run is `steps`, the relay detail screen SHALL show a steps panel carrying `durable_steps`, `effectively_once`, `correction_window_ms`, `arrived_via_hotswap?`, and `init_error` from the overwatch state, alongside the already-decoded `suspended`.
+For a relay whose run is `steps`, the relay's State view SHALL show a steps
+section built from the overwatch state's `durable_steps`, `effectively_once`,
+`correction_window_ms`, `arrived_via_hotswap?` and `init_error`, alongside the
+already-decoded `suspended`. It SHALL state these facts as sentences rather than
+as a grid of yes and no. The relay's Live view header SHALL name whether the relay
+is durable and link to this section.
 
 #### Scenario: A durable steps relay
 
 - **WHEN** an operator opens a steps relay whose overwatch reports `durable_steps: true`
-- **THEN** the steps panel states that the relay is durable
+- **THEN** the steps section states in a sentence that the relay is durable
 
 #### Scenario: A flow relay
 
 - **WHEN** an operator opens a relay whose run is `flow`
-- **THEN** no steps panel is rendered
+- **THEN** no steps section is rendered
 
 #### Scenario: A relay failed to initialise
 
 - **WHEN** the overwatch state carries a non-nil `init_error`
-- **THEN** the error is shown on the steps panel rather than the relay reading as healthy
+- **THEN** the error is shown on the steps section, and the relay's header does
+  not read as healthy
 
 ### Requirement: The task journal and input log are readable
 
-For a durable steps relay the UI SHALL show its task journal from `Flezha.Service.Steps.journal/2` and `Flezha.Service.Steps.committed_iterations/2`, and the depth and last offset of its input log from `Flezha.Service.Steps.undelivered/2` and `Flezha.Service.Steps.last_offset/2`. The journal SHALL be shown as the report the controller answers: the entries in append order, the leaf tasklets that define done, and whether the in-flight iteration has committed every leaf.
+For a durable steps relay, the relay's State view SHALL show:
+
+- its task journal, from `Flezha.Service.Steps.journal/2` and
+  `Flezha.Service.Steps.committed_iterations/2`;
+- the depth and last offset of its input log, from
+  `Flezha.Service.Steps.undelivered/2` and `Flezha.Service.Steps.last_offset/2`.
+
+The journal SHALL be shown as the report the controller answers: the entries in
+append order, the leaf tasklets that define done, and whether the in-flight
+iteration has committed every leaf.
 
 #### Scenario: A journal with committed iterations
 
@@ -135,7 +150,7 @@ For a durable steps relay the UI SHALL show its task journal from `Flezha.Servic
 #### Scenario: A non-durable relay
 
 - **WHEN** a relay is not a durable steps relay
-- **THEN** the task journal and input log panels are absent rather than empty
+- **THEN** the task journal and input log sections are absent rather than empty
 
 ### Requirement: The input log lists its retained records
 

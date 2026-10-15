@@ -9,13 +9,22 @@ and components another Flezha surface could reuse are contributed upstream.
 
 `flezha_ui` SHALL depend on the `flezha_stylebook` repository, published as the
 package `@flezha/stylebook`, as an npm `file:` dependency declared in
-`assets/package.json` as `file:../../flezha_stylebook`, and SHALL reference its
-CSS, JavaScript, fonts, and SVG assets through the package name. `flezha_ui` SHALL
-NOT keep a checked-in copy of the stylebook's stylesheets, behaviours, or logo kit.
+`assets/package.json` as `file:../../flezha_stylebook`. From it the console SHALL
+take only:
 
-#### Scenario: A stylesheet or behaviour is referenced
+- the palette: its `tokens.css`, which every console colour role aliases;
+- the shell's recipes: the rail, the topbar, its menus and chrome buttons;
+- the brand lockup, favicon and mascots;
+- the theme contract's hydrate and toggle scripts;
+- the token gate script;
+- until the relay graph's own redesign, the recipes that graph uses.
 
-- **WHEN** `assets/css/app.css` or `assets/js/app.js` pulls in stylebook code
+It SHALL reference each through the package name. `flezha_ui` SHALL NOT keep a
+checked-in copy of the stylebook's stylesheets, behaviours, scripts or logo kit.
+
+#### Scenario: A stylebook script is referenced
+
+- **WHEN** `assets/js/app.js` pulls in the theme scripts
 - **THEN** it does so by package specifier, resolved through `assets/node_modules`
 
 #### Scenario: The package resolves to the sibling checkout
@@ -23,10 +32,12 @@ NOT keep a checked-in copy of the stylebook's stylesheets, behaviours, or logo k
 - **WHEN** the asset dependencies are installed with `flezha_stylebook` checked out beside `flezha_ui`
 - **THEN** `assets/node_modules/@flezha/stylebook` resolves to that checkout and is not a dangling link
 
-#### Scenario: The stylebook changes upstream
+#### Scenario: Only the declared parts are taken
 
-- **WHEN** a token or component recipe is edited in `flezha_stylebook`
-- **THEN** the next asset build in `flezha_ui` picks the change up with no copy step
+- **WHEN** `assets/css/app.css` and `assets/js/app.js` are inspected
+- **THEN** they import the stylebook's theme scripts, its tokens and its
+  component recipes, and do not import its `base.css`, its dropdown or its tabs
+  behaviour
 
 #### Scenario: No duplicate stylebook lives in the repo
 
@@ -36,15 +47,21 @@ NOT keep a checked-in copy of the stylebook's stylesheets, behaviours, or logo k
 
 ### Requirement: The three CSS layers are imported in a defined order
 
-`app.css` SHALL import the stylebook's `tokens.css`, `base.css`, and
-`components.css` in that order, placed after Tailwind's base layer and before
-Tailwind's components and utilities layers, so that the stylebook's reset and form
-baseline win over Tailwind preflight while Tailwind utilities still win over
-stylebook component recipes.
+`app.css` SHALL import, in this order:
 
-#### Scenario: A component class is combined with a utility
+1. Tailwind's base layer;
+2. the console's `assets/css/console/tokens.css`, `base.css` and
+   `components.css`;
+3. the stylebook's `tokens.css` and `components.css`, for the palette, the shell
+   and the relay graph;
+4. Tailwind's components and utilities layers.
 
-- **WHEN** an element carries both a `.flz-*` component class and a Tailwind
+This order lets the console's reset and form baseline win over Tailwind
+preflight, while Tailwind utilities still win over component recipes.
+
+#### Scenario: A kit class is combined with a utility
+
+- **WHEN** an element carries both an `fui-` component class and a Tailwind
   spacing or layout utility
 - **THEN** the utility takes effect and the component skin is otherwise preserved
 
@@ -56,17 +73,17 @@ stylebook component recipes.
 #### Scenario: A form element is rendered
 
 - **WHEN** a text input, select, or textarea is rendered with no extra classes
-- **THEN** it already has the stylebook's surface, border, radius, padding, and
+- **THEN** it already has the console's surface, border, radius, padding and
   focus ring
 
 ### Requirement: The console's typefaces are self-hosted and served
 
-The application SHALL serve the three self-hosted woff2 faces the stylebook
-ships — Space Grotesk for display, Inter for body, JetBrains Mono for code and
-data — and the stylebook's `@font-face` rules SHALL resolve against them with no
-network request to a third party. The same asset step SHALL place the stylebook's
-badger mark, adaptive favicon, badger ICO and the two mascot WebP poses the console
-shows, copied from the resolved package.
+The application SHALL serve the console's three self-hosted woff2 faces —
+Bricolage Grotesque for display, IBM Plex Sans for interface text and IBM Plex
+Mono for identifiers and figures — with their OFL licence files beside them, from
+its own origin, with no network request to a third party. The stylebook asset step
+SHALL place only the brand lockup, adaptive favicon, ICO and the two mascot WebP
+poses, copied from the resolved package. It SHALL place no stylebook typeface.
 
 #### Scenario: A page loads
 
@@ -75,35 +92,45 @@ shows, copied from the resolved package.
 
 #### Scenario: A build produces the static tree
 
-- **WHEN** the asset build runs
-- **THEN** the woff2 faces, `images/flezha-badger-white.svg`,
-  `favicon.svg`, `favicon.ico`, `images/badger-laptop.webp` and
-  `images/badger-not-found.webp` are placed in the application's static tree from the
-  resolved package, not hand-copied and not generated by the console
+- **WHEN** the asset step runs
+- **THEN** `images/flezha-ui-badger-line-text-white.svg`, `favicon.svg`,
+  `favicon.ico`, `images/badger-laptop.webp` and `images/badger-not-found.png` are
+  placed in the static tree from the resolved package, and no Inter, Space
+  Grotesk or JetBrains Mono face is
 
 #### Scenario: A retired asset is not left behind
 
 - **WHEN** `priv/static/images` is listed after the asset build
-- **THEN** it holds no F-mark `flezha-ui-*` lockup
+- **THEN** it holds no F-mark lockup other than the current Flezha UI lockup
 
 ### Requirement: The token contract is gated in this repository
 
-`flezha_ui` SHALL run the stylebook's token gate over its own source as part of
-its checks, invoking the gate script through the installed `@flezha/stylebook`
-package. The gate SHALL fail on a `var()` naming a token nobody defines, on a
-token defined but never referenced, on any ink/surface pairing below its WCAG
-AA floor in either theme, and on a colour literal outside the stylebook's
-`css/tokens.css`. Third-party code in a `vendor/` directory SHALL NOT be scanned.
+`flezha_ui` SHALL run the stylebook's token gate as part of its checks, invoking
+the gate script through the installed `@flezha/stylebook` package, twice:
+
+- with the console's config, grading the `--fui-*` tokens in
+  `assets/css/console/tokens.css`, resolved through the stylebook's palette;
+- with the graph's config, grading the stylebook tokens the relay graph still uses
+  and ignoring `--fui-*` names.
+
+Each run SHALL fail on:
+
+- a `var()` naming a token nobody defines;
+- a token defined but never referenced;
+- any ink/surface or fill/ink pairing below its WCAG AA floor in either theme;
+- a colour literal outside a token file.
+
+Third-party code in a `vendor/` directory SHALL NOT be scanned.
 
 #### Scenario: A developer references a token that does not exist
 
-- **WHEN** a template or stylesheet uses `var(--not-a-token)`
+- **WHEN** a template or stylesheet uses `var(--fui-not-a-token)`
 - **THEN** the gate reports it and fails
 
 #### Scenario: A developer writes a colour literal
 
 - **WHEN** a template, stylesheet or script in `assets/` or `lib/` contains a hex,
-  `rgb()` or `hsl()` colour
+  `rgb()` or `hsl()` colour outside a token file
 - **THEN** the gate reports its file and line and fails
 
 #### Scenario: Vendored code is skipped
@@ -114,73 +141,11 @@ AA floor in either theme, and on a colour literal outside the stylebook's
 #### Scenario: The gate runs from a clean checkout
 
 - **WHEN** a developer installs the asset dependencies with `flezha_stylebook` beside the project and runs `npm run tokens`
-- **THEN** the gate script is found through the installed package and reports its result, rather than failing because its path does not exist
+- **THEN** both gate runs are found through the installed package and report their result
 
 #### Scenario: The gate is discoverable
 
 - **WHEN** a developer looks up how to check their work in `README.md`
 - **THEN** the command to run the token gate is documented alongside the test
   commands
-
-### Requirement: Shared components are contributed upstream
-
-A component that another Flezha surface could reasonably reuse SHALL be added to
-`flezha_stylebook`'s component recipes, not to `flezha_ui`'s local stylesheet —
-application shell, sidebar, sidebar section heading, topbar, breadcrumb trail,
-tab strip, collapsible section, command palette, menu, panel, table, stat tile,
-badge, modal and its entrance, toast, code block and its wrapping modifier, meter,
-empty state, logo mask and brand name, theme-toggle icons, and the relay-graph vocabulary of node
-roles, wires, flow dots and node states. Component recipes SHALL be built from tokens
-that already exist wherever the existing palette can carry them. A recipe that moves
-upstream SHALL be deleted from every consumer that held a copy, in the same change.
-
-#### Scenario: The console needs an application shell
-
-- **WHEN** the sidebar-and-topbar shell and the data-dense recipes are written
-- **THEN** they live in `flezha_stylebook/css/components.css`, are documented in
-  its README, and `flezha_ui` merely applies the classes
-
-#### Scenario: The console needs navigation recipes
-
-- **WHEN** the breadcrumb trail, sidebar section heading, tab strip, collapsible
-  section, command palette, and menu are written
-- **THEN** they live in `flezha_stylebook/css/components.css`, appear in its
-  README app-layer table, and `flezha_ui` merely applies the classes
-
-#### Scenario: A relay graph is drawn
-
-- **WHEN** the console's topology graph or flezha.com's relay shapes and cluster map
-  draw a plugin, tasklet, cell, runner or state node, a wire, or a flow dot, or mark a
-  node dead, recovering, lit or new
-- **THEN** both take the shape and colour from the stylebook's relay-graph recipe,
-  and neither repository keeps its own copy of those rules
-
-#### Scenario: Genuinely app-specific styling
-
-- **WHEN** styling exists that no other Flezha surface uses — the topology graph's
-  flow-rate buckets, backpressure pulse, rate labels and sparkline strokes
-- **THEN** it stays in `flezha_ui` as `topo-*` rules and consumes stylebook tokens for
-  its colours
-
-#### Scenario: No local copy of a stylebook helper remains
-
-- **WHEN** `assets/css/app.css` and `assets/tailwind.config.js` are inspected
-- **THEN** they hold no `.show-in-*` swap, no `animation-delay-*` utility, no
-  keyframes or animation entries, and no colour alias that renames a stylebook token
-  to a different meaning
-
-#### Scenario: A new recipe is added upstream
-
-- **WHEN** the stylebook's own quality gate runs after the recipes are added
-- **THEN** it passes: no undefined token, no dead token, no colour literal outside
-  `tokens.css`, and every pairing clears WCAG AA in both themes
-- **AND** flezha_home's token gate, tests and build still pass against it
-
-#### Scenario: The stylebook records its consumers
-
-- **WHEN** `flezha_stylebook/README.md` is read
-- **THEN** `flezha_ui` is listed as a live consumer, every asset and class the
-  console takes from the package appears in its contents tables, and the F-mark
-  `flezha-ui-*` row is gone
-- **AND** its install snippet names the dependency `file:../flezha_stylebook`
 

@@ -239,17 +239,28 @@ A tasklet's details SHALL be shown in its Cell sheet. Selecting another node SHA
 
 ### Requirement: Fleet summary at fixed cost
 
-The system SHALL render, on the dashboard and on a namespace page, a summary of the namespace's data plane: relay and runner counts broken down by the health `Flezha.Service.Relay.relay_rows/2` reports, runners whose channels report backpressure, dead-letter pressure, recent stall verdicts, and the busiest relays by measured throughput. Every health verdict the controller returns, including `recovering` and `parked`, SHALL be its own bucket. A relay that is unhealthy, unplaced, suspended, parked, or a member of a partition group whose coverage is faulted SHALL be surfaced by the summary even when its throughput is zero. The summary SHALL be assembled from a number of controller calls that does not grow with the number of relays, and each listed relay SHALL link to its pipeline graph.
+The system SHALL assemble, for a namespace's Home, a summary of the namespace's
+data plane. The summary SHALL hold:
 
-#### Scenario: Dashboard summarises the selected namespace
+- relay and runner counts, broken down by the health
+  `Flezha.Service.Relay.relay_rows/2` reports;
+- runners whose channels report backpressure;
+- dead-letter pressure;
+- recent stall verdicts;
+- per-relay measured throughput.
 
-- **WHEN** an operator opens the dashboard while namespaces exist
-- **THEN** the summary renders for the namespace named by `?ns=`, or the first namespace in sorted order when the parameter is absent, and changing the selector updates both the summary and the query parameter
+Every health verdict the controller returns, including `recovering` and `parked`,
+SHALL be its own bucket. A relay that is unhealthy, unplaced, suspended, parked,
+or a member of a partition group whose coverage is faulted SHALL be surfaced as a
+problem even when its throughput is zero. The summary SHALL be assembled from a
+number of controller calls that does not grow with the number of relays, and SHALL
+feed Home's headline and the namespace map.
 
-#### Scenario: Namespace page summarises its own namespace
+#### Scenario: Home summarises its own namespace
 
-- **WHEN** an operator opens a namespace's show page
-- **THEN** the same summary renders scoped to that namespace, without a namespace selector
+- **WHEN** an operator opens a namespace's Home
+- **THEN** the summary is assembled for that namespace, without a namespace
+  selector
 
 #### Scenario: Health is broken out
 
@@ -262,10 +273,10 @@ The system SHALL render, on the dashboard and on a namespace page, a summary of 
 - **WHEN** a relay is unhealthy or unplaced but its counters have not advanced
 - **THEN** the summary surfaces it despite its zero throughput
 
-#### Scenario: Busiest relays are ranked and linked
+#### Scenario: Throughput orders the map
 
 - **WHEN** two snapshots have been taken and several relays have advanced their counters
-- **THEN** the summary lists the relays with the highest measured throughput, each linking to its own pipeline graph
+- **THEN** the map orders lanes that need no attention by their measured throughput, highest first
 
 #### Scenario: Summary cost does not grow with the fleet
 
@@ -274,7 +285,7 @@ The system SHALL render, on the dashboard and on a namespace page, a summary of 
 
 #### Scenario: Namespace has nothing running
 
-- **WHEN** the selected namespace has no relays and no runners
+- **WHEN** the namespace has no relays and no runners
 - **THEN** the summary shows an empty state naming the namespace
 
 #### Scenario: Controller is unreachable
