@@ -14,13 +14,12 @@ import { test, expect, menuAction } from './fixtures';
  * and `runner_drop_test.exs` instead.
  */
 test.describe('Cluster and fleet', () => {
-  test.beforeEach(async ({ live }) => {
-    await live('/cluster');
-  });
-
-  test('shows the nodes, hub placement, runners and factories, and looks a factory up', async ({
+  test('shows the nodes, hub placement, runners and factories, looks a factory up, cancels a runner drop, and explains hub recovery', async ({
     page,
+    live,
   }) => {
+    await live('/cluster');
+
     const nodes = page.getByTestId('cluster-nodes');
     await expect(nodes.locator('li')).not.toHaveCount(0);
     await expect(nodes).toContainText('Connected to this console');
@@ -41,22 +40,7 @@ test.describe('Cluster and fleet', () => {
     await expect(result).toContainText('is served by');
     await page.getByRole('button', { name: 'Clear' }).click();
     await expect(result).toHaveCount(0);
-  });
 
-  test('hub recovery is explained behind a ?, with no button that does nothing', async ({
-    page,
-  }) => {
-    await expect(page.getByTestId('open-recovery-default')).toHaveCount(0);
-    // A serving hub raises no notice.
-    await expect(page.locator('[data-testid^="hub-not-serving-"]')).toHaveCount(0);
-
-    await page.getByTestId('help-rollup-default').click();
-    await expect(page.locator('#help-rollup-default [role="dialog"]')).toContainText(
-      'Recovery runs by itself',
-    );
-  });
-
-  test('dropping a runner warns what it does, and cancelling keeps the runner', async ({ page }) => {
     const row = page.getByTestId('runners-default').locator('tbody tr').first();
     const runnerId = (await row.getAttribute('data-testid'))!.replace('runner-', '');
 
@@ -65,5 +49,14 @@ test.describe('Cluster and fleet', () => {
     await page.getByTestId('drop-runner-cancel').click();
     await expect(page.getByTestId('drop-runner-modal')).toHaveCount(0);
     await expect(page.getByTestId(`runner-${runnerId}`)).toBeVisible();
+
+    await expect(page.getByTestId('open-recovery-default')).toHaveCount(0);
+    // A serving hub raises no notice.
+    await expect(page.locator('[data-testid^="hub-not-serving-"]')).toHaveCount(0);
+
+    await page.getByTestId('help-rollup-default').click();
+    await expect(page.locator('#help-rollup-default [role="dialog"]')).toContainText(
+      'Recovery runs by itself',
+    );
   });
 });

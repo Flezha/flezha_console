@@ -6,8 +6,6 @@ import {
   openSection,
   openSettings,
   uniqueId,
-  visitLive,
-  workerPage,
   type Page,
 } from './fixtures';
 
@@ -136,69 +134,34 @@ test.describe('Role bindings', () => {
 });
 
 test.describe('Controls follow the role', () => {
-  // One viewer token, stored on the worker's user for the whole describe and
-  // taken off again after it, so each screen group fails under its own name.
-  let viewer: Page;
-  let id = '';
-  let principal = '';
+  // Which control each role loses on each screen is asserted in
+  // `role_gating_test.exs`; here, that a real viewer token stored on the
+  // worker's user reaches the controller and a screen follows its answer.
+  test('a stored viewer token is answered as a viewer, and the relay screen offers it no mutation control', async ({
+    page,
+    live,
+  }) => {
+    const principal = uniqueId('pw_viewer');
+    let id = '';
 
-  test.beforeAll(async ({ browser }, testInfo) => {
-    viewer = await workerPage(browser, testInfo);
-    const live = (path: string) => visitLive(viewer, path);
-    principal = uniqueId('pw_viewer');
+    try {
+      await live(NS_URL);
+      const issued = await issueToken(page, principal, 'viewer');
+      id = issued.id;
 
-    await live(NS_URL);
-    const issued = await issueToken(viewer, principal, 'viewer');
-    id = issued.id;
+      await openSettings(page);
+      await page.locator('#flezha_token_token').fill(issued.token);
+      await page.locator('#update_flezha_token button').click();
+      await expect(page.getByTestId('flezha-token-binding')).toContainText(principal);
 
-    await openSettings(viewer);
-    await viewer.locator('#flezha_token_token').fill(issued.token);
-    await viewer.locator('#update_flezha_token button').click();
-    await expect(viewer.getByTestId('flezha-token-binding')).toContainText(principal);
-  });
-
-  test.afterAll(async () => {
-    await clearStoredToken(viewer);
-    if (id) await revokeToken(viewer, (path) => visitLive(viewer, path), id);
-    await viewer.context().close();
-  });
-
-  test('a viewer gets no mutation control on a relay or its state', async ({ page, live }) => {
-    await live('/namespaces/default/relays/testnet_store_1');
-    await expect(page.getByTestId('diagnose-btn')).toBeVisible();
-    for (const control of ['stop-relay-btn', 'talk-open-btn', 'attach-plugin-btn']) {
-      await expect(page.getByTestId(control)).toHaveCount(0);
+      await live('/namespaces/default/relays/testnet_store_1');
+      await expect(page.getByTestId('diagnose-btn')).toBeVisible();
+      for (const control of ['stop-relay-btn', 'talk-open-btn', 'attach-plugin-btn']) {
+        await expect(page.getByTestId(control)).toHaveCount(0);
+      }
+    } finally {
+      await clearStoredToken(page);
+      if (id) await revokeToken(page, live, id);
     }
-
-    await live('/namespaces/default/relays/testnet_store_1/state');
-    await expect(page.getByTestId('retention-form')).toHaveCount(0);
-    await expect(page.locator('[data-testid^="rotate-"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid^="delete-"]')).toHaveCount(0);
-  });
-
-  test('a viewer gets no mutation control on its namespace or its plugins', async ({ page, live }) => {
-    await live(NS_URL);
-    await expect(page.getByTestId('start-relay-btn')).toHaveCount(0);
-    await expect(page.getByTestId('bind-role-btn')).toHaveCount(0);
-    await expect(page.getByTestId('issue-token-btn')).toHaveCount(0);
-
-    await live('/namespaces/default/plugins');
-    await expect(page.getByTestId('enable-plugin-btn')).toHaveCount(0);
-    await expect(page.locator('[data-testid^="plugin-disable-"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid^="plugin-unbind-"]')).toHaveCount(0);
-  });
-
-  test('a viewer gets no mutation control on the platform screens', async ({ page, live }) => {
-    await live('/schedules');
-    await expect(page.getByTestId('schedule-new-btn')).toHaveCount(0);
-
-    await live('/audit');
-    await expect(page.getByTestId('audit-rotate-btn')).toHaveCount(0);
-
-    await live('/cluster');
-    await expect(page.locator('[data-testid^="drop-runner-"]')).toHaveCount(0);
-
-    await live('/controller');
-    await expect(page.getByTestId('stop-controller-btn')).toHaveCount(0);
   });
 });

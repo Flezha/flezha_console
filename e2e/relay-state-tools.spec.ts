@@ -1,4 +1,5 @@
 import {
+  choose,
   menuAction,
   ownRelay,
   test,
@@ -8,9 +9,10 @@ import {
 } from './fixtures';
 
 /**
- * Maintaining a relay's persisted state from its state screen: a cell's
- * outbox, rotation, replay from a point in its history, deletion, and the
- * class's history retention.
+ * A relay's durable state from its state screen: its cells, their counters
+ * and the point-in-time read, then maintaining it — a cell's outbox,
+ * rotation, replay from a point in its history, deletion, and the class's
+ * history retention.
  *
  * Every write lands on a relay this spec starts and stops itself, fed one
  * input so it has a cell. Its class is its run-unique id, so the retention it
@@ -30,6 +32,28 @@ test.beforeAll(() => sendRecords(id, ['state tools input']));
 test.describe('Relay state tools', () => {
   test.beforeEach(async ({ live }) => {
     await live(`/namespaces/default/relays/${id}/state`);
+  });
+
+  test('a fed cell is listed under its tasklet, and read at the sequence it reports', async ({ page }) => {
+    await expect(page.locator('[data-testid^="tasklet-"]').first()).toBeVisible();
+    const row = cellRow(page);
+    const walSeq = row.locator('td').nth(1);
+    await expect(walSeq).toHaveText(/\d+/);
+    const cell = (await row.getAttribute('data-testid'))!.slice('cell-'.length);
+
+    await expect(page.getByTestId('history-retention')).toContainText(/\d+ hours/);
+    await expect(page.getByTestId('finished-retention')).toHaveCount(0);
+
+    await menuAction(page, `cell-menu-${cell}`, `select-${cell}`);
+    await expect(page.getByTestId('time-travel')).toBeVisible();
+    const seq = (await walSeq.innerText()).trim();
+    await choose(page, 'travel-kind', 'seq');
+    await page.getByTestId('travel-value').fill(seq);
+    await page.getByTestId('travel-submit').click();
+
+    await expect(page.getByTestId('travel-seq')).toHaveText(new RegExp(`\\b${seq}\\b`));
+    await expect(page.getByTestId('travel-snapshot-size')).toBeVisible();
+    await expect(page.getByTestId('travel-change-log-size')).toBeVisible();
   });
 
   test('a cell is inspected, rotated, replayed and deleted', async ({ page }) => {

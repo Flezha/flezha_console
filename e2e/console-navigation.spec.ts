@@ -5,7 +5,6 @@ import {
   openPalette,
   openSection,
   timelineSamples,
-  withStepsRelay,
   openPage,
   type Page,
 } from './fixtures';
@@ -172,11 +171,21 @@ test.describe('A browser that refuses to store the preference', () => {
 });
 
 test.describe('The command palette', () => {
-  test('opens on the shortcut, says when nothing matches, and reaches a relay by id and a screen by name', async ({
+  test('closes on Escape and a click outside, says when nothing matches, reaches a relay and a screen, and leaves a field its shortcut', async ({
     page,
     live,
   }) => {
     await live('/audit');
+
+    await openPalette(page);
+    await page.getByTestId('command-palette-search').getByTestId('command-palette-input').fill('dead');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('command-palette')).toHaveCount(0);
+
+    await openPalette(page);
+    await page.mouse.click(5, 5);
+    await expect(page.getByTestId('command-palette')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/audit$/);
 
     await openPalette(page);
     await page.getByTestId('command-palette-input').fill('nothing-is-called-this');
@@ -196,27 +205,6 @@ test.describe('The command palette', () => {
     await page.getByTestId('command-palette-input').fill('dead');
     await page.getByTestId('command-palette-screen-Dead-letter').click();
     await expect(page).toHaveURL(/\/dlq$/);
-  });
-
-  test('closes on Escape and on a click outside it, leaving the screen where it was', async ({
-    page,
-    live,
-  }) => {
-    await live('/audit');
-
-    await openPalette(page);
-    await page.getByTestId('command-palette-search').getByTestId('command-palette-input').fill('dead');
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('command-palette')).toHaveCount(0);
-
-    await openPalette(page);
-    await page.mouse.click(5, 5);
-    await expect(page.getByTestId('command-palette')).toHaveCount(0);
-    await expect(page).toHaveURL(/\/audit$/);
-  });
-
-  test('does not steal the shortcut from a field being typed into', async ({ page, live }) => {
-    await live('/dlq');
 
     await page.getByTestId('dlq-filter').click();
     await page.keyboard.press('Control+k');
@@ -251,28 +239,5 @@ test.describe('A screen that refreshes', () => {
     await page.getByTestId('liveness-toggle').click();
     await expect(state).toContainText('Every');
     await expect.poll(() => timelineSamples(page), { message: 'the resumed timeline' }).toBeGreaterThan(held);
-  });
-});
-
-test.describe('Relay list filters', () => {
-  test('are written to the query string and reversed by the back button', async ({
-    page,
-    live,
-  }) => {
-    await withStepsRelay(page, async (id) => {
-      await live('/relays');
-
-      await page.getByTestId('filter-run').click();
-      await page.getByTestId('filter-run-steps').click();
-
-      await expect(page).toHaveURL(/\?.*run=steps/);
-      await expect(page.getByTestId(`relay-index-row-${id}`)).toBeVisible();
-      await expect(page.getByTestId('relay-index-row-testnet_store_1')).toHaveCount(0);
-
-      await page.goBack();
-
-      await expect(page).not.toHaveURL(/run=steps/);
-      await expect(page.getByTestId('relay-index-row-testnet_store_1')).toBeVisible();
-    });
   });
 });

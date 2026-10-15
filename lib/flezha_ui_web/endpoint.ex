@@ -11,9 +11,11 @@ defmodule FlezhaUiWeb.Endpoint do
     same_site: "Lax"
   ]
 
+  # A socket connect skips the code reloader's whole-project check: the page
+  # request before it already ran one, and an edited file reloads the page.
   socket "/live", Phoenix.LiveView.Socket,
-    websocket: [connect_info: [session: @session_options]],
-    longpoll: [connect_info: [session: @session_options]]
+    websocket: [connect_info: [session: @session_options], code_reloader: false],
+    longpoll: [connect_info: [session: @session_options], code_reloader: false]
 
   # Serve at "/" the static files from "priv/static" directory.
   #
@@ -28,7 +30,8 @@ defmodule FlezhaUiWeb.Endpoint do
   # Code reloading can be explicitly enabled under the
   # :code_reloader configuration of your endpoint.
   if code_reloading? do
-    socket "/phoenix/live_reload/socket", Phoenix.LiveReloader.Socket
+    socket "/phoenix/live_reload/socket", Phoenix.LiveReloader.Socket,
+      websocket: [code_reloader: false]
     plug Phoenix.LiveReloader
     plug Phoenix.CodeReloader
     plug Phoenix.Ecto.CheckRepoStatus, otp_app: :flezha_ui

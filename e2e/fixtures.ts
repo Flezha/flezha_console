@@ -354,30 +354,6 @@ export async function openPalette(page: Page): Promise<void> {
 }
 
 /**
- * Runs `body` against a durable steps relay started for it, and stops that
- * relay afterwards whatever happens.
- *
- * A steps relay that no input reaches does not stay up for the length of a
- * suite run, so a test that needs one starts its own rather than leaning on a
- * seed. The relay runs the seeded `steps` factory under a run-unique id.
- */
-export async function withStepsRelay(
-  page: Page,
-  body: (id: string) => Promise<void>,
-): Promise<void> {
-  const id = uniqueId('pw_steps');
-
-  await visitLive(page, '/namespaces/default');
-  await startRelay(page, id, { run: 'steps' });
-
-  try {
-    await body(id);
-  } finally {
-    await stopRelay(page, id);
-  }
-}
-
-/**
  * Unique per run, so a leftover from a failed run cannot collide.
  *
  * Kept short deliberately: the controller allows 11 bytes, because the cron
@@ -570,26 +546,39 @@ export async function workerPage(browser: Browser, testInfo: TestInfo): Promise<
 }
 
 /**
- * A relay of the spec file's own, under a run-unique id: started from the
- * namespace screen in `beforeAll` and stopped in `afterAll`, so every test in
- * the file can assert on it without another worker's traffic reaching it.
+ * A relay of the spec file's own, under a run-unique id: started in
+ * `beforeAll` and stopped in `afterAll`, so every test in the file can assert
+ * on it without another worker's traffic reaching it.
+ *
+ * Started and stopped as `flz` does, in one call each: the launcher form is
+ * the subject of the specs that drive it, and a fixture relay would only pay
+ * for its clicks again.
  */
 export function ownRelay(prefix: string, opts: { run?: Run; factory?: string } = {}): { readonly id: string } {
   const id = uniqueId(prefix);
-  let admin: Page;
+  const factory = opts.factory ?? SEEDED_FACTORY[opts.run ?? 'flow'];
 
-  test.beforeAll(async ({ browser }, testInfo) => {
-    admin = await workerPage(browser, testInfo);
-    await visitLive(admin, '/namespaces/default');
-    await startRelay(admin, id, opts);
-  });
-
-  test.afterAll(async () => {
-    await stopRelay(admin, id);
-    await admin.context().close();
-  });
+  test.beforeAll(() => startRelayCli(id, factory));
+  test.afterAll(() => stopRelayCli(id));
 
   return { id };
+}
+
+/** Starts `id` from `factory` as `flz` does, in one call. */
+export function startRelayCli(id: string, factory: string, namespace = 'default'): void {
+  cliCall('Relay.start', [namespace, { factory_id: factory, id }]);
+}
+
+/**
+ * Stops `id` as `flz` does. Tolerates a relay already gone, so a spec that
+ * stopped its relay itself can still leave this to `afterAll`.
+ */
+export function stopRelayCli(id: string, namespace = 'default'): void {
+  try {
+    cliCall('Relay.stop', [namespace, id]);
+  } catch (error) {
+    if (!/relay\.(not_found|not_running)/.test(String(error))) throw error;
+  }
 }
 
 /** Opens `path` in a second page of the same session, beside the one under test. */

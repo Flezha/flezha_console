@@ -3,7 +3,8 @@ import { submitLogin } from './global-setup';
 
 /**
  * An account made by the operator's command, from its first login through a
- * settings change to logging out, as a user the test makes for itself.
+ * settings change to logging out, after which a visit is sent to the form and
+ * the old password is refused, as a user the test makes for itself.
  *
  * Nothing here runs as a worker's user: changing its password or ending its
  * session would log the rest of that worker's specs out. The refusals of each
@@ -41,6 +42,11 @@ test('an account the command made logs in, changes its password and logs out', a
 
     await page.goto('/');
     await expect(page).toHaveURL(/\/users\/log-in$/);
+
+    // The old password is refused now, and the form says so.
+    await submitLogin(page, { email, password: PASSWORD });
+    await expect(page).toHaveURL(/\/users\/log-in$/);
+    await expect(page.locator('body')).toContainText(/invalid/i);
 
     // The new password is the one that now opens the account.
     await submitLogin(page, { email, password: NEXT_PASSWORD });

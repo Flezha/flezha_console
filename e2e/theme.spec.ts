@@ -33,7 +33,10 @@ async function freshVisit(page: Page, live: (path: string) => Promise<void>, sch
 }
 
 test.describe('Theme contract', () => {
-  test('with nothing stored, the theme follows the device, on a first visit and live', async ({ page, live }) => {
+  test('with nothing stored, the theme follows the device, on a first visit and live; a stored one applies before paint', async ({
+    page,
+    live,
+  }) => {
     await freshVisit(page, live, 'light');
     await expect(theme(page)).toHaveAttribute('data-theme', 'light');
 
@@ -43,11 +46,7 @@ test.describe('Theme contract', () => {
     await freshVisit(page, live, 'dark');
     await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
     expect(await stored(page)).toBeNull();
-  });
 
-  test('a stored preference is applied before the page paints', async ({ page, live }) => {
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await page.goto('/');
     await page.evaluate(() => localStorage.setItem('flezha-theme', 'light'));
 
     // The server sets no theme at all; the script inlined in <head> does,
@@ -59,23 +58,10 @@ test.describe('Theme contract', () => {
     await expect(theme(page)).toHaveAttribute('data-theme', 'light');
   });
 
-  test('a toggle away from the device is stored, a toggle back forgets it', async ({ page, live }) => {
-    await freshVisit(page, live, 'dark');
-
-    await toggleTheme(page);
-    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
-    await expect.poll(() => stored(page)).toBe('light');
-
-    // Still light after a full reload, not just for this page view.
-    await live('/');
-    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
-
-    await toggleTheme(page);
-    await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
-    await expect.poll(() => stored(page)).toBeNull();
-  });
-
-  test('the chrome follows the theme and the accent marks where you are', async ({ page, live }) => {
+  test('a toggle away from the device is stored and flips the chrome, survives navigation, and a toggle back forgets it', async ({
+    page,
+    live,
+  }) => {
     await freshVisit(page, live, 'dark');
     const bg = (selector: string) =>
       page.locator(selector).evaluate((el) => getComputedStyle(el).backgroundColor);
@@ -117,6 +103,24 @@ test.describe('Theme contract', () => {
     await expect
       .poll(() => current.evaluate((el) => getComputedStyle(el).color))
       .toBe(await rgb(page, await token(page, '--accent-solid')));
+    await expect.poll(() => stored(page)).toBe('light');
+
+    // Kept across live navigation, which the rail marks server-side.
+    await page.locator('.flz-sidebar-link[href="/namespaces"]').click();
+    await expect(page).toHaveURL(/\/namespaces$/);
+    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
+    await expect(page.locator('.flz-sidebar-link[href="/namespaces"]')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+
+    // And after a full reload, not just for this page view.
+    await live('/');
+    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
+
+    await toggleTheme(page);
+    await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
+    await expect.poll(() => stored(page)).toBeNull();
   });
 
   test('the badger lockup is painted in each theme', async ({ page, live }) => {
@@ -150,25 +154,6 @@ test.describe('Theme contract', () => {
         await rgb(page, await token(page, '--logo-ink')),
       );
     }
-  });
-
-  test('the choice survives live navigation and the toggle still works', async ({ page, live }) => {
-    await freshVisit(page, live, 'dark');
-    await toggleTheme(page);
-    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
-
-    await page.locator('.flz-sidebar-link[href="/namespaces"]').click();
-    await expect(page).toHaveURL(/\/namespaces$/);
-    await expect(theme(page)).toHaveAttribute('data-theme', 'light');
-
-    // The current destination is marked on the rail, server-side.
-    await expect(page.locator('.flz-sidebar-link[href="/namespaces"]')).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-
-    await toggleTheme(page);
-    await expect(theme(page)).toHaveAttribute('data-theme', 'dark');
   });
 
   test('the console sets type in flezha.com\'s faces and serves the badger icons', async ({

@@ -38,12 +38,12 @@ interface ProviderCase {
 }
 
 /**
- * The providers this suite drives end to end. Options point at real
+ * The providers this suite drives end to end, beside `relay_stdout`, which the
+ * graph test below enables, binds and lists. Options point at real
  * infrastructure rather than a plausible-looking string: a plugin runs on the
  * controller, inside the compose network.
  */
 const PROVIDERS: ReadonlyArray<ProviderCase> = [
-  { id: 'relay_stdout', opts: {}, hooks: ['on_output'] },
   { id: 'relay_websocket', opts: { uri: 'ws://flezha_controller:4500' }, hooks: ['on_terminate'] },
 ];
 

@@ -11,13 +11,12 @@ import { test, expect } from './fixtures';
  * `test/flezha_ui_web/live/controller_live_test.exs`.
  */
 test.describe('Controller health', () => {
-  test.beforeEach(async ({ live }) => {
-    await live('/controller');
-  });
-
-  test('states the durability posture, shutdown, boot, authz and shipper of the running controller', async ({
+  test('states the posture, shutdown, boot, authz and shipper; stopping asks for the node name and cancelling stops nothing; memory is snapshotted only when asked', async ({
     page,
+    live,
   }) => {
+    await live('/controller');
+
     // local_only ships nowhere, so it has no backend and nothing to breach.
     await expect(page.getByTestId('durability-backend')).toHaveText('None');
     await expect(
@@ -40,28 +39,7 @@ test.describe('Controller health', () => {
 
     await expect(page.getByTestId('shipper-not-applicable')).toBeVisible();
     await expect(page.getByTestId('shipper-table')).toHaveCount(0);
-  });
 
-  test('the memory snapshot is taken only when asked, and labelled when taken', async ({
-    page,
-  }) => {
-    // Nothing on arrival: a process scan is too expensive for a refresh tick.
-    await expect(page.getByTestId('memory-panel')).toBeVisible();
-    await expect(page.getByTestId('memory-captured-at')).toHaveCount(0);
-
-    await page.getByTestId('memory-snapshot-btn').click();
-
-    // The answer is brought into view and announced, never left below the fold.
-    const captured = page.getByTestId('memory-captured-at');
-    await expect(captured).toBeInViewport();
-    await expect(page.locator('.fui-toast').filter({ hasText: 'Memory snapshot taken.' })).toBeVisible();
-    await expect(captured).toContainText('Captured at');
-    await expect(page.getByTestId('memory-top-processes')).toBeVisible();
-  });
-
-  test('stopping asks for the node name, and cancelling or closing stops nothing', async ({
-    page,
-  }) => {
     await page.getByTestId('stop-controller-btn').click();
     const modal = page.getByTestId('stop-controller-modal');
     await expect(modal).toBeVisible();
@@ -90,5 +68,18 @@ test.describe('Controller health', () => {
     await page.getByTestId('stop-controller-close').click();
     await expect(modal).toHaveCount(0);
     await expect(page.getByTestId('shutdown-in-progress')).toHaveText('No');
+
+    // Nothing on arrival: a process scan is too expensive for a refresh tick.
+    await expect(page.getByTestId('memory-panel')).toBeVisible();
+    await expect(page.getByTestId('memory-captured-at')).toHaveCount(0);
+
+    await page.getByTestId('memory-snapshot-btn').click();
+
+    // The answer is brought into view and announced, never left below the fold.
+    const captured = page.getByTestId('memory-captured-at');
+    await expect(captured).toBeInViewport();
+    await expect(page.locator('.fui-toast').filter({ hasText: 'Memory snapshot taken.' })).toBeVisible();
+    await expect(captured).toContainText('Captured at');
+    await expect(page.getByTestId('memory-top-processes')).toBeVisible();
   });
 });

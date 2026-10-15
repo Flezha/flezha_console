@@ -74,7 +74,7 @@ export async function submitLogin(
  * A project that names its own `storageState` is a stack of its own — the
  * market stack — and logs in once as that stack's seeded user.
  *
- * `login.spec.ts` still exercises the form itself, so this path is covered
+ * `account.spec.ts` still exercises the form itself, so this path is covered
  * rather than merely assumed to work.
  */
 async function globalSetup(config: FullConfig) {

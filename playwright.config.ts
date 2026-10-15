@@ -37,7 +37,10 @@ export default defineConfig({
     navigationTimeout: 10_000,
     actionTimeout: 5_000,
     screenshot: 'only-on-failure',
-    trace: 'retain-on-failure',
+    // Every test records a trace and a passing one discards it, so its cost is
+    // paid on every test. The DOM snapshots are what a failure is read from;
+    // the screencast more than doubled the browser's CPU.
+    trace: { mode: 'retain-on-failure', screenshots: false },
   },
 
   globalSetup: './e2e/global-setup.ts',
@@ -70,7 +73,9 @@ export default defineConfig({
       use: {
         ...devices['Pixel 7'],
         viewport: { width: 390, height: 844 },
-        deviceScaleFactor: 3,
+        // Layout is read in CSS pixels, so painting each one nine times over
+        // would only cost CPU.
+        deviceScaleFactor: 1,
       },
       testMatch: 'phone.spec.ts',
     },

@@ -1,5 +1,4 @@
 import {
-  cliCall,
   expectGraphFits,
   ownRelay,
   test,
@@ -100,13 +99,6 @@ async function observers(page: Page, edge: 'in' | 'out'): Promise<number> {
   return (await badge.count()) ? Number(await badge.getAttribute('data-count')) : 0;
 }
 
-/** The listener plugins the controller holds on `id`. */
-function listeners(id: string): string[] {
-  const info = cliCall('Relay.info', ['default']) as { relays: { id: string; plugins?: { id: string }[] }[] };
-  const entry = info.relays.find((r) => r.id === id);
-  return (entry?.plugins ?? []).map((p) => p.id).filter((p) => p.startsWith('io_listener'));
-}
-
 test.describe('Pipeline graph', () => {
   test('draws the relay from its source to its output channel on one line, and opens its legend', async ({
     page,
@@ -131,30 +123,29 @@ test.describe('Pipeline graph', () => {
     await expect(legend).toContainText('no plugin bound');
   });
 
-  test('keeps every node apart on the showcase, in both directions', async ({ page, live }) => {
+  test('on the showcase, lights a hovered tasklet, keeps every node apart in both directions, and zooms and pans only the view', async ({
+    page,
+    live,
+  }) => {
     await live(relay(SHOWCASE));
     await expect(page.getByTestId('topo-node-run-validate_tick')).toBeVisible();
+
+    await page.getByTestId('topo-node-tasklet-merge_ticks').hover();
+    const opacity = (selector: string) =>
+      page.locator(selector).first().evaluate((el) => Number(getComputedStyle(el).opacity));
+    await expect.poll(() => opacity('[data-net="entry-trades|trades"]')).toBeLessThan(0.5);
+    expect(await opacity('[data-net="tasklet-normalize_trade|normalize_trade"]')).toBe(1);
+    expect(await opacity('[data-net="tasklet-merge_ticks|ticks"]')).toBe(1);
+    expect(await opacity('[data-testid="topo-node-tasklet-merge_ticks"]')).toBe(1);
 
     for (const dir of ['LR', 'TB'] as const) {
       await chooseDirection(page, dir);
       await page.getByTestId('topology-one').click();
       expect(overlaps(await boxes(page)), `${dir}: nodes overlap`).toEqual([]);
     }
-  });
 
-  test('fits its panel without scrolling the page at a desk, a tablet and a phone width', async ({ page, live }) => {
-    for (const width of [1280, 768, 390]) {
-      await page.setViewportSize({ width, height: 844 });
-      await live(relay(SHOWCASE));
-      await expect(page.getByTestId('topology-zoom')).not.toHaveText('100%');
-
-      await expectGraphFits(page, width);
-    }
-  });
-
-  test('zooms and pans the view without moving a node, and remembers the direction', async ({ page, live }) => {
-    await live(relay(SHOWCASE));
-    await chooseDirection(page, 'TB');
+    // Left in TB at one-to-one by the loop above.
+    await page.getByTestId('topology-fit').click();
     const before = await placed(page);
     const svg = page.locator('#topology-svg');
     const fitted = await svg.getAttribute('viewBox');
@@ -180,43 +171,22 @@ test.describe('Pipeline graph', () => {
     await chooseDirection(page, 'auto');
   });
 
-  test('hovering a tasklet lights its nets and dims the rest', async ({ page, live }) => {
-    await live(relay(SHOWCASE));
-    await page.getByTestId('topo-node-tasklet-merge_ticks').hover();
+  test('fits its panel without scrolling the page at a desk, a tablet and a phone width', async ({ page, live }) => {
+    for (const width of [1280, 768, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await live(relay(SHOWCASE));
+      await expect(page.getByTestId('topology-zoom')).not.toHaveText('100%');
 
-    const opacity = (selector: string) =>
-      page.locator(selector).first().evaluate((el) => Number(getComputedStyle(el).opacity));
-    await expect.poll(() => opacity('[data-net="entry-trades|trades"]')).toBeLessThan(0.5);
-    expect(await opacity('[data-net="tasklet-normalize_trade|normalize_trade"]')).toBe(1);
-    expect(await opacity('[data-net="tasklet-merge_ticks|ticks"]')).toBe(1);
-    expect(await opacity('[data-testid="topo-node-tasklet-merge_ticks"]')).toBe(1);
+      await expectGraphFits(page, width);
+    }
   });
 
-  test("a tasklet's Cells open in a sheet, with a hop to the next, and Escape closes it, then the selection", async ({
+  test("is driven from the keyboard, and Enter opens a tasklet's Cells in a sheet that Escape closes, then the selection", async ({
     page,
     live,
   }) => {
     await live(relay(CHAIN));
     send('pw_cells');
-    await page.getByTestId('topo-node-tasklet-static_entry_tasklet').click();
-
-    const sheet = page.getByTestId('topology-cells');
-    await expect(sheet).toBeVisible();
-    for (const key of ['a', 'b', 'c', 'd']) { await expect(page.getByTestId(`cell-${key}`)).toBeVisible() }
-    await expect(page.getByTestId('cells-hop-static_downstream_tasklet')).toHaveText('hop → static_downstream_tasklet');
-
-    await page.keyboard.press('Escape');
-    await expect(sheet).toHaveCount(0);
-    await expect(page.getByTestId('topo-node-tasklet-static_entry_tasklet')).toHaveAttribute('aria-pressed', 'true');
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('topo-node-tasklet-static_entry_tasklet')).toHaveAttribute('aria-pressed', 'false');
-  });
-
-  test('is driven from the keyboard: the arrows walk the record path, Enter opens what it reaches', async ({
-    page,
-    live,
-  }) => {
-    await live(relay(CHAIN));
     await chooseDirection(page, 'LR');
 
     await page.getByTestId('topo-node-entry-input').focus();
@@ -228,7 +198,16 @@ test.describe('Pipeline graph', () => {
     await expect(page.getByTestId('topo-node-tasklet-static_entry_tasklet')).toBeFocused();
 
     await page.keyboard.press('Enter');
-    await expect(page.getByTestId('topology-cells')).toBeVisible();
+    const sheet = page.getByTestId('topology-cells');
+    await expect(sheet).toBeVisible();
+    for (const key of ['a', 'b', 'c', 'd']) { await expect(page.getByTestId(`cell-${key}`)).toBeVisible() }
+    await expect(page.getByTestId('cells-hop-static_downstream_tasklet')).toHaveText('hop → static_downstream_tasklet');
+
+    await page.keyboard.press('Escape');
+    await expect(sheet).toHaveCount(0);
+    await expect(page.getByTestId('topo-node-tasklet-static_entry_tasklet')).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('topo-node-tasklet-static_entry_tasklet')).toHaveAttribute('aria-pressed', 'false');
   });
 
   test('records move in the order they pass: no mark leaves on kafka before one crossed hop', async ({ page, live }) => {
@@ -255,14 +234,6 @@ test.describe('Pipeline graph', () => {
     const rate = page.getByTestId('topo-rate-in-input');
     await expect.poll(async () => { send('pw_still'); return rate.textContent() }).toMatch(/IN \d/);
     expect(await launched(page)).toEqual({});
-  });
-
-  test('leaving the page ends its tally, so the relay keeps no listener', async ({ page, live }) => {
-    await live(relay(SHOWCASE));
-    await expect.poll(() => listeners(SHOWCASE).length, { message: 'the page holds a tally' }).toBe(1);
-
-    await live('/plugins');
-    await expect.poll(() => listeners(SHOWCASE), { message: 'the tally must end with the page' }).toEqual([]);
   });
 });
 
@@ -301,21 +272,25 @@ test.describe('Payload tap', () => {
     await page.getByTestId('tap-close').click();
   });
 
-  test('leaves its edge counting the listeners it had before', async ({ page, live }) => {
-    const before = await observers(page, 'in');
+  // A tap is a listen the page holds, as the graph's own tally is: both go the
+  // same way, so this is what proves the relay keeps no listener of a page.
+  test('ends its listener when the page is left, and when the page loses its socket', async ({
+    page,
+    live,
+    pageHealth,
+  }) => {
+    const left = await observers(page, 'in');
 
     await page.getByTestId('topo-node-entry-input').click();
-    await expect.poll(() => observers(page, 'in')).toBe(before + 1);
+    await expect.poll(() => observers(page, 'in')).toBe(left + 1);
 
     await live('/plugins');
     await live(relay(CHAIN));
 
     await expect
       .poll(() => observers(page, 'in'), { message: 'the tap must not outlive the page that opened it' })
-      .toBe(before);
-  });
+      .toBe(left);
 
-  test('ends its listener when the page loses its socket', async ({ page, pageHealth }) => {
     pageHealth.allow(/took phx-(client-)?error/, 'the test drops the socket on purpose');
     const watcher = await openPage(page, relay(CHAIN));
     const before = await observers(watcher, 'in');

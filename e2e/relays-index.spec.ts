@@ -6,10 +6,12 @@ import {
   healthMatcher,
   choose,
   startRelay,
+  startRelayCli,
   stopRelay,
+  stopRelayCli,
+  SEEDED_FACTORY,
   uniqueId,
   visitLive,
-  openPage,
 } from './fixtures';
 
 /**
@@ -26,7 +28,10 @@ test.describe('Relays index', () => {
     await live('/relays');
   });
 
-  test('lists seeded relays with their namespace, health and run', async ({ page }) => {
+  test('lists seeded relays with their namespace, health and run, and a row opens its relay', async ({
+    page,
+    live,
+  }) => {
     await expect(page.getByTestId('relays-index-table')).toBeVisible();
 
     const row = page.getByTestId('relay-index-row-testnet_store_1');
@@ -40,12 +45,8 @@ test.describe('Relays index', () => {
     );
 
     await expect(page.getByTestId('relays-count')).toContainText('across');
-  });
 
-  test('a row opens its relay in the inspector; its name, Open and its menu open the relay', async ({
-    page,
-    live,
-  }) => {
+    // A row opens its relay in the inspector; its name, Open and its menu open the relay.
     const relayUrl = /\/namespaces\/default\/relays\/testnet_store_1$/;
 
     await page.getByTestId('relay-index-row-testnet_store_1').click();
@@ -98,19 +99,17 @@ test.describe('Relays index', () => {
   }) => {
     const id = uniqueId('pw_feed');
     const feed = page.getByTestId('lifecycle-feed').locator('li').filter({ hasText: id });
-    const other = await openPage(page, '/namespaces/default');
 
     try {
-      await startRelay(other, id);
-      await expect(feed.filter({ hasText: 'started from store_input' })).toHaveCount(1);
+      startRelayCli(id, SEEDED_FACTORY.flow);
+      await expect(feed.filter({ hasText: `started from ${SEEDED_FACTORY.flow}` })).toHaveCount(1);
       await expect(page.getByTestId(`relay-index-row-${id}`)).toBeVisible();
 
-      await stopRelay(other, id);
+      stopRelayCli(id);
       await expect(feed.filter({ hasText: 'stopped:' })).toHaveCount(1);
       await expect(page.getByTestId(`relay-index-row-${id}`)).toHaveCount(0);
     } finally {
-      await stopRelay(other, id);
-      await other.close();
+      stopRelayCli(id);
     }
   });
 });

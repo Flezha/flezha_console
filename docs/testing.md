@@ -85,12 +85,24 @@ The budgets are 90 s for `mix test` and 4 minutes for `npm run e2e` on a
 developer machine. `mix test --slowest 25` and the HTML report's durations say
 what to look at first when a run creeps up.
 
+A browser run is bound by CPU, not by waiting: the stack, the browsers and the
+runner share one machine, and a starved machine slows every test at once. So
+nothing pays per test what it need not. The dev endpoint checks for changed
+code on a page request but not on a socket connect, since a page opens two
+sockets. A trace keeps DOM snapshots but no screencast, which more than
+doubled the browser's work. The phone project paints at one device pixel. A
+relay that is only a fixture is started and stopped through the controller
+(`ownRelay`, `startRelayCli`); the launcher form is driven by the specs whose
+subject it is. A check that needs a test of its own is one a single page
+session cannot reach: otherwise it is a step in the test that already holds
+that page.
+
 ## Parallel workers own their state
 
 Spec files run side by side in 4 workers (`E2E_WORKERS`); tests in one file run
 in order in one worker, so a file can share a `beforeAll`. `ownRelay(prefix,
-opts)` gives a file a relay of its own: started under a run-unique id before
-its tests and stopped after them. `dlq.spec.ts` parks its one entry the same
+opts)` gives a file a relay of its own: started through the controller under a
+run-unique id before its tests and stopped after them. `dlq.spec.ts` parks its one entry the same
 way — the controller keys an entry on its payload, so a relay parks `poison`
 once — and its tests read, replay and drop that entry in turn.
 

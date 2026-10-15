@@ -47,7 +47,10 @@ async function openDrawer(page: Page) {
 }
 
 test.describe('The console on a phone', () => {
-  test('the topbar is one row, and the bar carries the main destinations', async ({ page, live }) => {
+  test('the topbar is one row, and the bar carries the main destinations, each reached by a tap, and Search', async ({
+    page,
+    live,
+  }) => {
     await live('/namespaces/default/relays');
 
     const topbar = await page.getByTestId('topbar').boundingBox();
@@ -60,10 +63,6 @@ test.describe('The console on a phone', () => {
     const bar = page.getByTestId('tabbar');
     await expect(bar.locator('a:visible, button:visible')).toHaveText(['Home', 'Relays', /Problems/, 'Search', 'Menu']);
     await expect(page.getByTestId('tabbar-relays')).toHaveAttribute('aria-current', 'page');
-  });
-
-  test('each place in the bar is reached by a tap', async ({ page, live }) => {
-    await live('/cluster');
 
     for (const [item, url] of [
       ['tabbar-home', /\/namespaces\/default$/],
@@ -74,11 +73,8 @@ test.describe('The console on a phone', () => {
       await expect(page).toHaveURL(url);
       await expect(page.getByTestId(item)).toHaveAttribute('aria-current', 'page');
     }
-  });
 
-  test('Search opens the palette full screen, and Cancel leaves it', async ({ page, live }) => {
-    await live('/cluster');
-
+    // Search opens the palette full screen, and Cancel leaves it.
     await page.getByTestId('tabbar-search').tap();
     const palette = page.getByTestId('command-palette');
     await expect(palette).toBeVisible();
@@ -87,15 +83,18 @@ test.describe('The console on a phone', () => {
 
     await page.getByTestId('command-palette-close').tap();
     await expect(palette).toBeHidden();
-    await expect(page).toHaveURL(/\/cluster$/);
+    await expect(page).toHaveURL(/\/problems$/);
     await expect(page.getByTestId('tabbar-search')).toBeFocused();
   });
 
-  test('the drawer opens on the current place, holds focus, and stays open across a refresh', async ({
+  test('the drawer opens on the current place, holds focus, stays open across a refresh, carries the principal and the theme, and closes three ways', async ({
     page,
     live,
   }) => {
     await live('/namespaces/default/relays');
+    await expect(page.getByTestId('authz-identity')).toBeHidden();
+    await expect(page.getByTestId('theme-toggle')).toBeHidden();
+
     await openDrawer(page);
 
     await expect(drawer(page).locator('[aria-current="page"]')).toBeFocused();
@@ -112,12 +111,16 @@ test.describe('The console on a phone', () => {
     const before = await page.getByTestId('liveness-state').textContent();
     await expect(page.getByTestId('liveness-state')).not.toHaveText(before!);
     await expect(drawer(page)).toBeVisible();
-  });
 
-  test('the drawer closes by Escape, by a tap beside it and by following a link', async ({ page, live }) => {
-    await live('/namespaces/default');
+    // Its foot names the principal and switches the theme.
+    await expect(page.getByTestId('drawer-principal')).toBeVisible();
+    const html = page.locator('html');
+    const theme = await html.getAttribute('data-theme');
+    await page.getByTestId('drawer-theme-toggle').tap();
+    await expect(html).not.toHaveAttribute('data-theme', theme!);
+    await page.getByTestId('drawer-theme-toggle').tap();
+    await expect(html).toHaveAttribute('data-theme', theme!);
 
-    await openDrawer(page);
     await page.keyboard.press('Escape');
     await expect(drawer(page)).toBeHidden();
     await expect(page.getByTestId('tabbar-menu')).toBeFocused();
@@ -126,28 +129,12 @@ test.describe('The console on a phone', () => {
     await openDrawer(page);
     await page.touchscreen.tap(380, 420);
     await expect(drawer(page)).toBeHidden();
-    await expect(page).toHaveURL(/\/namespaces\/default$/);
+    await expect(page).toHaveURL(/\/namespaces\/default\/relays$/);
 
     await openDrawer(page);
     await drawer(page).getByRole('link', { name: 'Cluster' }).tap();
     await expect(page).toHaveURL(/\/cluster$/);
     await expect(drawer(page)).toBeHidden();
-  });
-
-  test('the drawer foot names the principal and switches the theme', async ({ page, live }) => {
-    await live('/cluster');
-    await expect(page.getByTestId('authz-identity')).toBeHidden();
-    await expect(page.getByTestId('theme-toggle')).toBeHidden();
-
-    await openDrawer(page);
-    await expect(page.getByTestId('drawer-principal')).toBeVisible();
-
-    const html = page.locator('html');
-    const theme = await html.getAttribute('data-theme');
-    await page.getByTestId('drawer-theme-toggle').tap();
-    await expect(html).not.toHaveAttribute('data-theme', theme!);
-    await page.getByTestId('drawer-theme-toggle').tap();
-    await expect(html).toHaveAttribute('data-theme', theme!);
   });
 
   test('the account menu opens on screen, and its settings are reached', async ({ page, live }) => {
@@ -163,7 +150,10 @@ test.describe('The console on a phone', () => {
     await openSettings(page, () => panel.getByRole('link', { name: 'Settings' }).tap());
   });
 
-  test('a table reads as cards, each value under its column', async ({ page, live }) => {
+  test('a table reads as cards, and a sheet keeps its title and step controls in view, held upright or on its side', async ({
+    page,
+    live,
+  }) => {
     await live('/namespaces/default/relays');
 
     const row = page.locator('[data-testid^="relay-index-row-"]').first();
@@ -175,12 +165,8 @@ test.describe('The console on a phone', () => {
 
     const caption = await health.evaluate((el) => getComputedStyle(el, '::before').content);
     expect(caption).toBe('"Health"');
-  });
 
-  test('a sheet keeps its title and step controls in view while its list scrolls', async ({ page, live }) => {
-    await live('/namespaces/default/relays');
     await openStart(page);
-
     const sheet = page.getByTestId('start-modal');
     await sheet.locator('[data-testid="factory-choices"]').evaluate((el) => {
       el.scrollTop = el.scrollHeight;
@@ -194,14 +180,12 @@ test.describe('The console on a phone', () => {
 
     await page.getByTestId('start-cancel-btn').tap();
     await expect(sheet).toBeHidden();
-  });
 
-  test('a phone on its side gets the sheet too', async ({ page, live }) => {
     await page.setViewportSize({ width: 844, height: 390 });
     await live('/namespaces/default/relays');
     await openStart(page);
 
-    await expect(page.getByTestId('start-modal').getByRole('heading', { name: 'Start a relay' })).toBeInViewport();
+    await expect(sheet.getByRole('heading', { name: 'Start a relay' })).toBeInViewport();
     await expect(page.getByTestId('start-cancel-btn')).toBeInViewport();
     await page.getByTestId('start-cancel-btn').tap();
   });

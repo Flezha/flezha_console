@@ -2,8 +2,10 @@ import {
   test,
   expect,
   factoryOptions,
-  startRelay,
+  startRelayCli,
   stopRelay,
+  stopRelayCli,
+  SEEDED_FACTORY,
   uniqueId,
   openSection,
   expectAdvances,
@@ -87,7 +89,7 @@ test.describe('Relay lifecycle', () => {
     const id = uniqueId('pw_state');
 
     try {
-      await startRelay(page, id);
+      startRelayCli(id, SEEDED_FACTORY.flow);
       await live(`${NAMESPACE_URL}/${id}/state`);
       await openSection(page, 'sdk-state');
 
@@ -115,7 +117,7 @@ test.describe('Relay lifecycle', () => {
       await expect(page.getByTestId('runtime-error')).toContainText('state.tasklet_not_found');
       await expect(page.getByTestId('state-json')).toHaveCount(0);
     } finally {
-      await stopRelay(page, id);
+      stopRelayCli(id);
     }
   });
 });

@@ -150,13 +150,14 @@ test.describe('Plugin writes', () => {
     }
   });
 
-  test('relay_http_push is enabled with typed options', async ({ page }) => {
-    const name = uniqueId('pw_push');
+  test('relay_http_push takes typed options, and relay_io_filter a true/false one', async ({ page }) => {
+    const push = uniqueId('pw_push');
+    const filter = uniqueId('pw_filter');
 
     try {
       await enable(
         page,
-        name,
+        push,
         'relay_http_push',
         ['on_output'],
         {
@@ -168,30 +169,24 @@ test.describe('Plugin writes', () => {
         },
         RELAY,
       );
+      await expect(page.locator('body')).toContainText(`Plugin ${push} enabled and bound to ${RELAY}.`);
+      await expect(page.getByTestId(`plugin-row-${push}`)).toBeVisible();
 
-      await expect(page.locator('body')).toContainText(`Plugin ${name} enabled and bound to ${RELAY}.`);
-      await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
-    } finally {
-      await disablePlugin(page, name);
-    }
-  });
-
-  test('relay_io_filter is enabled with a true/false option', async ({ page }) => {
-    const name = uniqueId('pw_filter');
-
-    try {
       await enable(
         page,
-        name,
+        filter,
         'relay_io_filter',
         ['on_output'],
         { regex_pattern: '^pw-never-matches$', inverted: 'true' },
         RELAY,
       );
-
-      await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
+      await expect(page.getByTestId(`plugin-row-${filter}`)).toBeVisible();
     } finally {
-      await disablePlugin(page, name);
+      try {
+        await disablePlugin(page, push);
+      } finally {
+        await disablePlugin(page, filter);
+      }
     }
   });
 });

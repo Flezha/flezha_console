@@ -2,8 +2,8 @@ import {
   test,
   expect,
   sendRecords,
-  startRelay,
-  stopRelay,
+  startRelayCli,
+  stopRelayCli,
   uniqueId,
   visitLive,
   menuAction,
@@ -54,8 +54,7 @@ test.beforeAll(async ({ browser }, testInfo) => {
   admin = await workerPage(browser, testInfo);
   relay = uniqueId('pw_dlq');
 
-  await visitLive(admin, '/namespaces/default');
-  await startRelay(admin, relay, { factory: 'poison_probe' });
+  startRelayCli(relay, 'poison_probe');
   sendRecords(relay, ['poison']);
 
   await openQueue(admin);
@@ -71,7 +70,7 @@ test.afterAll(async () => {
     await admin.getByTestId('dlq-confirm-submit').click();
     await expect(admin.getByTestId(`dlq-row-${left}`)).toHaveCount(0);
   }
-  await stopRelay(admin, relay);
+  stopRelayCli(relay);
   await admin.context().close();
 });
 

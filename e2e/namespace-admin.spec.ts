@@ -2,20 +2,17 @@ import {
   menuAction,
   test,
   expect,
-  openPage,
   openSection,
-  startRelay,
-  stopRelay,
-  uniqueId,
   visitLive,
   type Page,
 } from './fixtures';
 
 /**
  * Namespaces as declared objects: quota meters against live counters, the
- * create/delete round-trip, and the finished relays and runners a namespace
- * lists. What the forms refuse before the controller, the role bindings and
- * the delete gate are asserted in `namespace_admin_test.exs`.
+ * create/delete round-trip, and the runners a namespace lists; its finished
+ * relays are read in `steps.spec.ts`. What the forms refuse before the
+ * controller, the role bindings and the delete gate are asserted in
+ * `namespace_admin_test.exs`.
  *
  * `DevSetup` declares `default` with quota overrides, so its meters are real.
  * The created namespace is deleted in the same test, because the suite runs
@@ -38,7 +35,10 @@ async function deleteNamespace(page: Page, name: string): Promise<void> {
 }
 
 test.describe('Namespace administration', () => {
-  test('quota meters render against the controller’s live counters', async ({ page, live }) => {
+  test('quota meters render against the controller’s live counters, and the runners panel lists the runner', async ({
+    page,
+    live,
+  }) => {
     await live('/namespaces/default');
     await openSection(page, 'quotas');
 
@@ -52,6 +52,13 @@ test.describe('Namespace administration', () => {
 
     // A meter is drawn against a real limit, not a placeholder.
     await expect(page.getByTestId('quota-relays')).toContainText(/of \d+/);
+
+    await openSection(page, 'runners');
+    await expect(page.getByTestId('runners-panel')).toContainText('Runners');
+    // A long runner id is shortened on screen, so the row is read by its id.
+    await expect(
+      page.getByTestId('runners-default').locator('[data-testid^="runner-default_"]').first(),
+    ).toBeVisible();
   });
 
   test('creating a namespace and deleting it round-trips', async ({ page, live }) => {
@@ -113,35 +120,6 @@ test.describe('Namespace administration', () => {
       await deleteNamespace(page, name);
     } finally {
       await deleteNamespace(page, name);
-    }
-  });
-
-  test('the finished listing reloads on request, and the runners panel lists the runner', async ({
-    page,
-    live,
-  }) => {
-    const id = uniqueId('pw_fin');
-    const other = await openPage(page, '/namespaces/default');
-
-    try {
-      await live('/namespaces/default');
-      await startRelay(page, id, { run: 'steps' });
-      await openSection(page, 'finished-relays');
-      await stopRelay(other, id);
-
-      await page.getByTestId('reload-finished').click();
-      await expect(page.getByTestId(`finished-row-${id}`)).toContainText('Cancelled');
-      await expect(page.getByTestId('finished-loading')).toHaveCount(0);
-
-      await openSection(page, 'runners');
-      await expect(page.getByTestId('runners-panel')).toContainText('Runners');
-      // A long runner id is shortened on screen, so the row is read by its id.
-      await expect(
-        page.getByTestId('runners-default').locator('[data-testid^="runner-default_"]').first(),
-      ).toBeVisible();
-    } finally {
-      await stopRelay(other, id);
-      await other.close();
     }
   });
 });
