@@ -33,6 +33,7 @@ defmodule FlezhaUiWeb.Live.Refresh do
 
   @callback refresh(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   @callback refresh_paused?(Phoenix.LiveView.Socket.t()) :: boolean()
+  @callback refresh_hidden(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
 
   @doc false
   # The operator's pause is read here rather than in the default
@@ -77,13 +78,18 @@ defmodule FlezhaUiWeb.Live.Refresh do
   @doc """
   Stops reading while the browser tab is hidden, and reads at once when it is
   shown again, so a tab left in the background asks the controller nothing.
-  A hook reports the tab's visibility as `"refresh_visibility"`.
+  A hook reports the tab's visibility as `"refresh_visibility"`. A screen
+  holding a read open between ticks lets it go in `refresh_hidden/1`.
   """
   def visibility(socket, module, hidden) do
     was_hidden = socket.assigns[:refresh_hidden] || false
     socket = Phoenix.Component.assign(socket, :refresh_hidden, hidden)
 
-    if was_hidden and not hidden, do: tick(module, socket), else: socket
+    cond do
+      was_hidden and not hidden -> tick(module, socket)
+      hidden and not was_hidden -> module.refresh_hidden(socket)
+      true -> socket
+    end
   end
 
   @doc false
@@ -222,7 +228,10 @@ defmodule FlezhaUiWeb.Live.Refresh do
       @impl FlezhaUiWeb.Live.Refresh
       def refresh_paused?(_socket), do: false
 
-      defoverridable refresh_paused?: 1
+      @impl FlezhaUiWeb.Live.Refresh
+      def refresh_hidden(socket), do: socket
+
+      defoverridable refresh_paused?: 1, refresh_hidden: 1
     end
   end
 end

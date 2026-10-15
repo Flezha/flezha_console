@@ -214,6 +214,10 @@ fixture itself:
   asks for `pair` and `amount` and answers the placed order; `audit` takes a
   line of text and answers nothing. Calls are told apart by a run-unique pair.
 - `lifecycle_webhook`, a controller plugin bound to no relay.
+- `testnet_chain`, whose websocket source names no channel and is bound only
+  to tear down: the graph draws it as a source on the relay's first entry.
+  The graph's other cases run on relays `topology.spec.ts` starts from the
+  `static_cell` and `showcase` factories.
 - Two plugin packages placed in the controller's plugin root before it boots
   (`priv/dev/plugin_packages.sh`): `flezha_http`, which loads, and
   `flezha_http_tampered`, which the loader refuses with `plugin.package_invalid`.
@@ -231,13 +235,15 @@ listed as revoked.
 
 `relay-data-flow.spec.ts` needs what only flezha_trader's dev stack runs: the
 `demo` market group and its fourteen-tasklet graph. That stack runs this
-checkout as its console on port 4000; `E2E_MARKET_STACK=1` adds a `market`
-project that runs the spec there, logged in as that stack's seeded user, beside
-the rest of the suite on this stack:
+checkout as its console, on the port its `FLEZHA_UI_HOST_PORT` gives
+(`E2E_MARKET_URL`, `http://localhost:4000` by default); `E2E_MARKET_STACK=1`
+adds a `market` project that runs the spec there, logged in as that stack's
+seeded user, beside the rest of the suite on this stack. Its runner predates
+per-Cell figures, so the spec also sees the Cell sheet say so:
 
 ```bash
-E2E_MARKET_STACK=1 E2E_BASE_URL=http://localhost:4001 npx playwright test  # both stacks
-E2E_MARKET_STACK=1 npx playwright test --project=market                     # the spec alone
+E2E_MARKET_STACK=1 E2E_BASE_URL=http://localhost:4001 npx playwright test           # both stacks
+E2E_MARKET_STACK=1 E2E_MARKET_URL=http://localhost:4002 npx playwright test --project=market
 ```
 
 Without `E2E_MARKET_STACK` the spec is skipped, with the reason in the report.

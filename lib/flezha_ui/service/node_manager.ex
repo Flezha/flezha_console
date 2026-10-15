@@ -1048,11 +1048,17 @@ defmodule FlezhaUi.Service.NodeManager do
   @doc """
   What each tasklet of the relay is doing, as its runner counts them:
   `%{relay:, runner:, read_at_ms:, instance_seq:, tasklets: [%{tasklet:,
-  cells:, queued:, queued_max:, admitted_total:, …}]}`. A figure the runner
-  does not keep is `nil`.
+  cells:, queued:, queued_max:, admitted_total:, …}], cells:}`. A figure the
+  runner does not keep is `nil`.
+
+  `opts` takes `cells_of`, a tasklet whose Cells to answer too, and `limit`:
+  then `cells` is `%{tasklet:, cells_total:, rows: [%{key:, queued:,
+  admitted_total:, blocked_total:, dropped_newest_total:,
+  dropped_oldest_total:, last_admitted_ms:}]}`, or `nil` from a runner that
+  keeps no per-Cell figures.
   """
-  def relay_activity(namespace, relay_id, token) do
-    authorized_call(token, Flezha.Service.Relay, :activity, [namespace, relay_id])
+  def relay_activity(namespace, relay_id, token, opts \\ []) do
+    authorized_call(token, Flezha.Service.Relay, :activity, [namespace, relay_id, opts])
   end
 
   @doc """
@@ -1083,18 +1089,19 @@ defmodule FlezhaUi.Service.NodeManager do
   it here keeps one place knowing the shape.
 
   `overwatch_facts/0` is the same shape with nothing in it, for a screen whose
-  read failed.
+  read failed. `feeding` is what `feeding_providers/1` answered, which decides
+  the relay's `sources`.
   """
-  def overwatch_facts(namespace, relay_id, token) do
+  def overwatch_facts(namespace, relay_id, token, feeding \\ nil) do
     case overwatch_state(namespace, relay_id, token) do
-      {:ok, state} when is_map(state) -> {:ok, decode_overwatch(state, relay_id)}
+      {:ok, state} when is_map(state) -> {:ok, decode_overwatch(state, relay_id, feeding)}
       other -> unexpected(other)
     end
   end
 
-  def overwatch_facts, do: decode_overwatch(%{}, nil)
+  def overwatch_facts, do: decode_overwatch(%{}, nil, nil)
 
-  defp decode_overwatch(state, relay_id) do
+  defp decode_overwatch(state, relay_id, feeding) do
     started_at = Map.get(state, :started_at)
 
     %{
@@ -1117,7 +1124,7 @@ defmodule FlezhaUi.Service.NodeManager do
       bound_at: Map.get(state, :bound_at),
       relay_class: relay_class(state, relay_id),
       bindings: hook_entries(state),
-      sources: entry_sources(state)
+      sources: entry_sources(state, feeding)
     }
   end
 
@@ -1148,7 +1155,8 @@ defmodule FlezhaUi.Service.NodeManager do
   provider and position live on the entry, so this is the only place that
   knows the table's shape. `channel` is the set of channels the plugin acts
   on, as the controller resolved its channel options, or `nil` for every
-  channel.
+  channel. `tally?` marks a listener that only counts the outputs of each
+  channel and hears no record.
   """
   def hook_entries(%{extensions: table}), do: hook_entries(table)
 
@@ -1159,13 +1167,15 @@ defmodule FlezhaUi.Service.NodeManager do
       |> List.wrap()
       |> Enum.map(fn entry ->
         plugin_id = to_string(Map.get(entry, :plugin_id, "—"))
+        opts = plugin_opts(table, plugin_id)
 
         %{
           plugin_id: plugin_id,
           hook: to_string(hook),
           provider: FlezhaUi.Format.module_name(Map.get(entry, :provider)),
           position: Map.get(entry, :position),
-          channel: table |> plugin_opts(plugin_id) |> Map.get(:filter_channel) |> channel_names()
+          channel: opts |> Map.get(:filter_channel) |> channel_names(),
+          tally?: to_string(Map.get(opts, :mode)) == "tally"
         }
       end)
     end)
@@ -1177,23 +1187,51 @@ defmodule FlezhaUi.Service.NodeManager do
   @doc """
   The plugins that inject records into one of the relay's entry channels, such
   as a websocket or a poll, whether or not they are bound on a hook:
-  `[%{plugin_id:, provider:, channel: [entry]}]`, by plugin id.
+  `[%{plugin_id:, provider:, channel: [entry] | []}]`, by plugin id.
+
+  `feeding` is `feeding_providers/1`'s answer: a plugin whose provider feeds a
+  relay is a source, and one naming no channel answers `channel: []`, since
+  the runner routes it to the relay's first entry channel. With `nil`, from a
+  controller whose listing does not say, a plugin is a source only when it
+  names an entry channel.
   """
-  def entry_sources(%{extensions: %{plugins: plugins} = table}) when is_map(plugins) do
-    for {plugin_id, plugin} <- plugins,
-        plugin_id = to_string(plugin_id),
-        entry = table |> plugin_opts(plugin_id) |> Map.get(:entry_channel),
-        entry not in [nil, ""] do
-      %{
-        plugin_id: plugin_id,
-        provider: FlezhaUi.Format.module_name(Map.get(plugin, :provider)),
-        channel: [to_string(entry)]
-      }
-    end
+  def entry_sources(state, feeding \\ nil)
+
+  def entry_sources(%{extensions: %{plugins: plugins} = table}, feeding) when is_map(plugins) do
+    plugins
+    |> Enum.flat_map(fn {plugin_id, plugin} ->
+      plugin_id = to_string(plugin_id)
+      provider = FlezhaUi.Format.module_name(Map.get(plugin, :provider))
+      entry = table |> plugin_opts(plugin_id) |> Map.get(:entry_channel)
+      channel = if entry in [nil, ""], do: [], else: [to_string(entry)]
+
+      if feeds?(provider, channel, feeding),
+        do: [%{plugin_id: plugin_id, provider: provider, channel: channel}],
+        else: []
+    end)
     |> Enum.sort_by(& &1.plugin_id)
   end
 
-  def entry_sources(_state), do: []
+  def entry_sources(_state, _feeding), do: []
+
+  defp feeds?(_provider, channel, nil), do: channel != []
+  defp feeds?(provider, _channel, feeding), do: MapSet.member?(feeding, provider)
+
+  @doc """
+  The provider modules whose plugins feed a relay, by the provider listing's
+  `feeds` flag, as names `FlezhaUi.Format.module_name/1` gives. `nil` when the
+  listing cannot be read or does not carry the flag.
+  """
+  def feeding_providers(token) do
+    case providers(token) do
+      {:ok, %{providers: [_ | _] = listed}} ->
+        if Enum.all?(listed, &is_map_key(&1, :feeds)),
+          do: for(%{feeds: true, module: module} <- listed, into: MapSet.new(), do: module)
+
+      _unread ->
+        nil
+    end
+  end
 
   # The controller writes `entry_channel` and `filter_channel` from the
   # plugin's `channel`, `channel_in` and `channel_out` options, so they are the
@@ -1545,8 +1583,9 @@ defmodule FlezhaUi.Service.NodeManager do
   end
 
   @doc """
-  The providers the controller can enable, each `%{id:, module:, type:}`, and
-  how many installed packages it refused at boot: `{:ok, %{providers:, refused:}}`.
+  The providers the controller can enable, each `%{id:, module:, type:}` and,
+  from a controller that says, `feeds:` (whether it feeds a relay), and how many
+  installed packages it refused at boot: `{:ok, %{providers:, refused:}}`.
   """
   def providers(token) do
     case authorized_call(token, Flezha.Service.Fleet, :providers, []) do
@@ -1709,11 +1748,14 @@ defmodule FlezhaUi.Service.NodeManager do
   which receives `:attached` and then each frame. A `:calls` listen hands on,
   for each call the relay takes, `{:call, request, md}` and then one of
   `{:answered, answer, md}`, `{:timed_out, error, md}` or
-  `{:refused, error, md}`, paired by `md["flz.call_id"]`. See
+  `{:refused, error, md}`, paired by `md["flz.call_id"]`. A `:tally` listen
+  hands on, about once a second, `{:tally, %{channel => total}, %{read_at_ms:,
+  epochs:}}`: the frames counted per output channel since its count started,
+  which starts again whenever an `epochs` value changes. See
   `authorized_stream/5`.
   """
   def listen(namespace, relay_id, direction, token, emit_pid)
-      when direction in [:output, :input, :calls] do
+      when direction in [:output, :input, :calls, :tally] do
     authorized_stream(
       token,
       Flezha.Service.Relay,

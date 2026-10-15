@@ -6,7 +6,8 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
   What earns its keep here is everything a live stack will not produce to
   order: two snapshots with a known delta between them, a stall verdict of a
   chosen age, an observability subsystem that refuses, a controller that
-  predates the liveness counters, and a listen the controller turns down.
+  predates the liveness counters, the Cell rows or the provider flag, a tally
+  report, and a listen the controller turns down.
   """
 
   use FlezhaUiWeb.LiveCase
@@ -20,17 +21,64 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
   @relay "/namespaces/default/relays/relay_a"
   @listen {Relay, :listen}
+  @websocket Flezha.Plugin.Provider.Websocket
 
-  defp overwatch(bindings \\ %{}) do
+  # The relay's overwatch state: its hook table and its plugin table, every
+  # plugin of which is bound on the hooks `subs` gives it.
+  defp overwatch(subs \\ %{}, plugins \\ %{}) do
     %{
       id: "relay_a",
-      factory_id: "store_input",
+      factory_id: "static_cell",
       runner_id: "runner-a",
       builder: %{run: :flow, opts: []},
       suspended: false,
       started_at: nil,
-      extensions: %{subs: bindings}
+      extensions: %{subs: subs, plugins: plugins}
     }
+  end
+
+  # `testnet_chain`'s shape, fed by a websocket naming no channel and bound
+  # only to tear down.
+  defp chain_overwatch do
+    overwatch(
+      %{on_terminate: [%{plugin_id: "ws_chain", provider: @websocket, position: nil}]},
+      %{"ws_chain" => %{provider: @websocket, opts: %{entry_channel: nil}}}
+    )
+  end
+
+  defp chain_graph do
+    graph([
+      FakeController.graph_channel("input", "entry", nil, ["static_entry_tasklet"]),
+      FakeController.graph_channel(
+        "hop",
+        "inter_tasklet",
+        "static_entry_tasklet",
+        ["static_downstream_tasklet"]
+      ),
+      FakeController.graph_channel(
+        "kafka",
+        "plugin_bound",
+        "static_downstream_tasklet",
+        [],
+        "output"
+      )
+    ])
+  end
+
+  defp graph(channels, factory \\ "static_cell"),
+    do:
+      FakeController.graph_answer(channels,
+        factory: factory,
+        cell_keys: %{"static_entry_tasklet" => ~w(a b c d)}
+      )
+
+  # One tasklet writing two output channels.
+  defp two_outputs_graph do
+    graph([
+      FakeController.graph_channel("input", "entry", nil, ["t"]),
+      FakeController.graph_channel("alerts", "plugin_bound", "t", [], "output"),
+      FakeController.graph_channel("orders", "plugin_bound", "t", [], "output")
+    ])
   end
 
   defp summary_row(id, overrides \\ %{}), do: FakeController.relay_row(id, overrides)
@@ -55,7 +103,26 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     FakeController.set(
       node,
       {Relay, :overwatch_state},
-      {:ok, Keyword.get(opts, :overwatch, overwatch())}
+      {:ok, Keyword.get(opts, :overwatch, chain_overwatch())}
+    )
+
+    FakeController.set(node, {Relay, :graph}, {:ok, Keyword.get(opts, :graph, chain_graph())})
+
+    FakeController.set(
+      node,
+      {Fleet, :providers},
+      {:ok,
+       %{
+         providers: [
+           FakeController.provider_entry(
+             "relay_websocket",
+             "Flezha.Plugin.Provider.Websocket",
+             true
+           ),
+           FakeController.provider_entry("relay_stdout", "Flezha.Plugin.Provider.StdOut")
+         ],
+         refused: 0
+       }}
     )
   end
 
@@ -83,6 +150,39 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     )
   end
 
+  defp activity(node, read_at, rows, cells \\ nil) do
+    answer =
+      {:ok,
+       %{
+         relay: "relay_a",
+         runner: "runner-a",
+         read_at_ms: read_at,
+         instance_seq: 1,
+         tasklets: rows,
+         cells: cells
+       }}
+
+    FakeController.set(node, {Relay, :activity}, answer)
+  end
+
+  # Asked with `cells_of`, the activity read answers its rows too.
+  defp cells(node, read_at, rows, total \\ nil) do
+    activity(
+      node,
+      read_at,
+      [FakeController.activity_row("static_entry_tasklet", %{cells: 4})],
+      %{tasklet: "static_entry_tasklet", cells_total: total || length(rows), rows: rows}
+    )
+  end
+
+  # The activity reads that asked for a tasklet's Cells.
+  defp cell_reads(node),
+    do:
+      for(
+        [_ns, _id, [_ | _], _ctx] = call <- FakeController.calls(node, {Relay, :activity}),
+        do: call
+      )
+
   # Aged against the controller's own clock, which `Controller.status/1`
   # reports and the stand-in reads from the peer.
   defp stall_signal(node, layer, metadata, age_us) do
@@ -105,100 +205,145 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     )
   end
 
+  # How often the page has read the relay's graph or its activity.
+  defp reads(node, function), do: length(FakeController.calls(node, {Relay, function}))
+
+  defp listens(node, direction),
+    do: for([_ns, _id, ^direction | _] = call <- FakeController.calls(node, @listen), do: call)
+
   describe "relay pipeline" do
     setup %{node: node} do
       stack(node)
       :ok
     end
 
-    test "rates appear on the counted edges once a baseline exists, keyed by relay id", %{
-      conn: conn,
-      node: node
-    } do
-      snapshot(node, [{"relay_a", 100, 90}])
-      {:ok, view, html} = live(conn, @relay)
+    test "a source feeds the first entry by the provider listing's flag, and no plumbing is drawn",
+         %{conn: conn} do
+      {:ok, view, _html} = live(conn, @relay)
+      html = render(view)
 
-      refute html =~ ~s(data-testid="topo-rate-in")
+      assert has_element?(view, ~s([data-testid="topo-node-source-ws_chain"]))
+      assert html =~ ~s(data-wire="source-ws_chain&gt;entry-input&gt;input")
 
-      snapshot(node, [{"relay_a", 1_000, 900}])
-      html = tick(view)
+      for gone <- ~w(ingest channel output filtered),
+          do: refute(has_element?(view, ~s([data-testid="topo-node-#{gone}"])))
 
-      assert html =~ ~s(data-testid="topo-rate-in")
-      assert html =~ ~s(data-testid="topo-rate-out")
-      assert html =~ ~s(data-testid="topo-rate-flow-channel-output")
-      assert html =~ "topo-flow-fast"
-      assert html =~ ~s(data-testid="topo-band-flow-ingest-relay_a")
-      assert view |> element(~s([data-testid="topo-port-state-in"])) |> render() =~ "continuous"
+      refute html =~ "Lifecycle"
+      refute html =~ "on_terminate ·"
     end
 
-    test "each tick's counter advances are pushed for the graph to replay, from the second on", %{
+    test "an older listing without the flag draws only a source naming its entry", %{
       conn: conn,
       node: node
     } do
+      FakeController.set(
+        node,
+        {Fleet, :providers},
+        {:ok, %{providers: [%{id: "relay_websocket", module: "x", type: :relay}], refused: 0}}
+      )
+
+      {:ok, view, _html} = live(conn, @relay)
+
+      refute has_element?(view, ~s([data-testid="topo-node-source-ws_chain"]))
+      assert has_element?(view, ~s([data-testid="topo-node-entry-input"]))
+    end
+
+    test "rates appear on the entry and output wires once a baseline exists, keyed by relay id",
+         %{conn: conn, node: node} do
+      snapshot(node, [{"relay_a", 100, 90}])
+      {:ok, view, _html} = live(conn, @relay)
+
+      assert view |> element(~s([data-testid="topo-rate-in-input"])) |> render() =~ ~r/>\s*IN\s*</
+
+      snapshot(node, [{"relay_a", 1_000, 900}])
+      tick(view)
+
+      assert view |> element(~s([data-testid="topo-rate-in-input"])) |> render() =~
+               ~r"IN \d+\.\d/s"
+
+      assert view |> element(~s([data-testid="topo-rate-out-kafka"])) |> render() =~
+               ~r"OUT \d+\.\d/s"
+
+      assert has_element?(
+               view,
+               ~s([data-wire="source-ws_chain>entry-input>input"][data-mode="streaming"])
+             )
+    end
+
+    test "each tick pushes what every counted node took, for the graph to replay, from the second on",
+         %{conn: conn, node: node} do
       snapshot(node, [{"relay_a", 100, 90, 1}])
+
+      activity(node, 1_000, [
+        FakeController.activity_row("static_entry_tasklet", %{admitted_total: 10})
+      ])
+
       {:ok, view, _html} = live(conn, @relay)
 
       refute_push_event(view, "pipeline_counts", %{}, 50)
 
       snapshot(node, [{"relay_a", 103, 92, 2}])
+
+      activity(node, 2_000, [
+        FakeController.activity_row("static_entry_tasklet", %{admitted_total: 13})
+      ])
+
       tick(view)
 
       assert_push_event(view, "pipeline_counts", %{
-        in: 3,
-        out: 2,
-        filtered: 1,
+        budgets: budgets,
+        skipped: 1,
         parked: 0,
-        interval_ms: interval,
-        modes: %{in: _, out: _, chan: _}
+        interval_ms: interval
       })
 
+      assert budgets["tasklet-static_entry_tasklet"] == 3.0
+      # The entry's only reader admitted three, so the entry and its source took three.
+      assert budgets["entry-input"] == 3.0
+      assert budgets["source-ws_chain"] == 3.0
+      assert budgets["exit-kafka"] == 2.0
       assert interval > 0
     end
 
-    test "a liveness read that fails leaves no rate, band or stream standing", %{
+    test "a liveness read that fails leaves no rate standing and pushes nothing", %{
       conn: conn,
       node: node
     } do
       snapshot(node, [{"relay_a", 100, 90}])
       {:ok, view, _html} = live(conn, @relay)
       snapshot(node, [{"relay_a", 1_000, 900}])
-      assert tick(view) =~ ~s(data-testid="topo-band-flow-ingest-relay_a")
+      assert tick(view) =~ ~r"IN \d+\.\d/s"
+      assert_push_event(view, "pipeline_counts", %{budgets: _})
 
       FakeController.set(node, {Controller, :liveness_counters}, {:error, :timeout})
       html = tick(view)
 
-      refute html =~ ~s(data-testid="topo-rate-in")
-      refute html =~ ~s(data-testid="topo-band-)
-      assert view |> element(~s([data-testid="topo-port-state-in"])) |> render() =~ "measuring"
+      refute html =~ ~r"IN \d+\.\d/s"
+      refute_push_event(view, "pipeline_counts", %{budgets: _}, 50)
     end
 
-    test "a controller without the liveness read still draws structure", %{
-      conn: conn,
-      node: node
-    } do
+    test "a controller without the liveness read still draws structure", %{conn: conn, node: node} do
       FakeController.set(
         node,
         {Controller, :liveness_counters},
         {:error, {:api_missing, Controller, :liveness_counters, 1}}
       )
 
-      {:ok, _view, html} = live(conn, @relay)
+      {:ok, view, html} = live(conn, @relay)
 
       assert html =~ ~s(data-testid="topology-skew")
       assert html =~ "have diverged"
-      assert html =~ ~s(data-testid="topo-node-relay_a")
+      assert has_element?(view, ~s([data-testid="topo-node-relay"]))
     end
 
-    test "a recent stall verdict naming the relay banners, and a stale one does not", %{
-      conn: conn,
-      node: node
-    } do
+    test "a recent stall verdict naming the relay banners and rings it, and a stale one does not",
+         %{conn: conn, node: node} do
       stall_signal(node, :relay_not_forwarding, %{relay_id: "relay_a"}, 5_000_000)
-      {:ok, _view, html} = live(conn, @relay)
+      {:ok, view, html} = live(conn, @relay)
 
       assert html =~ ~s(data-testid="topology-stall")
       assert html =~ "Relay Not Forwarding"
-      assert html =~ "relay_a"
+      assert has_element?(view, ~s([data-testid="topo-stall-marker"]))
 
       stall_signal(node, :relay_not_forwarding, %{relay_id: "relay_a"}, 120_000_000)
       {:ok, _view, html} = live(conn, @relay)
@@ -206,52 +351,13 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       refute html =~ ~s(data-testid="topology-stall")
     end
 
-    test "selecting the core shows its facts and links to its listen view", %{conn: conn} do
-      {:ok, view, _html} = live(conn, @relay)
-
-      html = view |> element(~s([data-testid="topo-node-relay_a"])) |> render_click()
-
-      assert html =~ ~s(data-testid="topology-detail")
-      assert html =~ "store_input"
-
-      assert has_element?(
-               view,
-               ~s(a[data-testid="topology-detail-link"][href="/namespaces/default/relays/relay_a/listen"])
-             )
-
-      refute view |> element(~s([data-testid="topology-detail-dismiss"])) |> render_click() =~
-               ~s(data-testid="topology-detail")
-    end
-
-    test "Enter selects a focused node and Escape dismisses it", %{conn: conn} do
-      {:ok, view, _html} = live(conn, @relay)
-
-      html =
-        view
-        |> element(~s([data-testid="topo-node-relay_a"]))
-        |> render_keydown(%{"key" => "Enter"})
-
-      assert html =~ ~s(data-testid="topology-detail")
-
-      html =
-        view
-        |> element(~s([data-testid="topology-canvas"]))
-        |> render_keydown(%{"key" => "Escape"})
-
-      refute html =~ ~s(data-testid="topology-detail")
-    end
-
-    test "selecting the channel offers its counters and the cluster screen", %{
-      conn: conn,
-      node: node
-    } do
+    test "selecting the relay shows its facts, its channel's credit, its off-path bindings and links",
+         %{conn: conn, node: node} do
       snapshot(node, [{"relay_a", 1, 1}], [
         %{
           runner_id: "runner-a",
           name: :chan_a,
           io_in_received: 10,
-          send_frame_calls: 9,
-          nil_drops: 0,
           credit_active: 1,
           credit_ledger_level: 0,
           credit_overrun_total: 2,
@@ -260,25 +366,72 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
         }
       ])
 
-      {:ok, view, html} = live(conn, @relay)
+      FakeController.set(
+        node,
+        {Relay, :overwatch_state},
+        {:ok,
+         overwatch(
+           %{on_interval: [%{plugin_id: "ticker", provider: Some.Ticker, position: nil}]},
+           %{}
+         )}
+      )
 
+      {:ok, view, html} = live(conn, @relay)
       assert html =~ ~s(data-testid="topo-backpressure")
 
-      html = view |> element(~s([data-testid="topo-node-channel"])) |> render_click()
+      html = view |> element(~s([data-testid="topo-node-relay"])) |> render_click()
 
-      assert html =~ ~s(data-testid="topology-channel")
-      assert html =~ "chan_a"
-      assert has_element?(view, ~s(a[data-testid="topology-detail-link"][href="/cluster"]))
+      assert html =~ ~s(data-testid="topology-detail")
+      assert html =~ "static_cell"
+      assert view |> element(~s([data-testid="topology-channel"])) |> render() =~ "chan_a"
+      assert view |> element(~s([data-testid="topology-lifecycle"])) |> render() =~ "on_interval"
+
+      assert has_element?(
+               view,
+               ~s(a[data-testid="topology-detail-link"][href="/namespaces/default/relays/relay_a/listen"])
+             )
+
+      assert has_element?(view, ~s(a[data-testid="topology-runner-link"][href="/cluster"]))
+
+      view |> element(~s([data-testid="topology-detail-dismiss"])) |> render_click()
+      refute has_element?(view, ~s([data-testid="topology-detail"]))
     end
 
-    test "parked entries of the relay's class draw the dead-letter branch", %{
-      conn: conn,
-      node: node
+    test "Enter selects a focused node, and its inspector says what it is", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @relay)
+
+      html =
+        view
+        |> element(~s([data-testid="topo-node-source-ws_chain"]))
+        |> render_keydown(%{"key" => "Enter"})
+
+      assert html =~ ~s(data-testid="topology-detail")
+
+      assert view |> element(~s([data-testid="topology-source-note"])) |> render() =~
+               "feeds the relay&#39;s first entry channel, input"
+    end
+
+    test "an output channel with no plugin bound ends at its muted end, and says why", %{
+      conn: conn
     } do
+      {:ok, view, _html} = live(conn, @relay)
+
+      view |> element(~s([data-testid="topo-node-unbound-kafka"])) |> render_click()
+
+      assert view |> element(~s([data-testid="topology-detail"])) |> render() =~
+               "Nothing takes the records"
+    end
+
+    test "parked entries of the relay's class draw the dead-letter end and the tasklet's badge",
+         %{
+           conn: conn,
+           node: node
+         } do
       FakeController.set(
         node,
         {Dlq, :stats},
-        {:ok, [%{relay_class: "relay_a", tasklet_id: "sh", entries: 4, bytes: 128}]}
+        {:ok,
+         [%{relay_class: "relay_a", tasklet_id: "static_entry_tasklet", entries: 4, bytes: 128}]}
       )
 
       {:ok, view, html} = live(conn, @relay)
@@ -286,11 +439,353 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert html =~ "4 parked"
       assert has_element?(view, ~s(a[data-testid="topo-node-dead-letter"][href="/dlq"]))
 
-      # A branch that exists by structure is not drawn as a failure.
-      classes = attrs(html, ~s([data-testid^="topo-edge-"][data-testid*="dead"]), "class")
-      assert classes != []
-      assert Enum.all?(classes, &(&1 =~ "topo-edge-dlq"))
-      refute Enum.any?(classes, &(&1 =~ "flz-graph-wire--fail"))
+      assert view |> element(~s([data-testid="topo-parked-static_entry_tasklet"])) |> render() =~
+               "4 dead letters"
+    end
+
+    test "the viewer's direction re-draws the graph, and Auto names what it chose", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @relay)
+
+      render_hook(view, "graph_view", %{"direction" => "TB", "width" => 1200, "height" => 600})
+      assert has_element?(view, ~s([data-testid="topology-canvas"][data-direction="TB"]))
+      assert has_element?(view, ~s([data-testid="topology-dir-TB"][aria-pressed="true"]))
+
+      render_hook(view, "graph_view", %{"direction" => "auto", "width" => 380, "height" => 600})
+
+      assert view |> element(~s([data-testid="topology-direction"])) |> render() =~
+               "top to bottom (auto)"
+
+      render_hook(view, "graph_view", %{"direction" => "sideways"})
+      assert has_element?(view, ~s([data-testid="topology-dir-auto"][aria-pressed="true"]))
+    end
+
+    test "the page's own tally is not a listener; another caller's listener is", %{
+      conn: conn,
+      node: node
+    } do
+      listener = %{
+        plugin_id: "io_listener_x",
+        provider: Flezha.Plugin.Provider.MonitoredIOForward,
+        position: nil
+      }
+
+      tally = %{listener | plugin_id: "io_listener_tally"}
+
+      FakeController.set(
+        node,
+        {Relay, :overwatch_state},
+        {:ok,
+         overwatch(%{on_output: [tally]}, %{
+           "io_listener_tally" => %{
+             provider: Flezha.Plugin.Provider.MonitoredIOForward,
+             opts: %{mode: "tally"}
+           }
+         })}
+      )
+
+      {:ok, view, html} = live(conn, @relay)
+      refute html =~ ~s(data-testid="topology-observer-count")
+      refute has_element?(view, ~s([data-testid="topo-observers-out"]))
+
+      FakeController.set(
+        node,
+        {Relay, :overwatch_state},
+        {:ok,
+         overwatch(%{on_output: [tally, listener]}, %{
+           "io_listener_tally" => %{
+             provider: Flezha.Plugin.Provider.MonitoredIOForward,
+             opts: %{mode: "tally"}
+           }
+         })}
+      )
+
+      tick(view)
+      assert view |> element(~s([data-testid="topo-observers-out"])) |> render() =~ "1 listening"
+    end
+  end
+
+  describe "the Cell sheet" do
+    setup %{node: node} do
+      stack(node)
+      :ok
+    end
+
+    test "opens on a tasklet, read with its Cells, and the graph keeps every node in place", %{
+      conn: conn,
+      node: node
+    } do
+      cells(node, 1_000, [
+        FakeController.cell_row("a", %{admitted_total: 5, last_admitted_ms: 900}),
+        FakeController.cell_row("b", %{queued: 3})
+      ])
+
+      {:ok, view, _html} = live(conn, @relay)
+
+      before =
+        view
+        |> element(~s([data-testid="topo-node-tasklet-static_downstream_tasklet"]))
+        |> render()
+
+      view
+      |> element(~s([data-testid="topo-node-tasklet-static_entry_tasklet"]))
+      |> render_click()
+
+      assert [["default", "relay_a", opts, _ctx] | _] = cell_reads(node)
+
+      assert opts == [cells_of: "static_entry_tasklet", limit: 50]
+      sheet = view |> element(~s([data-testid="topology-cells"])) |> render()
+      assert sheet =~ ~s(data-testid="cell-a")
+      assert sheet =~ ~s(data-testid="cell-b")
+      assert sheet =~ "now"
+      assert has_element?(view, ~s([data-testid="cells-hop-static_downstream_tasklet"]))
+
+      assert has_element?(
+               view,
+               ~s([data-testid="topology-canvas"][data-cells="tasklet-static_entry_tasklet"])
+             )
+
+      assert view
+             |> element(~s([data-testid="topo-node-tasklet-static_downstream_tasklet"]))
+             |> render() ==
+               before
+    end
+
+    test "sorts by any column, and closing it stops reading the Cells", %{conn: conn, node: node} do
+      cells(node, 1_000, [
+        FakeController.cell_row("a", %{queued: 1}),
+        FakeController.cell_row("b", %{queued: 7})
+      ])
+
+      {:ok, view, _html} = live(conn, @relay)
+
+      view
+      |> element(~s([data-testid="topo-node-tasklet-static_entry_tasklet"]))
+      |> render_click()
+
+      view |> element(~s([data-testid="cells-sort-queued"])) |> render_click()
+      keys = fn -> view |> render() |> attrs(~s([data-testid^="cell-"]), "data-testid") end
+      assert keys.() == ["cell-b", "cell-a"]
+
+      view |> element(~s([data-testid="cells-sort-key"])) |> render_click()
+      assert keys.() == ["cell-a", "cell-b"]
+
+      view |> element(~s([data-testid="cells-close"])) |> render_click()
+      refute has_element?(view, ~s([data-testid="topology-cells"]))
+
+      with_cells = length(cell_reads(node))
+
+      tick(view)
+
+      assert length(cell_reads(node)) == with_cells
+
+      assert [_ns, _id, [], _ctx] = List.last(FakeController.calls(node, {Relay, :activity}))
+    end
+
+    test "a hop opens the neighbouring tasklet's Cells", %{conn: conn, node: node} do
+      cells(node, 1_000, [])
+      {:ok, view, _html} = live(conn, @relay)
+
+      view
+      |> element(~s([data-testid="topo-node-tasklet-static_entry_tasklet"]))
+      |> render_click()
+
+      view |> element(~s([data-testid="cells-hop-static_downstream_tasklet"])) |> render_click()
+
+      assert [["default", "relay_a", [cells_of: "static_downstream_tasklet", limit: 50], _] | _] =
+               node |> cell_reads() |> Enum.reverse()
+    end
+
+    test "Enter on a focused tasklet opens its Cells, and a runner that keeps none says so", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, @relay)
+
+      view
+      |> element(~s([data-testid="topo-node-tasklet-static_entry_tasklet"]))
+      |> render_keydown(%{"key" => "Enter"})
+
+      assert has_element?(view, ~s([data-testid="cells-not-reported"]))
+    end
+
+    test "a refused Cell read keeps the tasklet figures and says its runner reports none",
+         %{conn: conn, node: node} do
+      plain =
+        {:ok,
+         %{
+           relay: "relay_a",
+           runner: "runner-a",
+           read_at_ms: 1_000,
+           instance_seq: 1,
+           tasklets: [FakeController.activity_row("static_entry_tasklet", %{cells: 4})]
+         }}
+
+      FakeController.set(
+        node,
+        {Relay, :activity},
+        {:per_arg, 2,
+         %{
+           [cells_of: "static_entry_tasklet", limit: 50] =>
+             FakeController.error("authz.role_insufficient")
+         }, plain}
+      )
+
+      {:ok, view, _html} = live(conn, @relay)
+
+      view
+      |> element(~s([data-testid="topo-node-tasklet-static_entry_tasklet"]))
+      |> render_click()
+
+      assert has_element?(view, ~s([data-testid="cells-not-reported"]))
+      assert view |> element(~s([data-testid="cells-meta"])) |> render() =~ "static · a, b, c, d"
+    end
+
+    test "forged: a tasklet the graph does not announce opens no sheet and reads no Cells", %{
+      conn: conn,
+      node: node
+    } do
+      {:ok, view, _html} = live(conn, @relay)
+
+      render_hook(view, "graph_select", %{"id" => "tasklet-not_announced"})
+
+      refute has_element?(view, ~s([data-testid="topology-cells"]))
+      assert cell_reads(node) == []
+    end
+
+    test "says how many it shows of how many", %{conn: conn, node: node} do
+      cells(node, 1_000, Enum.map(1..3, &FakeController.cell_row("k#{&1}")), 342)
+      {:ok, view, _html} = live(conn, @relay)
+
+      view
+      |> element(~s([data-testid="topo-node-tasklet-static_entry_tasklet"]))
+      |> render_click()
+
+      assert view |> element(~s([data-testid="cells-foot"])) |> render() =~
+               "Showing the 3 busiest of 342 Cells."
+    end
+  end
+
+  describe "folded runs" do
+    setup %{node: node} do
+      chain = fn from, to ->
+        FakeController.graph_channel("#{from}_out", "inter_tasklet", from, [to])
+      end
+
+      stack(node,
+        overwatch: overwatch(),
+        graph:
+          graph([
+            FakeController.graph_channel("in", "entry", nil, ["t1"]),
+            chain.("t1", "t2"),
+            chain.("t2", "t3"),
+            chain.("t3", "t4"),
+            FakeController.graph_channel("out", "plugin_bound", "t4", [], "output")
+          ])
+      )
+
+      :ok
+    end
+
+    test "a straight run of four folds, expands when selected, and folds again", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @relay)
+
+      assert view |> element(~s([data-testid="topo-node-run-t1"])) |> render() =~ "4 tasklets"
+      refute has_element?(view, ~s([data-testid="topo-node-tasklet-t2"]))
+
+      view |> element(~s([data-testid="topo-node-run-t1"])) |> render_click()
+      assert has_element?(view, ~s([data-testid="topo-node-tasklet-t2"]))
+      refute has_element?(view, ~s([data-testid="topo-node-run-t1"]))
+
+      view |> element(~s([data-testid="topo-node-tasklet-t2"])) |> render_click()
+      assert has_element?(view, ~s([data-testid="topology-cells"]))
+      view |> element(~s([data-testid="topo-node-relay"])) |> render_click()
+      view |> element(~s([data-testid="topology-fold"])) |> render_click()
+      assert has_element?(view, ~s([data-testid="topo-node-run-t1"]))
+      refute has_element?(view, ~s([data-testid="topology-cells"]))
+    end
+  end
+
+  describe "the tally" do
+    setup %{node: node} do
+      stack(node, graph: two_outputs_graph())
+
+      snapshot(node, [{"relay_a", 0, 0}])
+      :ok
+    end
+
+    # A tally report, heard by the page before the test goes on.
+    defp report(node, view, totals, epoch) do
+      FakeController.emit(
+        node,
+        @listen,
+        {:tally, totals, %{read_at_ms: 1, epochs: %{"m" => epoch}}}
+      )
+
+      assert PeerNode.eventually(fn ->
+               match?(
+                 %{totals: ^totals},
+                 :sys.get_state(view.pid).socket.assigns.topology_state.tally
+               )
+             end)
+    end
+
+    test "listens while the relay has two outputs and the page shows, and rates each channel", %{
+      conn: conn,
+      node: node
+    } do
+      {:ok, view, _html} = live(conn, @relay)
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      assert [["default", "relay_a", :tally, [], _ctx]] = listens(node, :tally)
+
+      report(node, view, %{"alerts" => 10, "orders" => 2}, 1)
+      tick(view)
+      report(node, view, %{"alerts" => 20, "orders" => 4}, 1)
+      tick(view)
+
+      assert_push_event(view, "pipeline_counts", %{
+        budgets: %{"exit-alerts" => 10.0, "exit-orders" => 2.0}
+      })
+
+      # A new epoch counts from zero again: no advance is drawn from it.
+      report(node, view, %{"alerts" => 3, "orders" => 0}, 2)
+      tick(view)
+      refute_push_event(view, "pipeline_counts", %{budgets: %{"exit-alerts" => 3.0}}, 50)
+    end
+
+    test "ends when the page is hidden and starts again when it shows", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, @relay)
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+
+      render_hook(view, "refresh_visibility", %{"hidden" => true})
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) == [] end)
+
+      render_hook(view, "refresh_visibility", %{"hidden" => false})
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      assert length(listens(node, :tally)) == 2
+    end
+
+    test "without a tally each exit is lit from its share of OUT", %{conn: conn, node: node} do
+      FakeController.set(node, @listen, FakeController.error("authz.role_insufficient"))
+      {:ok, view, _html} = live(conn, @relay)
+
+      snapshot(node, [{"relay_a", 10, 6}])
+      tick(view)
+
+      assert_push_event(view, "pipeline_counts", %{
+        budgets: %{"exit-alerts" => 3.0, "exit-orders" => 3.0}
+      })
+
+      # A refusal is an answer: the tally is not asked for again every tick.
+      tick(view)
+      tick(view)
+      assert length(listens(node, :tally)) == 1
+    end
+
+    test "a relay with one output channel needs no tally", %{conn: conn, node: node} do
+      stack(node)
+      {:ok, view, _html} = live(conn, @relay)
+      tick(view)
+
+      assert listens(node, :tally) == []
     end
   end
 
@@ -298,88 +793,48 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     setup %{node: node} do
       stack(node,
         overwatch:
-          Map.put(
-            overwatch(%{
-              on_output: [%{plugin_id: "kafka", provider: Some.Producer, position: 0}]
-            }),
-            :extensions,
+          overwatch(
+            %{on_output: [%{plugin_id: "kafka", provider: Some.Producer, position: 0}]},
             %{
-              subs: %{on_output: [%{plugin_id: "kafka", provider: Some.Producer, position: 0}]},
-              plugins: %{
-                "kafka" => %{provider: Some.Producer, opts: %{filter_channel: ["ohlc_out"]}},
-                "trade_ws" => %{provider: Some.Socket, opts: %{entry_channel: "trades_in"}}
-              }
+              "kafka" => %{provider: Some.Producer, opts: %{filter_channel: ["ohlc_out"]}},
+              "trade_ws" => %{provider: @websocket, opts: %{entry_channel: "trades_in"}}
             }
-          )
+          ),
+        graph: inside_graph()
       )
 
-      FakeController.set(node, {Relay, :graph}, {:ok, inside_graph()})
       snapshot(node, [{"relay_a", 0, 0}])
       :ok
     end
 
     defp inside_graph do
-      %{
-        relay: "relay_a",
-        factory: "market",
-        disagree: false,
-        reason: nil,
-        graph: %{
-          channels: [
-            FakeController.graph_channel("trades_in", "entry", nil, ["ohlc"], "none"),
-            FakeController.graph_channel("ohlc_out", "inter_tasklet", "ohlc", ["atr"], "output"),
-            FakeController.graph_channel("atr_out", "plugin_bound", "atr", [], "output")
-          ],
-          tasklets:
-            for name <- ["ohlc", "atr"] do
-              %{name: name, mode: "dynamic", cell_keys: ["symbol"], mailbox_capacity: 1024}
-            end
-        }
-      }
-    end
-
-    # How often the page has read the relay's graph or its activity.
-    defp reads(node, function), do: length(FakeController.calls(node, {Relay, function}))
-
-    defp tasklet_activity(node, read_at, ohlc) do
-      FakeController.set(
-        node,
-        {Relay, :activity},
-        {:ok,
-         %{
-           relay: "relay_a",
-           runner: "runner-a",
-           read_at_ms: read_at,
-           instance_seq: 1,
-           tasklets: [
-             FakeController.activity_row("ohlc", ohlc),
-             FakeController.activity_row("atr")
-           ]
-         }}
+      graph(
+        [
+          FakeController.graph_channel("trades_in", "entry", nil, ["ohlc"], "none"),
+          FakeController.graph_channel("ohlc_out", "inter_tasklet", "ohlc", ["atr"], "output"),
+          FakeController.graph_channel("atr_out", "plugin_bound", "atr", [], "output")
+        ],
+        "market"
       )
     end
 
-    test "a tasklet's rate comes from its activity, and its inspector names its figures", %{
-      conn: conn,
-      node: node
-    } do
+    defp tasklet_activity(node, read_at, ohlc) do
+      activity(node, read_at, [
+        FakeController.activity_row("ohlc", ohlc),
+        FakeController.activity_row("atr")
+      ])
+    end
+
+    test "a tasklet's rate comes from its activity, in its own slot", %{conn: conn, node: node} do
       tasklet_activity(node, 10_000, %{admitted_total: 100})
       {:ok, view, _html} = live(conn, @relay)
 
       tasklet_activity(node, 20_000, %{admitted_total: 150})
       snapshot(node, [{"relay_a", 1, 1}])
-      html = tick(view)
+      tick(view)
 
-      assert html =~
-               ~r/data-testid="topo-rate-wire-channel-trades_in-tasklet-ohlc-trades_in"[^>]*>\s*5.0\/s/
-
-      view |> element(~s([data-testid="topo-node-tasklet-ohlc"])) |> render_click()
-      detail = view |> element(~s([data-testid="topology-detail"])) |> render()
-
-      assert detail =~ "Cell mode"
-      assert detail =~ "symbol"
-      assert detail =~ "5.0 msgs/s"
-      assert detail =~ "Live Cells"
+      assert view |> element(~s([data-testid="topo-rate-tasklet-ohlc"])) |> render() =~ "5.0/s"
+      assert has_element?(view, ~s([data-testid="topo-node-source-trade_ws"]))
     end
 
     test "a queue held over two reads is marked as a backlog", %{conn: conn, node: node} do
@@ -388,9 +843,9 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       refute html =~ ~s(data-testid="topo-backlog-ohlc")
 
       tasklet_activity(node, 3_000, %{queued_max: 40, queued: 40})
-      html = tick(view)
+      tick(view)
 
-      assert html =~ ~r/data-testid="topo-backlog-ohlc"[^>]*>\s*40 queued/
+      assert view |> element(~s([data-testid="topo-backlog-ohlc"])) |> render() =~ "40 queued"
     end
 
     test "an output plugin's inspector names its channel and the order outputs run in", %{
@@ -398,7 +853,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     } do
       {:ok, view, _html} = live(conn, @relay)
 
-      view |> element(~s([data-testid="topo-node-plugin-kafka-on_output"])) |> render_click()
+      view |> element(~s([data-testid="topo-node-plugin-kafka"])) |> render_click()
       detail = view |> element(~s([data-testid="topology-detail"])) |> render()
 
       assert detail =~ "ohlc_out"
@@ -413,10 +868,9 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       # The dead render reads neither; the connected mount reads each once.
       assert reads(node, :graph) == 1
       assert reads(node, :activity) == 1
-      graph_reads = 1
       for _tick <- 1..10, do: tick(view)
 
-      assert reads(node, :graph) == graph_reads
+      assert reads(node, :graph) == 1
       assert reads(node, :activity) == 11
 
       FakeController.set(
@@ -426,7 +880,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       )
 
       tick(view)
-      assert reads(node, :graph) == graph_reads + 1
+      assert reads(node, :graph) == 2
 
       # A runner that started another instance announced again.
       FakeController.set(
@@ -438,7 +892,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       tick(view)
       tick(view)
-      assert reads(node, :graph) == graph_reads + 2
+      assert reads(node, :graph) == 3
     end
 
     test "a runner of the namespace coming back makes the graph be read again", %{
@@ -464,7 +918,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       {:ok, view, _html} = live(conn, @relay)
       snapshot(node, [{"relay_a", 5, 5}])
       tick(view)
-      assert_push_event(view, "pipeline_counts", %{in: 5})
+      assert_push_event(view, "pipeline_counts", %{budgets: %{"entry-trades_in" => 5.0}})
 
       # As after a tab hidden for a minute: the last reading is long past.
       :sys.replace_state(view.pid, fn %{socket: socket} = channel ->
@@ -475,7 +929,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       snapshot(node, [{"relay_a", 500, 500}])
       tick(view)
-      refute_push_event(view, "pipeline_counts", %{in: 495})
+      refute_push_event(view, "pipeline_counts", %{budgets: %{"entry-trades_in" => 495.0}})
     end
 
     test "a refused graph read is an answer, not read again every tick", %{conn: conn, node: node} do
@@ -506,19 +960,20 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       conn: conn,
       node: node
     } do
-      rate = ~s(data-testid="topo-rate-wire-channel-trades_in-tasklet-ohlc-trades_in")
+      rate = ~s([data-testid="topo-rate-tasklet-ohlc"])
       tasklet_activity(node, 10_000, %{admitted_total: 100})
       {:ok, view, _html} = live(conn, @relay)
       tasklet_activity(node, 20_000, %{admitted_total: 150})
       snapshot(node, [{"relay_a", 1, 1}])
-      assert tick(view) =~ rate
+      tick(view)
+      assert has_element?(view, rate)
 
       FakeController.set(node, {Relay, :activity}, FakeController.error("relay.not_found"))
       snapshot(node, [{"relay_a", 2, 2}])
-      html = tick(view)
+      tick(view)
 
-      assert html =~ ~s(data-testid="topo-node-tasklet-ohlc")
-      refute html =~ rate
+      assert has_element?(view, ~s([data-testid="topo-node-tasklet-ohlc"]))
+      refute has_element?(view, rate)
     end
 
     test "a runner that announced no graph, or a controller without one, says why", %{
@@ -531,16 +986,13 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
         {:ok, %{inside_graph() | graph: nil, reason: "not_announced"}}
       )
 
-      {:ok, _view, html} = live(conn, @relay)
+      {:ok, view, html} = live(conn, @relay)
       assert html =~ "the runners of factory market announced no graph"
-      refute html =~ ~s(data-testid="topo-node-tasklet-ohlc")
+      refute has_element?(view, ~s([data-testid="topo-node-tasklet-ohlc"]))
+      assert has_element?(view, ~s([data-testid="topo-node-inside"]))
       assert FakeController.calls(node, {Relay, :activity}) == []
 
-      FakeController.set(
-        node,
-        {Relay, :graph},
-        {:error, {:api_missing, Relay, :graph, 3}}
-      )
+      FakeController.set(node, {Relay, :graph}, {:error, {:api_missing, Relay, :graph, 3}})
 
       {:ok, _view, html} = live(conn, @relay)
       assert html =~ "this controller does not report relay graphs"
@@ -549,56 +1001,89 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
   describe "payload tap" do
     setup %{node: node} do
-      stack(node)
+      stack(node, graph: two_outputs_graph())
+
       :ok
     end
 
-    test "opening a tap listens and closing it ends the listen", %{conn: conn, node: node} do
+    defp payload_listens(node), do: listens(node, :output) ++ listens(node, :input)
+
+    defp payload_streams(node) do
+      tally = for [_ns, _id, :tally | _] <- FakeController.calls(node, @listen), do: :tally
+      # The tally holds a stream of its own while this relay has two outputs.
+      length(FakeController.streams(node, @listen)) - min(length(tally), 1)
+    end
+
+    test "opening a tap listens and selects its port, and closing it ends the listen", %{
+      conn: conn,
+      node: node
+    } do
       {:ok, view, html} = live(conn, @relay)
-
       refute html =~ ~s(data-testid="tap-figures")
-
-      html = view |> element(~s([data-testid="topo-port-out"])) |> render_click()
-
-      assert html =~ ~s(data-testid="tap-figures")
-      assert html =~ ~s(data-testid="topology-tap")
-      assert has_element?(view, ~s([data-testid="topo-port-out"].is-tapped))
       assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
 
-      html = view |> element(~s([data-testid="tap-close"])) |> render_click()
+      html = view |> element(~s([data-testid="topo-node-exit-alerts"])) |> render_click()
 
+      assert html =~ ~s(data-testid="tap-figures")
+      assert has_element?(view, ~s([data-testid="topo-node-exit-alerts"].is-tapped))
+      assert has_element?(view, ~s([data-testid="topo-tapping-exit-alerts"]))
+      assert view |> element(~s([data-testid="topology-detail"])) |> render() =~ "output channel"
+      assert PeerNode.eventually(fn -> payload_streams(node) == 1 end)
+
+      html = view |> element(~s([data-testid="tap-close"])) |> render_click()
       refute html =~ ~s(data-testid="tap-figures")
 
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) == [] end),
+      assert PeerNode.eventually(fn -> payload_streams(node) == 0 end),
              "the listen must not be left open on the controller"
     end
 
-    test "a tap opens from the IN port, and from it with Enter", %{conn: conn, node: node} do
+    test "a tap opens from an entry port, and from it with Enter", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, @relay)
 
-      view |> element(~s([data-testid="topo-port-in"])) |> render_keydown(%{"key" => "Enter"})
+      view
+      |> element(~s([data-testid="topo-node-entry-input"]))
+      |> render_keydown(%{"key" => "Enter"})
 
-      assert has_element?(view, ~s([data-testid="topo-port-in"].is-tapped))
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
-      assert [["default", "relay_a", :input | _] | _] = FakeController.calls(node, @listen)
+      assert has_element?(view, ~s([data-testid="topo-node-entry-input"].is-tapped))
+      assert PeerNode.eventually(fn -> listens(node, :input) != [] end)
 
       # Selecting the tapped port again closes its tap.
-      view |> element(~s([data-testid="topo-port-in"])) |> render_click()
+      view |> element(~s([data-testid="topo-node-entry-input"])) |> render_click()
       refute has_element?(view, ~s([data-testid="topology-tap"]))
     end
 
     test "switching ports ends the first listen", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, @relay)
 
-      view |> element(~s([data-testid="topo-port-out"])) |> render_click()
-      assert PeerNode.eventually(fn -> length(FakeController.streams(node, @listen)) == 1 end)
-      [first] = FakeController.streams(node, @listen)
+      view |> element(~s([data-testid="topo-node-exit-alerts"])) |> render_click()
+      assert PeerNode.eventually(fn -> payload_streams(node) == 1 end)
 
-      view |> element(~s([data-testid="topo-port-in"])) |> render_click()
+      view |> element(~s([data-testid="topo-node-entry-input"])) |> render_click()
 
       assert PeerNode.eventually(fn ->
-               match?([other] when other != first, FakeController.streams(node, @listen))
+               payload_streams(node) == 1 and listens(node, :input) != []
              end)
+
+      assert length(payload_listens(node)) == 2
+    end
+
+    test "an output tap shows its own channel first, and every channel on request", %{
+      conn: conn,
+      node: node
+    } do
+      {:ok, view, _html} = live(conn, @relay)
+      view |> element(~s([data-testid="topo-node-exit-alerts"])) |> render_click()
+      assert PeerNode.eventually(fn -> payload_streams(node) == 1 end)
+
+      FakeController.emit(node, @listen, {:output, "an order", %{"channel" => "orders"}})
+      FakeController.emit(node, @listen, {:output, "an alert", %{"channel" => "alerts"}})
+      assert PeerNode.eventually(fn -> render(view) =~ "an alert" end)
+      refute render(view) =~ "an order"
+      assert view |> element(~s([data-testid="tap-msg-count"])) |> render() =~ ~r/>\s*1\s*</
+
+      view |> element(~s([data-testid="tap-all"])) |> render_click()
+      FakeController.emit(node, @listen, {:output, "another order", %{"channel" => "orders"}})
+      assert PeerNode.eventually(fn -> render(view) =~ "another order" end)
     end
 
     test "what the tap hears reaches the graph coalesced, previews cut to 40 characters", %{
@@ -606,19 +1091,19 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       node: node
     } do
       {:ok, view, _html} = live(conn, @relay)
-      view |> element(~s([data-testid="topo-port-out"])) |> render_click()
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      view |> element(~s([data-testid="topo-node-entry-input"])) |> render_click()
+      assert PeerNode.eventually(fn -> listens(node, :input) != [] end)
 
       long = String.duplicate("x", 50)
       {:error, failure} = FakeController.error("internal.uncatalogued")
-      FakeController.emit(node, @listen, {:output, long, %{}})
-      FakeController.emit(node, @listen, {:output, "short", %{}})
+      FakeController.emit(node, @listen, {:input, long, %{}})
+      FakeController.emit(node, @listen, {:input, "short", %{}})
       FakeController.emit(node, @listen, {:dead_lettered, failure, %{}})
 
       assert_push_event(
         view,
         "pipeline_records",
-        %{port: "output", records: 2, dead_letters: 1, previews: [preview, "short"]},
+        %{port: "entry-input", records: 2, dead_letters: 1, previews: [preview, "short"]},
         1_000
       )
 
@@ -631,10 +1116,10 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       TestEnv.put_app(:tap_flush_ms, :timer.hours(1))
 
       {:ok, view, _html} = live(conn, @relay)
-      view |> element(~s([data-testid="topo-port-out"])) |> render_click()
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      view |> element(~s([data-testid="topo-node-entry-input"])) |> render_click()
+      assert PeerNode.eventually(fn -> listens(node, :input) != [] end)
 
-      FakeController.emit(node, @listen, {:output, "late", %{}})
+      FakeController.emit(node, @listen, {:input, "late", %{}})
       assert PeerNode.eventually(fn -> render(view) =~ "late" end)
       %{socket: %{assigns: %{tap: %{flush: {ref, _timer}}}}} = :sys.get_state(view.pid)
 
@@ -647,11 +1132,15 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
     test "payloads are counted and sized as they arrive", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, @relay)
-      view |> element(~s([data-testid="topo-port-out"][phx-click="graph_tap"])) |> render_click()
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
 
-      FakeController.emit(node, @listen, {:output, "hello", %{}})
-      FakeController.emit(node, @listen, {:output, "world!", %{}})
+      view
+      |> element(~s([data-testid="topo-node-entry-input"][phx-click="graph_tap"]))
+      |> render_click()
+
+      assert PeerNode.eventually(fn -> listens(node, :input) != [] end)
+
+      FakeController.emit(node, @listen, {:input, "hello", %{}})
+      FakeController.emit(node, @listen, {:input, "world!", %{}})
 
       assert PeerNode.eventually(fn -> render(view) =~ "world!" end)
       html = render(view)
@@ -663,18 +1152,35 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert html =~ ~s(data-testid="tap-msg-rate")
     end
 
+    test "forged: a port the graph does not draw, or tapped the wrong way, opens nothing", %{
+      conn: conn,
+      node: node
+    } do
+      {:ok, view, _html} = live(conn, @relay)
+
+      render_hook(view, "graph_tap", %{"port" => "exit-alerts", "direction" => "input"})
+      render_hook(view, "graph_tap", %{"port" => 7, "direction" => "output"})
+
+      refute has_element?(view, ~s([data-testid="topology-tap"]))
+      assert payload_listens(node) == []
+    end
+
     test "a listen the controller refuses is reported rather than silently dead", %{
       conn: conn,
       node: node
     } do
+      stack(node)
       FakeController.set(node, @listen, FakeController.error("authz.role_insufficient"))
 
       {:ok, view, _html} = live(conn, @relay)
-      view |> element(~s([data-testid="topo-port-in"][phx-click="graph_tap"])) |> render_click()
+
+      view
+      |> element(~s([data-testid="topo-node-entry-input"][phx-click="graph_tap"]))
+      |> render_click()
 
       assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tap-error") end)
       # A tap that is not listening does not claim its port.
-      refute has_element?(view, ~s([data-testid="topo-port-in"].is-tapped))
+      refute has_element?(view, ~s([data-testid="topo-node-entry-input"].is-tapped))
     end
   end
 
@@ -1114,7 +1620,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert html =~ "authz.principal_not_bound"
       assert html =~ "no principal is bound"
       # The rest of the graph still renders.
-      assert html =~ ~s(data-testid="topo-node-ingest")
+      assert html =~ ~s(data-testid="topo-node-relay")
     end
 
     test "a switched-off subsystem is stated as switched off", %{conn: conn, node: node} do

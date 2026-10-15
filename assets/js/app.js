@@ -17,6 +17,12 @@ const FOCUSABLE =
 
 const visible = el => !el.hidden && el.offsetParent !== null
 
+// A viewer preference; storage that is blocked or full reads as unset.
+const pref = {
+  get: key => { try { return window.localStorage.getItem(key) } catch (_error) { return null } },
+  set: (key, value) => { try { window.localStorage.setItem(key, value) } catch (_error) {} }
+}
+
 // ---- Popovers ----
 //
 // A `[data-fui-pop]` holds a trigger and a panel. Delegated from the document,
@@ -175,6 +181,11 @@ document.addEventListener("keydown", event => {
 
 const shell = () => document.querySelector(".flz-app")
 const navOpen = () => shell()?.hasAttribute("data-nav-open") ?? false
+
+// A shortcut fires only outside a field and with no navigation drawer or
+// dialog open.
+const shortcutsHeld = target =>
+  typing(target) || navOpen() || document.querySelector("dialog[open], [aria-modal='true']") !== null
 let navOpener = null
 
 function setNav(open, {refocus = false} = {}) {
@@ -259,7 +270,7 @@ let pendingG = 0
 
 document.addEventListener("keydown", event => {
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) { return }
-  if (typing(event.target) || navOpen() || document.querySelector("dialog[open], [aria-modal='true']")) { return }
+  if (shortcutsHeld(event.target)) { return }
 
   if (event.key === "?") { event.preventDefault(); openHelp(); return }
   if (event.key === "g") { pendingG = Date.now(); return }
@@ -311,14 +322,10 @@ Hooks.FlzSection = {
   isOpen() { return this.el.dataset.open === "true" },
   storageKey() { return `flz-section:${this.el.dataset.sectionKey}` },
   stored() {
-    try {
-      const raw = window.localStorage.getItem(this.storageKey())
-      return raw === null ? null : raw === "true"
-    } catch (_error) { return null }
+    const raw = pref.get(this.storageKey())
+    return raw === null ? null : raw === "true"
   },
-  remember() {
-    try { window.localStorage.setItem(this.storageKey(), String(this.isOpen())) } catch (_error) {}
-  }
+  remember() { pref.set(this.storageKey(), String(this.isOpen())) }
 }
 
 // A drawer or a dialog: focus moves in when it opens, Tab cycles inside it,
@@ -404,229 +411,741 @@ Hooks.FlzPalette = {
   destroyed() { window.removeEventListener("keydown", this.onKeydown) }
 }
 
-// The relay pipeline's motion. Each tick's counter advances arrive as
-// `pipeline_counts` and are replayed as hollow dots along the route each
-// counter names, spread over the next tick; a tap's records arrive as
-// `pipeline_records` and ride its side filled, with the start of their
-// payload. A streaming wire draws its band instead, so only dead letters ride
-// it. Every wire and box a dot crosses lights and fades over the CSS
-// transition; inside a box the dot is hidden, so it passes through, not over.
-// Hovering or focusing an element traces the routes through it, and the arrow
-// keys walk the lanes in the order the server numbers them.
-const DOT_POOL = 24
-// Counted dots replay one tick; a longer gap, after a pause or a failed read,
-// is compressed into it rather than holding the pool for the whole gap.
-const SPREAD_MS = 2000
-const DOT_RIDE_MS = {in: 1600, out: 1600, filter: 1000, dlq: 1000}
-const TRACED = ["out", "filter", "dlq", "life"]
-const SVG_NS = "http://www.w3.org/2000/svg"
-const AFTERGLOW_MS = 6000
+// The relay pipeline. The server places every node and routes every wire; the
+// hook owns how the viewer looks at it and what moves on it.
+//
+// The view: the graph fits its panel, the zoom buttons, ctrl/⌘ + wheel and a
+// drag on the background change only the SVG's view box, and full screen only
+// the frame. The direction is the viewer's own choice, kept in this browser
+// and sent with the panel's size, since Auto is decided by the fit.
+//
+// The motion: each tick's `pipeline_counts` says how many records each
+// counted node took. Marks start only at sources; a mark reaching a node is
+// handed on along its wires in proportion to what the next nodes took, while
+// their budget lasts, so records are drawn in the order they pass. A mark
+// stands for as many records as its wire's sampling needs, a wire streaming
+// twelve or more a second flows continuously instead, and budget no mark has
+// reached within a few seconds is launched as is. Marks are drawn on a canvas laid
+// over the SVG, at about 24 frames a second, only while something moves and
+// the graph is on screen.
+const MARKS_DRAWN = 80
+const MARKS_A_SECOND = 4
+const marksIn = span => (MARKS_A_SECOND * span) / 1000
+const TASKLET_PAUSE_MS = 90
+const CALL_MS = 250
+const FRAME_MS = 1000 / 24
+// How long a node's budget waits for a mark to reach it before it is drawn
+// anyway: long enough for a mark to cross the longest path of a tick.
+const GRACE_MS = 5000
+const TICK_SPAN_MS = 2500
 const TAP_FLUSH_MS = 250
+const FLOW_PERIOD = 18
+const FLOW_DASH = 4
+const FLOW_STEPS_A_SECOND = 20
+const DIRECTION_KEY = "flz-pipeline-direction"
+const SHEET_W = 540
+
+const storedDirection = () => {
+  const value = pref.get(DIRECTION_KEY)
+  return ["auto", "LR", "TB"].includes(value) ? value : "auto"
+}
+
+const kindOf = id => id === "skipped" ? "skip" : (id.match(/^([a-z]+)-/)?.[1] ?? id)
+
+// Cumulative lengths, so a mark's position is a cheap interpolation.
+function measure(pts) {
+  const acc = [0]
+  for (let i = 1; i < pts.length; i++) {
+    acc.push(acc[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]))
+  }
+  return {pts, acc, len: acc[acc.length - 1]}
+}
+
+function pointAt(m, d) {
+  let i = 1
+  while (i < m.acc.length - 1 && m.acc[i] < d) { i++ }
+  const [ax, ay] = m.pts[i - 1]
+  const [bx, by] = m.pts[i]
+  const t = Math.max(0, Math.min(1, (d - m.acc[i - 1]) / (m.acc[i] - m.acc[i - 1] || 1)))
+  return [ax + (bx - ax) * t, ay + (by - ay) * t]
+}
 
 Hooks.FlzPipeline = {
   mounted() {
-    this.flights = []
-    this.pool = []
-    this.tappedDeadLetters = 0
+    this.frameEl = this.el.closest(".topo-frame")
+    this.marks = []
+    this.pending = []
+    this.tick = null
+    this.lit = new Set()
+    this.onScreen = true
     this.reduced = window.matchMedia("(prefers-reduced-motion: reduce)")
+    this.readGraph()
+    this.layoutKey = this.el.dataset.layout
+    this.cellsKey = this.el.dataset.cells
+    this.readInks()
+    this.sizeStage()
+    this.fit()
+
     this.handleEvent("pipeline_counts", counts => this.counts(counts))
     this.handleEvent("pipeline_records", records => this.records(records))
 
-    this.onOver = event => this.trace(event.target.closest?.("[data-routes]"))
-    this.onLeave = () => this.trace(this.el.contains(document.activeElement) ? document.activeElement.closest("[data-routes]") : null)
-    this.onFocus = event => this.trace(event.target.closest("[data-routes]"))
-    this.onKeydown = event => this.walk(event)
-    this.el.addEventListener("pointerover", this.onOver)
-    this.el.addEventListener("pointerleave", this.onLeave)
-    this.el.addEventListener("focusin", this.onFocus)
-    this.el.addEventListener("focusout", this.onLeave)
-    this.el.addEventListener("keydown", this.onKeydown)
+    this.listen(this.frameEl, "click", event => this.control(event))
+    this.listen(this.el, "pointerover", event => this.hover(event.target))
+    this.listen(this.el, "pointerleave", () => this.hover(null))
+    this.listen(this.el, "focusin", event => this.hover(event.target))
+    this.listen(this.el, "focusout", () => this.hover(null))
+    this.listen(this.el, "keydown", event => this.walk(event))
+    this.listen(this.el, "pointerdown", event => this.grab(event))
+    this.listen(this.el, "pointermove", event => this.drag(event))
+    this.listen(this.el, "pointerup", event => this.drop(event))
+    this.listen(this.el, "pointercancel", event => this.drop(event))
+    this.listen(this.el, "click", event => this.swallow(event), true)
+    this.listen(this.el, "wheel", event => this.wheel(event), {passive: false})
+    this.listen(window, "keydown", event => this.escape(event))
+    this.listen(document, "flz-theme-change", () => { this.readInks(); this.draw(performance.now()) })
+    this.listen(this.reduced, "change", () => {
+      this.marks = []
+      this.pending = []
+      if (this.tick) { this.tick.remaining = {}; this.tick.since = {} }
+      this.draw(performance.now())
+    })
 
     // A hidden tab's page keeps ticking, so the screen is told to stop reading.
-    this.onVisibility = () => this.pushEvent("refresh_visibility", {hidden: document.hidden})
-    document.addEventListener("visibilitychange", this.onVisibility)
+    this.onVisibility = () => {
+      this.pushEvent("refresh_visibility", {hidden: document.hidden})
+      if (!document.hidden) { this.resume() }
+    }
+    this.listen(document, "visibilitychange", this.onVisibility)
     if (document.hidden) { this.onVisibility() }
+
+    this.seen = new IntersectionObserver(entries => {
+      this.onScreen = entries.some(entry => entry.isIntersecting)
+      if (this.onScreen) { this.resume() }
+    })
+    this.seen.observe(this.el)
+
+    this.resized = new ResizeObserver(() => {
+      clearTimeout(this.resizeTimer)
+      this.resizeTimer = setTimeout(() => this.resize(), 150)
+    })
+    this.resized.observe(this.el.parentElement)
+
+    this.direction = storedDirection()
+    this.pushView()
+    // Read by the browser specs: which wire each mark first rode, and when.
+    this.launched = new Map()
+    this.el.flzMotion = this
   },
-  // A rejoined LiveView starts afresh, so it is told again about a hidden tab.
-  reconnected() { if (document.hidden) { this.onVisibility() } },
+
+  updated() {
+    this.readGraph()
+    const layout = this.el.dataset.layout
+    const cells = this.el.dataset.cells
+    if (layout !== this.layoutKey || cells !== this.cellsKey) {
+      this.layoutKey = layout
+      this.cellsKey = cells
+      this.sizeStage()
+      this.fit()
+    } else {
+      this.applyView()
+    }
+    this.hover(this.rehover())
+  },
+
+  // The element hovered before a patch, or the one that replaced it.
+  rehover() {
+    const h = this.hovered
+    if (!h || h.isConnected) { return h }
+    const wire = h.closest?.(".topo-hit")?.dataset.wire ?? h.dataset?.wire
+    const node = h.closest?.("[data-node]")?.dataset.node ?? h.dataset?.node
+    if (wire) { return this.el.querySelector(`.topo-hit[data-wire="${CSS.escape(wire)}"]`) }
+    return node ? this.el.querySelector(`[data-node="${CSS.escape(node)}"]`) : null
+  },
+
+  // A rejoined LiveView starts afresh, so it is told again about a hidden tab
+  // and about the viewer's direction.
+  reconnected() {
+    if (document.hidden) { this.onVisibility() }
+    this.pushView()
+  },
+
   destroyed() {
-    document.removeEventListener("visibilitychange", this.onVisibility)
-    cancelAnimationFrame(this.frame)
-    this.flights = []
+    for (const [target, type, fn, opts] of this.listeners ?? []) { target.removeEventListener(type, fn, opts) }
+    this.seen?.disconnect()
+    this.resized?.disconnect()
+    clearTimeout(this.resizeTimer)
+    cancelAnimationFrame(this.raf)
+    this.frameEl?.removeAttribute("data-full")
   },
 
-  route(name) { return this.el.querySelector(`#route-${name}`) },
-
-  // Nothing is drawn behind a hidden tab, so nothing is queued for it either.
-  counts({in: taken, out, filtered, parked, interval_ms, modes}) {
-    this.modes = modes
-    const tappedDeadLetters = this.tappedDeadLetters
-    this.tappedDeadLetters = 0
-    if (document.hidden) { return }
-    const tapped = this.el.dataset.tapped
-    const span = Math.min(interval_ms, SPREAD_MS)
-    if (tapped !== "input" && modes.in !== "streaming") { this.spread("in", taken, "counted", span) }
-    if (tapped !== "output" && modes.out !== "streaming") { this.spread("out", out, "counted", span) }
-    this.spread("filter", filtered, "filtered", span)
-    // An output tap hears the dead letters parked on input itself, but not
-    // those parked further on, so the counters draw only what it did not.
-    this.spread("dlq", Math.max(parked - tappedDeadLetters, 0), "fail", span)
+  listen(target, type, fn, opts) {
+    target.addEventListener(type, fn, opts)
+    ;(this.listeners ||= []).push([target, type, fn, opts])
   },
 
-  records({port, records, dead_letters, previews}) {
-    if (document.hidden) { return }
-    this.tappedDeadLetters += dead_letters
-    const route = port === "input" ? "in" : "out"
-    if (this.modes?.[route] !== "streaming") { this.spread(route, records, "tapped", TAP_FLUSH_MS, previews) }
-    this.spread("dlq", dead_letters, "fail", TAP_FLUSH_MS)
-  },
+  // ---- What the server drew ----
 
-  // `count` flights spread evenly over `span`; dead letters are never capped.
-  spread(route, count, kind, span, previews = []) {
-    const now = performance.now()
-    for (let i = 0; i < count; i++) {
-      this.launch({route, kind, always: kind === "fail", preview: previews[i], at: now + (span * i) / count})
-    }
-  },
-
-  // A flight waits for its moment; under reduced motion it only lights its
-  // route when that moment comes.
-  launch(flight) {
-    if (!this.route(flight.route)) { return }
-    if (!flight.always && this.flights.filter(f => !f.always).length >= DOT_POOL) { return }
-    this.flights.push({...flight, lit: new Set()})
-    if (!this.frame) { this.frame = requestAnimationFrame(t => this.step(t)) }
-  },
-
-  step(now) {
-    this.frame = null
-    this.flights = this.flights.filter(flight => this.fly(flight, now))
-    if (this.flights.length) { this.frame = requestAnimationFrame(t => this.step(t)) }
-  },
-
-  // Moves one flight; answers whether it is still under way.
-  fly(flight, now) {
-    if (now < flight.at) { return true }
-    const route = this.route(flight.route)
-    const ride = DOT_RIDE_MS[flight.route]
-    const t = Math.min((now - flight.at) / ride, 1)
-    if (!route) { this.land(flight); return false }
-
-    if (this.reduced.matches) {
-      this.light(flight, 1)
-      return false
-    }
-    if (!flight.dot) { flight.dot = this.dot(flight) }
-    const point = route.getPointAtLength(t * route.getTotalLength())
-    const visibility = this.inBox(flight.route, t) ? "hidden" : "visible"
-    flight.dot.setAttribute("cx", point.x)
-    flight.dot.setAttribute("cy", point.y)
-    flight.dot.setAttribute("visibility", visibility)
-    if (flight.label) {
-      flight.label.setAttribute("x", point.x)
-      flight.label.setAttribute("y", point.y - 9)
-      flight.label.setAttribute("visibility", visibility)
-    }
-    this.light(flight, t)
-    if (t >= 1) { this.land(flight); return false }
-    return true
-  },
-
-  inBox(route, t) {
-    return [...this.el.querySelectorAll(`.flz-graph-node[data-flow="${route}"]`)]
-      .some(box => Number(box.dataset.at) <= t && t < Number(box.dataset.until))
-  },
-
-  dot(flight) {
-    const layer = this.el.querySelector("#topology-dots")
-    const dot = (!flight.always && this.pool.pop()) || document.createElementNS(SVG_NS, "circle")
-    dot.setAttribute("r", "4")
-    dot.setAttribute("class", {
-      counted: "flz-graph-dot topo-dot topo-dot--counted",
-      filtered: "flz-graph-dot topo-dot topo-dot--counted topo-dot--filtered",
-      tapped: "flz-graph-dot topo-dot",
-      fail: "flz-graph-dot flz-graph-dot--fail topo-dot"
-    }[flight.kind])
-    dot.setAttribute("data-flying", "")
-    layer.appendChild(dot)
-    if (flight.preview) {
-      flight.label = document.createElementNS(SVG_NS, "text")
-      flight.label.setAttribute("class", "topo-dot-preview")
-      flight.label.setAttribute("text-anchor", "middle")
-      flight.label.textContent = flight.preview
-      layer.appendChild(flight.label)
-    }
-    return dot
-  },
-
-  land(flight) {
-    flight.label?.remove()
-    if (!flight.dot) { return }
-    flight.dot.removeAttribute("data-flying")
-    if (flight.always) { flight.dot.remove() } else { this.pool.push(flight.dot) }
-  },
-
-  // Each wire and box of the route lights once the dot reaches where it starts, and
-  // fades through the stylesheet's transition once the light is taken off.
-  light(flight, t) {
-    for (const wire of this.el.querySelectorAll(`[data-flow="${flight.route}"]`)) {
-      if (flight.lit.has(wire) || Number(wire.dataset.at) > t) { continue }
-      flight.lit.add(wire)
-      // Reduced motion takes the fade away, so the light is held for as long
-      // instead, through LiveView's class ops: a tick's patch would take a
-      // plain class off with it.
-      if (this.reduced.matches) {
-        this.js().addClass(wire, "is-lit")
-        setTimeout(() => this.js().removeClass(wire, "is-lit"), AFTERGLOW_MS)
-        continue
+  readGraph() {
+    this.svg = this.el.querySelector("#topology-svg")
+    this.canvas = this.el.querySelector("#topology-motion canvas")
+    this.focusStyle = this.el.querySelector("#topology-motion style")
+    const [x, y, w, h] = (this.el.dataset.bounds || "0 0 1 1").split(" ").map(Number)
+    this.bounds = {x, y, w, h}
+    const old = this.wires ?? new Map()
+    this.wires = new Map()
+    this.outOf = new Map()
+    this.inTo = new Map()
+    for (const el of this.el.querySelectorAll(".topo-hit[data-wire]")) {
+      const pts = (el.dataset.pts || "").split(" ").filter(Boolean).map(p => p.split(",").map(Number))
+      if (pts.length < 2) { continue }
+      const wire = {
+        id: el.dataset.wire,
+        from: el.dataset.from,
+        to: el.dataset.to,
+        entry: el.dataset.entry || null,
+        kind: el.dataset.kind,
+        key: el.dataset.key || null,
+        mode: el.dataset.mode,
+        rate: Number(el.dataset.rate) || 0,
+        m: measure(pts),
+        carry: old.get(el.dataset.wire)?.carry ?? 0,
+        owed: old.get(el.dataset.wire)?.owed ?? null
       }
-      wire.classList.add("is-lit")
-      requestAnimationFrame(() => requestAnimationFrame(() => wire.classList.remove("is-lit")))
+      this.wires.set(wire.id, wire)
+      if (!this.outOf.has(wire.from)) { this.outOf.set(wire.from, []) }
+      this.outOf.get(wire.from).push(wire)
+      if (!this.inTo.has(wire.to)) { this.inTo.set(wire.to, []) }
+      this.inTo.get(wire.to).push(wire)
+    }
+    // A mark in flight keeps its wire through a re-render, by id; one whose
+    // wire is gone ends where it is.
+    const rebind = item => !item.wire || (item.wire = this.wires.get(item.wire.id))
+    this.marks = this.marks.filter(rebind)
+    this.pending = this.pending.filter(rebind)
+    this.backpressure = this.el.querySelector(".topo-backpressure") !== null
+  },
+
+  // The inks the canvas draws with, from the theme's own tokens.
+  readInks() {
+    const style = getComputedStyle(this.el)
+    const ink = name => style.getPropertyValue(name).trim()
+    this.inks = {
+      signal: ink("--fui-signal"),
+      surface: ink("--fui-surface"),
+      fail: ink("--fui-negative"),
+      warning: ink("--fui-warning"),
+      text: ink("--fui-ink-2"),
+      // A canvas does not resolve custom properties, so the face is read here.
+      mono: `10px ${ink("--font-mono") || "monospace"}`
     }
   },
 
-  // The traced routes live on the wrapper, which the server patch leaves
-  // alone, so a tick does not undo the highlight.
-  trace(element) {
-    const routes = element && this.el.contains(element) ? element.dataset.routes.split(" ") : []
-    this.el.toggleAttribute("data-trace", routes.length > 0)
-    for (const route of TRACED) { this.el.toggleAttribute(`data-trace-${route}`, routes.includes(route)) }
+  // ---- The view ----
+
+  sheetWidth() {
+    return this.el.dataset.cells ? Math.min(SHEET_W, this.el.clientWidth * 0.6) : 0
   },
 
-  // LiveView hands a key to the window binding only when the focused element
-  // binds no key of its own, so Escape on a focused node or port is sent here.
+  maxHeight() {
+    if (this.full) {
+      return Math.max(240, window.innerHeight - this.el.getBoundingClientRect().top - 12)
+    }
+    return Math.min(window.innerHeight * 0.72, 860)
+  },
+
+  // The stage width the Cell sheet leaves, as wide as a desktop panel before
+  // the panel has a width.
+  freeWidth() { return Math.max(200, (this.el.clientWidth || 1200) - this.sheetWidth()) },
+
+  sizeStage() {
+    const max = this.maxHeight()
+    const scale = Math.min(1, this.freeWidth() / this.bounds.w, max / this.bounds.h)
+    const least = this.el.dataset.cells ? 480 : 320
+    this.el.style.height = `${this.full ? max : Math.min(max, Math.max(least, Math.ceil(this.bounds.h * scale)))}px`
+  },
+
+  // The whole graph, in the part of the stage the Cell sheet leaves free.
+  fit() {
+    const b = this.bounds
+    const cw = this.el.clientWidth || 1
+    const ch = this.el.clientHeight || 1
+    const free = Math.max(200, cw - this.sheetWidth())
+    const s = Math.min(1, free / b.w, ch / b.h)
+    this.view = {x: b.x - (free / s - b.w) / 2, y: b.y - (ch / s - b.h) / 2, w: cw / s, h: ch / s}
+    this.applyView()
+  },
+
+  scale() {
+    return Math.min(this.el.clientWidth / this.view.w, this.el.clientHeight / this.view.h)
+  },
+
+  applyView() {
+    if (!this.view || !this.svg) { return }
+    const {x, y, w, h} = this.view
+    this.svg.setAttribute("viewBox", `${x} ${y} ${w} ${h}`)
+    const pct = this.frameEl?.querySelector("#topology-zoom")
+    if (pct) { pct.textContent = `${Math.round(this.scale() * 100)}%` }
+    this.draw(performance.now())
+  },
+
+  zoomBy(factor, px, py) {
+    const s = this.scale()
+    const k = s / Math.max(0.25, Math.min(3, s * factor))
+    const cx = px ?? this.view.x + this.view.w / 2
+    const cy = py ?? this.view.y + this.view.h / 2
+    this.view = {x: cx - (cx - this.view.x) * k, y: cy - (cy - this.view.y) * k, w: this.view.w * k, h: this.view.h * k}
+    this.applyView()
+  },
+
+  oneToOne() {
+    const cx = this.view.x + this.view.w / 2
+    const cy = this.view.y + this.view.h / 2
+    const w = this.el.clientWidth
+    const h = this.el.clientHeight
+    this.view = {x: cx - w / 2, y: cy - h / 2, w, h}
+    this.applyView()
+  },
+
+  setFull(on) {
+    this.full = on
+    this.frameEl.toggleAttribute("data-full", on)
+    this.frameEl.querySelector("[data-zoom='full']")?.setAttribute("aria-pressed", String(on))
+    this.sizeStage()
+    this.fit()
+  },
+
+  // The panel's controls: zoom, fit, full screen and the direction.
+  control(event) {
+    const zoom = event.target.closest("[data-zoom]")
+    const dir = event.target.closest("[data-dir]")
+    if (zoom) {
+      ({in: () => this.zoomBy(1.25), out: () => this.zoomBy(1 / 1.25), fit: () => this.fit(),
+        one: () => this.oneToOne(), full: () => this.setFull(!this.full)})[zoom.dataset.zoom]?.()
+    } else if (dir) {
+      this.direction = dir.dataset.dir
+      pref.set(DIRECTION_KEY, this.direction)
+      this.pushView()
+    }
+  },
+
+  pushView() {
+    const width = this.freeWidth()
+    const height = this.maxHeight()
+    this.sentSize = [width, height]
+    this.pushEvent("graph_view", {direction: this.direction, width, height: Math.round(height)})
+  },
+
+  // A panel that changed size refits; Auto may now fit the other direction
+  // larger, so the server is told the new size.
+  resize() {
+    this.sizeStage()
+    this.fit()
+    const width = Math.max(200, this.el.clientWidth - this.sheetWidth())
+    const [w0, h0] = this.sentSize ?? [0, 0]
+    if (Math.abs(width - w0) > w0 * 0.1 || Math.abs(this.maxHeight() - h0) > h0 * 0.1) { this.pushView() }
+  },
+
+  svgPoint(event) {
+    const box = this.el.getBoundingClientRect()
+    const s = this.scale()
+    return [this.view.x + (event.clientX - box.left) / s, this.view.y + (event.clientY - box.top) / s]
+  },
+
+  wheel(event) {
+    if (!(event.ctrlKey || event.metaKey)) { return }
+    event.preventDefault()
+    const [x, y] = this.svgPoint(event)
+    this.zoomBy(event.deltaY < 0 ? 1.15 : 1 / 1.15, x, y)
+  },
+
+  // A drag on anything but a node or the sheet pans; the click that ends a
+  // drag selects nothing.
+  grab(event) {
+    this.dragged = false
+    if (event.button !== 0 || event.target.closest("[data-node], .topo-cells, a, button")) { return }
+    this.panning = {x: event.clientX, y: event.clientY, view: {...this.view}, moved: false, id: event.pointerId}
+  },
+
+  drag(event) {
+    const pan = this.panning
+    if (!pan || pan.id !== event.pointerId) { return }
+    const dx = event.clientX - pan.x
+    const dy = event.clientY - pan.y
+    if (!pan.moved && Math.hypot(dx, dy) < 3) { return }
+    if (!pan.moved) { pan.moved = true; this.el.setPointerCapture(event.pointerId); this.el.classList.add("is-panning") }
+    const s = this.scale()
+    this.view = {...pan.view, x: pan.view.x - dx / s, y: pan.view.y - dy / s}
+    this.applyView()
+  },
+
+  drop(event) {
+    if (!this.panning || this.panning.id !== event.pointerId) { return }
+    this.dragged = this.panning.moved
+    this.panning = null
+    this.el.classList.remove("is-panning")
+  },
+
+  swallow(event) {
+    if (this.dragged) { event.stopPropagation(); event.preventDefault() }
+    this.dragged = false
+  },
+
+  // ---- Focus: what a wire or a node touches ----
+
+  // Hovering or focusing a wire or a node lights the nets touching it and
+  // their ends and dims the rest; with nothing hovered, the tasklet whose
+  // Cells are open keeps that focus. The rules are written into a style the
+  // server patch leaves alone.
+  hover(target) {
+    const el = target && this.el.contains(target) ? target : null
+    this.hovered = el
+    const wire = el?.closest?.(".topo-hit")
+    const node = el?.closest?.("[data-node]")
+    const nets = new Set()
+    const nodes = new Set()
+    const touching = id => {
+      for (const g of this.el.querySelectorAll(".topo-net[data-ends]")) {
+        if (g.dataset.ends.split(" ").includes(id)) { nets.add(g.dataset.net) }
+      }
+    }
+    if (wire) {
+      nets.add(wire.closest(".topo-net").dataset.net)
+    } else if (node) {
+      nodes.add(node.dataset.node)
+      touching(node.dataset.node)
+    } else if (this.el.dataset.cells) {
+      nodes.add(this.el.dataset.cells)
+      touching(this.el.dataset.cells)
+    }
+    for (const id of nets) {
+      const g = this.el.querySelector(`.topo-net[data-net="${CSS.escape(id)}"]`)
+      for (const end of g?.dataset.ends.split(" ") ?? []) { nodes.add(end) }
+    }
+    const on = nets.size + nodes.size > 0
+    this.el.toggleAttribute("data-focus", on)
+    this.focusStyle.textContent = on
+      ? [...[...nets].map(id => `#topology-canvas[data-focus] .topo-net[data-net="${CSS.escape(id)}"]`),
+         ...[...nodes].map(id => `#topology-canvas[data-focus] [data-node="${CSS.escape(id)}"]`)].join(",\n") +
+        " { opacity: 1; }\n" +
+        [...nets].map(id => `#topology-canvas .topo-net[data-net="${CSS.escape(id)}"] .topo-wire`).join(",\n") +
+        (nets.size ? " { stroke: var(--fui-accent); stroke-opacity: 1; stroke-width: 2; }" : "")
+      : ""
+  },
+
+  // ---- The keyboard ----
+
+  // Along the drawn direction the arrows follow the record path; across it
+  // they move within the rank. LiveView hands a window key binding only to a
+  // focused element binding none, so Escape is handled here: it closes the
+  // Cell sheet, then full screen, then the selection.
   walk(event) {
-    if (event.key === "Escape" && event.target.hasAttribute?.("phx-keydown") && this.el.hasAttribute("phx-window-keydown")) {
-      this.pushEvent(this.el.getAttribute("phx-window-keydown"), {})
-      return
-    }
-    const step = {ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0]}[event.key]
-    const from = event.target.closest?.("[data-nav]")
-    if (!step || !from || event.altKey || event.ctrlKey || event.metaKey) { return }
-    const lanes = ["life", "record", "inside", "fail"]
-    const stops = [...this.el.querySelectorAll("[data-nav]")]
-    const lane = lanes.indexOf(from.dataset.lane)
-    const centre = el => { const box = el.getBoundingClientRect(); return box.left + box.width / 2 }
-    const middle = el => { const box = el.getBoundingClientRect(); return box.top + box.height / 2 }
+    if (event.altKey || event.ctrlKey || event.metaKey) { return }
+    const from = event.target.closest?.("[data-node]")
+    const lr = this.el.dataset.direction !== "TB"
+    const step = (lr
+      ? {ArrowRight: "next", ArrowLeft: "prev", ArrowDown: 1, ArrowUp: -1}
+      : {ArrowDown: "next", ArrowUp: "prev", ArrowRight: 1, ArrowLeft: -1})[event.key]
+    if (!from || step === undefined) { return }
     let target = null
-
-    if (step[1]) {
-      target = stops.find(el => el.dataset.lane === from.dataset.lane && Number(el.dataset.nav) === Number(from.dataset.nav) + step[1])
-    } else if (from.dataset.lane === "inside") {
-      // Inside the relay, Up and Down walk the column first.
-      target = stops
-        .filter(el => el.dataset.lane === "inside" && Math.abs(centre(el) - centre(from)) < 40 && Math.sign(middle(el) - middle(from)) === step[0])
-        .sort((a, b) => Math.abs(middle(a) - middle(from)) - Math.abs(middle(b) - middle(from)))[0]
-    }
-    if (!target && !step[1]) {
-      for (let next = lane + step[0]; !target && next >= 0 && next < lanes.length; next += step[0]) {
-        const row = stops.filter(el => el.dataset.lane === lanes[next])
-        target = row.sort((a, b) => Math.abs(centre(a) - centre(from)) - Math.abs(centre(b) - centre(from)))[0]
-      }
+    if (typeof step === "string") {
+      const id = (from.dataset[step] || "").split(" ").filter(Boolean)[0]
+      target = id && this.el.querySelector(`[data-node="${CSS.escape(id)}"]`)
+    } else if (from.dataset.rank !== undefined) {
+      const order = Number(from.dataset.order)
+      target = [...this.el.querySelectorAll(`[data-node][data-rank="${from.dataset.rank}"]`)]
+        .filter(el => Math.sign(Number(el.dataset.order) - order) === step)
+        .sort((a, b) => Math.abs(Number(a.dataset.order) - order) - Math.abs(Number(b.dataset.order) - order))[0]
     }
     if (target) {
       event.preventDefault()
       target.focus()
+    }
+  },
+
+  escape(event) {
+    if (event.key !== "Escape" || event.defaultPrevented || shortcutsHeld(event.target)) { return }
+    if (this.el.dataset.cells) { this.pushEvent("graph_cells_close", {}) }
+    else if (this.full) { this.setFull(false) }
+    else if (this.el.dataset.selected) { this.pushEvent("graph_dismiss", {}) }
+    else { return }
+    event.preventDefault()
+  },
+
+  // ---- Motion ----
+
+  // Marks start at the sources, and at an entry nothing drawn feeds, whose
+  // records were sent to the relay directly; every other node's count waits
+  // for the marks that reach it.
+  counts({interval_ms, budgets, parked}) {
+    const now = performance.now()
+    const span = Math.min(interval_ms, TICK_SPAN_MS)
+    const {remaining = {}, since = {}} = this.tick ?? {}
+    this.tick = {at: now, span, budgets, remaining, since}
+    this.lit = new Set([...this.wires.values()].filter(w => (budgets[w.key] ?? 0) > 0).map(w => w.id))
+    if (!this.watched()) { return }
+    // Still: the wires that carried records are drawn heavier, and nothing moves.
+    if (this.reduced.matches) { this.draw(now); return }
+
+    const starts = []
+    for (const [id, n] of Object.entries(budgets)) {
+      const kind = kindOf(id)
+      if (kind === "source" || (kind === "entry" && !this.inTo.get(id)?.length)) {
+        if (n > 0) { starts.push([id, n, kind]) }
+      } else if (n > 0) {
+        remaining[id] = (remaining[id] ?? 0) + n
+        since[id] ??= now
+      }
+    }
+    this.settleOwed(now)
+
+    for (const [id, n, kind] of starts) {
+      if (kind === "source") {
+        for (const wire of this.outOf.get(id) ?? []) { this.spread(wire, n, now, span) }
+      } else {
+        this.marksOver(n, now, span, (share, at) => this.handLater(id, share, null, at))
+      }
+    }
+    this.deadLetters(parked, now, span)
+    this.wake()
+  },
+
+  // A tap's records ride the tapped port's own wires, filled, with the start
+  // of their payload while they are few.
+  records({port, records, dead_letters, previews}) {
+    if (!this.watched() || this.reduced.matches) { return }
+    const now = performance.now()
+    const wires = kindOf(port) === "entry" ? this.inTo.get(port) ?? [] : this.outOf.get(port) ?? []
+    for (let i = 0; i < records && wires.length; i++) {
+      this.queue(wires[i % wires.length], 0, null, now + (TAP_FLUSH_MS * i) / records, "tapped", previews[i])
+    }
+    this.deadLetters(dead_letters, now, TAP_FLUSH_MS)
+    this.wake()
+  },
+
+  spread(wire, count, now, span) {
+    if (count <= 0) { return }
+    this.marksOver(count, now, span, (share, at) => this.queue(wire, share, wire.entry, at, "counted"))
+  },
+
+  // `count` records over the span, sampled to at most four marks a second,
+  // each standing for its share.
+  marksOver(count, now, span, place) {
+    const n = Math.max(1, Math.min(Math.round(count), Math.ceil(marksIn(span))))
+    for (let i = 0; i < n; i++) { place(count / n, now + (span * i) / n) }
+  },
+
+  // Every dead letter is drawn, one mark each.
+  deadLetters(count, now, span) {
+    const dlq = this.wires.get("relay>dead-letter")
+    for (let i = 0; dlq && i < count; i++) { this.queue(dlq, 1, null, now + (span * i) / count, "fail") }
+  },
+
+  queue(wire, weight, entry, at, kind, preview) {
+    this.pending.push({wire, weight, entry, at, kind, preview})
+  },
+
+  unit(wire) {
+    const t = this.tick
+    if (!t || !wire.key) { return 1 }
+    return Math.max(1, (t.budgets[wire.key] ?? 0) / marksIn(t.span))
+  },
+
+  // A streaming wire hands its records on at once and draws its flow; any
+  // other carries a mark across in 0.35 to 1.2 seconds, whatever its length.
+  launch(item, now) {
+    const {wire} = item
+    if (wire.mode === "streaming" && item.kind === "counted") { this.handOn(wire.to, item.weight, item.entry, now); return }
+    this.marks.push({...item, t0: now, dur: Math.max(350, Math.min(1200, wire.m.len / 0.45))})
+    if (!this.launched.has(wire.id)) { this.launched.set(wire.id, now) }
+  },
+
+  // `weight` records reach `id`: each outgoing wire takes its share, the
+  // share of what the node it reaches took against what this node took, as
+  // far as that node's budget lasts.
+  handOn(id, weight, entry, now) {
+    const t = this.tick
+    if (!t) { return }
+    const kind = kindOf(id)
+    if (kind === "call") {
+      const answer = `answer-${id.slice(5)}`
+      this.handLater(answer, weight, entry, now + CALL_MS)
+      return
+    }
+    let outs = this.outOf.get(id) ?? []
+    if (kind === "filter" && entry) { outs = outs.filter(w => w.kind === "skip" || !w.entry || w.entry === entry) }
+    const counted = outs.filter(w => t.budgets[w.to] !== undefined)
+    const own = t.budgets[id] ?? 0
+    const of = own > 0 ? own : counted.reduce((sum, w) => sum + t.budgets[w.to], 0)
+    const pause = kind === "tasklet" ? TASKLET_PAUSE_MS : kind === "run" ? TASKLET_PAUSE_MS * 2 : 0
+    for (const wire of outs) {
+      let give = weight
+      if (t.budgets[wire.to] !== undefined) {
+        // What the next node has not counted yet is owed to it, and handed on
+        // when its count arrives, often a tick after this mark's.
+        const want = of > 0 && t.budgets[wire.to] > 0 ? (weight * t.budgets[wire.to]) / of : weight
+        give = this.take(wire.to, want)
+        if (want - give > 0.01) { wire.owed = {weight: (wire.owed?.weight ?? 0) + want - give, entry, at: wire.owed?.at ?? now} }
+      }
+      this.carryOn(wire, give, wire.entry ?? entry, now + pause)
+    }
+  },
+
+  // Takes up to `want` of a node's budget.
+  take(id, want) {
+    const t = this.tick
+    const left = t.remaining[id] ?? 0
+    const give = Math.min(want, left)
+    t.remaining[id] = left - give
+    if (left - give < 0.5) { delete t.since[id] }
+    return give
+  },
+
+  carryOn(wire, weight, entry, at) {
+    if (weight <= 0) { return }
+    wire.carry += weight
+    const unit = this.unit(wire)
+    while (wire.carry >= unit) {
+      wire.carry -= unit
+      this.queue(wire, unit, entry, at, "counted")
+    }
+  },
+
+  // A tick's counts pay what marks already owe the nodes they reached
+  // earlier; a debt no count pays within the grace is forgotten.
+  settleOwed(now) {
+    for (const wire of this.wires.values()) {
+      const owed = wire.owed
+      if (!owed) { continue }
+      const give = this.take(wire.to, owed.weight)
+      owed.weight -= give
+      this.carryOn(wire, give, owed.entry, now)
+      if (owed.weight < 0.01 || now - owed.at > GRACE_MS) { wire.owed = null }
+    }
+  },
+
+  handLater(id, weight, entry, at) {
+    this.pending.push({hand: id, weight, entry, at})
+  },
+
+  // A count no mark has reached within the grace is launched as is, on the
+  // wires into its node, so no count goes undrawn.
+  flushStale(now) {
+    const t = this.tick
+    for (const [id, at] of Object.entries(t.since)) {
+      if (now - at < GRACE_MS) { continue }
+      const left = t.remaining[id] ?? 0
+      const into = this.inTo.get(id) ?? []
+      delete t.since[id]
+      t.remaining[id] = 0
+      if (left < 0.5 || !into.length) { continue }
+      for (const wire of into) { this.spread(wire, left / into.length, now, TAP_FLUSH_MS * 2) }
+    }
+  },
+
+  // Back in view: what fell due while nobody could see it is dropped, not
+  // launched in one burst.
+  resume() {
+    const now = performance.now()
+    this.pending = this.pending.filter(item => item.at > now)
+    this.marks = []
+    this.wake()
+  },
+
+  // Nothing is queued for a graph nobody can see.
+  watched() { return !document.hidden && this.onScreen },
+
+  wake() {
+    if (!this.raf && this.watched()) { this.raf = requestAnimationFrame(now => this.frame(now)) }
+  },
+
+  frame(now) {
+    this.raf = null
+    if (!this.watched()) { return }
+    if (now - (this.lastFrame ?? 0) < FRAME_MS) { this.wake(); return }
+    this.lastFrame = now
+    if (this.tick) { this.flushStale(now) }
+
+    const due = this.pending.filter(item => item.at <= now)
+    this.pending = this.pending.filter(item => item.at > now)
+    for (const item of due) { item.hand ? this.handOn(item.hand, item.weight, item.entry, now) : this.launch(item, now) }
+
+    const landed = this.marks.filter(mark => now - mark.t0 >= mark.dur)
+    this.marks = this.marks.filter(mark => now - mark.t0 < mark.dur)
+    for (const mark of landed) {
+      if (mark.kind === "counted") { this.handOn(mark.wire.to, mark.weight, mark.entry, now) }
+    }
+
+    this.draw(now)
+    if (this.marks.length || this.pending.length || this.flowing() || Object.keys(this.tick?.since ?? {}).length) { this.wake() }
+  },
+
+  flowing() {
+    return !this.reduced.matches && !this.backpressure && [...this.wires.values()].some(w => w.mode === "streaming")
+  },
+
+  // Everything moving, on the canvas, in the SVG's own coordinates.
+  draw(now) {
+    const canvas = this.canvas
+    if (!canvas || !this.view) { return }
+    const dpr = window.devicePixelRatio || 1
+    const w = this.el.clientWidth
+    const h = this.el.clientHeight
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr)
+      canvas.height = Math.round(h * dpr)
+    }
+    const ctx = canvas.getContext("2d")
+    const s = this.scale() * dpr
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.setTransform(s, 0, 0, s, -this.view.x * s, -this.view.y * s)
+    ctx.lineCap = "round"
+    ctx.lineJoin = "round"
+    const trace = m => { ctx.beginPath(); m.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))) }
+
+    if (this.reduced.matches) {
+      // Still: a wire that carried records in the last tick is drawn heavier.
+      ctx.strokeStyle = this.inks.signal
+      ctx.lineWidth = 3
+      for (const id of this.lit) { const wire = this.wires.get(id); if (wire) { trace(wire.m); ctx.stroke() } }
+      return
+    }
+
+    // A stream: a continuous flow, faster and thicker for a higher rate,
+    // stepped so it never seems to run backwards; stopped in the warning
+    // colour while the runner's channel has no credit.
+    for (const wire of this.wires.values()) {
+      if (wire.mode !== "streaming") { continue }
+      const out = this.backpressure && kindOf(wire.from) === "exit"
+      const speed = 60 + 40 * Math.log10(1 + wire.rate)
+      const step = Math.floor(((now / 1000) * FLOW_STEPS_A_SECOND))
+      ctx.setLineDash([FLOW_DASH, FLOW_PERIOD - FLOW_DASH])
+      ctx.lineDashOffset = out ? 0 : -((step / FLOW_STEPS_A_SECOND) * speed) % FLOW_PERIOD
+      ctx.strokeStyle = out ? this.inks.warning : this.inks.signal
+      ctx.lineWidth = Math.min(5, 1.5 + Math.log10(1 + wire.rate) * 1.6)
+      trace(wire.m)
+      ctx.stroke()
+    }
+    ctx.setLineDash([])
+
+    let drawn = 0
+    for (const mark of this.marks) {
+      if (mark.kind !== "fail" && drawn >= MARKS_DRAWN) { continue }
+      drawn++
+      const [x, y] = pointAt(mark.wire.m, ((now - mark.t0) / mark.dur) * mark.wire.m.len)
+      ctx.beginPath()
+      ctx.arc(x, y, 3.5, 0, Math.PI * 2)
+      ctx.fillStyle = mark.kind === "tapped" ? this.inks.signal : mark.kind === "fail" ? this.inks.fail : this.inks.surface
+      ctx.fill()
+      ctx.lineWidth = 1.75
+      ctx.strokeStyle = mark.kind === "fail" ? this.inks.fail : this.inks.signal
+      ctx.stroke()
+      if (mark.preview) {
+        ctx.font = this.inks.mono
+        ctx.fillStyle = this.inks.text
+        ctx.textAlign = "center"
+        ctx.fillText(mark.preview, x, y - 9)
+      }
     }
   }
 }

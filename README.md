@@ -17,11 +17,15 @@ The UI uses the controller's terms exactly. If a name here disagrees with
 | **Runner** | An SDK-side process serving factories. Relays are bound to one. |
 | **Factory** | What a runner registers and a relay is started from. |
 | **Tasklet** | A step inside a relay. |
+| **Source plugin** | A plugin whose provider feeds a relay, such as a websocket or a poll; it injects records on the entry channel it names, or on the relay's first. |
+| **Input filter** | A plugin bound on `on_input`: it runs before a record enters the relay, and a record it skips never reaches a tasklet. |
 | **Entry channel** | A named channel records enter a relay on; a plugin feeding the relay names the entry it attaches to. |
-| **Plugin-bound channel** | A channel that leaves a relay for its plugins; each output plugin takes the records of the channels it names. |
+| **Output channel** | A channel that leaves a relay for its plugins; each output plugin takes the records of the channels it names. |
+| **No plugin bound** | An output channel no plugin takes from: only a listener, such as a tap, sees its records. |
+| **Folded run** | Four or more tasklets in a row, each reading only the one before it, drawn as one node until expanded. |
 | **Backlog** | Inputs queued at a tasklet faster than it takes them, marked once its deepest Cell has held a queue for two readings. |
 | **Shed** | Inputs a tasklet dropped: a full mailbox under a dropping overflow policy, or a new key at the Cell cap. |
-| **Cell** | A keyed unit of state inside a tasklet. |
+| **Cell** | A keyed unit of state inside a tasklet; a tasklet's Cells are listed, busiest first, when it is selected on the relay's graph. |
 | **Output** | Where a relay's results leave it. |
 | **Task journal** | A durable steps relay's record of committed tasklets and iterations; the only rewind targets. |
 | **Input log** | A durable steps relay's journaled inputs, consumed iteration by iteration. |
@@ -54,7 +58,7 @@ scope switch moves between the two forms.
 | `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update, with a typed field for each option the provider declares |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
 | `/relays` | The Relays screen's **All namespaces** switch — every relay across every reachable namespace, filterable by namespace, health, run and runner; starts one into any of them; what happened while the screen was open |
-| `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph — records drawn as they pass, the relay as a boundary around the tasklets and channels its runner announces, each with its live input rate, backlog and shed marks, plugins hung off the entry and plugin-bound channels they name, a payload tap opened from its IN and OUT ports, and a sentence and timeline of what the relay is doing — and as sections that fold: diagnosis, the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema |
+| `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph — its sources, input filters, entry channels, tasklets, output channels and the plugins and called relays they end at, in one layout drawn left to right or top to bottom and fitted to its panel, records moving in the order they pass, each tasklet's input rate, backlog, shed and dead-letter badges and a table of its Cells, a payload tap opened from any channel port, and a sentence and timeline of what the relay is doing — and as sections that fold: diagnosis, the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema |
 | `/namespaces/:ns/relays/:id/listen` | **Listen** — the relay's live outputs or inputs |
 | `/namespaces/:ns/relays/:id/state` | **State** — steps facts as sentences, the task journal and input log, SDK state, and durable cells with their sequences and lag; point-in-time reads, a cell's outbox, replay, rotate, delete; retention, the history one settable |
 | `/plugins` | Enabled plugins per namespace, the providers on offer, and the packages installed on the controller with why one was refused |
@@ -206,9 +210,12 @@ docker exec -it fui_web mix flezha_ui.create_user someone@example.com
 which asks for a password of 12 to 72 characters (or takes `--password`) and
 creates the account confirmed, ready to log in.
 
-In dev the UI seeds testnet relays — flow and steps, and `orders`, the runner's
-relay API fixture — websocket plugins and a `hook_webhook` controller plugin
-once the controller is reachable, so Home's map is populated on arrival. See
+In dev the UI seeds testnet relays — flow and steps, `orders`, the runner's
+relay API fixture, and `testnet_showcase`, whose graph holds every shape the
+relay graph draws, with its sources, an input filter and output plugins —
+websocket plugins and a `hook_webhook` controller plugin once the controller is
+reachable, so Home's map is populated on arrival. A runner that does not
+announce `showcase` skips that relay with one log line. See
 `:dev_setup` in `config/dev.exs`. Before the controller boots, the
 `plugin_packages` service builds the `flezha_http` plugin package with the
 controller's toolchain and places it in the plugin root with a copy the loader
@@ -345,23 +352,32 @@ the content of every screen is drawn with the console's own component kit.
   key `flezha-theme`, set before the first paint by the stylebook's inlined
   `theme-hydrate.js`. The toggle sits in the topbar and on the signed-out
   pages, with flezha.com's sun and moon.
-- **The relay pipeline graph** draws nodes, wires and dots with the
-  stylebook's relay-graph recipe (`.flz-graph-*`). What is the console's own
-  stays here as `topo-*` rules: lanes, ports and their listener counts,
-  stream bands, the light a passing record leaves, path tracing, the stall
-  ring, the flow sentence and the timeline. Its motion is the `FlzPipeline`
-  hook: each tick the server pushes how far the relay's counters advanced
-  (`pipeline_counts`), replayed as hollow dots over the next tick, and an open
-  tap pushes what it heard every 250 ms at most (`pipeline_records`), drawn
-  filled with the start of each payload. When the relay's runner announces
-  its graph (`Relay.graph/3`), the relay is a boundary around it: tasklets in
-  columns by their depth from the entries, entry ports on its left edge and
-  plugin-bound ports on its right, each plugin hung off the channels it names
-  (`entry_channel` and `filter_channel` as the controller resolved them).
-  The graph is read when the page opens and again when the relay is bound
-  anew; `Relay.activity/3` is read on each tick for the tasklets' rates,
-  backlogs and drops, and the hook stops the tick while the tab is hidden.
-  Without a graph the relay stays one box and a line says why.
+- **The relay pipeline graph** draws nodes and wires with the stylebook's
+  relay-graph recipe (`.flz-graph-*`); the console's own `topo-*` rules add
+  the relay's edge, nets in six hues (`--fui-wire-0` to `--fui-wire-5`, both
+  themes), halos and junction dots, ports and their taps, badges, focus, the
+  view controls, the Cell sheet, the flow sentence and the timeline.
+  `Topology.pipeline/1` places every node on abstract ranks and orders — sources
+  and input filters, entry ports, tasklets by depth, exit ports, then the
+  plugins, called relays and "no plugin bound" ends — routes each channel
+  leaving a point as one net with its own lane in each gap, and only then maps
+  the layout to x and y; layouts are kept per shape and direction, so no tick
+  moves a node. A plugin is a source when its provider's `feeds` flag says so
+  (`Fleet.providers/1`), on the entry it names or the first one. The
+  `FlzPipeline` hook owns the view box (Fit, zoom, ctrl/⌘ + wheel, drag to pan,
+  full screen) and the viewer's direction, kept in `localStorage` and sent with
+  the panel size so Auto picks the direction that fits larger. Each tick the
+  server pushes how many records each counted node took (`pipeline_counts`):
+  IN by entry, each tasklet's admitted advance from `Relay.activity/4`, each
+  output channel's count from a tally listen held while the page shows a relay
+  with two or more outputs, and what was skipped and parked. The hook starts
+  marks at the sources and hands them on node by node on a canvas over the SVG,
+  at about 24 frames a second, only while something moves and the graph is on
+  screen; a wire of twelve or more records a second flows instead. Selecting a
+  tasklet opens its Cells (`Relay.activity/4` with `cells_of`, read only while
+  the sheet is open). The graph is read when the page opens and again when the
+  relay is bound anew, and nothing is read while the tab is hidden. Without a
+  graph the relay is an empty boundary and a line says why.
 - **The gate.** `npm run tokens` runs the stylebook's `check-tokens.mjs` twice:
   over the console's roles, resolved through the stylebook's palette, and over
   the stylebook tokens the graph still reads. Either fails on an undefined or

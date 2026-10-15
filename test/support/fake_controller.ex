@@ -162,7 +162,55 @@ defmodule FakeController do
     }
   end
 
-  @doc "One tasklet's row of `Relay.activity/3`'s answer: `figures` over an idle tasklet."
+  @doc """
+  The graph `Relay.graph/3` answers for `channels`, with one tasklet for each
+  name a channel produces or consumes. `cell_keys` maps a tasklet name to its
+  announced Cell keys, which makes it a static tasklet.
+  """
+  def graph_answer(channels, opts \\ []) do
+    cell_keys = Keyword.get(opts, :cell_keys, %{})
+
+    names =
+      channels
+      |> Enum.flat_map(&[&1.producer | &1.consumers])
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    %{
+      relay: Keyword.get(opts, :relay, "relay_a"),
+      factory: Keyword.get(opts, :factory, "static_cell"),
+      disagree: false,
+      reason: nil,
+      graph: %{
+        channels: channels,
+        tasklets:
+          for name <- names do
+            keys = Map.get(cell_keys, name, [])
+            mode = if keys == [], do: "single", else: "static"
+            %{name: name, mode: mode, cell_keys: keys, mailbox_capacity: 1024}
+          end
+      }
+    }
+  end
+
+  @doc """
+  `Relay.graph/3`'s answer for a relay of one tasklet, `work`, between an entry
+  channel `input` and an output channel `out`: the smallest graph with a port on
+  each edge.
+  """
+  def one_tasklet_graph(relay_id) do
+    {:ok,
+     graph_answer(
+       [
+         graph_channel("input", "entry", nil, ["work"]),
+         graph_channel("out", "plugin_bound", "work", [], "output")
+       ],
+       relay: relay_id,
+       factory: "store_input"
+     )}
+  end
+
+  @doc "One tasklet's row of `Relay.activity/4`'s answer: `figures` over an idle tasklet."
   def activity_row(tasklet, figures \\ %{}),
     do:
       Map.merge(
@@ -181,6 +229,32 @@ defmodule FakeController do
         },
         figures
       )
+
+  @doc """
+  One Cell's row of `Relay.activity/4`'s `cells.rows`, asked with `cells_of`:
+  `figures` over a Cell that has taken nothing.
+  """
+  def cell_row(key, figures \\ %{}),
+    do:
+      Map.merge(
+        %{
+          key: key,
+          queued: 0,
+          admitted_total: 0,
+          blocked_total: 0,
+          dropped_newest_total: 0,
+          dropped_oldest_total: 0,
+          last_admitted_ms: 0
+        },
+        figures
+      )
+
+  @doc """
+  A provider of `Fleet.providers/1`'s listing: `feeds` says whether its
+  plugins inject records into a relay.
+  """
+  def provider_entry(id, module, feeds \\ false),
+    do: %{id: id, module: module, type: :relay, feeds: feeds}
 
   @doc """
   A relay row shaped as `Flezha.Service.Relay.relay_rows/2` answers one, with
@@ -439,7 +513,8 @@ defmodule Flezha.Service.Relay do
       {:ok,
        %{relay: id, factory: "store_input", graph: nil, disagree: false, reason: "not_announced"}}
 
-  defstub activity(ns, id, %{source: :ui} = ctx),
+  # Asked with `cells_of`, a runner keeping no per-Cell figures answers `nil`.
+  defstub activity(ns, id, opts, %{source: :ui} = ctx),
     do:
       {:ok,
        %{relay: id, runner: "runner-a", read_at_ms: 0, instance_seq: 1, tasklets: [], cells: nil}}

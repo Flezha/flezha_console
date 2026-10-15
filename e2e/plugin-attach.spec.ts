@@ -112,20 +112,17 @@ test.describe('Plugin attachment', () => {
 
     try {
       const graph = page.getByTestId('topology-graph');
-      for (const node of ['ingest', RELAY, 'channel', 'output']) {
-        await expect(graph.getByTestId(`topo-node-${node}`)).toBeVisible();
-      }
+      await expect(graph.getByTestId('topo-node-relay')).toBeVisible();
       await expect(graph.locator(`[data-testid*="${name}"]`)).toHaveCount(0);
 
       await attachForm(page, { provider: 'relay_stdout', name, hooks: ['on_output'] });
       await page.getByTestId('attach-submit-btn').click();
       await expectAttachAccepted(page, 'relay_stdout');
 
-      // The bound plugin joins the drawing on the next tick, the chain intact.
-      await expect(graph.locator(`[data-testid^="topo-node-"][data-testid*="${name}"]`)).toBeVisible();
-      await expect(graph.locator(`[data-testid^="topo-edge-"][data-testid*="${name}"]`).first()).toBeAttached();
-      await expect(graph.getByTestId(`topo-node-${RELAY}`)).toBeVisible();
-      await expect(graph.getByTestId('topo-node-output')).toBeVisible();
+      // The bound plugin joins the drawing on the next tick, on the relay.
+      await expect(graph.getByTestId(`topo-node-plugin-${name}`)).toBeVisible();
+      await expect(graph.locator(`[data-testid^="topo-wire-"][data-testid*="${name}"]`).first()).toBeAttached();
+      await expect(graph.getByTestId('topo-node-relay')).toBeVisible();
 
       await openSection(page, 'plugins');
       await menuAction(page, `binding-menu-${name}`, `unbind-btn-${name}`);

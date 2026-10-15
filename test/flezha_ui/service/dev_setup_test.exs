@@ -10,6 +10,9 @@ defmodule FlezhaUi.Service.DevSetupTest do
 
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
+  alias Flezha.Service.Fleet
   alias Flezha.Service.Namespace
   alias Flezha.Service.PluginManager
   alias Flezha.Service.Relay
@@ -160,15 +163,52 @@ defmodule FlezhaUi.Service.DevSetupTest do
     end
   end
 
-  describe "seeding plugins" do
-    @plugin %{
-      name: "ws_a",
-      relay_id: "relay_a",
-      provider: "relay_websocket",
-      hooks: ["on_terminate"],
-      opts: %{"uri" => "ws://example:4500"}
-    }
+  @plugin %{
+    name: "ws_a",
+    relay_id: "relay_a",
+    provider: "relay_websocket",
+    hooks: ["on_terminate"],
+    opts: %{"uri" => "ws://example:4500"}
+  }
 
+  describe "an optional seed" do
+    @showcase %{id: "testnet_showcase", factory_id: "showcase", init_values: %{}, optional: true}
+    @showcase_plugin %{@plugin | name: "ws_showcase", relay_id: "testnet_showcase"}
+
+    test "is skipped with one log line, with its plugins, when no runner announces its factory",
+         %{node: node} do
+      FakeController.set(node, {Fleet, :factories}, {:ok, [%{id: "store_input", run: :flow}]})
+      configure(relays: [relay("relay_a"), @showcase], plugins: [@showcase_plugin])
+
+      log = capture_log(fn -> assert seed!().ready end)
+
+      assert log =~ "Skipped testnet_showcase: no runner announces factory showcase"
+      assert [["seeded", fields, _ctx]] = FakeController.calls(node, {Relay, :start})
+      assert fields[:id] == "relay_a"
+      assert FakeController.calls(node, {PluginManager, :enable}) == []
+    end
+
+    test "is started like any other when its factory is announced, and again leaves it alone",
+         %{node: node} do
+      FakeController.set(node, {Fleet, :factories}, {:ok, [%{id: "showcase", run: :flow}]})
+      configure(relays: [@showcase], plugins: [@showcase_plugin])
+
+      assert seed!().ready
+      assert [["seeded", fields, _ctx]] = FakeController.calls(node, {Relay, :start})
+      assert fields[:factory_id] == "showcase"
+      refute Keyword.has_key?(fields, :optional)
+
+      assert [["ws_showcase", _fields, _ctx]] =
+               FakeController.calls(node, {PluginManager, :enable})
+
+      GenServer.stop(DevSetup)
+      FakeController.set(node, {Relay, :list_relays}, {:ok, ["testnet_showcase"]})
+      assert seed!().ready
+      assert length(FakeController.calls(node, {Relay, :start})) == 1
+    end
+  end
+
+  describe "seeding plugins" do
     test "enables each plugin by name, bound to its relay on its seeded hooks", %{node: node} do
       configure(plugins: [@plugin])
 

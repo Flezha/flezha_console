@@ -70,6 +70,19 @@ export async function visitLive(page: Page, path: string): Promise<void> {
   await expect(main).not.toHaveClass(/phx-loading/);
 }
 
+/** The pipeline graph fits its panel at `width`: neither it nor the page scrolls sideways. */
+export async function expectGraphFits(page: Page, width: number): Promise<void> {
+  const { sideways, canvas } = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="topology-canvas"]')!;
+    return {
+      sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      canvas: el.scrollWidth - el.clientWidth,
+    };
+  });
+  expect(sideways, `the page must not scroll sideways at ${width}px`).toBeLessThanOrEqual(0);
+  expect(canvas, `the graph fits rather than scrolls at ${width}px`).toBeLessThanOrEqual(0);
+}
+
 /**
  * The ids behind every `data-testid` starting with `prefix`.
  *

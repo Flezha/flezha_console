@@ -329,8 +329,13 @@ defmodule FlezhaUiWeb.RelayCallActivityTest do
 
   describe "beside the payload tap" do
     test "a call does not move the tap, and an output adds no call", %{conn: conn, node: node} do
+      FakeController.set(node, {Relay, :graph}, FakeController.one_tasklet_graph("relay_a"))
       view = open_calls(conn, node)
-      view |> element(~s([data-testid="topo-port-out"][phx-click="graph_tap"])) |> render_click()
+
+      view
+      |> element(~s([data-testid="topo-node-exit-out"][phx-click="graph_tap"]))
+      |> render_click()
+
       assert PeerNode.eventually(fn -> length(FakeController.streams(node, @listen)) == 2 end)
 
       call(node, "c1")

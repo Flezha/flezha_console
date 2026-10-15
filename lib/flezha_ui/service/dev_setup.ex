@@ -7,7 +7,9 @@ defmodule FlezhaUi.Service.DevSetup do
 
   Idempotent: a relay already running is left alone, and a plugin already
   enabled answers `already_enabled`, so a UI restart against a seeded
-  controller changes nothing.
+  controller changes nothing. A relay seed marked `optional` is skipped, with
+  the plugins bound to it and one log line, when no runner announces its
+  factory.
   """
 
   use GenServer
@@ -63,6 +65,8 @@ defmodule FlezhaUi.Service.DevSetup do
     try do
       with {:node, node} when node != nil <- {:node, NodeManager.connected_node()},
            :ok <- ensure_namespace(ns, config[:quotas] || %{}, token),
+           {:ok, relays, skipped} <- drop_unannounced(ns, relays, token),
+           plugins = Enum.reject(plugins, &(&1.relay_id in skipped)),
            :ok <- ensure_relays(ns, relays, token),
            :ok <- ensure_plugins(ns, plugins, token) do
         Node.monitor(node, true)
@@ -84,7 +88,11 @@ defmodule FlezhaUi.Service.DevSetup do
       end
     catch
       kind, reason ->
-        Logger.warning("[DevSetup] Attempt #{retries + 1} crashed: #{kind} #{inspect(reason)}")
+        Logger.warning(
+          "[DevSetup] Attempt #{retries + 1} crashed: " <>
+            Exception.format(kind, reason, __STACKTRACE__)
+        )
+
         schedule_retry(retries, "crash")
         %{state | retries: retries + 1}
     end
@@ -125,6 +133,33 @@ defmodule FlezhaUi.Service.DevSetup do
           _failure ->
             {:error, {:declare_namespace, ns, reason}}
         end
+    end
+  end
+
+  # An optional seed whose factory no runner announces is left out, so an
+  # older runner seeds everything else rather than retrying until it gives up.
+  # The kept seeds lose the flag, which is the seed's and not the controller's.
+  defp drop_unannounced(ns, relays, token) do
+    if Enum.any?(relays, & &1[:optional]) do
+      with {:ok, factories} <- NodeManager.factories(ns, token) do
+        known = MapSet.new(factories, &to_string(&1.id))
+
+        {kept, skipped} =
+          Enum.split_with(
+            relays,
+            &(&1[:optional] != true or MapSet.member?(known, &1.factory_id))
+          )
+
+        for relay <- skipped do
+          Logger.warning(
+            "[DevSetup] Skipped #{relay.id}: no runner announces factory #{relay.factory_id}"
+          )
+        end
+
+        {:ok, Enum.map(kept, &Map.delete(&1, :optional)), Enum.map(skipped, & &1.id)}
+      end
+    else
+      {:ok, Enum.map(relays, &Map.delete(&1, :optional)), []}
     end
   end
 

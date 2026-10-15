@@ -118,6 +118,15 @@
   --fui-signal-subtle: color-mix(in oklab, var(--fui-signal) 12%, var(--fui-surface));
   --fui-on-signal: #ffffff;
   --fui-shadow: #1714241f;
+
+  /* Six hues that tell a relay graph's neighbouring wires apart. They carry
+     no meaning beyond that: what a wire is, is said in words. */
+  --fui-wire-0: #2d6aa8;
+  --fui-wire-1: #24764d;
+  --fui-wire-2: #6e56b8;
+  --fui-wire-3: #0f7378;
+  --fui-wire-4: #b03a5b;
+  --fui-wire-5: #55657a;
 }
 
 /* A finger needs a 44px target; every control is sized from these two. */
@@ -140,4 +149,11 @@
   --fui-signal-subtle: color-mix(in oklab, var(--fui-signal) 14%, var(--fui-surface));
   --fui-on-signal: var(--text-on-gold);
   --fui-shadow: #00000099;
+
+  --fui-wire-0: #6ea8ec;
+  --fui-wire-1: #5cc48c;
+  --fui-wire-2: #a693ec;
+  --fui-wire-3: #4cc3c8;
+  --fui-wire-4: #ec7a98;
+  --fui-wire-5: #9aaabf;
 }

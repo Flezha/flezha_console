@@ -97,6 +97,77 @@ if interval = System.get_env("FLEZHA_UI_REFRESH_INTERVAL_MS") do
   config :flezha_ui, :refresh_interval_ms, String.to_integer(interval)
 end
 
+# A websocket source subscribed to the testnet's `trade` generator for one pair,
+# a trade every `interval` ms. `extra` adds to its options.
+trade_source = fn name, relay_id, {pair, base_price, decimals}, interval, extra ->
+  %{
+    name: name,
+    relay_id: relay_id,
+    provider: "relay_websocket",
+    hooks: ["on_terminate"],
+    opts:
+      Map.merge(
+        %{
+          "uri" => "ws://flezha_controller:4500",
+          "post_connect" => %{
+            "payload" => %{
+              "type" => "text",
+              "message" =>
+                ~s({"event_type":"subscribe","event_data":{"generators":[{"type":"trade","interval":#{interval},) <>
+                  ~s("config":{"pairs":["#{pair}"],"basePrice":#{base_price},"decimals":#{decimals}}}]}})
+            }
+          }
+        },
+        extra
+      )
+  }
+end
+
+# `testnet_showcase`'s plugins. Trades come from the testnet, and quotes are
+# polled from the Kafka UI's health answer, the one small JSON reply the dev
+# stack serves. The filter skips sell trades, so its skipped end has records,
+# and five file outputs take four of the relay's five output channels, leaving
+# `volumes` with no plugin bound.
+showcase_output = fn name, channel ->
+  %{
+    name: name,
+    relay_id: "testnet_showcase",
+    provider: "relay_file_output",
+    hooks: ["on_output"],
+    opts: %{"path" => "#{name}.log", "channel_out" => [channel]}
+  }
+end
+
+showcase_plugins = [
+  trade_source.("ws_showcase_trades", "testnet_showcase", {"SOL/SHOW", 150, 2}, 2000, %{
+    "channel" => "trades"
+  }),
+  %{
+    name: "poll_showcase_quotes",
+    relay_id: "testnet_showcase",
+    provider: "relay_http_poll",
+    hooks: ["on_terminate"],
+    opts: %{
+      "url" => "http://fui_kafka_ui:8080/actuator/health",
+      "interval_ms" => 5000,
+      "timeout_ms" => 2000,
+      "channel" => "quotes"
+    }
+  },
+  %{
+    name: "showcase_skip_sells",
+    relay_id: "testnet_showcase",
+    provider: "relay_io_filter",
+    hooks: ["on_input"],
+    opts: %{"regex_pattern" => ~s("side":"sell"), "inverted" => true}
+  },
+  showcase_output.("showcase_prices", "prices"),
+  showcase_output.("showcase_alerts_log", "alerts"),
+  showcase_output.("showcase_alerts_audit", "alerts"),
+  showcase_output.("showcase_orders", "orders"),
+  showcase_output.("showcase_audit", "audit")
+]
+
 # Auto-start testnet relays and plugins in dev mode.
 #
 # Factory ids come from the runner at `flezha/test/apps/rust_runner`; provider
@@ -127,7 +198,12 @@ config :flezha_ui, :dev_setup,
     %{id: "testnet_echo", factory_id: "echo_steps", init_values: %{}},
     # The relay API fixture: `place` is a JSON channel with a schema that
     # answers, `audit` a text channel that does not.
-    %{id: "orders", factory_id: "orders", init_values: %{}}
+    %{id: "orders", factory_id: "orders", init_values: %{}},
+    # Every shape the relay graph draws: two sources and an input filter, a
+    # fan-in and a fan-out, a folded run, a call and its answer, and output
+    # channels with one plugin, two, and none. Skipped when the runner is older
+    # than the `showcase` factory.
+    %{id: "testnet_showcase", factory_id: "showcase", init_values: %{}, optional: true}
   ],
   plugins:
     [
@@ -153,22 +229,6 @@ config :flezha_ui, :dev_setup,
         # The testnet's `trade` generator keeps one price walk per pair, so each
         # source gets its own pair and the relays' inputs stay distinguishable.
         fn {name, relay_id, pair, base_price, decimals} ->
-          %{
-            name: name,
-            relay_id: relay_id,
-            provider: "relay_websocket",
-            hooks: ["on_terminate"],
-            opts: %{
-              "uri" => "ws://flezha_controller:4500",
-              "post_connect" => %{
-                "payload" => %{
-                  "type" => "text",
-                  "message" =>
-                    ~s({"event_type":"subscribe","event_data":{"generators":[{"type":"trade","interval":5000,) <>
-                      ~s("config":{"pairs":["#{pair}"],"basePrice":#{base_price},"decimals":#{decimals}}}]}})
-                }
-              }
-            }
-          }
+          trade_source.(name, relay_id, {pair, base_price, decimals}, 5000, %{})
         end
-      )
+      ) ++ showcase_plugins

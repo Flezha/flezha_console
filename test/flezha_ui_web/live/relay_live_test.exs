@@ -391,12 +391,13 @@ defmodule FlezhaUiWeb.RelayLiveTest do
   describe "the payload tap" do
     setup %{node: node} do
       overwatch(node, %{factory_id: "store_input"})
+      FakeController.set(node, {Relay, :graph}, FakeController.one_tasklet_graph("relay_a"))
       :ok
     end
 
     test "a tap whose listen ended says so", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, @url)
-      view |> element(~s([data-testid="topo-port-out"])) |> render_click()
+      view |> element(~s([data-testid="topo-node-exit-out"])) |> render_click()
 
       key = {Relay, :listen}
       assert PeerNode.eventually(fn -> FakeController.streams(node, key) != [] end)

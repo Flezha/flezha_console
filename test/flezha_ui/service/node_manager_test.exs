@@ -190,7 +190,7 @@ defmodule FlezhaUi.Service.NodeManagerTest do
     end
   end
 
-  describe "entry_sources/1" do
+  describe "entry_sources/2" do
     test "lists the plugins that feed an entry, hooked or not, and no others" do
       state = %{
         extensions: %{
@@ -220,6 +220,32 @@ defmodule FlezhaUi.Service.NodeManagerTest do
     test "a state without a plugin table has no sources" do
       assert [] = NodeManager.entry_sources(%{extensions: %{subs: %{}}})
       assert [] = NodeManager.entry_sources(nil)
+    end
+
+    test "a plugin whose provider feeds a relay is a source, naming its entry or none" do
+      state = %{
+        extensions: %{
+          subs: %{},
+          plugins: %{
+            "ws_chain" => %{
+              provider: Flezha.Plugin.Provider.Websocket,
+              opts: %{entry_channel: nil}
+            },
+            "trade_ws" => %{
+              provider: Flezha.Plugin.Provider.Websocket,
+              opts: %{entry_channel: "trades_in"}
+            },
+            "stdout" => %{provider: Flezha.Plugin.Provider.StdOut, opts: %{entry_channel: "x"}}
+          }
+        }
+      }
+
+      feeding = MapSet.new(["Flezha.Plugin.Provider.Websocket"])
+
+      assert [
+               %{plugin_id: "trade_ws", channel: ["trades_in"]},
+               %{plugin_id: "ws_chain", channel: []}
+             ] = NodeManager.entry_sources(state, feeding)
     end
   end
 

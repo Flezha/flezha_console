@@ -20,7 +20,13 @@
     "--fui-positive",
     "--fui-warning",
     "--fui-negative",
-    "--fui-logo"
+    "--fui-logo",
+    "--fui-wire-0",
+    "--fui-wire-1",
+    "--fui-wire-2",
+    "--fui-wire-3",
+    "--fui-wire-4",
+    "--fui-wire-5"
   ],
   "fills": [
     "--fui-accent",

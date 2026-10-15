@@ -61,6 +61,7 @@ defmodule FlezhaUiWeb.RelayLive do
         talk: nil,
         talk_results: []
       )
+      |> assign_feeding()
       |> load_data()
       |> load_completion()
       |> load_api()
@@ -69,12 +70,27 @@ defmodule FlezhaUiWeb.RelayLive do
     {:ok, socket}
   end
 
+  # Which providers feed a relay decides which plugins are drawn as sources.
+  # The listing changes only when the controller installs a provider, so it is
+  # read once per visit.
+  defp assign_feeding(socket) do
+    feeding =
+      if connected?(socket), do: NodeManager.feeding_providers(socket.assigns.flezha_token)
+
+    assign(socket, feeding: feeding)
+  end
+
   @impl FlezhaUiWeb.Live.Refresh
   def refresh(socket) do
     socket
     |> load_data()
     |> Topology.load_pipeline()
   end
+
+  # A hidden page reads nothing, so it holds no tally either; the next
+  # visible tick opens one again.
+  @impl FlezhaUiWeb.Live.Refresh
+  def refresh_hidden(socket), do: Topology.stop_tally(socket)
 
   # `?do=` lands an action from the command palette on the screen that owns
   # it: a stop opens this screen's own confirmation, and a diagnosis is asked
@@ -115,43 +131,47 @@ defmodule FlezhaUiWeb.RelayLive do
 
   # ---- Payload tap ----
   #
-  # A listen on the relay's input or output, held by a feed linked to this
-  # screen: closing the tap or leaving the page stops the feed, which ends the
-  # listen on the controller. What it hears is also pushed to the graph, which
-  # draws each record on the tapped side: coalesced under one timer, so a busy
-  # relay sends one push per flush rather than one per record.
+  # A listen on the relay's input or output, opened from one of its channel
+  # ports and held by a feed linked to this screen: closing the tap or leaving
+  # the page stops the feed, which ends the listen on the controller. An
+  # output tap shows its own channel's records until asked for every channel.
+  # What it hears is also pushed to the graph, which draws each record on the
+  # tapped port's wires: coalesced under one timer, so a busy relay sends one
+  # push per flush rather than one per record.
 
   @default_tap_flush_ms 250
   @tap_previews 6
   @tap_preview_chars 40
 
   @impl true
-  def handle_event("graph_tap", %{"direction" => direction}, socket)
-      when direction in ~w(input output) do
-    socket = close_tap(socket)
+  def handle_event(
+        "graph_tap",
+        %{"port" => "entry-" <> _ = port, "direction" => "input"},
+        socket
+      ),
+      do: open_tap(socket, port, "input")
 
-    {:noreply,
-     assign(socket,
-       tap: %{
-         direction: direction,
-         feed: listen_feed(socket, String.to_existing_atom(direction), :payload_tap),
-         started_at: System.monotonic_time(:millisecond),
-         count: 0,
-         bytes: 0,
-         recent: [],
-         dead_letters: 0,
-         pending: no_pending(),
-         flush: nil,
-         error: nil,
-         ended?: false
-       }
-     )}
-  end
+  def handle_event(
+        "graph_tap",
+        %{"port" => "exit-" <> _ = port, "direction" => "output"},
+        socket
+      ),
+      do: open_tap(socket, port, "output")
+
+  # A port the graph does not draw, or one tapped the wrong way, opens nothing.
+  def handle_event("graph_tap", _params, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("graph_tap_close", _params, socket) do
     {:noreply, close_tap(socket)}
   end
+
+  @impl true
+  def handle_event("graph_tap_all", _params, %{assigns: %{tap: %{} = tap}} = socket) do
+    {:noreply, assign(socket, tap: %{tap | all?: true})}
+  end
+
+  def handle_event("graph_tap_all", _params, socket), do: {:noreply, socket}
 
   # Only an open panel listens, whatever the client sends.
   @impl true
@@ -364,11 +384,16 @@ defmodule FlezhaUiWeb.RelayLive do
      socket
      |> assign(tap: %{tap | pending: no_pending(), flush: nil})
      |> push_event("pipeline_records", %{
-       port: tap.direction,
+       port: tap.port,
        records: records,
        dead_letters: dead_letters,
        previews: Enum.reverse(previews)
      })}
+  end
+
+  @impl true
+  def handle_info({kind, :pipeline_tally, event}, socket) do
+    {:noreply, Topology.tally(socket, kind, event)}
   end
 
   @impl true
@@ -378,6 +403,15 @@ defmodule FlezhaUiWeb.RelayLive do
 
   @impl true
   def handle_info(_message, socket), do: {:noreply, socket}
+
+  # Another channel's record, on an output tap showing its own channel.
+  defp tap_event(
+         %{channel: channel, all?: false} = tap,
+         :feed_event,
+         {kind, _payload, %{"channel" => other}}
+       )
+       when kind in [:output, :part] and is_binary(channel) and other != channel,
+       do: tap
 
   defp tap_event(tap, :feed_event, {kind, payload, meta}) when kind in [:output, :input, :part] do
     frame = Format.frame(payload, meta)
@@ -409,6 +443,32 @@ defmodule FlezhaUiWeb.RelayLive do
   defp tap_event(tap, :feed_error, reason), do: %{tap | error: reason, feed: nil}
   defp tap_event(tap, :feed_ended, _answer), do: %{tap | ended?: true, feed: nil}
   defp tap_event(tap, _kind, _event), do: tap
+
+  defp open_tap(socket, port, direction) do
+    socket = close_tap(socket)
+
+    socket =
+      assign(socket,
+        tap: %{
+          direction: direction,
+          port: port,
+          channel: if(direction == "output", do: String.replace_prefix(port, "exit-", "")),
+          all?: false,
+          feed: listen_feed(socket, String.to_existing_atom(direction), :payload_tap),
+          started_at: System.monotonic_time(:millisecond),
+          count: 0,
+          bytes: 0,
+          recent: [],
+          dead_letters: 0,
+          pending: no_pending(),
+          flush: nil,
+          error: nil,
+          ended?: false
+        }
+      )
+
+    {:noreply, Topology.handle_event("graph_select", %{"id" => port}, socket)}
+  end
 
   defp close_tap(%{assigns: %{tap: nil}} = socket), do: socket
 
@@ -556,7 +616,7 @@ defmodule FlezhaUiWeb.RelayLive do
     socket = assign(socket, row: namespace_row(ns, relay_id, token))
 
     socket =
-      case NodeManager.overwatch_facts(ns, relay_id, token) do
+      case NodeManager.overwatch_facts(ns, relay_id, token, socket.assigns[:feeding]) do
         {:ok, facts} ->
           socket |> assign(load_error: nil) |> assign_facts(facts)
 
@@ -646,18 +706,6 @@ defmodule FlezhaUiWeb.RelayLive do
   # twice.
   defp assign_facts(socket, facts) do
     socket |> assign(facts) |> assign(overwatch: facts)
-  end
-
-  @doc """
-  A tap's `field` per second, measured over the tap's own window.
-
-  Deliberately not a controller figure: nothing counts bytes on the data plane,
-  so this is what the listener actually delivered while it was attached.
-  """
-  def tap_rate(tap, field) do
-    elapsed = max(System.monotonic_time(:millisecond) - tap.started_at, 1) / 1_000
-
-    Float.round(Map.fetch!(tap, field) / elapsed, 1)
   end
 
   @doc "The entry channels the relay's API announces, across its factory entries."

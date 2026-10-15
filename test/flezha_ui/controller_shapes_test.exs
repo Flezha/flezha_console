@@ -23,6 +23,9 @@ defmodule FlezhaUi.ControllerShapesTest do
     {"Relay.graph", [1, "graph", "channels", :each],
      {:graph_channel, ["input", "input", "boundary", ["store"]]}},
     {"Relay.activity", [1, "tasklets", :each], {:activity_row, ["store"]}},
+    {"Relay.activity cells_of", [1, "cells", "rows", :each], {:cell_row, ["a"]}},
+    {"Fleet.providers", [1, "providers", :each],
+     {:provider_entry, ["relay_websocket", "Flezha.Plugin.Provider.Websocket", true]}},
     {"Fleet.provider", [1, "options", :each], {:option_row, ["url"]}},
     {"Relay.registry", [1, :each], {:registry_entry, [:flow]}}
   ]

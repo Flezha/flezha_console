@@ -225,3 +225,25 @@ Each screen's periodic refresh SHALL use the interval from `:flezha_ui, :refresh
 - **THEN** it sends the tick to the view
 - **AND** no timer-driven refresh fires during the test, because the configured interval outlasts any test
 
+### Requirement: Dev seeding covers a graph with every shape
+
+The dev seed SHALL start a `testnet_showcase` relay on the runner's `showcase` factory and bind the following plugins to it:
+- a `relay_websocket` source on `trades`, also bound to `on_terminate`;
+- an `http_poll` source on `quotes`;
+- a `relay_io_filter` `on_input` filter skipping sell trades; the provider names no channel, so it acts on every entry;
+- `relay_file_output` plugins: one on `prices`, two on `alerts`, one on `orders` and one on `audit`, leaving `volumes` unbound.
+
+The quotes are polled from a small JSON answer the dev stack serves, since the testnet serves no HTTP.
+
+The seed SHALL also keep `testnet_chain`. Like every seed, it SHALL be idempotent. When the runner does not announce `showcase`, it SHALL be skipped with one log line rather than failing the boot.
+
+#### Scenario: The showcase is seeded
+
+- **WHEN** the dev stack boots against a runner that announces `showcase`
+- **THEN** `testnet_showcase` is running with its two sources, its filter and five output plugins, and its relay page draws every output channel
+
+#### Scenario: An older runner
+
+- **WHEN** the runner does not announce `showcase`
+- **THEN** the other seeds run, and the log states that `testnet_showcase` was skipped and why
+
