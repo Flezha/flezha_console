@@ -660,7 +660,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       |> render_click()
 
       assert view |> element(~s([data-testid="cells-foot"])) |> render() =~
-               "Showing the 3 busiest of 342 Cells."
+               "Showing the 3 most recently active of 342 Cells."
     end
   end
 
@@ -701,6 +701,16 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       view |> element(~s([data-testid="topology-fold"])) |> render_click()
       assert has_element?(view, ~s([data-testid="topo-node-run-t1"]))
       refute has_element?(view, ~s([data-testid="topology-cells"]))
+    end
+
+    test "selecting a folded tasklet, as a Cell sheet hop does, opens its run", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @relay)
+
+      render_hook(view, "graph_select", %{"id" => "tasklet-t3"})
+
+      refute has_element?(view, ~s([data-testid="topo-node-run-t1"]))
+      assert has_element?(view, ~s([data-testid="topo-node-tasklet-t3"].is-selected))
+      assert has_element?(view, ~s([data-testid="topology-cells"]))
     end
   end
 
@@ -778,6 +788,20 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       tick(view)
       tick(view)
       assert length(listens(node, :tally)) == 1
+    end
+
+    test "a tally that failed for a while is opened again on the next tick", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, @listen, FakeController.error("relay.not_found"))
+      {:ok, view, _html} = live(conn, @relay)
+
+      # Unlike a refusal, the failure is not an answer: the next tick asks again.
+      assert PeerNode.eventually(fn ->
+               tick(view)
+               length(listens(node, :tally)) >= 2
+             end)
     end
 
     test "a relay with one output channel needs no tally", %{conn: conn, node: node} do
@@ -1103,7 +1127,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert_push_event(
         view,
         "pipeline_records",
-        %{port: "entry-input", records: 2, dead_letters: 1, previews: [preview, "short"]},
+        %{port: "entry-input", records: 2, previews: [preview, "short"]},
         1_000
       )
 

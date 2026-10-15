@@ -378,7 +378,7 @@ defmodule FlezhaUiWeb.RelayLive do
   # A flush armed for a tap since closed or replaced is not this tap's.
   @impl true
   def handle_info({:tap_flush, ref}, %{assigns: %{tap: %{flush: {ref, _timer}} = tap}} = socket) do
-    %{records: records, dead_letters: dead_letters, previews: previews} = tap.pending
+    %{records: records, previews: previews} = tap.pending
 
     {:noreply,
      socket
@@ -386,7 +386,6 @@ defmodule FlezhaUiWeb.RelayLive do
      |> push_event("pipeline_records", %{
        port: tap.port,
        records: records,
-       dead_letters: dead_letters,
        previews: Enum.reverse(previews)
      })}
   end
@@ -432,11 +431,7 @@ defmodule FlezhaUiWeb.RelayLive do
   end
 
   defp tap_event(tap, :feed_event, {:dead_lettered, _error, _meta}) do
-    %{
-      tap
-      | dead_letters: tap.dead_letters + 1,
-        pending: Map.update!(tap.pending, :dead_letters, &(&1 + 1))
-    }
+    %{tap | dead_letters: tap.dead_letters + 1}
   end
 
   # Either way the feed has stopped, so the tap is no longer live.
@@ -478,9 +473,9 @@ defmodule FlezhaUiWeb.RelayLive do
     assign(socket, tap: nil)
   end
 
-  defp no_pending, do: %{records: 0, dead_letters: 0, previews: []}
+  defp no_pending, do: %{records: 0, previews: []}
 
-  defp arm_flush(%{flush: nil, pending: %{records: 0, dead_letters: 0}} = tap), do: tap
+  defp arm_flush(%{flush: nil, pending: %{records: 0}} = tap), do: tap
 
   defp arm_flush(%{flush: nil} = tap) do
     ref = make_ref()

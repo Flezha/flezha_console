@@ -1073,7 +1073,7 @@ defmodule FlezhaUiWeb.TopologyTest do
         )
 
       assert sheet.total == 342
-      assert html =~ "Showing the 1 busiest of 342 Cells."
+      assert html =~ "Showing the 1 most recently active of 342 Cells."
 
       none = %{cells_read(1_000, []) | cells: nil}
       assert cells_of(chain(%{activity: none})).note == :not_reported

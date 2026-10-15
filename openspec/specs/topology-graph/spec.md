@@ -725,7 +725,7 @@ Selecting a tasklet SHALL open a sheet over the graph's right side.
 - Columns: key, records in per second (from the Cell's admitted total between reads), queued, blocked, dropped, and time since the last record.
 - The table SHALL be sortable by any column, by default the busiest first.
 - A row whose Cell admitted a record since the previous read SHALL carry a fresh mark.
-- When the tasklet has more Cells than rows, the sheet SHALL say how many.
+- When the tasklet has more Cells than rows, the sheet SHALL say how many, and that the rows are the most recently active ones the runner picked.
 
 **Layout:** the graph SHALL refit into the width the sheet leaves free.
 
@@ -741,7 +741,7 @@ Selecting a tasklet SHALL open a sheet over the graph's right side.
 #### Scenario: A large dynamic tasklet
 
 - **WHEN** the viewer selects a dynamic tasklet with 342 live Cells
-- **THEN** the sheet lists 50 Cells and says it shows the 50 busiest of 342
+- **THEN** the sheet lists 50 Cells and says it shows the 50 most recently active of 342
 
 #### Scenario: Reads stop when the sheet closes
 

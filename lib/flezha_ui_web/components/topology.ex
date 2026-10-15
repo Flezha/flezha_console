@@ -341,10 +341,19 @@ defmodule FlezhaUiWeb.Topology do
     end)
   end
 
-  # A tally that ended is opened again on the next tick; one the controller
+  # A tally that ended, or failed for a while — the controller unreachable, the
+  # relay restarting — is opened again on the next tick; one the controller
   # refused stays refused for this visit, lighting the exits from OUT.
   def tally(socket, :feed_ended, _answer), do: update_tally(socket, fn _tally -> nil end)
-  def tally(socket, :feed_error, _reason), do: update_tally(socket, fn _tally -> :refused end)
+
+  def tally(socket, :feed_error, reason) do
+    next =
+      if NodeManager.error(reason).class in [:unavailable, :not_found, :conflict],
+        do: nil,
+        else: :refused
+
+    update_tally(socket, fn _tally -> next end)
+  end
 
   def tally(socket, _kind, _event), do: socket
 
@@ -562,7 +571,7 @@ defmodule FlezhaUiWeb.Topology do
     if announced_tasklet?(socket, name),
       do:
         socket
-        |> update_state(&%{&1 | selected: id, cells_of: name})
+        |> update_state(&%{&1 | selected: id, cells_of: name, expanded: unfold(&1, name)})
         |> read_cells()
         |> rerender(),
       else: socket
@@ -619,6 +628,14 @@ defmodule FlezhaUiWeb.Topology do
     end
   end
 
+  # A tasklet folded into a run is shown by opening its run.
+  defp unfold(%{input: %{graph: read}, expanded: expanded}, name) do
+    case Enum.find(runs(announced(read)), &(name in &1.seq)) do
+      %{id: run} -> MapSet.put(expanded, run)
+      nil -> expanded
+    end
+  end
+
   defp positive(n) when is_number(n) and n > 0, do: n
   defp positive(_n), do: nil
 
@@ -665,7 +682,8 @@ defmodule FlezhaUiWeb.Topology do
           modes: %{},
           graph: nil,
           graph_for: nil,
-          input: nil
+          input: nil,
+          tally: nil
       },
       %{kind: :disconnected, state: :disconnected}
     )
@@ -3927,9 +3945,7 @@ defmodule FlezhaUiWeb.Topology do
       </div>
       <p class="topo-cells-foot text-xs topo-muted" data-testid="cells-foot">
         <span :if={@cells.total > length(@cells.rows)}>
-          Showing the {length(@cells.rows)} {if @cells.sort == "rate",
-            do: "busiest",
-            else: "most recent"} of {@cells.total} Cells.
+          Showing the {length(@cells.rows)} most recently active of {@cells.total} Cells.
         </span>
         The runner reads these from counters each Cell already keeps, only while this table is open.
       </p>

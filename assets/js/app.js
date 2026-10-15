@@ -443,7 +443,6 @@ const FLOW_PERIOD = 18
 const FLOW_DASH = 4
 const FLOW_STEPS_A_SECOND = 20
 const DIRECTION_KEY = "flz-pipeline-direction"
-const SHEET_W = 540
 
 const storedDirection = () => {
   const value = pref.get(DIRECTION_KEY)
@@ -642,8 +641,9 @@ Hooks.FlzPipeline = {
 
   // ---- The view ----
 
+  // The Cell sheet lies over the stage's right side, as wide as CSS makes it.
   sheetWidth() {
-    return this.el.dataset.cells ? Math.min(SHEET_W, this.el.clientWidth * 0.6) : 0
+    return this.el.querySelector("#topology-cells")?.offsetWidth ?? 0
   },
 
   maxHeight() {
@@ -905,20 +905,21 @@ Hooks.FlzPipeline = {
         this.marksOver(n, now, span, (share, at) => this.handLater(id, share, null, at))
       }
     }
-    this.deadLetters(parked, now, span)
+    // Every dead letter is drawn, one mark each.
+    const dlq = this.wires.get("relay>dead-letter")
+    for (let i = 0; dlq && i < parked; i++) { this.queue(dlq, 1, null, now + (span * i) / parked, "fail") }
     this.wake()
   },
 
   // A tap's records ride the tapped port's own wires, filled, with the start
   // of their payload while they are few.
-  records({port, records, dead_letters, previews}) {
+  records({port, records, previews}) {
     if (!this.watched() || this.reduced.matches) { return }
     const now = performance.now()
     const wires = kindOf(port) === "entry" ? this.inTo.get(port) ?? [] : this.outOf.get(port) ?? []
     for (let i = 0; i < records && wires.length; i++) {
       this.queue(wires[i % wires.length], 0, null, now + (TAP_FLUSH_MS * i) / records, "tapped", previews[i])
     }
-    this.deadLetters(dead_letters, now, TAP_FLUSH_MS)
     this.wake()
   },
 
@@ -934,11 +935,6 @@ Hooks.FlzPipeline = {
     for (let i = 0; i < n; i++) { place(count / n, now + (span * i) / n) }
   },
 
-  // Every dead letter is drawn, one mark each.
-  deadLetters(count, now, span) {
-    const dlq = this.wires.get("relay>dead-letter")
-    for (let i = 0; dlq && i < count; i++) { this.queue(dlq, 1, null, now + (span * i) / count, "fail") }
-  },
 
   queue(wire, weight, entry, at, kind, preview) {
     this.pending.push({wire, weight, entry, at, kind, preview})
