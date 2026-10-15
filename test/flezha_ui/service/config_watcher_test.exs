@@ -1,22 +1,12 @@
-defmodule FlezhaUi.Service.ConfigWatcherTest do
-  @moduledoc """
-  The dev console's config watcher, driven with file events as live reload's
-  monitor sends them and a stop function that reports instead of stopping.
-  """
+defmodule FlezhaUi.Service.ConfigWatcherTest.Monitor do
+  @moduledoc false
 
-  use ExUnit.Case, async: true
-
-  @moduletag :capture_log
-
-  alias FlezhaUi.Service.ConfigWatcher
-
-  @root "/flezha_ui"
-  @files for file <- ~w(mix.exs mix.lock config/config.exs config/dev.exs),
-             do: Path.join(@root, file)
+  import ExUnit.Assertions
+  import ExUnit.Callbacks
 
   # Stands in for live reload's file monitor: answers `FileSystem.subscribe/1`
   # and tells the test who subscribed. Not linked, so a test can kill it.
-  defp start_monitor(test_pid) do
+  def start(test_pid) do
     name = :"monitor_#{System.unique_integer([:positive])}"
 
     pid =
@@ -36,18 +26,38 @@ defmodule FlezhaUi.Service.ConfigWatcherTest do
     assert_receive :monitor_up
     {name, pid}
   end
+end
+
+defmodule FlezhaUi.Service.ConfigWatcherTest do
+  @moduledoc """
+  The dev console's config watcher, driven with file events as live reload's
+  monitor sends them and a stop function that reports instead of stopping.
+  """
+
+  use ExUnit.Case, async: true
+
+  @moduletag :capture_log
+
+  alias FlezhaUi.Service.ConfigWatcher
+  alias FlezhaUi.Service.ConfigWatcherTest.Monitor
+
+  @root "/flezha_ui"
+  @files for file <- ~w(mix.exs mix.lock config/config.exs config/dev.exs),
+             do: Path.join(@root, file)
+  @code_dirs for dir <- ~w(lib priv/gettext), do: Path.join(@root, dir) <> "/"
 
   # By default a settle time no test waits out: a test settles the watcher
   # itself, with the token of the timer a write armed.
   defp start_watcher(opts \\ []) do
     test_pid = self()
-    {monitor, _pid} = Keyword.get_lazy(opts, :monitor, fn -> start_monitor(test_pid) end)
+    {monitor, _pid} = Keyword.get_lazy(opts, :monitor, fn -> Monitor.start(test_pid) end)
 
     watcher =
       start_supervised!(
         {ConfigWatcher,
          monitor: monitor,
          files: @files,
+         code_dirs: @code_dirs,
          settle_ms: Keyword.get(opts, :settle_ms, :timer.hours(1)),
          stop: &send(test_pid, {:stopped, &1})}
       )
@@ -121,6 +131,27 @@ defmodule FlezhaUi.Service.ConfigWatcherTest do
         do: assert(write(watcher, path) == nil)
   end
 
+  test "code the endpoint compiles marks a change, and stops nothing" do
+    watcher = start_watcher()
+    flag = :sys.get_state(watcher).code_changed
+    assert :atomics.get(flag, 1) == 1, "the first request after a boot checks"
+
+    for path <- ~w(lib/flezha_ui/format.ex priv/gettext/en/LC_MESSAGES/errors.po) do
+      :atomics.put(flag, 1, 0)
+      assert write(watcher, path) == nil
+      assert :atomics.get(flag, 1) == 1, path
+    end
+
+    for path <-
+          ~w(assets/js/app.js priv/static/assets/app.css _build/dev/lib/flezha_ui/ebin/x.beam test/x.exs) do
+      :atomics.put(flag, 1, 0)
+      write(watcher, path)
+      assert :atomics.get(flag, 1) == 0, path
+    end
+
+    refute_received {:stopped, _}
+  end
+
   test "a superseded settle timer is ignored" do
     watcher = start_watcher()
     settle(watcher, make_ref())
@@ -130,7 +161,7 @@ defmodule FlezhaUi.Service.ConfigWatcherTest do
   end
 
   test "by default it watches the config files Mix loaded, outside _build" do
-    {monitor, _pid} = start_monitor(self())
+    {monitor, _pid} = Monitor.start(self())
     watcher = start_supervised!({ConfigWatcher, monitor: monitor, stop: & &1})
 
     files = :sys.get_state(watcher).files |> Enum.map(&Path.relative_to_cwd/1) |> MapSet.new()
@@ -144,7 +175,7 @@ defmodule FlezhaUi.Service.ConfigWatcherTest do
   end
 
   test "the monitor exiting ends the watcher" do
-    {_name, monitor_pid} = monitor = start_monitor(self())
+    {_name, monitor_pid} = monitor = Monitor.start(self())
     watcher = start_watcher(monitor: monitor)
     ref = Process.monitor(watcher)
 
@@ -175,6 +206,7 @@ defmodule FlezhaUi.Service.ConfigWatcherApplicationTest do
   use ExUnit.Case, async: false
 
   alias FlezhaUi.Service.ConfigWatcher
+  alias FlezhaUi.Service.ConfigWatcherTest.Monitor
   alias FlezhaUi.TestEnv
 
   # What `mix phx.server` amounts to for `Phoenix.Endpoint.server?/2`.
@@ -196,6 +228,43 @@ defmodule FlezhaUi.Service.ConfigWatcherApplicationTest do
     TestEnv.put_app(:restart_on_config_change, true)
 
     assert FlezhaUi.Application.config_watcher_children() == []
+  end
+
+  # Here rather than beside the watcher's other tests: the endpoint reads one
+  # flag for the whole VM, and this module runs after the async ones.
+  @tag :capture_log
+  test "the endpoint checks once after a boot, once after each change, and always once unwatched" do
+    {monitor, monitor_pid} = Monitor.start(self())
+
+    watcher =
+      start_supervised!(
+        {ConfigWatcher, monitor: monitor, stop: & &1, code_dirs: [Path.absname("lib") <> "/"]}
+      )
+
+    assert_receive {:subscribed, ^watcher}
+
+    assert ConfigWatcher.code_changed?()
+    refute ConfigWatcher.code_changed?()
+
+    send(
+      watcher,
+      {:file_event, monitor_pid, {Path.absname("lib/flezha_ui/format.ex"), [:modified]}}
+    )
+
+    :sys.get_state(watcher)
+    assert ConfigWatcher.code_changed?()
+    refute ConfigWatcher.code_changed?()
+
+    # A reload that did not compile is tried again by the next request.
+    ConfigWatcher.code_changed!()
+    assert ConfigWatcher.code_changed?()
+
+    ref = Process.monitor(watcher)
+    Process.exit(monitor_pid, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^watcher, :normal}
+
+    assert ConfigWatcher.code_changed?()
+    assert ConfigWatcher.code_changed?()
   end
 
   test "starts the watcher in the serving VM with the flag on" do

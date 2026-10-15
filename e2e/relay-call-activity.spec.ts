@@ -12,7 +12,7 @@ import { test, expect, openSection, closeSection, cliCall, uniqueId, type Page }
 
 const ORDERS = ['default', 'orders'];
 
-function placeFromCli(pair: string): unknown {
+function placeFromCli(pair: string): Promise<unknown> {
   return cliCall('Relay.call_channel', [...ORDERS, 'place', { pair, amount: 1 }, { deadline_ms: 20000 }]);
 }
 
@@ -39,7 +39,7 @@ test.describe('Calls to a relay', () => {
     const ui = uniqueId('UI');
     const unanswered = uniqueId('unanswered');
 
-    expect(placeFromCli(cli)).toMatchObject({ answer: { status: 'placed', pair: cli } });
+    expect(await placeFromCli(cli)).toMatchObject({ answer: { status: 'placed', pair: cli } });
 
     const fromCli = callRow(page, cli).first();
     await expect(fromCli.locator('[data-testid^="call-source-"]')).toHaveText('CLI');
@@ -78,12 +78,12 @@ test.describe('Calls to a relay', () => {
     await closeSection(page, 'calls');
 
     const unheard = uniqueId('FOLDED');
-    placeFromCli(unheard);
+    await placeFromCli(unheard);
 
     await openSection(page, 'calls');
     await expect(page.getByTestId('calls-starting')).toHaveCount(0);
     const heard = uniqueId('REOPENED');
-    placeFromCli(heard);
+    await placeFromCli(heard);
 
     await expect(callRow(page, heard).first()).toBeVisible();
     await expect(callRow(page, unheard)).toHaveCount(0);

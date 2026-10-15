@@ -101,15 +101,15 @@ test.describe('Relays index', () => {
     const feed = page.getByTestId('lifecycle-feed').locator('li').filter({ hasText: id });
 
     try {
-      startRelayCli(id, SEEDED_FACTORY.flow);
+      await startRelayCli(id, SEEDED_FACTORY.flow);
       await expect(feed.filter({ hasText: `started from ${SEEDED_FACTORY.flow}` })).toHaveCount(1);
       await expect(page.getByTestId(`relay-index-row-${id}`)).toBeVisible();
 
-      stopRelayCli(id);
+      await stopRelayCli(id);
       await expect(feed.filter({ hasText: 'stopped:' })).toHaveCount(1);
       await expect(page.getByTestId(`relay-index-row-${id}`)).toHaveCount(0);
     } finally {
-      stopRelayCli(id);
+      await stopRelayCli(id);
     }
   });
 });

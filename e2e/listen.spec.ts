@@ -92,7 +92,7 @@ test.describe('Listen', () => {
       feed.evaluate((el) => el.scrollHeight <= el.clientHeight || el.scrollTop + el.clientHeight >= el.scrollHeight - 2);
 
     // More records than the box holds at this height.
-    sendRecords(ID, Array.from({ length: 30 }, () => uniqueId('pw_fill')));
+    await sendRecords(ID, Array.from({ length: 30 }, () => uniqueId('pw_fill')));
     await expect(count(page)).toContainText(/^\s*30\s+messages received/);
     expect(await feed.evaluate((el) => el.scrollHeight > el.clientHeight), 'the feed never filled its box').toBe(true);
 

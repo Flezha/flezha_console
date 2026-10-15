@@ -54,8 +54,8 @@ test.beforeAll(async ({ browser }, testInfo) => {
   admin = await workerPage(browser, testInfo);
   relay = uniqueId('pw_dlq');
 
-  startRelayCli(relay, 'poison_probe');
-  sendRecords(relay, ['poison']);
+  await startRelayCli(relay, 'poison_probe');
+  await sendRecords(relay, ['poison']);
 
   await openQueue(admin);
   await expect(groupCount(admin)).toHaveText('1 parked');
@@ -70,7 +70,7 @@ test.afterAll(async () => {
     await admin.getByTestId('dlq-confirm-submit').click();
     await expect(admin.getByTestId(`dlq-row-${left}`)).toHaveCount(0);
   }
-  stopRelayCli(relay);
+  await stopRelayCli(relay);
   await admin.context().close();
 });
 

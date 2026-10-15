@@ -28,8 +28,8 @@ const { id: SHOWCASE } = ownRelay('pw_show', { factory: 'showcase' });
 const relay = (id: string) => `/namespaces/default/relays/${id}`;
 
 /** One record a run can tell apart, sent to the chain relay's input. */
-function send(tag: string): void {
-  sendRecords(CHAIN, [uniqueId(tag)]);
+function send(tag: string): Promise<void> {
+  return sendRecords(CHAIN, [uniqueId(tag)]);
 }
 
 async function chooseDirection(page: Page, dir: 'auto' | 'LR' | 'TB'): Promise<void> {
@@ -186,7 +186,7 @@ test.describe('Pipeline graph', () => {
     live,
   }) => {
     await live(relay(CHAIN));
-    send('pw_cells');
+    await send('pw_cells');
     await chooseDirection(page, 'LR');
 
     await page.getByTestId('topo-node-entry-input').focus();
@@ -211,13 +211,14 @@ test.describe('Pipeline graph', () => {
   });
 
   test('records move in the order they pass: no mark leaves on kafka before one crossed hop', async ({ page, live }) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
     await live(relay(CHAIN));
     const hop = 'tasklet-static_entry_tasklet>tasklet-static_downstream_tasklet>hop';
     const kafka = 'tasklet-static_downstream_tasklet>exit-kafka>kafka';
 
     await expect
       .poll(async () => {
-        send('pw_motion');
+        await send('pw_motion');
         return Object.keys(await launched(page));
       }, { message: 'no mark reached the kafka wire' })
       .toContain(kafka);
@@ -232,12 +233,15 @@ test.describe('Pipeline graph', () => {
     await live(relay(CHAIN));
 
     const rate = page.getByTestId('topo-rate-in-input');
-    await expect.poll(async () => { send('pw_still'); return rate.textContent() }).toMatch(/IN \d/);
+    await expect.poll(async () => { await send('pw_still'); return rate.textContent() }).toMatch(/IN \d/);
     expect(await launched(page)).toEqual({});
   });
 });
 
 test.describe('Payload tap', () => {
+  // An output tap is seen by its records flying.
+  test.use({ contextOptions: { reducedMotion: 'no-preference' } });
+
   test.beforeEach(async ({ live }) => {
     await live(relay(CHAIN));
   });
@@ -266,7 +270,7 @@ test.describe('Payload tap', () => {
     await page.getByTestId('topo-node-exit-kafka').click();
     await expect(page.getByTestId('tap-figures')).toBeVisible();
     await expect.poll(async () => {
-      send('pw_out');
+      await send('pw_out');
       return Object.keys(await launched(page)).filter((w) => w.startsWith('exit-kafka>'));
     }).not.toEqual([]);
     await page.getByTestId('tap-close').click();

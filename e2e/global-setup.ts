@@ -1,5 +1,6 @@
 import { chromium, expect, type FullConfig, type Page } from '@playwright/test';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -30,19 +31,43 @@ export function workerState(index: number): string {
 }
 
 /**
- * Runs `elixir` inside `fui_web` as a distributed node of the dev stack, so a
- * script can reach the console and the controller, and answers its output.
- * Throws with the script's output when it fails.
+ * Runs `argv` inside `fui_web` and answers its output. Throws with that output
+ * when it fails.
  */
-export function devElixir(what: string, args: string[]): string {
-  const argv = ['exec', 'fui_web', 'elixir', '--sname', uniqueId('pw_cli'), '--cookie', 'flezha_dev_cookie', ...args];
-
+export function inConsole(what: string, argv: string[]): string {
   try {
-    return execFileSync('docker', argv, { encoding: 'utf8', stdio: 'pipe' });
+    return execFileSync('docker', ['exec', 'fui_web', ...argv], { encoding: 'utf8', stdio: 'pipe' });
   } catch (error) {
-    const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string };
-    throw new Error(`${what} failed:\n${stdout}${stderr}`);
+    throw failed(what, error);
   }
+}
+
+/** `inConsole`, without holding the caller up while it runs. */
+async function inConsoleAsync(what: string, argv: string[]): Promise<string> {
+  try {
+    return (await promisify(execFile)('docker', ['exec', 'fui_web', ...argv], { encoding: 'utf8' })).stdout;
+  } catch (error) {
+    throw failed(what, error);
+  }
+}
+
+function failed(what: string, error: unknown): Error {
+  const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string };
+  return new Error(`${what} failed:\n${stdout}${stderr}`);
+}
+
+/**
+ * `elixir` running `args` as a node of the dev stack, so a script can reach
+ * the console and the controller. Hidden, so it joins no node's mesh: each one
+ * leaving would otherwise make `global` on every other node log, and churn the
+ * controller and console.
+ */
+export const elixirArgv = (args: string[]) =>
+  ['elixir', '--sname', uniqueId('pw_cli'), '--hidden', '--cookie', 'flezha_dev_cookie', ...args];
+
+/** Runs `elixir` with `args` inside `fui_web` and answers its output. */
+export function devElixir(what: string, args: string[]): string {
+  return inConsole(what, elixirArgv(args));
 }
 
 /**
@@ -102,8 +127,14 @@ async function globalSetup(config: FullConfig) {
 
     if (shared.size > 0) {
       // The fake controller ExUnit drives is checked against these shapes, so
-      // a controller that answers differently fails here, before any spec.
-      devElixir("checking the controller's answer shapes", ['/flezha_ui/priv/dev/record_shapes.exs', '--check']);
+      // a controller that answers differently fails here, before any spec. It
+      // only reads, so it runs while the workers are made and logged in.
+      logins.push(
+        inConsoleAsync(
+          "checking the controller's answer shapes",
+          elixirArgv(['/flezha_ui/priv/dev/record_shapes.exs', '--check']),
+        ).then(() => undefined),
+      );
 
       const workers = Array.from({ length: config.workers }, (_, index) => index);
       // Made afresh each run, so nothing a previous run left on a user reaches this one.

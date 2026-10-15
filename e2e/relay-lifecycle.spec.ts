@@ -11,6 +11,7 @@ import {
   expectAdvances,
   menuAction,
   openStart,
+  closeStart,
   chooseFactory,
   reviewAndStart,
   sendRecords,
@@ -50,7 +51,7 @@ test.describe('Relay lifecycle', () => {
       await expect(page.getByTestId('start-result')).toBeVisible();
       id = (await page.getByTestId('start-result-link').textContent())?.trim() || null;
       expect(id, 'the form names the generated id').toBeTruthy();
-      await page.getByTestId('start-done-btn').click();
+      await closeStart(page);
       await expect(page.getByTestId(`relay-index-row-${id}`)).toBeVisible();
 
       await openStart(page);
@@ -62,7 +63,7 @@ test.describe('Relay lifecycle', () => {
         'href',
         `/namespaces/${NAMESPACE}/relays/${id}`,
       );
-      await page.getByTestId('start-done-btn').click();
+      await closeStart(page);
 
       await menuAction(page, `relay-menu-${id}`, `view-relay-${id}`);
       await expect(page).toHaveURL(new RegExp(`/namespaces/${NAMESPACE}/relays/${id}$`));
@@ -89,7 +90,7 @@ test.describe('Relay lifecycle', () => {
     const id = uniqueId('pw_state');
 
     try {
-      startRelayCli(id, SEEDED_FACTORY.flow);
+      await startRelayCli(id, SEEDED_FACTORY.flow);
       await live(`${NAMESPACE_URL}/${id}/state`);
       await openSection(page, 'sdk-state');
 
@@ -98,7 +99,7 @@ test.describe('Relay lifecycle', () => {
       await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
       // The relay's tasklet keeps every input it is sent.
-      sendRecords(id, [uniqueId('pw_in')]);
+      await sendRecords(id, [uniqueId('pw_in')]);
       await expect(page.getByTestId('state-json')).toContainText('store_input_tasklet');
       await expectAdvances(page.getByTestId('state-seq'), 'the auto-refreshed state sequence', () =>
         sendRecords(id, [uniqueId('pw_in')]),
@@ -117,7 +118,7 @@ test.describe('Relay lifecycle', () => {
       await expect(page.getByTestId('runtime-error')).toContainText('state.tasklet_not_found');
       await expect(page.getByTestId('state-json')).toHaveCount(0);
     } finally {
-      stopRelayCli(id);
+      await stopRelayCli(id);
     }
   });
 });

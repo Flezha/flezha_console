@@ -34,13 +34,16 @@ export default defineConfig({
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:4000',
     viewport: { width: 1280, height: 720 },
+    // Nothing moving is cheaper to paint, and the console says in words what
+    // its motion shows. A test about the motion asks for it itself.
+    contextOptions: { reducedMotion: 'reduce' },
     navigationTimeout: 10_000,
     actionTimeout: 5_000,
     screenshot: 'only-on-failure',
-    // Every test records a trace and a passing one discards it, so its cost is
-    // paid on every test. The DOM snapshots are what a failure is read from;
-    // the screencast more than doubled the browser's CPU.
-    trace: { mode: 'retain-on-failure', screenshots: false },
+    // A trace is recorded for every test and kept only for a failure, so it
+    // costs every test: off unless `E2E_TRACE=1`. A failure keeps its
+    // screenshot and error context, with the page snapshot, either way.
+    trace: process.env.E2E_TRACE === '1' ? { mode: 'retain-on-failure', screenshots: false } : 'off',
   },
 
   globalSetup: './e2e/global-setup.ts',

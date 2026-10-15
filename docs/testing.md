@@ -20,6 +20,7 @@ npx playwright test plugin-attach             # one spec
 npx playwright test --project=phone           # the phone spec alone
 E2E_BASE_URL=http://localhost:4001 npm run e2e  # a stack on another port
 npx playwright show-report                    # durations per test, slowest first
+E2E_TRACE=1 npx playwright test topology     # record a trace for each failure
 ```
 
 ## Which layer an assertion belongs to
@@ -50,7 +51,7 @@ they skip no assertion.
 A test waits only for a condition it caused, and stops as soon as it holds:
 
 - **Browser.** Cause the record, then assert the screen shows it. `sendRecords(relay,
-  payloads)` sends many records as `flz relay send` does, in one `docker exec`;
+  payloads)` sends many records as `flz relay send` does, in one request;
   `sendToRelay(page, payload)` sends one through the relay's Talk dialog;
   `cliCall(door, args)` calls any controller door as `flz` does. A live figure is
   asserted with `expectAdvances(figure, name, cause)`, which reads it, runs the
@@ -87,20 +88,28 @@ what to look at first when a run creeps up.
 
 A browser run is bound by CPU, not by waiting: the stack, the browsers and the
 runner share one machine, and a starved machine slows every test at once. So
-nothing pays per test what it need not. The dev endpoint checks for changed
-code on a page request but not on a socket connect, since a page opens two
-sockets. A trace keeps DOM snapshots but no screencast, which more than
-doubled the browser's work. The phone project paints at one device pixel. A
-relay that is only a fixture is started and stopped through the controller
-(`ownRelay`, `startRelayCli`); the launcher form is driven by the specs whose
-subject it is. A check that needs a test of its own is one a single page
+nothing pays per test what it need not. The dev endpoint runs Phoenix's
+whole-project reload check only after the file monitor has seen code change
+(`ConfigWatcher.code_changed?/0`), and never on a socket connect: run on every
+request, it cost the console more than the page itself. No trace is recorded
+unless `E2E_TRACE=1`: recording one costs every test, and a failure keeps its
+screenshot and `error-context.md`, with the page snapshot, without it. The
+phone project paints at one device pixel, and every test runs under reduced
+motion unless it is about the motion and asks for it. A relay that is only a
+fixture is started and stopped through the controller (`ownRelay`,
+`startRelayCli`); the launcher form is driven by the specs whose
+subject it is. Every controller call a worker makes goes through one node it
+boots on first use (`priv/dev/cli_call.exs --serve`), because each node boot
+costs the console's container over a CPU-second. A check that needs a test of its own is one a single page
 session cannot reach: otherwise it is a step in the test that already holds
 that page.
 
 ## Parallel workers own their state
 
 Spec files run side by side in 4 workers (`E2E_WORKERS`); tests in one file run
-in order in one worker, so a file can share a `beforeAll`. `ownRelay(prefix,
+in order in one worker, so a file can share a `beforeAll`. A long file whose
+tests stand alone and that starts nothing for them opts into parallel mode
+instead (`phone`), so it does not run last on one worker. `ownRelay(prefix,
 opts)` gives a file a relay of its own: started through the controller under a
 run-unique id before its tests and stopped after them. `dlq.spec.ts` parks its one entry the same
 way — the controller keys an entry on its payload, so a relay parks `poison`

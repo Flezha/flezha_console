@@ -11,8 +11,8 @@ defmodule FlezhaUiWeb.Endpoint do
     same_site: "Lax"
   ]
 
-  # A socket connect skips the code reloader's whole-project check: the page
-  # request before it already ran one, and an edited file reloads the page.
+  # A socket connect skips the code reloader: the page request before it
+  # reloads changed code, and an edited file reloads the page.
   socket "/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options], code_reloader: false],
     longpoll: [connect_info: [session: @session_options], code_reloader: false]
@@ -32,9 +32,24 @@ defmodule FlezhaUiWeb.Endpoint do
   if code_reloading? do
     socket "/phoenix/live_reload/socket", Phoenix.LiveReloader.Socket,
       websocket: [code_reloader: false]
+
     plug Phoenix.LiveReloader
-    plug Phoenix.CodeReloader
+    plug :reload_changed_code
     plug Phoenix.Ecto.CheckRepoStatus, otp_app: :flezha_ui
+
+    # Phoenix's reloader checks the whole project, a quarter of a CPU-second,
+    # so it runs once code has changed rather than on every request. A request
+    # that skips it still waits out a reload already running.
+    defp reload_changed_code(conn, _opts) do
+      if FlezhaUi.Service.ConfigWatcher.code_changed?() do
+        conn = Phoenix.CodeReloader.call(conn, Phoenix.CodeReloader.init([]))
+        if conn.halted, do: FlezhaUi.Service.ConfigWatcher.code_changed!()
+        conn
+      else
+        Phoenix.CodeReloader.sync()
+        conn
+      end
+    end
   end
 
   plug Phoenix.LiveDashboard.RequestLogger,

@@ -189,7 +189,10 @@ textarea {
   *::after {
     animation: none !important;
     scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+    /* Zero, not a sliver: a duration on an element that declares no transition
+       makes it transition every property, and a link in a drawer just opened
+       is still hidden when focus is moved to it. */
+    transition-duration: 0s !important;
     transition-delay: 0s !important;
   }
 }

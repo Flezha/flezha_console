@@ -10,6 +10,10 @@ import { test, expect, openSettings, openStart, type Page } from './fixtures';
  * which part the width shows, and what a tap does.
  */
 
+// Each test opens its own screen and puts back what it changes, so the
+// project's tests spread over whichever workers are free.
+test.describe.configure({ mode: 'parallel' });
+
 const RELAY = '/namespaces/default/relays/testnet_store_1';
 
 const ROUTES = [

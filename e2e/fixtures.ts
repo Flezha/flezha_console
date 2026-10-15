@@ -1,31 +1,86 @@
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { test as base, expect, type Browser, type Locator, type Page, type TestInfo } from '@playwright/test';
-import { devElixir, submitLogin, uniqueId, workerState, workerUser } from './global-setup';
+import { devElixir, elixirArgv, inConsole, submitLogin, uniqueId, workerState, workerUser } from './global-setup';
 
 export { uniqueId };
 
+type Waiting = { what: string; resolve: (out: string) => void; reject: (error: Error) => void };
+let cliNode: ((what: string, door: string, requests: unknown[][]) => Promise<string>) | undefined;
+
 /**
- * Runs the published operation `door` on the dev controller as `flz` sends it
- * (`priv/dev/cli_call.exs` inside `fui_web`), so the controller sees a CLI
- * call, and answers its parsed JSON.
+ * Sends `requests` to `door` through this worker's CLI node: one
+ * `priv/dev/cli_call.exs --serve` inside `fui_web`, booted on the first call
+ * and kept for the worker's life, since a node boot costs over a CPU-second.
+ * Answers what the door printed; rejects with the door's error.
  */
-export function cliCall(door: string, args: unknown[]): unknown {
-  return JSON.parse(
-    devElixir(`cliCall ${door}`, ['/flezha_ui/priv/dev/cli_call.exs', door, JSON.stringify(args)]),
-  );
+function viaCliNode(what: string, door: string, requests: unknown[][]): Promise<string> {
+  if (!cliNode) {
+    // `docker exec -i`: the node serves until its stdin closes with the worker.
+    const argv = elixirArgv(['/flezha_ui/priv/dev/cli_call.exs', '--serve']);
+    const child = spawn('docker', ['exec', '-i', 'fui_web', ...argv], { stdio: 'pipe' });
+    const waiting: Waiting[] = [];
+    let stderr = '';
+
+    child.stderr.on('data', (chunk) => (stderr += chunk));
+    createInterface({ input: child.stdout }).on('line', (line) => {
+      // A log line the node prints is not an answer; it is kept for a failure.
+      const answer = parseAnswer(line);
+      if (!answer) return void (stderr += `${line}\n`);
+
+      const next = waiting.shift()!;
+      if (answer.ok) next.resolve(answer.out);
+      else next.reject(new Error(`${next.what} failed:\n${answer.out}${answer.error}`));
+    });
+    child.on('exit', (code) => {
+      cliNode = undefined;
+      for (const { what: failed, reject } of waiting.splice(0)) {
+        reject(new Error(`${failed} failed: the CLI node exited with ${code}:\n${stderr}`));
+      }
+    });
+
+    cliNode = (what, name, args) =>
+      new Promise((resolve, reject) => {
+        waiting.push({ what, resolve, reject });
+        child.stdin.write(`${JSON.stringify({ door: name, args })}\n`);
+      });
+  }
+
+  return cliNode(what, door, requests);
+}
+
+function parseAnswer(line: string): { ok: boolean; out: string; error?: string } | null {
+  try {
+    const answer = JSON.parse(line);
+    return typeof answer?.ok === 'boolean' ? answer : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Runs the published operation `door` on the dev controller as `flz` sends it,
+ * so the controller sees a CLI call, and answers its parsed JSON.
+ */
+export async function cliCall(door: string, args: unknown[]): Promise<unknown> {
+  return JSON.parse(await viaCliNode(`cliCall ${door}`, door, [args]));
 }
 
 /**
  * Sends each of `payloads` to `relay`'s `channel` as `flz relay send` does, in
- * order and from one node, so a test that needs many records pays for one
- * boot. Throws when any send is refused.
+ * order. Throws when any send is refused.
  */
-export function sendRecords(relay: string, payloads: string[], channel = 'input', namespace = 'default'): void {
-  devElixir(`sending ${payloads.length} records to ${relay}`, [
-    '/flezha_ui/priv/dev/cli_call.exs',
+export async function sendRecords(
+  relay: string,
+  payloads: string[],
+  channel = 'input',
+  namespace = 'default',
+): Promise<void> {
+  await viaCliNode(
+    `sending ${payloads.length} records to ${relay}`,
     'Relay.send',
-    ...payloads.map((payload) => JSON.stringify([namespace, relay, payload, channel])),
-  ]);
+    payloads.map((payload) => [namespace, relay, payload, channel]),
+  );
 }
 
 /**
@@ -34,16 +89,7 @@ export function sendRecords(relay: string, payloads: string[], channel = 'input'
  * own command.
  */
 export function createConsoleUser(email: string, password: string): void {
-  try {
-    execFileSync(
-      'docker',
-      ['exec', 'fui_web', 'mix', 'flezha_ui.create_user', email, '--password', password],
-      { encoding: 'utf8', stdio: 'pipe' },
-    );
-  } catch (error) {
-    const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string };
-    throw new Error(`creating ${email} failed:\n${stdout}${stderr}`);
-  }
+  inConsole(`creating ${email}`, ['mix', 'flezha_ui.create_user', email, '--password', password]);
 }
 
 /**
@@ -223,9 +269,7 @@ export async function startRelay(
   await reviewAndStart(page);
   await expect(page.getByTestId('start-result')).toBeVisible();
   await expect(page.getByTestId('start-result-link')).toHaveText(id);
-
-  await page.getByTestId('start-done-btn').click();
-  await expect(page.getByTestId('start-modal')).toHaveCount(0);
+  await closeStart(page);
 
   return factory;
 }
@@ -234,6 +278,15 @@ export async function startRelay(
 export async function openStart(page: Page): Promise<void> {
   await page.getByTestId('start-relay-btn').click();
   await expect(page.getByTestId('start-modal')).toBeVisible();
+}
+
+/**
+ * Dismisses the start flow's answer and waits for it to close: an open menu
+ * follows its trigger as the page moves, so nothing is opened before then.
+ */
+export async function closeStart(page: Page): Promise<void> {
+  await page.getByTestId('start-done-btn').click();
+  await expect(page.getByTestId('start-modal')).toHaveCount(0);
 }
 
 /** Chooses `factory` in the open start flow, which moves on to its details. */
@@ -565,17 +618,17 @@ export function ownRelay(prefix: string, opts: { run?: Run; factory?: string } =
 }
 
 /** Starts `id` from `factory` as `flz` does, in one call. */
-export function startRelayCli(id: string, factory: string, namespace = 'default'): void {
-  cliCall('Relay.start', [namespace, { factory_id: factory, id }]);
+export async function startRelayCli(id: string, factory: string, namespace = 'default'): Promise<void> {
+  await cliCall('Relay.start', [namespace, { factory_id: factory, id }]);
 }
 
 /**
  * Stops `id` as `flz` does. Tolerates a relay already gone, so a spec that
  * stopped its relay itself can still leave this to `afterAll`.
  */
-export function stopRelayCli(id: string, namespace = 'default'): void {
+export async function stopRelayCli(id: string, namespace = 'default'): Promise<void> {
   try {
-    cliCall('Relay.stop', [namespace, id]);
+    await cliCall('Relay.stop', [namespace, id]);
   } catch (error) {
     if (!/relay\.(not_found|not_running)/.test(String(error))) throw error;
   }
