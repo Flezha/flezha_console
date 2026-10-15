@@ -440,7 +440,9 @@ defmodule Flezha.Service.Relay do
        %{relay: id, factory: "store_input", graph: nil, disagree: false, reason: "not_announced"}}
 
   defstub activity(ns, id, %{source: :ui} = ctx),
-    do: {:ok, %{relay: id, runner: "runner-a", read_at_ms: 0, instance_seq: 1, tasklets: []}}
+    do:
+      {:ok,
+       %{relay: id, runner: "runner-a", read_at_ms: 0, instance_seq: 1, tasklets: [], cells: nil}}
 
   # The id the relay runs under: the one asked for, or one the controller draws.
   defstub start(ns, relay, %{source: :ui} = ctx),
@@ -536,7 +538,9 @@ defmodule Flezha.Service.Fleet do
   defstub providers(%{source: :ui} = ctx), do: {:ok, %{providers: [], refused: 0}}
 
   defstub provider(provider_id, %{source: :ui} = ctx),
-    do: {:ok, %{provider: provider_id, help: nil, type: :relay, hooks: [], options: []}}
+    do:
+      {:ok,
+       %{provider: provider_id, help: nil, type: :relay, feeds: false, hooks: [], options: []}}
 
   defstub drop_runner(ns, runner_id, %{source: :ui} = ctx),
     do:
