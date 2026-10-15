@@ -40,7 +40,8 @@ Browser tests SHALL be written with `@playwright/test`. Specs SHALL live under `
 #### Scenario: A failing test is diagnosable
 
 - **WHEN** a browser test fails
-- **THEN** the run captures a screenshot and a trace for that test
+- **THEN** the run keeps a screenshot and the error context, with the page snapshot, for that test
+- **AND** it keeps a trace too when the run was asked for one with `E2E_TRACE=1`, since recording one costs every test
 
 #### Scenario: Cypress is gone
 
