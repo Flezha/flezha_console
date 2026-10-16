@@ -523,7 +523,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   @impl FlezhaUiWeb.Inspect
   def inspect_context(socket, {"relay", id}) do
     %{rows: rows, topology_state: state} = socket.assigns
-    row = Enum.find(rows, &(to_string(&1.id) == id))
+    row = NodeManager.relay_row(rows, id)
     factory = row && row[:factory] && to_string(row.factory)
 
     %{

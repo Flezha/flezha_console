@@ -702,8 +702,8 @@ Hooks.FlzPipeline = {
   // the Cell sheet leaves free.
   reveal(id) {
     const box = this.el.querySelector(`[data-node="${CSS.escape(id)}"]`)?.getBBox?.()
-    if (!box) { return }
     const s = this.scale()
+    if (!box || !(s > 0 && Number.isFinite(s))) { return }
     const pad = 16 / s
     const into = (lo, size, at, len) =>
       at - pad < lo || len + 2 * pad > size ? at - pad - lo : Math.max(0, at + len + pad - (lo + size))
