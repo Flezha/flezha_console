@@ -296,60 +296,16 @@
    Controls
    ====================================================================== */
 
-.fui-btn {
-  align-items: center;
-  border: 1px solid transparent;
-  border-radius: var(--fui-radius-control);
-  cursor: pointer;
-  display: inline-flex;
+/* Buttons are the stylebook's `.flz-button`. In the console's packed rows a
+   label neither wraps nor gives up its width, and a link that is a button
+   keeps no hover underline. */
+.flz-button {
   flex: none;
-  font-size: var(--fui-text-md);
-  font-weight: 600;
-  gap: var(--fui-space-2);
-  height: var(--fui-control-h);
-  justify-content: center;
-  padding: 0 var(--fui-space-4);
-  transition:
-    background-color var(--fui-fast) var(--fui-ease),
-    border-color var(--fui-fast) var(--fui-ease),
-    color var(--fui-fast) var(--fui-ease);
   white-space: nowrap;
 }
 
-.fui-btn:hover {
+.flz-button:hover {
   text-decoration: none;
-}
-
-.fui-btn--sm {
-  font-size: var(--fui-text-sm);
-  gap: var(--fui-space-1);
-  height: var(--fui-control-h-sm);
-  padding: 0 var(--fui-space-3);
-}
-
-.fui-btn--primary {
-  background: var(--fui-accent);
-  color: var(--fui-on-accent);
-}
-
-.fui-btn--primary:hover:not(:disabled) {
-  background: var(--fui-accent-hover);
-}
-
-.fui-btn--secondary {
-  background: var(--fui-surface);
-  border-color: var(--fui-line-strong);
-  color: var(--fui-ink-1);
-}
-
-.fui-btn--secondary:hover:not(:disabled) {
-  background: var(--fui-hover);
-  border-color: var(--fui-ink-3);
-}
-
-.fui-btn--ghost {
-  background: transparent;
-  color: var(--fui-ink-2);
 }
 
 /* An icon-only control: a row's menu, a close, a dismiss. Its hit area is a
@@ -373,44 +329,18 @@
   color: var(--fui-ink-1);
 }
 
-.fui-btn--ghost:hover:not(:disabled) {
-  background: var(--fui-hover);
-  color: var(--fui-ink-1);
-}
-
-.fui-btn--danger {
-  background: var(--fui-negative-solid);
-  color: var(--fui-on-negative);
-}
-
-.fui-btn--danger:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--fui-negative-solid) 88%, var(--fui-ink-1));
-}
-
-.fui-btn[aria-pressed="true"] {
-  background: var(--fui-accent-subtle);
-  border-color: var(--fui-accent);
-  color: var(--fui-accent);
-}
-
-.fui-btn:disabled,
-.fui-btn[aria-disabled="true"] {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
 /* An action in flight answers at once, whatever it does next: the button
    dims, stops taking clicks and shows a spinner in place of its icon. */
-.phx-submit-loading .fui-btn[type="submit"],
-.fui-btn.phx-click-loading,
+.phx-submit-loading .flz-button[type="submit"],
+.flz-button.phx-click-loading,
 .fui-iconbtn.phx-click-loading {
   cursor: progress;
   opacity: 0.7;
   pointer-events: none;
 }
 
-.fui-btn.phx-click-loading::before,
-.phx-submit-loading .fui-btn[type="submit"]::before {
+.flz-button.phx-click-loading::before,
+.phx-submit-loading .flz-button[type="submit"]::before {
   animation: fui-spin 0.9s linear infinite;
   border: 2px solid currentColor;
   border-radius: 50%;
@@ -433,8 +363,8 @@
 }
 
 /* The spinner stands in for a button's leading icon, never beside it. */
-.fui-btn.phx-click-loading > [class*="hero-"]:first-child,
-.phx-submit-loading .fui-btn[type="submit"] > [class*="hero-"]:first-child {
+.flz-button.phx-click-loading > [class*="hero-"]:first-child,
+.phx-submit-loading .flz-button[type="submit"] > [class*="hero-"]:first-child {
   display: none;
 }
 

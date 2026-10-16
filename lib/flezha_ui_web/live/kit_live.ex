@@ -69,7 +69,6 @@ defmodule FlezhaUiWeb.KitLive do
         <.button icon="hero-plus">With icon</.button>
         <.button loading>Loading</.button>
         <.button disabled>Disabled</.button>
-        <.button variant="secondary" aria-pressed="true">Pressed</.button>
         <.button variant="ghost" navigate="/dev/kit">As a link</.button>
       </div>
     </.section>
@@ -227,7 +226,11 @@ defmodule FlezhaUiWeb.KitLive do
         >
           Error toast
         </.button>
-        <.popover id="kit-popover" label="A popover" trigger_class="fui-btn fui-btn--secondary">
+        <.popover
+          id="kit-popover"
+          label="A popover"
+          trigger_class="flz-button flz-button--secondary flz-button--md"
+        >
           <:trigger>Popover</:trigger>
           <p class="fui-menu-note">A note</p>
           <button type="button" class="fui-menu-item" data-fui-pop-item>An item</button>

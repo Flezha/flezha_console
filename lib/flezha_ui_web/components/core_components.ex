@@ -303,8 +303,13 @@ defmodule FlezhaUiWeb.CoreComponents do
     """
   end
 
+  # The stylebook's button, as flezha.com wears it; the primary action is its
+  # accent fill.
   defp button_class(variant, size, class),
-    do: ["fui-btn", "fui-btn--#{variant}", size == "sm" && "fui-btn--sm", class]
+    do: ["flz-button", "flz-button--#{button_variant(variant)}", "flz-button--#{size}", class]
+
+  defp button_variant("primary"), do: "accent"
+  defp button_variant(variant), do: variant
 
   defp icon_size("sm"), do: "w-4 h-4"
   defp icon_size("md"), do: "w-5 h-5"

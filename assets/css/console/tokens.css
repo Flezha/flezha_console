@@ -93,7 +93,6 @@
 
   /* flezha.com's accent: plum in light, gold in dark */
   --fui-accent: var(--accent-solid);
-  --fui-accent-hover: var(--accent-solid-hover);
   --fui-accent-subtle: color-mix(in oklab, var(--fui-accent) 10%, var(--fui-surface));
   --fui-on-accent: var(--text-on-accent);
 

@@ -357,7 +357,7 @@ defmodule FlezhaUiWeb.KitTest do
         </.confirm_dialog>
         """)
 
-      assert html =~ "fui-btn--danger"
+      assert html =~ "flz-button--danger"
       assert attr_of(html, ".fui-dialog", "phx-window-keydown") == "cancel"
     end
 

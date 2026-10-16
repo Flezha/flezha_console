@@ -210,7 +210,7 @@ test.describe('The console on a phone', () => {
       const small = await page.evaluate(() =>
         [
           ...document.querySelectorAll(
-            'button:not(.fui-term, .fui-ident), select, input:not([type="hidden"]), textarea, .fui-segment, .fui-btn',
+            'button:not(.fui-term, .fui-ident), select, input:not([type="hidden"]), textarea, .fui-segment, .flz-button',
           ),
         ]
           .filter((el) => {

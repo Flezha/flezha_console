@@ -61,7 +61,6 @@
   <:actions>
     <.button
       :if={is_nil(@completion) and NodeManager.granted?(@operations, "Relay.send")}
-      variant="secondary"
       icon="hero-paper-airplane"
       phx-click="talk_open"
       data-testid="talk-open-btn"

@@ -4183,7 +4183,7 @@ defmodule FlezhaUiWeb.Topology do
       label="Legend"
       align="end"
       role="dialog"
-      trigger_class="fui-btn fui-btn--sm fui-btn--ghost"
+      trigger_class="flz-button flz-button--sm flz-button--ghost"
     >
       <:trigger>Legend</:trigger>
       <ul data-testid="topology-legend" class="flz-graph-legend topo-legend">
