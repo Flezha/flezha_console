@@ -1387,6 +1387,15 @@ defmodule FlezhaUiWeb.TopologyTest do
     end
   end
 
+  describe "sum_rates/1" do
+    test "adds every counted key, and is nil when nothing was measured" do
+      assert Topology.sum_rates([nil, nil]) == nil
+
+      assert Topology.sum_rates([%{in: 0.25, out: 1.0}, nil, %{in: 0.3, out: 0.0, bytes_in: 7}]) ==
+               %{in: 0.6, out: 1.0, bytes_in: 7.0}
+    end
+  end
+
   describe "push_history/2" do
     # {samples held, samples after the push}: newest first, capped at sixty.
     for {held, after_push} <- [{1, 2}, {59, 60}, {60, 60}] do
@@ -1488,14 +1497,21 @@ defmodule FlezhaUiWeb.TopologyTest do
       input = %{
         namespace: "default",
         rows: rows ++ [map_row("other")],
-        runners: [%{id: "runner-a"}]
+        runners: [%{id: "runner-a"}],
+        rates: %{
+          "store_1" => %{in: 1.5, out: 1.0, bytes_in: 100, bytes_out: 50},
+          "store_2" => %{in: 2.5, out: 2.0}
+        }
       }
 
-      assert [%{id: "other"}, stack] = lanes(Topology.map(input))
+      # The busier lane comes first, and the stack's traffic is its members'.
+      assert [stack, %{id: "other"}] = lanes(Topology.map(input))
       assert stack.kind == :stack
       assert stack.label == "store_input ×4"
       assert stack.members == ~w(store_1 store_2 store_3 store_4)
       assert stack.sub =~ "4 healthy"
+      assert stack.rate == %{in: 4.0, out: 3.0, bytes_in: 100.0, bytes_out: 50.0}
+      assert stack.throughput == 7.0
 
       opened = Topology.map(Map.put(input, :expanded, MapSet.new(["runner-a/store_input"])))
       assert length(lanes(opened)) == 5

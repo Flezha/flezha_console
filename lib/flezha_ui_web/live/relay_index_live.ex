@@ -25,6 +25,10 @@ defmodule FlezhaUiWeb.RelayIndexLive do
   Each row carries its measured inbound rate and a sparkline, from the same
   liveness snapshot the Home map reads, and activating a row inspects the
   relay in place.
+
+  A partition group is one row however wide it is: its partitions' rates
+  summed, their nodes and runners counted, and the partitions themselves
+  listed as rows of their own only when the operator opens the group.
   """
 
   use FlezhaUiWeb, :live_view
@@ -57,7 +61,8 @@ defmodule FlezhaUiWeb.RelayIndexLive do
        run_options: [],
        namespaces: [],
        load_error: nil,
-       confirm_stop: nil
+       confirm_stop: nil,
+       expanded: MapSet.new()
      )}
   end
 
@@ -99,6 +104,17 @@ defmodule FlezhaUiWeb.RelayIndexLive do
     {:noreply, push_patch(socket, to: filtered_path(socket.assigns.scoped_namespace, filters))}
   end
 
+  def handle_event("toggle_group", %{"key" => key}, socket) do
+    expanded = socket.assigns.expanded
+
+    expanded =
+      if MapSet.member?(expanded, key),
+        do: MapSet.delete(expanded, key),
+        else: MapSet.put(expanded, key)
+
+    {:noreply, assign(socket, expanded: expanded)}
+  end
+
   @impl true
   def handle_event("confirm_stop", %{"relay_id" => id} = params, socket) do
     row = NodeManager.relay_row(socket.assigns.rows, id)
@@ -136,7 +152,12 @@ defmodule FlezhaUiWeb.RelayIndexLive do
   @impl FlezhaUiWeb.Inspect
   def inspect_context(socket, {"relay", key}) do
     {namespace, id} = row_key(socket, key)
-    row = Enum.find(socket.assigns.rows, &(to_string(&1.id) == id and &1.namespace == namespace))
+
+    row =
+      socket.assigns.rows
+      |> Enum.flat_map(&[&1 | &1[:members] || []])
+      |> Enum.find(&(to_string(&1.id) == id and &1.namespace == namespace))
+
     state = socket.assigns.topology_state
 
     %{
@@ -198,7 +219,9 @@ defmodule FlezhaUiWeb.RelayIndexLive do
       run_options: run_options(rows),
       load_error: load_error
     )
-    |> Topology.load_rates(Enum.map(rows, &to_string(&1.id)))
+    |> Topology.load_rates(
+      Enum.flat_map(rows, fn row -> Enum.map([row | row[:members] || []], &to_string(&1.id)) end)
+    )
   end
 
   defp listed(namespaces, nil), do: namespaces
@@ -213,22 +236,30 @@ defmodule FlezhaUiWeb.RelayIndexLive do
 
     runs = namespace |> NodeManager.relay_runs(token) |> NodeManager.ok_or(%{})
 
-    namespace
-    |> NodeManager.relay_list(token)
-    |> NodeManager.ok_or([])
-    |> Enum.map(fn row ->
-      id = to_string(row.id)
+    decorate = fn row ->
+      # A group row is no registry entry of its own; its run and bindings are
+      # its first member's, which every member shares.
+      id = row |> Map.get(:members, [row]) |> hd() |> Map.fetch!(:id) |> to_string()
 
       row
       |> Map.put(:namespace, namespace)
-      |> Map.put(:run, run_of(row, runs))
+      |> Map.put(:run, Map.get(runs, id))
       |> Map.put(:plugins, Map.get(plugins, id, 0))
+    end
+
+    namespace
+    |> NodeManager.relay_list(token)
+    |> NodeManager.ok_or([])
+    |> Enum.map(fn
+      %{members: [_ | _] = members} = group ->
+        group
+        |> decorate.()
+        |> Map.put(:members, members |> NodeManager.decorate_health() |> Enum.map(decorate))
+
+      row ->
+        decorate.(row)
     end)
   end
-
-  # A group row is no registry entry of its own; its run is its members'.
-  defp run_of(%{members: [member | _]}, runs), do: Map.get(runs, to_string(member.id))
-  defp run_of(row, runs), do: Map.get(runs, to_string(row.id))
 
   # A scoped route's namespace comes from the path, so it is not a filter the
   # operator chose.
@@ -239,16 +270,97 @@ defmodule FlezhaUiWeb.RelayIndexLive do
   end
 
   defp filter(rows, filters) do
-    Enum.filter(rows, fn row ->
+    rows
+    |> Enum.map(&on_runner(&1, filters["runner"]))
+    |> Enum.filter(fn row ->
       matches?(filters["namespace"], to_string(row.namespace)) and
         matches?(filters["health"], to_string(row.health)) and
         matches?(filters["run"], to_string(row.run)) and
-        matches?(filters["runner"], to_string(row[:runner]))
+        if(row[:partitions],
+          do: row.members != [],
+          else: matches?(filters["runner"], to_string(row[:runner]))
+        )
     end)
   end
 
+  # A group spans runners, so asked about one it keeps the partitions there.
+  defp on_runner(%{partitions: _, members: members} = group, runner) when runner not in [nil, ""],
+    do: %{group | members: Enum.filter(members, &(to_string(&1[:runner]) == runner))}
+
+  defp on_runner(row, _runner), do: row
+
   defp matches?(value, _actual) when value in [nil, ""], do: true
   defp matches?(value, actual), do: value == actual
+
+  @doc "The rows drawn: each group followed by its partitions while it is open."
+  def visible_rows(rows, expanded) do
+    Enum.flat_map(rows, fn row ->
+      if row[:partitions] && MapSet.member?(expanded, group_key(row)),
+        do: [row | row.members],
+        else: [row]
+    end)
+  end
+
+  @doc "How an open group is remembered."
+  def group_key(row), do: "#{row.namespace}/#{row.id}"
+
+  @doc "A row's measured rate; a group's is its partitions' summed."
+  def rate_of(%{partitions: _, members: members}, state),
+    do: members |> Enum.map(&Map.get(state.rates, to_string(&1.id))) |> Topology.sum_rates()
+
+  def rate_of(row, state), do: Map.get(state.rates, to_string(row.id))
+
+  @doc "A row's rate history, oldest first; a group's sums its partitions' tick by tick."
+  def history_of(%{partitions: _, members: members}, state) do
+    members
+    |> Enum.map(&Map.get(state.history, to_string(&1.id), []))
+    |> Enum.zip_with(&Topology.sum_rates/1)
+    |> Enum.reverse()
+  end
+
+  def history_of(row, state),
+    do: state.history |> Map.get(to_string(row.id), []) |> Enum.reverse()
+
+  @doc """
+  Where a row's relays sit by `key` (`:node` or `:runner`): `{:one, value}`
+  when they share one, or `{:many, distinct, without}` for a group whose
+  partitions spread over several, `without` counting those holding none.
+  """
+  def spread(%{partitions: _, members: members}, key) do
+    {held, without} = members |> Enum.map(&Map.get(&1, key)) |> Enum.split_with(&(&1 != nil))
+
+    case {Enum.uniq(held), without} do
+      {[one], []} -> {:one, one}
+      {[], _all} -> {:one, nil}
+      {distinct, without} -> {:many, length(distinct), length(without)}
+    end
+  end
+
+  def spread(row, key), do: {:one, row[key]}
+
+  # A fixed box, so the column keeps its width as the figures change.
+  attr :id, :string, required: true
+  attr :rate, :map, default: nil
+  attr :history, :list, required: true
+
+  defp rate_cell(assigns) do
+    ~H"""
+    <span class="fui-rate-cell" data-testid={"relay-rate-#{@id}"}>
+      <span class="fui-rate-spark">
+        <.sparkline samples={@history} key={:in} width={56} height={16} testid={"relay-spark-#{@id}"} />
+      </span>
+      <span class="fui-rate-figures">
+        <span class="fui-rate">{(@rate && Topology.rate_label(@rate.in)) || "—"}</span>
+        <span :if={@rate[:bytes_in]} class="fui-figures">
+          {Topology.byte_rate_label(@rate.bytes_in)}
+        </span>
+      </span>
+    </span>
+    """
+  end
+
+  @doc "How many of a group's partitions are not healthy."
+  def unwell(members), do: Enum.count(members, &(Words.tone(:health, &1.health) != :positive))
 
   @doc """
   The health values offered as filters, so the list cannot drift from the badge.

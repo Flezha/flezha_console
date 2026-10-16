@@ -14,6 +14,30 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
 
   defp row(id, overrides \\ %{}), do: FakeController.relay_row(id, overrides)
 
+  # A group row as `Service.Relay.list/2` answers it, `width` partitions wide,
+  # each partition's fields overridden by `member.(index)`.
+  defp group(id, width, member \\ fn _index -> %{} end) do
+    members =
+      for index <- 0..(width - 1) do
+        row(
+          "#{id}#p#{index}",
+          Map.merge(
+            %{
+              partition: %{
+                group: id,
+                index: index,
+                count: width,
+                range: {index * 512, index * 512 + 511}
+              }
+            },
+            member.(index)
+          )
+        )
+      end
+
+    Map.merge(row(id), %{partitions: "#{width}/#{width}", members: members})
+  end
+
   defp signal(name, metadata),
     do: EventFeed.signal_event(:flezha_relay, %{name: name, metadata: metadata})
 
@@ -52,27 +76,94 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
       assert_redirect(view, ~p"/namespaces/default/relays/relay_a")
     end
 
-    test "a partition group links each of its members", %{conn: conn, node: node} do
-      group = %{
-        row("demo")
-        | runner: "p0→runner-a, p1→runner-a"
-      }
+    test "a partition group is one row until opened, then lists its partitions", %{
+      conn: conn,
+      node: node
+    } do
+      with_fleet(node, rows: [group("demo", 2)])
+      {:ok, view, html} = live(conn, ~p"/namespaces/default/relays")
 
-      group =
-        Map.merge(group, %{
-          partitions: "2/2",
-          members: [row("demo#p0"), row("demo#p1")]
-        })
-
-      with_fleet(node, rows: [group])
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default/relays")
-
-      members = view |> element(~s([data-testid="relay-members-demo"])) |> render()
-      assert members =~ ~s(href="/namespaces/default/relays/demo%23p0")
-      assert members =~ ~s(href="/namespaces/default/relays/demo%23p1")
-      assert has_element?(view, ~s([data-testid="relay-link-demo#p0"]))
+      assert html =~ "Show 2 partitions"
+      refute has_element?(view, ~s([data-testid="relay-index-row-demo#p0"]))
       refute has_element?(view, ~s([data-testid="open-relay-demo"]))
+
+      html = view |> element(~s([data-testid="relay-members-demo"])) |> render_click()
+
+      assert html =~ "Hide partitions"
+      assert html =~ "keys 0–511"
+
+      assert view |> element(~s([data-testid="relay-link-demo#p1"])) |> render() =~
+               ~s(href="/namespaces/default/relays/demo%23p1")
+
+      assert has_element?(view, ~s([data-testid="open-relay-demo#p0"]))
+
+      view |> element(~s([data-testid="relay-members-demo"])) |> render_click()
+      refute has_element?(view, ~s([data-testid="relay-index-row-demo#p0"]))
     end
+
+    test "a wide group counts where its partitions run and which are unwell", %{
+      conn: conn,
+      node: node
+    } do
+      demo =
+        group("demo", 100, fn index ->
+          %{
+            runner: "runner-#{rem(index, 4)}",
+            node: if(index == 99, do: nil, else: :"flezha@node-#{rem(index, 3)}"),
+            health: if(index < 2, do: :degraded, else: :healthy)
+          }
+        end)
+
+      with_fleet(node, rows: [demo])
+      {:ok, view, html} = live(conn, ~p"/namespaces/default/relays")
+
+      row = view |> element(~s([data-testid="relay-index-row-demo"])) |> render()
+      assert row =~ "Show 100 partitions"
+      assert row =~ "2 not healthy"
+      assert row =~ "3 nodes"
+      assert row =~ "1 unplaced"
+      assert row =~ "4 runners"
+      refute html =~ "demo#p42"
+    end
+
+    test "a runner filter keeps only the group's partitions on that runner", %{
+      conn: conn,
+      node: node
+    } do
+      demo = group("demo", 4, &%{runner: "runner-#{rem(&1, 2)}"})
+      with_fleet(node, rows: [demo, row("relay_b", %{runner: "runner-9"})])
+
+      {:ok, view, html} = live(conn, ~p"/relays?runner=runner-1")
+
+      refute html =~ ~s(data-testid="relay-index-row-relay_b")
+      assert html =~ "Show 2 partitions"
+
+      html = view |> element(~s([data-testid="relay-members-demo"])) |> render_click()
+      assert html =~ ~s(data-testid="relay-index-row-demo#p1")
+      refute html =~ ~s(data-testid="relay-index-row-demo#p0")
+    end
+
+    test "a group's rate is its partitions' summed", %{conn: conn, node: node} do
+      with_fleet(node, rows: [group("demo", 2)])
+      counters(node, %{"demo#p0" => 0, "demo#p1" => 0})
+      {:ok, view, _html} = live(conn, ~p"/relays")
+
+      counters(node, %{"demo#p0" => 1_000, "demo#p1" => 3_000})
+      tick(view)
+      counters(node, %{"demo#p0" => 2_000, "demo#p1" => 6_000})
+      html = tick(view)
+
+      # A tick spans a little over the second it is set back by.
+      [rate] = Regex.run(~r/([\d.]+) msgs\/s/, rate_text(view, "demo"), capture: :all_but_first)
+      assert String.to_float(rate) >= 3_900 and String.to_float(rate) <= 4_000
+      assert html =~ ~s(data-testid="relay-spark-demo")
+    end
+
+    defp rate_text(view, id),
+      do: view |> element(~s([data-testid="relay-rate-#{id}"])) |> render()
+
+    defp counters(node, received) when is_integer(received),
+      do: counters(node, %{"relay_a" => received})
 
     defp counters(node, received) do
       FakeController.set(
@@ -81,9 +172,10 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
         {:ok,
          %{
            channels: [],
-           relays: [
-             %{relay_id: "relay_a", io_in_received: received, forwarded: 0, filtered_nil: 0}
-           ]
+           relays:
+             for {id, count} <- received do
+               %{relay_id: id, io_in_received: count, forwarded: 0, filtered_nil: 0}
+             end
          }}
       )
     end

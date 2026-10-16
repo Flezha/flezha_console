@@ -3363,6 +3363,22 @@ defmodule FlezhaUiWeb.Topology do
   defp advance_of(now, before), do: max(now - before, 0)
 
   @doc """
+  Several relays' rates as one, each counted key summed, or nil when none of
+  them was measured — so a stack or a partition group reads like one relay.
+  """
+  def sum_rates(rates) do
+    case Enum.reject(rates, &is_nil/1) do
+      [] ->
+        nil
+
+      measured ->
+        measured
+        |> Enum.reduce(&Map.merge(&1, &2, fn _key, a, b -> a + b end))
+        |> Map.new(fn {key, sum} -> {key, Float.round(sum / 1, 1)} end)
+    end
+  end
+
+  @doc """
   Appends this tick's rates to each relay's history, newest first.
 
   Capped at #{@history_limit} samples: the sparkline is a session-local view of
@@ -5209,11 +5225,7 @@ defmodule FlezhaUiWeb.Topology do
   defp stack_lane(key, factory, members) do
     counts = members |> Enum.map(& &1.health) |> Enum.frequencies()
     worst = members |> Enum.map(& &1.tone) |> FlezhaUiWeb.Words.worst()
-    rates = members |> Enum.map(& &1.rate) |> Enum.reject(&is_nil/1)
-    sum = fn key -> rates |> Enum.map(&(Map.get(&1, key) || 0)) |> Enum.sum() end
-    {rate_in, rate_out} = {sum.(:in), sum.(:out)}
-    bytes? = Enum.any?(rates, &Map.has_key?(&1, :bytes_in))
-    any_rate? = Enum.any?(members, & &1.rate)
+    rate = members |> Enum.map(& &1.rate) |> sum_rates()
 
     %{
       key: "stack-#{key}",
@@ -5232,15 +5244,8 @@ defmodule FlezhaUiWeb.Topology do
       tone: worst,
       shape: if(worst == :positive, do: "dot", else: "triangle"),
       attention?: Enum.any?(members, & &1.attention?),
-      rate:
-        if(any_rate?,
-          do:
-            Map.merge(
-              %{in: Float.round(rate_in / 1, 1), out: Float.round(rate_out / 1, 1)},
-              if(bytes?, do: %{bytes_in: sum.(:bytes_in), bytes_out: sum.(:bytes_out)}, else: %{})
-            )
-        ),
-      throughput: rate_in + rate_out,
+      rate: rate,
+      throughput: (rate && rate.in + rate.out) || 0,
       spark: nil,
       inputs: members |> Enum.flat_map(& &1.inputs) |> Enum.uniq(),
       outputs: members |> Enum.flat_map(& &1.outputs) |> Enum.uniq(),

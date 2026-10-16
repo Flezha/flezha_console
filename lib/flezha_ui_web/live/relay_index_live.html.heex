@@ -120,7 +120,7 @@
 <.grid
   :if={@loaded? and @rows != []}
   id="relay-rows"
-  rows={@rows}
+  rows={visible_rows(@rows, @expanded)}
   testid="relays-index-table"
   row_id={&"relay-row-#{&1.namespace}-#{&1.id}"}
   row_testid={&"relay-index-row-#{&1.id}"}
@@ -136,7 +136,11 @@
   }
 >
   <:col :let={row} label="Relay">
-    <span :if={is_nil(row[:partitions])} phx-click={own_click()}>
+    <span
+      :if={is_nil(row[:partitions])}
+      class={row[:partition] && "fui-row-partition"}
+      phx-click={own_click()}
+    >
       <.link
         navigate={~p"/namespaces/#{row.namespace}/relays/#{row.id}"}
         class="fui-num fui-row-link"
@@ -144,24 +148,38 @@
       >
         {row.id}
       </.link>
+      <span :if={row[:partition]} class="fui-figures">
+        keys {Format.key_range(row.partition.range)}
+      </span>
     </span>
     <span :if={row[:partitions]} class="fui-num">{row.id}</span>
     <span :if={row[:partitions]} class="fui-badge ml-1">group {row.partitions}</span>
-    <%!-- A group's members are relays of their own, each with its own page. --%>
-    <span
-      :if={row[:partitions]}
-      class="fui-row-members"
-      phx-click={own_click()}
-      data-testid={"relay-members-#{row.id}"}
-    >
-      <.link
-        :for={member <- row[:members] || []}
-        navigate={~p"/namespaces/#{row.namespace}/relays/#{member.id}"}
-        class="fui-num fui-row-link"
-        data-testid={"relay-link-#{member.id}"}
+    <%!-- A group may hold hundreds of partitions, so they are listed only on request. --%>
+    <span :if={row[:partitions]} class="fui-row-members">
+      <.button
+        variant="ghost"
+        size="sm"
+        icon_right={
+          if MapSet.member?(@expanded, group_key(row)),
+            do: "hero-chevron-up-micro",
+            else: "hero-chevron-down-micro"
+        }
+        phx-click="toggle_group"
+        phx-value-key={group_key(row)}
+        aria-expanded={to_string(MapSet.member?(@expanded, group_key(row)))}
+        data-testid={"relay-members-#{row.id}"}
       >
-        {member.id}
-      </.link>
+        {if MapSet.member?(@expanded, group_key(row)),
+          do: "Hide partitions",
+          else: "Show #{Words.count(length(row.members), "partition")}"}
+      </.button>
+      <span
+        :if={unwell(row.members) > 0}
+        class="fui-tone-warning"
+        data-testid={"relay-unwell-#{row.id}"}
+      >
+        {unwell(row.members)} not healthy
+      </span>
     </span>
   </:col>
   <:col :let={row} :if={!@scoped_namespace} label="Namespace">
@@ -171,27 +189,32 @@
   <:col :let={row} label="Health"><.state_badge value={row.health} /></:col>
   <:col :let={row} label="Run">{row.run || "—"}</:col>
   <:col :let={row} label="Node">
-    <span :if={row[:node]} class="fui-num">{row[:node]}</span>
-    <span :if={is_nil(row[:node])} class="fui-tone-warning">Unplaced</span>
+    <%= case spread(row, :node) do %>
+      <% {:one, nil} -> %>
+        <span class="fui-tone-warning">Unplaced</span>
+      <% {:one, node} -> %>
+        <span class="fui-num">{node}</span>
+      <% {:many, nodes, unplaced} -> %>
+        <span class="fui-num">{Words.count(nodes, "node")}</span>
+        <span :if={unplaced > 0} class="fui-tone-warning">{unplaced} unplaced</span>
+    <% end %>
   </:col>
-  <:col :let={row} label="Runner"><.ident :if={row[:runner]} value={row[:runner]} /></:col>
+  <:col :let={row} label="Runner">
+    <%= case spread(row, :runner) do %>
+      <% {:one, runner} -> %>
+        <.ident :if={runner} value={runner} />
+      <% {:many, runners, unbound} -> %>
+        <span class="fui-num">{Words.count(runners, "runner")}</span>
+        <span :if={unbound > 0} class="fui-tone-warning">{unbound} without one</span>
+    <% end %>
+  </:col>
   <:col :let={row} label="Plugins" num>{row.plugins}</:col>
   <:col :let={row} label="Rate in" num>
-    <span class="inline-flex items-center gap-2" data-testid={"relay-rate-#{row.id}"}>
-      <.sparkline
-        samples={@topology_state.history |> Map.get(to_string(row.id), []) |> Enum.reverse()}
-        key={:in}
-        width={56}
-        height={16}
-        testid={"relay-spark-#{row.id}"}
-      />
-      <span class="fui-rate">
-        {case Map.get(@topology_state.rates, to_string(row.id)) do
-          nil -> "—"
-          rate -> FlezhaUiWeb.Topology.traffic_label(rate, :in)
-        end}
-      </span>
-    </span>
+    <.rate_cell
+      id={row.id}
+      rate={rate_of(row, @topology_state)}
+      history={history_of(row, @topology_state)}
+    />
   </:col>
   <:col :let={row} label="">
     <span :if={is_nil(row[:partitions])} phx-click={own_click()}>

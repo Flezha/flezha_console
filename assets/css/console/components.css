@@ -604,10 +604,25 @@
 }
 
 .fui-row-members {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: var(--fui-space-1) var(--fui-space-3);
   margin-top: var(--fui-space-1);
+}
+
+/* A partition listed under its open group. */
+.fui-row-partition {
+  border-left: 2px solid var(--fui-line-strong);
+  display: inline-flex;
+  flex-direction: column;
+  margin-left: var(--fui-space-2);
+  padding-left: var(--fui-space-3);
+}
+
+.fui-row-partition .fui-figures,
+.fui-rate-figures .fui-figures {
+  font-size: var(--fui-text-xs);
 }
 
 .fui-row-link:hover {
@@ -1119,6 +1134,37 @@ button.fui-menu-item--danger:hover {
   font-family: var(--fui-font-mono);
   font-size: var(--fui-text-sm);
   white-space: nowrap;
+}
+
+/* Sized for the widest figure a relay reaches, so a listing's rate column
+   keeps its width as the traffic changes. */
+.fui-rate-cell {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--fui-space-2);
+}
+
+.fui-rate-figures {
+  display: inline-flex;
+  flex-direction: column;
+  font-family: var(--fui-font-mono);
+  font-size: var(--fui-text-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--fui-leading-tight);
+  white-space: nowrap;
+  width: 14ch;
+}
+
+/* Held open before a line has two samples to draw. */
+.fui-rate-spark {
+  display: inline-flex;
+  flex: none;
+  width: 56px;
+}
+
+.fui-rate-figures > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .fui-meter {
