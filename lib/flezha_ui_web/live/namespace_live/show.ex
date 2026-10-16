@@ -1,18 +1,20 @@
 defmodule FlezhaUiWeb.NamespaceLive.Show do
   @moduledoc """
-  A namespace's Home: a headline sentence, the namespace's open problems, the
-  live map of its data plane, the event river, and its administration folded
-  below — limits, access, partition groups, finished relays and runners.
+  A namespace's Home: a headline sentence, the namespace's open problems,
+  indicator tiles for everything the operator reaches and then for this
+  namespace, the event river, and its administration folded below — limits,
+  access, partition groups, finished relays and runners.
 
   It replaces both the former dashboard and the namespace overview, and is the
-  only screen that renders the namespace's data-plane summary. Selecting
-  anything on the map inspects it in place.
+  only screen that renders the namespace's data-plane summary. The system
+  tiles read the shell pulse, which this screen asks for fleet figures
+  (`pulse_fleet`); the namespace tiles read this screen's own tick.
   """
 
   use FlezhaUiWeb, :live_view
 
-  # The map reads its rates from snapshot deltas, so this screen ticks at the
-  # rate those deltas are worth measuring over. A runner flip is the one state
+  # The flow figures are snapshot deltas, so this screen ticks at the rate
+  # those deltas are worth measuring over. A runner flip is the one state
   # change worth showing before the next tick.
   use FlezhaUiWeb.Live.Refresh,
     every: 2_000,
@@ -59,8 +61,9 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         loaded?: false,
         confirm_stop: nil,
         load_error: nil,
-        runs: %{},
+        pulse_fleet: true,
         plugin_pairs: [],
+        schedules: [],
         groups: [],
         runners: [],
         runner_marks: [],
@@ -69,8 +72,6 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         quota_breached: false,
         role_bindings: [],
         items: [],
-        expanded: MapSet.new(),
-        map: nil,
         rows: [],
         finished: [],
         finished_error: nil,
@@ -94,7 +95,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    {:noreply, socket |> inspect_params(params) |> assign_map()}
+    {:noreply, inspect_params(socket, params)}
   end
 
   # The dialogs and the launcher, any of which a row could move underneath.
@@ -105,19 +106,6 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         ~w(confirm_stop rescale quota_form token_issue confirm_revoke role_bind confirm_unbind)a,
         &(socket.assigns[&1] != nil)
       )
-  end
-
-  # Opening a stack draws its member lanes from what the last tick read.
-  @impl true
-  def handle_event("map_expand", %{"id" => key}, socket) do
-    expanded = socket.assigns.expanded
-
-    expanded =
-      if MapSet.member?(expanded, key),
-        do: MapSet.delete(expanded, key),
-        else: MapSet.put(expanded, key)
-
-    {:noreply, socket |> assign(expanded: expanded) |> assign_map()}
   end
 
   # ---- Tokens ----
@@ -426,39 +414,42 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     %{ns: ns, flezha_token: token} = socket.assigns
 
     # One registry dump answers every relay's health, node, factory, runner and
-    # partition group; the summary and the map are built from it, not from a
+    # partition group; the summary and the tiles are built from it, not from a
     # read per relay.
     {rows, load_error} = NodeManager.ok_or_error(NodeManager.relay_rows(ns, token), [])
     groups = rows |> NodeManager.partition_groups(token) |> with_group_health(rows)
     declared = NodeManager.ok_or(NodeManager.namespace_record(ns, token), nil)
     quotas = NodeManager.quota_usage(ns, declared && declared.quotas, token)
+    connected_runners = ns |> NodeManager.runners(token) |> NodeManager.ok_or([])
 
-    runners =
-      ns |> NodeManager.runners(token) |> NodeManager.ok_or([]) |> FlezhaUiWeb.Runners.rows()
-
-    socket =
-      socket
-      |> assign(
-        loaded?: true,
-        rows: rows,
-        runs: ns |> NodeManager.relay_runs(token) |> NodeManager.ok_or(%{}),
-        plugin_pairs: ns |> NodeManager.relay_plugins(token) |> NodeManager.ok_or([]),
-        groups: groups,
-        runners: runners,
-        runner_marks: ns |> NodeManager.dropped_runners(token) |> NodeManager.ok_or([]),
-        declared: declared,
-        quotas: quotas,
-        # A breach is never hidden behind a click, so it outranks the screen's
-        # own collapse default and whatever the viewer last chose.
-        quota_breached: Enum.any?(quotas, & &1.breached?),
-        role_bindings: ns |> NodeManager.roles(token) |> NodeManager.ok_or([]),
-        load_error: load_error
-      )
-      |> Topology.load_summary(ns, %{rows: rows, groups: groups})
-      |> track_attention()
-      |> load_tokens()
-
-    assign_map(socket)
+    socket
+    |> assign(
+      loaded?: true,
+      rows: rows,
+      plugin_pairs: ns |> NodeManager.relay_plugins(token) |> NodeManager.ok_or([]),
+      schedules:
+        token
+        |> NodeManager.schedule_list()
+        |> NodeManager.ok_or([])
+        |> FlezhaUiWeb.ScheduleLive.rows(ns),
+      groups: groups,
+      runners: FlezhaUiWeb.Runners.rows(connected_runners),
+      runner_marks: ns |> NodeManager.dropped_runners(token) |> NodeManager.ok_or([]),
+      declared: declared,
+      quotas: quotas,
+      # A breach is never hidden behind a click, so it outranks the screen's
+      # own collapse default and whatever the viewer last chose.
+      quota_breached: Enum.any?(quotas, & &1.breached?),
+      role_bindings: ns |> NodeManager.roles(token) |> NodeManager.ok_or([]),
+      load_error: load_error
+    )
+    |> Topology.load_summary(ns, %{
+      rows: rows,
+      groups: groups,
+      runners: Enum.map(connected_runners, &NodeManager.identifier_id/1)
+    })
+    |> track_attention()
+    |> load_tokens()
   end
 
   # The namespace's problems, from the same derivation the shell and the Open
@@ -489,34 +480,6 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     |> assign(items: items, attention_tracked?: true)
     |> FlezhaUiWeb.River.attention(appeared, cleared)
   end
-
-  # The map is rebuilt from what the last tick read whenever the selection or
-  # an opened stack changes, so neither costs a controller call.
-  defp assign_map(%{assigns: %{topology: %{kind: :summary, state: :ok} = summary}} = socket) do
-    %{assigns: a} = socket
-
-    map =
-      Topology.map(%{
-        namespace: a.ns,
-        rows: a.rows,
-        runners: a.runners,
-        plugins: a.plugin_pairs,
-        runs: a.runs,
-        rates: a.topology_state.rates,
-        history: a.topology_state.history,
-        parked: summary.parked,
-        faulted_groups: NodeManager.faulted_group_ids(a.groups),
-        expanded: a.expanded,
-        selected: selection(a[:inspected])
-      })
-
-    assign(socket, map: map)
-  end
-
-  defp assign_map(socket), do: assign(socket, map: nil)
-
-  defp selection(%{kind: kind, id: id}), do: {String.to_existing_atom(kind), id}
-  defp selection(_none), do: nil
 
   # What the screen already knows about a selection, so opening it costs only
   # its own read.
@@ -607,12 +570,10 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
     text =
       if relays == length(items),
-        do:
-          "#{Words.count(relays, "relay")} #{if relays == 1, do: "needs", else: "need"} attention.",
-        else:
-          "#{Words.count(length(items), "problem")} #{if length(items) == 1, do: "needs", else: "need"} attention."
+        do: need_attention(relays, "relay"),
+        else: need_attention(length(items), "problem")
 
-    {:attention, text}
+    {:attention, text <> "."}
   end
 
   def headline(_summary, [], rates, ns) when rates == %{},
@@ -626,22 +587,135 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
          "#{ns} is quiet: every relay is healthy and none moved records since the last reading."}
   end
 
-  @doc "The headline's second line: its figures, in words."
-  def figures(%{state: :ok} = summary, rows, rates) do
+  @doc """
+  The headline's second line: its figures, in words. `inbound` is the
+  namespace's summed rate, nil before two snapshots.
+  """
+  def figures(%{state: :ok} = summary, rows, inbound) do
     healthy = Enum.count(rows, &(NodeManager.row_health(&1) == :healthy))
-    inbound = rates |> Map.values() |> Enum.map(& &1.in) |> Enum.sum()
 
     [
       "#{healthy} of #{Words.count(length(rows), "relay")} healthy",
       Words.count(summary.runner_count, "runner"),
-      rates != %{} && "#{Float.round(inbound / 1, 1)} records/s in",
+      inbound && "#{inbound.in} records/s in",
       summary.parked > 0 && "#{summary.parked} parked"
     ]
     |> Enum.filter(& &1)
     |> Enum.join(" · ")
   end
 
-  def figures(_summary, _rows, _rates), do: nil
+  def figures(_summary, _rows, _inbound), do: nil
+
+  # ---- Indicator tiles: each figure's tone and its words ----
+
+  defp flow_condition(nil), do: "Measuring: a rate needs two readings"
+
+  defp flow_condition(%{in: rate} = measured) when rate > 0 do
+    case Topology.byte_rate_label(measured[:bytes_in]) do
+      nil -> "Records arriving each second"
+      bytes -> "Records arriving each second, #{bytes}"
+    end
+  end
+
+  defp flow_condition(_rate), do: "Nothing arrived since the last reading"
+
+  defp health_total(health), do: health |> Enum.map(&elem(&1, 1)) |> Enum.sum()
+
+  defp health_tone([]), do: :neutral
+
+  defp health_tone(health),
+    do: health |> Enum.map(fn {verdict, _} -> Words.tone(:health, verdict) end) |> Words.worst()
+
+  defp health_condition([]), do: "None running"
+  defp health_condition([{:healthy, _count}]), do: "All healthy"
+
+  defp health_condition(health) do
+    health
+    |> Enum.map(fn {verdict, count} ->
+      "#{count} #{String.downcase(Words.text(:health, verdict))}"
+    end)
+    |> Enum.join(" · ")
+  end
+
+  # No runner is a problem only while there are relays waiting for one.
+  defp runners_tone(nil, _relays), do: :neutral
+  defp runners_tone(0, 0), do: :neutral
+  defp runners_tone(0, _relays), do: :warning
+  defp runners_tone(_runners, _relays), do: :positive
+
+  defp nodes_said(nil), do: {:neutral, "Not read yet"}
+  defp nodes_said([]), do: {:negative, "None reachable"}
+
+  defp nodes_said(nodes) do
+    case Enum.find(nodes, & &1.connected?) do
+      nil -> {:negative, "This console is connected to none of them"}
+      node -> {:positive, "This console is connected to #{node.name}"}
+    end
+  end
+
+  defp problems_said([]), do: {:positive, "Nothing needs attention"}
+
+  defp problems_said(items),
+    do: {Attention.worst(items), need_attention(length(items), "problem")}
+
+  defp need_attention(count, noun),
+    do: "#{Words.count(count, noun)} #{if count == 1, do: "needs", else: "need"} attention"
+
+  defp controller_said(nil, _fleet), do: {:negative, "Down", "This console cannot reach it"}
+
+  defp controller_said(_node, %{breaches: breaches}) when breaches > 0,
+    do:
+      {:negative, "Breach",
+       "#{Words.count(breaches, "durability breach", "durability breaches")} past their RPO"}
+
+  defp controller_said(_node, %{status: %{durability_posture: posture}}) do
+    said = Words.say(:durability_posture, posture)
+    {if(said.tone == :neutral, do: :positive, else: said.tone), "Up", said.text}
+  end
+
+  defp controller_said(_node, _fleet), do: {:positive, "Up", "Connected"}
+
+  defp plugin_count(pairs) do
+    pairs
+    |> Enum.flat_map(fn {_relay, plugins} -> Enum.map(plugins, &elem(&1, 0)) end)
+    |> Enum.uniq()
+    |> length()
+  end
+
+  defp plugins_condition(pairs) do
+    case Enum.count(pairs, fn {_relay, plugins} -> plugins != [] end) do
+      0 -> "None bound"
+      relays -> "Bound to #{Words.count(relays, "relay")}"
+    end
+  end
+
+  defp schedules_condition([]), do: "None in this namespace"
+
+  defp schedules_condition(schedules) do
+    case schedules |> Enum.map(& &1.next_fire) |> Enum.reject(&is_nil/1) do
+      [] -> "None armed"
+      fires -> "Next fires at #{Format.time_of_day(Enum.min(fires, DateTime))}"
+    end
+  end
+
+  # The limits that apply, the breached first and then the fullest.
+  defp limit_rows(quotas) do
+    quotas
+    |> Enum.filter(& &1.limit)
+    |> Enum.sort_by(&{not &1.breached?, -use_share(&1)})
+  end
+
+  defp use_share(row), do: (row.value || 0) / max(row.limit, 1)
+
+  # A byte counter reads in bytes, any other as the count it is.
+  defp limit_use(%{kind: kind} = row) do
+    if String.ends_with?(to_string(kind), "bytes"),
+      do: "#{Format.bytes(row.value || 0)} of #{Format.bytes(row.limit)}",
+      else: "#{row.value || 0} of #{row.limit}"
+  end
+
+  defp peak_use([]), do: nil
+  defp peak_use([fullest | _rest]), do: "#{round(use_share(fullest) * 100)}%"
 
   # The controller answers every token the caller may see; this screen shows
   # its own namespace's.

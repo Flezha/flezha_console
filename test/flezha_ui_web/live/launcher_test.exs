@@ -41,6 +41,14 @@ defmodule FlezhaUiWeb.LauncherTest do
     )
   end
 
+  # Whether the host shows the one relay `id` the controller now holds: Home
+  # counts it, the index lists it.
+  defp shows?(view, %{lists: :count}, _id),
+    do: has_element?(view, ~s([data-testid="ns-relays-value"]), "1")
+
+  defp shows?(view, %{lists: prefix}, id),
+    do: has_element?(view, ~s([data-testid="#{prefix}-#{id}"]))
+
   defp click(view, testid), do: view |> element(~s([data-testid="#{testid}"])) |> render_click()
 
   defp open(conn, route \\ @home) do
@@ -68,7 +76,7 @@ defmodule FlezhaUiWeb.LauncherTest do
 
   describe "on each screen that hosts it" do
     @hosts [
-      %{screen: "namespace home", route: @home, asks_namespace: false, lists: "map-lane"},
+      %{screen: "namespace home", route: @home, asks_namespace: false, lists: :count},
       %{screen: "relays index", route: "/relays", asks_namespace: true, lists: "relay-index-row"}
     ]
 
@@ -99,7 +107,7 @@ defmodule FlezhaUiWeb.LauncherTest do
                  ~s(href="/namespaces/default/relays/relay_new")
 
         # The host reloads after the start, so it shows what the controller now holds.
-        assert has_element?(view, ~s([data-testid="#{@host.lists}-relay_new"]))
+        assert shows?(view, @host, "relay_new")
       end
 
       test "#{host.screen}: holds still while the form is open, and a tick reads no factories",
@@ -112,11 +120,11 @@ defmodule FlezhaUiWeb.LauncherTest do
         click(view, "start-relay-btn")
         with_relays(node, ["relay_late"])
         send(view.pid, :refresh)
-        refute has_element?(view, ~s([data-testid="#{@host.lists}-relay_late"]))
+        refute shows?(view, @host, "relay_late")
 
         click(view, "start-cancel-btn")
         send(view.pid, :refresh)
-        assert has_element?(view, ~s([data-testid="#{@host.lists}-relay_late"]))
+        assert shows?(view, @host, "relay_late")
       end
     end
   end

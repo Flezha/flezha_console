@@ -59,7 +59,8 @@ defmodule FlezhaUiWeb.ClusterLive do
     assign(socket,
       load_error: load_error,
       connected_node: connected,
-      cluster_nodes: cluster_nodes(namespaces, connected),
+      cluster_nodes:
+        namespaces |> Enum.flat_map(& &1.hub_nodes) |> NodeManager.cluster_nodes(connected),
       namespaces: namespaces
     )
   end
@@ -79,18 +80,6 @@ defmodule FlezhaUiWeb.ClusterLive do
     for %{recovery: state, node: node} <- per_node,
         state not in @settled,
         do: {node, recovery(state).text}
-  end
-
-  # The members are the nodes holding a hub for some namespace the caller can
-  # see, as the controller answers them. The node this UI reached is always
-  # one of them, even before it hosts a hub.
-  defp cluster_nodes(namespaces, connected) do
-    namespaces
-    |> Enum.flat_map(& &1.hub_nodes)
-    |> Enum.concat(List.wrap(connected))
-    |> Enum.uniq()
-    |> Enum.sort()
-    |> Enum.map(&%{name: &1, connected?: &1 == connected})
   end
 
   defp describe_namespace(ns, token) do

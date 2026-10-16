@@ -180,6 +180,44 @@ defmodule FlezhaUiWeb.KitLive do
       </div>
     </.section>
 
+    <.section testid="kit-tiles">
+      <:title>Indicator tiles</:title>
+      <div class="fui-indicators">
+        <.tile
+          testid="kit-tile-positive"
+          label="Relays"
+          value={8}
+          tone={:positive}
+          condition="All healthy"
+        >
+          <.strip counts={[{:healthy, 8}]} />
+        </.tile>
+        <.tile
+          testid="kit-tile-warning"
+          label="Runners"
+          value={0}
+          tone={:warning}
+          condition="None connected"
+          href="/dev/kit"
+        />
+        <.tile
+          testid="kit-tile-negative"
+          label="Parked"
+          value={3}
+          tone={:negative}
+          condition="Dead-letter entries waiting"
+          href="/dev/kit"
+        />
+        <.tile
+          testid="kit-tile-neutral"
+          label="Flow in"
+          condition="Measuring: a rate needs two readings"
+        >
+          <.sparkline samples={@samples} />
+        </.tile>
+      </div>
+    </.section>
+
     <.section testid="kit-statements">
       <:title>Notices, empty states, skeletons, code</:title>
       <div class="grid gap-4">

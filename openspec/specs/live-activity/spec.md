@@ -2,7 +2,6 @@
 
 ## Purpose
 How the console shows change over time: recent history behind throughput figures, marks on changed figures, the event river, and motion that is never needed to read state.
-
 ## Requirements
 ### Requirement: Throughput figures show their recent history
 
@@ -10,7 +9,7 @@ Every measured rate the console shows outside the relay pipeline graph SHALL be
 accompanied by a sparkline of the samples this console measured for it. That
 covers:
 
-- a map lane;
+- Home's Flow tile, over the namespace's summed inbound rate;
 - a relay inspector;
 - the relays index rate column.
 
@@ -26,6 +25,12 @@ with fewer than two samples SHALL render nothing rather than a flat line.
 
 - **WHEN** a relay has been measured once
 - **THEN** no sparkline is drawn
+
+#### Scenario: The namespace's flow
+
+- **WHEN** Home has measured its namespace over ten ticks
+- **THEN** the Flow tile's sparkline is drawn from ten samples, each the sum of
+  the namespace's relays' inbound rates on that tick
 
 ### Requirement: Changed figures are marked as they change
 

@@ -1077,8 +1077,7 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   @doc """
   The polyline points for `values` in a `width` × `height` box, oldest first,
-  scaled to the peak. Public so a server-drawn SVG (the Home map) draws its
-  lane sparklines with the same arithmetic.
+  scaled to the peak.
   """
   def spark_points(values, width, height) do
     count = length(values)
@@ -1118,6 +1117,67 @@ defmodule FlezhaUiWeb.CoreComponents do
     >
       <span class="fui-meter-fill" style={"width: #{@percent}%"}></span>
     </span>
+    """
+  end
+
+  @doc """
+  An indicator: one figure under its label, with a sentence saying what it
+  means, in a tone drawn as a shape as well as a colour. A changed figure is
+  marked as it changes. `href` makes the whole tile a link; the inner block
+  holds a strip, a meter, a sparkline or links of its own, so a tile holding
+  links takes no `href`.
+
+      <.tile testid="ns-relays" label="Relays" value={8} tone={:warning}
+             condition="7 healthy, 1 suspended">
+        <.strip counts={@health} />
+      </.tile>
+  """
+  attr :testid, :string, required: true, doc: "also names the figure's DOM id"
+  attr :label, :string, required: true
+  attr :value, :any, default: nil, doc: "the figure; nil draws none"
+  attr :tone, :atom, default: :neutral, values: [:positive, :warning, :negative, :neutral]
+  attr :condition, :string, default: nil, doc: "what the figure means, in words"
+  attr :href, :string, default: nil
+  slot :inner_block
+
+  def tile(%{href: href} = assigns) when is_binary(href) do
+    ~H"""
+    <.link navigate={@href} class="fui-tile fui-indicator" data-testid={@testid} data-tone={@tone}>
+      <.tile_body {assigns} />
+    </.link>
+    """
+  end
+
+  def tile(assigns) do
+    ~H"""
+    <div class="fui-tile fui-indicator" data-testid={@testid} data-tone={@tone}>
+      <.tile_body {assigns} />
+    </div>
+    """
+  end
+
+  defp tile_body(assigns) do
+    ~H"""
+    <span class="fui-indicator-label">{@label}</span>
+    <span class="fui-indicator-figure">
+      <span
+        class={"fui-shape fui-tone-#{@tone}"}
+        data-shape={Words.shape(@tone)}
+        aria-hidden="true"
+      >
+      </span>
+      <.live_value
+        :if={not is_nil(@value)}
+        id={"#{@testid}-value"}
+        value={@value}
+        class="fui-figure"
+        testid={"#{@testid}-value"}
+      />
+    </span>
+    <span :if={@condition} class="fui-figures" data-testid={"#{@testid}-condition"}>
+      {@condition}
+    </span>
+    {render_slot(@inner_block)}
     """
   end
 

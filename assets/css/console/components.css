@@ -1961,241 +1961,57 @@ a.fui-tile:hover {
   overflow-wrap: anywhere;
 }
 
-/* ======================================================================
-   The Home map: a namespace's data plane, drawn by the console
-   ====================================================================== */
-
-.fui-map {
-  background: var(--fui-surface);
-  border: 1px solid var(--fui-line);
-  border-radius: var(--fui-radius-surface);
-  box-shadow: 0 1px 2px var(--fui-shadow);
+/* Indicators: a row of figures, each under its label. */
+.fui-indicators {
   display: grid;
   gap: var(--fui-space-3);
-  padding: var(--fui-space-4) var(--fui-space-5) var(--fui-space-5);
+  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
 }
 
-.fui-map-head {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--fui-space-2) var(--fui-space-4);
-  justify-content: space-between;
+.fui-indicator {
+  align-content: start;
+  background: var(--fui-surface);
+  gap: var(--fui-space-2);
+  min-width: 0;
+  padding: var(--fui-space-3) var(--fui-space-4);
 }
 
-.fui-map-scroll {
-  overflow-x: auto;
-}
-
-.fui-map-svg {
-  display: block;
-  font-family: var(--fui-font-sans);
-  height: auto;
-  margin-inline: auto;
-  max-width: 64rem;
-  min-width: 46rem;
-  width: 100%;
-}
-
-.fui-map-col {
-  fill: var(--fui-ink-3);
-  font-size: 11px;
+.fui-indicator-label {
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-xs);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.fui-map-node rect {
-  fill: var(--fui-raised);
-  stroke: var(--fui-line-strong);
-  stroke-width: 1;
+.fui-indicator-figure {
+  align-items: center;
+  display: flex;
+  gap: var(--fui-space-2);
+  min-height: 2.25rem;
 }
 
-.fui-map-node text,
-.fui-map-lane text,
-.fui-map-band-head text {
-  fill: var(--fui-ink-1);
-  font-size: 12px;
+.fui-indicator .fui-figures {
+  overflow-wrap: anywhere;
 }
 
-.fui-map-node .fui-map-sub,
-.fui-map-lane .fui-map-sub,
-.fui-map-band-head .fui-map-sub {
-  fill: var(--fui-ink-3);
-  font-size: 11px;
-}
-
-.fui-map-mono {
-  font-family: var(--fui-font-mono);
-}
-
-.fui-map-band rect.fui-map-band-box {
-  fill: var(--fui-brand-subtle);
-  stroke: var(--fui-line);
-}
-
-.fui-map-unbound rect {
-  fill: var(--fui-warning-subtle);
-  stroke: var(--fui-warning);
-  stroke-dasharray: 4 4;
-}
-
-.fui-map-unbound .fui-map-zone-label {
-  fill: var(--fui-warning);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.fui-map-band-head text.fui-map-band-title {
-  font-family: var(--fui-font-mono);
-  font-weight: 600;
-}
-
-.fui-map-lane rect.fui-map-lane-box {
-  fill: var(--fui-surface);
-  stroke: var(--fui-line-strong);
-}
-
-.fui-map-lane[data-tone="warning"] rect.fui-map-lane-box {
-  fill: var(--fui-warning-subtle);
-  stroke: var(--fui-warning);
-}
-
-.fui-map-lane[data-tone="negative"] rect.fui-map-lane-box {
-  fill: var(--fui-negative-subtle);
-  stroke: var(--fui-negative);
-}
-
-.fui-map-lane .fui-map-health {
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.fui-map-lane[data-tone="positive"] .fui-map-health { fill: var(--fui-positive); }
-.fui-map-lane[data-tone="warning"] .fui-map-health { fill: var(--fui-warning); }
-.fui-map-lane[data-tone="negative"] .fui-map-health { fill: var(--fui-negative); }
-.fui-map-lane[data-tone="neutral"] .fui-map-health { fill: var(--fui-ink-2); }
-
-.fui-map-glyph {
-  fill: currentColor;
-}
-
-.fui-map-lane .fui-map-glyph,
-.fui-map-lane .fui-map-glyph-ring {
-  color: var(--fui-ink-2);
-}
-
-.fui-map-lane[data-tone="positive"] .fui-map-glyph { color: var(--fui-positive); }
-.fui-map-lane[data-tone="warning"] .fui-map-glyph,
-.fui-map-lane[data-tone="warning"] .fui-map-glyph-ring { color: var(--fui-warning); }
-.fui-map-lane[data-tone="negative"] .fui-map-glyph { color: var(--fui-negative); }
-
-.fui-map-glyph-ring {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-}
-
-.fui-map-rate {
-  fill: var(--fui-signal);
-  font-family: var(--fui-font-mono);
-  font-size: 11px;
-}
-
-.fui-map-spark {
-  fill: none;
-  stroke: var(--fui-signal);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.25;
-}
-
-.fui-map-hit {
-  cursor: pointer;
-  outline: none;
-}
-
-.fui-map-hit:hover rect:first-of-type,
-.fui-map-hit:focus-visible rect:first-of-type {
-  stroke: var(--fui-accent);
-  stroke-width: 1.5;
-}
-
-.fui-map-hit:focus-visible rect:first-of-type {
-  stroke-width: 2.5;
-}
-
-.fui-map-hit[aria-pressed="true"] rect:first-of-type {
-  stroke: var(--fui-accent);
-  stroke-width: 2;
-}
-
-.fui-map-wire {
-  fill: none;
-  stroke: var(--fui-line-strong);
-  stroke-width: 1.25;
-}
-
-/* Flow dots ride a wire at the speed bucket of its measured rate; an idle
-   wire is drawn plain. The marching keyframe is the relay graph's. */
-.fui-map-wire.topo-flow-slow,
-.fui-map-wire.topo-flow-medium,
-.fui-map-wire.topo-flow-fast {
-  stroke: var(--fui-signal);
-  stroke-dasharray: 0 10;
-  stroke-linecap: round;
-  stroke-width: 3;
-}
-
-.fui-map-wire.topo-flow-fast {
-  stroke-width: 3.5;
-}
-
-.fui-map-drain rect {
-  fill: var(--fui-raised);
-  stroke: var(--fui-warning);
-}
-
-.fui-map-drain text {
-  fill: var(--fui-ink-1);
-  font-size: 12px;
-}
-
-.fui-map-drain .fui-map-sub {
-  fill: var(--fui-warning);
-  font-size: 11px;
-}
-
-.fui-map-more text {
-  fill: var(--fui-accent);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.fui-map-more-runners rect {
-  fill: var(--fui-raised);
-  stroke: var(--fui-line-strong);
-  stroke-dasharray: 4 4;
-}
-
-.fui-map-more-runners text {
-  fill: var(--fui-accent);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.fui-map-more-runners .fui-map-sub {
-  fill: var(--fui-ink-3);
-  font-size: 11px;
-  font-weight: 400;
-}
-
-.fui-map-legend {
-  color: var(--fui-ink-3);
+.fui-indicator-links {
   display: flex;
   flex-wrap: wrap;
   font-size: var(--fui-text-xs);
-  gap: var(--fui-space-2) var(--fui-space-5);
+  gap: var(--fui-space-1) var(--fui-space-3);
+}
+
+.fui-indicator-meters {
+  display: grid;
+  font-size: var(--fui-text-xs);
+  gap: var(--fui-space-2);
+}
+
+@media (width <= 599px) {
+  .fui-indicators {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* ======================================================================
@@ -2374,11 +2190,6 @@ a.fui-tile:hover {
   .fui-auth {
     padding: var(--fui-space-9) var(--fui-space-4) var(--fui-space-7);
   }
-}
-
-.fui-map-hitbox {
-  fill: transparent;
-  stroke: transparent;
 }
 
 /* A sampled series drawn as bars, a missing sample as a gap. */

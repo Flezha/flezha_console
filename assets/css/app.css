@@ -29,22 +29,11 @@
  * nets in six hues with halos and junctions, ports and their taps, badges,
  * focus, the view controls, the Cell sheet, the flow sentence and timeline.
  * Records moving are drawn on a canvas by the `FlzPipeline` hook.
- *
- * The namespace map's wires march by the relay graph's speed buckets.
  */
-@keyframes topo-flow { to { stroke-dashoffset: -32; } }
-
 @keyframes topo-pulse {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.5; }
 }
-
-.topo-flow-slow,
-.topo-flow-medium,
-.topo-flow-fast    { stroke: var(--brand-solid); stroke-dasharray: 6 10; stroke-opacity: 1; }
-.topo-flow-slow    { animation: topo-flow 1.8s  linear infinite; }
-.topo-flow-medium  { animation: topo-flow 0.9s  linear infinite; stroke-width: 2.5; }
-.topo-flow-fast    { animation: topo-flow 0.35s linear infinite; stroke-width: 3; stroke: var(--positive); }
 
 /* The relay's ground, which a wire's halo repeats to cut a crossing line,
    and which the legend's relay swatch shows. */
@@ -260,7 +249,7 @@
 .topo-timeline-axis { display: flex; justify-content: space-between; margin-left: 6rem; }
 
 @media (prefers-reduced-motion: reduce) {
-  .topo-flow-slow, .topo-flow-medium, .topo-flow-fast, .topo-backpressure { animation: none; }
+  .topo-backpressure { animation: none; }
   .topo-canvas .topo-net, .topo-canvas .topo-n, .topo-cell-key::before { transition: none; }
 }
 

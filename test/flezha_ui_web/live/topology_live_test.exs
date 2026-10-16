@@ -1407,12 +1407,13 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert html =~ ~s(data-testid="topology-empty")
       assert html =~ "a runner must connect before a relay can run"
       assert html =~ ~s(data-testid="start-relay-empty-btn")
-      refute html =~ ~s(data-testid="namespace-map")
+      refute html =~ ~s(data-testid="home-namespace-tiles")
+      assert html =~ ~s(data-testid="home-system")
     end
   end
 
   describe "Home's problems" do
-    test "an idle unhealthy relay is listed above the map, with why and what to do", %{
+    test "an idle unhealthy relay is listed above the tiles, with why and what to do", %{
       conn: conn,
       node: node
     } do
@@ -1423,7 +1424,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert html =~ ~s(data-testid="problem-relay:default:idle_but_sick")
       assert html =~ "idle_but_sick is degraded"
       assert html =~ ~s(data-testid="problem-diagnose-relay:default:idle_but_sick")
-      assert :binary.match(html, "home-problems") < :binary.match(html, "namespace-map")
+      assert :binary.match(html, "home-problems") < :binary.match(html, "home-system")
     end
 
     test "Diagnose answers inline beneath its problem", %{conn: conn, node: node} do
@@ -1493,114 +1494,235 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     end
   end
 
-  describe "Home's map" do
-    test "draws each relay in its runner's band, and one with no runner apart", %{
+  describe "Home's namespace tiles" do
+    test "relays are counted by health, each verdict linking to its relays", %{
       conn: conn,
       node: node
     } do
-      stack(node, rows: [summary_row("orders"), summary_row("testnet_echo", %{runner: nil})])
+      rows = [
+        summary_row("relay_s", %{health: :suspended})
+        | Enum.map(1..7, &summary_row("relay_#{&1}"))
+      ]
+
+      stack(node, rows: rows)
+
+      {:ok, view, html} = live(conn, ~p"/namespaces/default")
+
+      assert text_of(html, ~s([data-testid="ns-relays-value"])) == "8"
+      assert text_of(html, ~s([data-testid="ns-relays-condition"])) == "7 healthy · 1 suspended"
+      assert attrs(html, ~s([data-testid="ns-relays"]), "data-tone") == ["warning"]
+      assert html =~ ~s(data-testid="ns-relays-strip")
+
+      assert {:error, {:live_redirect, %{to: "/relays?namespace=default&health=suspended"}}} =
+               view |> element(~s([data-testid="ns-relays-suspended"])) |> render_click()
+    end
+
+    test "every health verdict is counted on its own, an unknown one never as healthy", %{
+      conn: conn,
+      node: node
+    } do
+      verdicts = Enum.with_index([nil | FlezhaUiWeb.Words.health_verdicts()])
+
+      stack(node,
+        rows: Enum.map(verdicts, fn {h, i} -> summary_row("relay_#{i}", %{health: h}) end)
+      )
 
       {:ok, _view, html} = live(conn, ~p"/namespaces/default")
 
-      assert html =~ ~s(data-testid="map-band-runner-a")
-      assert html =~ ~s(data-testid="map-lane-orders")
-      assert html =~ ~s(data-testid="map-unbound")
-      assert html =~ "Waiting for a runner"
+      # The row with no health and the one the loop calls unknown are both unknown.
+      assert text_of(html, ~s([data-testid="ns-relays-unknown"])) == "2 unknown"
+
+      for verdict <- FlezhaUiWeb.Words.health_verdicts() -- [:healthy, :unknown] do
+        words = :health |> FlezhaUiWeb.Words.text(verdict) |> String.downcase()
+        assert text_of(html, ~s([data-testid="ns-relays-#{verdict}"])) == "1 #{words}"
+      end
+
+      assert text_of(html, ~s([data-testid="ns-relays-condition"])) =~ "1 healthy"
     end
 
-    test "costs one plugin read and no call per relay", %{conn: conn, node: node} do
+    test "every relay healthy reads as all healthy, and the list link opens them", %{
+      conn: conn,
+      node: node
+    } do
+      stack(node, relays: ["relay_a", "relay_b"])
+
+      {:ok, view, html} = live(conn, ~p"/namespaces/default")
+
+      assert text_of(html, ~s([data-testid="ns-relays-condition"])) == "All healthy"
+      assert attrs(html, ~s([data-testid="ns-relays"]), "data-tone") == ["positive"]
+
+      assert {:error, {:live_redirect, %{to: "/namespaces/default/relays"}}} =
+               view |> element(~s([data-testid="ns-relays-all"])) |> render_click()
+    end
+
+    test "the flow is measured from two snapshots, with its history", %{conn: conn, node: node} do
+      stack(node, relays: ["relay_a", "relay_b"])
+      snapshot(node, [{"relay_a", 0, 0}, {"relay_b", 0, 0}])
+
+      {:ok, view, html} = live(conn, ~p"/namespaces/default")
+
+      assert text_of(html, ~s([data-testid="ns-flow-condition"])) =~ "Measuring"
+      refute html =~ ~s(data-testid="ns-flow-value")
+      refute html =~ ~s(data-testid="ns-flow-spark")
+
+      snapshot(node, [{"relay_a", 1_000, 0}, {"relay_b", 500, 0}])
+      tick(view)
+      snapshot(node, [{"relay_a", 3_000, 0}, {"relay_b", 1_000, 0}])
+      html = tick(view)
+
+      # The two relays' rates, summed into one figure.
+      assert text_of(html, ~s([data-testid="ns-flow-value"])) =~ ~r/^[1-9][\d.]* msgs\/s$/
+
+      assert text_of(html, ~s([data-testid="ns-flow-condition"])) ==
+               "Records arriving each second"
+
+      assert html =~ ~s(data-testid="ns-flow-spark")
+    end
+
+    test "the namespace's own parked entries open the dead-letter screen", %{
+      conn: conn,
+      node: node
+    } do
+      stack(node)
+
+      FakeController.set(
+        node,
+        {Dlq, :stats},
+        {:ok,
+         [
+           %{relay_class: "relay_a", tasklet_id: "sh", entries: 7, bytes: 0},
+           %{relay_class: "elsewhere", tasklet_id: "sh", entries: 5, bytes: 0}
+         ]}
+      )
+
+      {:ok, view, html} = live(conn, ~p"/namespaces/default")
+
+      assert text_of(html, ~s([data-testid="ns-parked-value"])) == "7"
+      assert attrs(html, ~s([data-testid="ns-parked"]), "data-tone") == ["negative"]
+      assert has_element?(view, ~s(a[data-testid="ns-parked"][href="/dlq"]))
+    end
+
+    test "plugins are counted once however many relays bind them", %{conn: conn, node: node} do
+      stack(node, relays: ["relay_a", "relay_b"])
+
+      FakeController.set(
+        node,
+        {Relay, :relay_plugins},
+        {:ok,
+         [
+           {"relay_a", [{"ws_in", %{}}, {"kafka_out", %{}}]},
+           {"relay_b", [{"ws_in", %{}}]}
+         ]}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert text_of(html, ~s([data-testid="ns-plugins-value"])) == "2"
+      assert text_of(html, ~s([data-testid="ns-plugins-condition"])) == "Bound to 2 relays"
+    end
+
+    test "schedules are this namespace's, with the next one to fire", %{conn: conn, node: node} do
+      stack(node)
+      soon = ~U[2026-10-17 09:30:00Z]
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Schedule, :list},
+        {:ok,
+         [
+           %{
+             name: "nightly",
+             cron: "0 2 * * *",
+             timezone: "Etc/UTC",
+             namespace: "default",
+             factory_id: "f",
+             node: :n,
+             next_fire: {:ok, ~U[2026-10-18 02:00:00Z]}
+           },
+           %{
+             name: "soon",
+             cron: "30 9 * * *",
+             timezone: "Etc/UTC",
+             namespace: "default",
+             factory_id: "f",
+             node: :n,
+             next_fire: soon
+           },
+           %{
+             name: "theirs",
+             cron: "* * * * *",
+             timezone: "Etc/UTC",
+             namespace: "staging",
+             factory_id: "f",
+             node: :n,
+             next_fire: ~U[2026-10-17 00:00:00Z]
+           }
+         ]}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert text_of(html, ~s([data-testid="ns-schedules-value"])) == "2"
+
+      assert text_of(html, ~s([data-testid="ns-schedules-condition"])) ==
+               "Next fires at #{FlezhaUi.Format.time_of_day(soon)}"
+    end
+
+    test "a breached limit comes first, in the negative tone", %{conn: conn, node: node} do
+      stack(node)
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Namespace, :get},
+        {:ok, %{name: "default", quotas: %{max_relays: 5, max_runners: 10}}}
+      )
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Namespace, :quota},
+        {:per_arg, 1, %{relays: {:ok, 5}, runners: {:ok, 9}}, {:ok, 0}}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert attrs(html, ~s([data-testid="ns-limits"]), "data-tone") == ["negative"]
+      assert text_of(html, ~s([data-testid="ns-limits-value"])) == "100%"
+
+      assert attrs(html, ~s([data-testid="ns-limits"] [data-testid^="ns-limit-"]), "data-testid") ==
+               ["ns-limit-relays", "ns-limit-runners"]
+
+      assert text_of(html, ~s([data-testid="ns-limit-relays"])) =~ "5 of 5"
+    end
+
+    test "a tick costs one runners read and no call per relay", %{conn: conn, node: node} do
       stack(node, relays: Enum.map(1..50, &"relay_#{&1}"))
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      before = length(FakeController.calls(node, {Relay, :relay_plugins}))
+      # The shell's first pulse reads too; let it land before counting.
+      render(view)
+      runners = length(FakeController.calls(node, {Fleet, :runners}))
       tick(view)
 
       assert FakeController.calls(node, {Relay, :overwatch_state}) == []
-      assert length(FakeController.calls(node, {Relay, :relay_plugins})) == before + 1
+      assert FakeController.calls(node, {Relay, :registry}) == []
+      assert length(FakeController.calls(node, {Fleet, :runners})) == runners + 1
     end
 
-    test "wires animate at their speed only once two snapshots exist", %{conn: conn, node: node} do
-      stack(node)
-      snapshot(node, [{"relay_a", 0, 0}])
-
-      {:ok, view, html} = live(conn, ~p"/namespaces/default")
-
-      refute html =~ "topo-flow-"
-      refute html =~ ~s(data-testid="map-rate-relay_a")
-
-      snapshot(node, [{"relay_a", 2_000, 0}])
-      html = tick(view)
-
-      assert [wire] = attrs(html, ~s([data-testid="map-wire-calls->relay-relay_a"]), "class")
-      assert wire =~ ~r/\btopo-flow-[a-z]+\b/
-
-      assert html =~ ~s(data-testid="map-rate-relay_a")
-    end
-
-    test "parked entries open the dead-letter drain", %{conn: conn, node: node} do
-      stack(node)
-
-      FakeController.set(
-        node,
-        {Dlq, :stats},
-        {:ok, [%{relay_class: "relay_a", tasklet_id: "sh", entries: 7, bytes: 0}]}
-      )
-
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-
-      assert has_element?(view, ~s(a[data-testid="map-drain"][href="/dlq"]), "7 parked")
-    end
-
-    test "another namespace's parked entries are not this Home's", %{conn: conn, node: node} do
-      stack(node)
-
-      FakeController.set(
-        node,
-        {Dlq, :stats},
-        {:ok, [%{relay_class: "elsewhere", tasklet_id: "sh", entries: 5, bytes: 0}]}
-      )
-
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-
-      refute has_element?(view, ~s([data-testid="map-drain"]), "5 parked")
-    end
-
-    test "a stack of four expands on request, from what the last tick read", %{
-      conn: conn,
-      node: node
-    } do
-      stack(node, rows: Enum.map(1..4, &summary_row("store_#{&1}", %{factory: "store_input"})))
-
-      {:ok, view, html} = live(conn, ~p"/namespaces/default")
-
-      assert html =~ "store_input ×4"
-      refute html =~ ~s(data-testid="map-lane-store_1")
-      # The shell's first pulse reads the rows too; let it land before counting.
-      render(view)
-      calls = length(FakeController.calls(node, {Relay, :relay_rows}))
-
-      html =
-        view
-        |> element(~s([data-testid="map-lane-runner-a/store_input"][phx-click="map_expand"]))
-        |> render_click()
-
-      assert html =~ ~s(data-testid="map-lane-store_1")
-      assert length(FakeController.calls(node, {Relay, :relay_rows})) == calls
-    end
-
-    test "a runner event of its namespace redraws the bands before the next tick", %{
+    test "a runner event of its namespace updates the runners before the next tick", %{
       conn: conn,
       node: node
     } do
       stack(node)
 
       {:ok, view, html} = live(conn, ~p"/namespaces/default")
-      assert html =~ ~s(data-testid="map-band-runner-a")
+      assert text_of(html, ~s([data-testid="ns-runners-value"])) == "1"
 
       FakeController.set(node, {Fleet, :runners}, {:ok, []})
       send(view.pid, {:flezha_event, :runner_disconnected, {"default", "runner-a"}})
 
-      refute render(view) =~ ~s(data-testid="map-band-runner-a")
+      html = render(view)
+      assert text_of(html, ~s([data-testid="ns-runners-value"])) == "0"
+      assert attrs(html, ~s([data-testid="ns-runners"]), "data-tone") == ["warning"]
     end
 
     test "a runner event of another namespace does not reload the page", %{conn: conn, node: node} do
@@ -1611,26 +1733,165 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       FakeController.set(node, {Fleet, :runners}, {:ok, []})
       send(view.pid, {:flezha_event, :runner_disconnected, {"other", "runner-z"}})
 
-      assert render(view) =~ ~s(data-testid="map-band-runner-a")
+      assert text_of(render(view), ~s([data-testid="ns-runners-value"])) == "1"
     end
   end
 
-  describe "inspecting from the map" do
-    test "activating a lane opens the relay inspector in place, with one overwatch read",
-         %{conn: conn, node: node} do
+  describe "Home's system tiles" do
+    test "count every reachable namespace, node, runner and relay", %{conn: conn, node: node} do
+      stack(node, relays: ["relay_a", "relay_b"], runners: ["runner-a"])
+
+      {_view, html} = home(conn)
+
+      assert text_of(html, ~s([data-testid="sys-namespaces-value"])) == "2"
+      # Two namespaces of two relays each.
+      assert text_of(html, ~s([data-testid="sys-relays-value"])) == "4"
+      assert text_of(html, ~s([data-testid="sys-relays-condition"])) == "All healthy"
+      # Each namespace answers the same runner id: it is one runner.
+      assert text_of(html, ~s([data-testid="sys-runners-value"])) == "1"
+      assert text_of(html, ~s([data-testid="sys-nodes-value"])) == "1"
+      assert text_of(html, ~s([data-testid="sys-nodes-condition"])) =~ "connected to #{node}"
+
+      assert text_of(html, ~s([data-testid="sys-problems-condition"])) ==
+               "Nothing needs attention"
+
+      assert attrs(html, ~s([data-testid="sys-controller"]), "data-tone") == ["positive"]
+      assert html =~ ~s(data-testid="home-system-checked")
+    end
+
+    test "a durability breach is stated on the controller tile", %{conn: conn, node: node} do
+      stack(node)
+
+      FakeController.set(
+        node,
+        {Controller, :durability_breaches},
+        {:ok, [%{ref: "r1", age_ms: 90_000, rpo_ms: 60_000}]}
+      )
+
+      {_view, html} = home(conn)
+
+      assert attrs(html, ~s([data-testid="sys-controller"]), "data-tone") == ["negative"]
+      assert text_of(html, ~s([data-testid="sys-controller-condition"])) =~ "1 durability breach"
+    end
+
+    test "open problems are counted in the worst one's tone", %{conn: conn, node: node} do
+      stack(node, rows: [summary_row("sick", %{health: :failed}), summary_row("fine")])
+
+      {view, html} = home(conn)
+
+      # One failed relay in each of the two namespaces.
+      assert text_of(html, ~s([data-testid="sys-problems-value"])) == "2"
+      assert attrs(html, ~s([data-testid="sys-problems"]), "data-tone") == ["negative"]
+      assert has_element?(view, ~s(a[data-testid="sys-problems"][href="/problems"]))
+    end
+
+    test "only Home asks the pulse for fleet figures", %{conn: conn, node: node} do
+      stack(node)
+
+      {:ok, view, _html} = live(conn, ~p"/problems")
+      render(view)
+
+      assert FakeController.calls(node, {Controller, :cluster_status}) == []
+      assert FakeController.calls(node, {Controller, :status}) == []
+      assert FakeController.calls(node, {Fleet, :runners}) == []
+    end
+
+    test "the fleet figures cost the same for two relays and for fifty", %{
+      conn: conn,
+      node: node
+    } do
+      reach = fn relays ->
+        FakeController.reset(node)
+        stack(node, relays: relays)
+        home(conn)
+
+        for key <- [{Controller, :cluster_status}, {Controller, :status}],
+            do: length(FakeController.calls(node, key))
+      end
+
+      assert reach.(["relay_a", "relay_b"]) == reach.(Enum.map(1..50, &"relay_#{&1}"))
+    end
+
+    test "a hidden Home's pulse keeps its fleet figures without reading them", %{
+      conn: conn,
+      node: node
+    } do
+      stack(node)
+
+      {view, _html} = home(conn)
+      assert length(FakeController.calls(node, {Controller, :cluster_status})) == 2
+
+      view
+      |> element("#home-visibility")
+      |> render_hook("refresh_visibility", %{"hidden" => true})
+
+      send(view.pid, :shell_pulse)
+      html = render(view)
+
+      assert length(FakeController.calls(node, {Controller, :cluster_status})) == 2
+      assert text_of(html, ~s([data-testid="sys-nodes-value"])) == "1"
+    end
+  end
+
+  describe "Home's reads" do
+    test "nothing is read while the tab is hidden, and once when it is shown", %{
+      conn: conn,
+      node: node
+    } do
+      stack(node)
+
+      {view, _html} = home(conn)
+      before = length(FakeController.calls(node, {Relay, :relay_plugins}))
+
+      view
+      |> element("#home-visibility")
+      |> render_hook("refresh_visibility", %{"hidden" => true})
+
+      tick(view)
+      assert length(FakeController.calls(node, {Relay, :relay_plugins})) == before
+
+      view
+      |> element("#home-visibility")
+      |> render_hook("refresh_visibility", %{"hidden" => false})
+
+      assert length(FakeController.calls(node, {Relay, :relay_plugins})) == before + 1
+    end
+
+    test "a burst of lifecycle events costs one read", %{conn: conn, node: node} do
+      # A window longer than the test, so the read is the one this test sends.
+      TestEnv.put_app(:refresh_coalesce_ms, :timer.hours(1))
+      stack(node)
+
+      {view, _html} = home(conn)
+      before = length(FakeController.calls(node, {Relay, :relay_plugins}))
+
+      for i <- 1..10 do
+        send(view.pid, {:flezha_event, :relay_stopped, {"default", stopped("relay_#{i}")}})
+      end
+
+      send(view.pid, {:flezha_event, :relay_stopped, {"staging", stopped("theirs")}})
+      html = render(view)
+
+      assert length(FakeController.calls(node, {Relay, :relay_plugins})) == before
+      assert html |> String.split("stopped: ") |> length() == 11
+
+      send(view.pid, :refresh_requested)
+      render(view)
+      assert length(FakeController.calls(node, {Relay, :relay_plugins})) == before + 1
+    end
+  end
+
+  describe "inspecting on Home" do
+    test "a shared link opens the relay inspector, with one overwatch read", %{
+      conn: conn,
+      node: node
+    } do
       stack(node, rows: [summary_row("relay_a"), summary_row("relay_b")])
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
 
-      view |> element(~s([data-testid="map-lane-relay_a"])) |> render_click()
-      assert_patch(view, "/namespaces/default?inspect=relay%3Arelay_a")
-
-      html = render(view)
       assert html =~ ~s(data-testid="inspector-relay")
       assert html =~ ~s(data-testid="inspector-sentence")
-
-      assert attrs(html, ~s([data-testid="map-lane-relay_a"]), "aria-pressed") == ["true"]
-
       assert length(FakeController.calls(node, {Relay, :overwatch_state})) == 1
 
       # The host's tick does not read it again.
@@ -1647,9 +1908,10 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       snapshot(node, [{"relay_a", 1_000, 0}])
       tick(view)
       snapshot(node, [{"relay_a", 3_000, 0}])
-      assert tick(view) =~ ~s(data-testid="map-spark-relay_a")
+      tick(view)
 
-      html = view |> element(~s([data-testid="map-lane-relay_a"])) |> render_click()
+      # The inspector takes the rates the screen measured when it opens.
+      html = render_patch(view, "/namespaces/default?inspect=relay:relay_a")
 
       assert html =~ ~s(data-testid="inspector-rate-in")
       assert html =~ ~s(data-testid="inspector-sparkline")
@@ -1661,38 +1923,28 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
              )
     end
 
-    test "a runner's band opens what it serves and what is bound to it", %{
+    test "a shared runner link opens what it serves and the relays bound to it", %{
       conn: conn,
       node: node
     } do
-      stack(node)
+      stack(node, rows: [summary_row("relay_a"), summary_row("relay_b")])
+      FakeController.set(node, {Fleet, :runners}, {:ok, [%{id: "runner-a", pid: 4242}]})
       FakeController.set(node, {Fleet, :factories}, {:ok, [%{id: "store_input", run: :flow}]})
       FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      html = view |> element(~s([data-testid="map-runner-runner-a"])) |> render_click()
+      {:ok, view, html} = live(conn, "/namespaces/default?inspect=runner:runner-a")
 
       assert html =~ ~s(data-testid="inspector-runner")
-      assert html =~ ~s(data-testid="inspector-pid")
+      assert html =~ "4242"
       assert html =~ ~s(data-testid="inspector-principal")
       assert view |> element(~s([data-testid="inspector-factories"])) |> render() =~ "store_input"
-      assert view |> element(~s([data-testid="inspector-relays"])) |> render() =~ "relay_a"
+      assert html =~ ~s(href="/namespaces/default/relays/relay_b")
     end
 
-    test "a band holding more than twelve lanes links to the rest", %{conn: conn, node: node} do
-      stack(node, rows: Enum.map(1..13, &summary_row("relay_#{&1}", %{factory: "f#{&1}"})))
-
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-
-      assert has_element?(view, ~s(a[data-testid="map-more-runner-a"]), "+1 more")
-    end
-
-    test "a shared link opens the same inspector, and closing it clears the address",
-         %{conn: conn, node: node} do
+    test "closing the inspector clears the address", %{conn: conn, node: node} do
       stack(node)
 
-      {:ok, view, html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
-      assert html =~ ~s(data-testid="inspector-relay")
+      {:ok, view, _html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
 
       view
       |> element(~s([data-testid="inspector-close"][phx-click="inspect_close"]))
@@ -1737,24 +1989,6 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       assert html =~ ~s(data-testid="inspector-missing")
       assert html =~ "gone is not running"
-    end
-
-    test "a runner band's heading opens the runner inspector with its relays", %{
-      conn: conn,
-      node: node
-    } do
-      stack(node, rows: [summary_row("relay_a"), summary_row("relay_b")])
-      FakeController.set(node, {Fleet, :runners}, {:ok, [%{id: "runner-a", pid: 4242}]})
-
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-
-      html = view |> element(~s([data-testid="map-runner-runner-a"])) |> render_click()
-      assert_patch(view, "/namespaces/default?inspect=runner%3Arunner-a")
-
-      html = render(view) <> html
-      assert html =~ ~s(data-testid="inspector-runner")
-      assert html =~ "4242"
-      assert html =~ ~s(href="/namespaces/default/relays/relay_b")
     end
   end
 
@@ -1813,6 +2047,23 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
   defp figure(html, testid) do
     [n] = Regex.run(~r"[\d.]+(?=/s)", text_of(html, ~s([data-testid="#{testid}"])))
     String.to_float(n)
+  end
+
+  # Home once the shell's first pulse, which its system tiles read, has landed.
+  defp home(conn) do
+    {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+    {view, render(view)}
+  end
+
+  defp stopped(relay) do
+    %{
+      event: :relay_stopped,
+      relay: relay,
+      factory: "store_input",
+      runner: nil,
+      reason: :normal,
+      at: DateTime.utc_now()
+    }
   end
 
   defp attrs(html, selector, name) do

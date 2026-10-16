@@ -169,6 +169,15 @@ defmodule FlezhaUiWeb.Words do
   def health_verdicts, do: FlezhaUi.Service.NodeManager.health_verdicts()
 
   @doc """
+  The shape a tone is drawn with beside its words, so a tone is never told by
+  colour alone.
+  """
+  def shape(:positive), do: "dot"
+  def shape(:warning), do: "triangle"
+  def shape(:negative), do: "cross"
+  def shape(_neutral), do: "ring"
+
+  @doc """
   The worst of `tones`: negative over warning over positive over neutral.
   What a strip, a count or a header paints a mixed set in.
   """

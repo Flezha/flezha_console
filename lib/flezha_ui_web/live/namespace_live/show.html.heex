@@ -1,12 +1,13 @@
 <% {condition, headline} =
   headline(@topology || %{state: :loading}, @items, @topology_state.rates, @ns) %>
+<% inbound = @topology_state.rates |> Map.values() |> Topology.sum_rates() %>
 <.page_header eyebrow="Namespace" title={@ns} headline>
   <:sentence>
     <span data-testid="home-headline" data-condition={condition}>{headline}</span>
   </:sentence>
   <:figures :if={@loaded? and condition not in [:unreachable]}>
     <span data-testid="home-figures">
-      {figures(@topology || %{}, @rows, @topology_state.rates)}
+      {figures(@topology || %{}, @rows, inbound)}
     </span>
   </:figures>
   <:actions>
@@ -21,6 +22,9 @@
   </:actions>
 </.page_header>
 
+<%!-- Tells the tick when the tab is hidden, so a background tab reads nothing --%>
+<div id="home-visibility" phx-hook="FlzVisibility" hidden></div>
+
 <.runtime_error error={@load_error} action="the relay listing" />
 
 <%!-- The namespace's problems, worst first --%>
@@ -33,31 +37,200 @@
   testid="home-problems"
 />
 
-<%!-- The live map, or what stands in for it --%>
-<div class="mt-6">
-  <.skeleton :if={!@loaded?} rows={6} testid="map-loading" />
-  <%= cond do %>
-    <% !@loaded? -> %>
-    <% condition == :unreachable -> %>
-      <div data-testid="topology-disconnected">
-        <.runtime_error error={:node_not_connected} />
-      </div>
-    <% condition == :empty -> %>
-      <.empty_state icon="hero-squares-plus" testid="topology-empty">
-        A <.term key="runner" /> is an SDK process that serves factories, and a
-        <.term key="relay" /> is started from one of those factories and runs on its runner.
-        Nothing runs in {@ns} yet: a runner must connect before a relay can run.
-        <:action :if={NodeManager.granted?(@operations, "Relay.start")}>
-          <.button phx-click="launcher_open" size="sm" data-testid="start-relay-empty-btn">
-            Start relay
-          </.button>
-        </:action>
-      </.empty_state>
-    <% @map -> %>
-      <.namespace_map map={@map} />
-    <% true -> %>
-  <% end %>
-</div>
+<%= if condition == :unreachable do %>
+  <div class="mt-6" data-testid="topology-disconnected">
+    <.runtime_error error={:node_not_connected} />
+  </div>
+<% else %>
+  <%!-- Everything the operator reaches, from the shell pulse --%>
+  <.section
+    testid="home-system"
+    help="Everything your token reaches, across every namespace. Read with the shell's check every 10 seconds."
+  >
+    <:title>System</:title>
+    <:actions :if={@shell_pulse}>
+      <span class="fui-figures" data-testid="home-system-checked">
+        Read at {Format.time_of_day(@shell_pulse.checked_at)}
+      </span>
+    </:actions>
+    <.skeleton :if={is_nil(@shell_pulse)} rows={2} testid="home-system-loading" />
+    <div :if={@shell_pulse} class="fui-indicators" data-testid="home-system-tiles">
+      <% fleet = @shell_pulse.fleet %>
+      <.tile
+        testid="sys-namespaces"
+        label="Namespaces"
+        value={fleet.namespaces}
+        condition="Reachable with your token"
+        href={~p"/namespaces"}
+      />
+      <% {nodes_tone, nodes_condition} = nodes_said(fleet[:nodes]) %>
+      <.tile
+        testid="sys-nodes"
+        label="Controller nodes"
+        value={fleet[:nodes] && length(fleet.nodes)}
+        tone={nodes_tone}
+        condition={nodes_condition}
+        href={~p"/cluster"}
+      />
+      <.tile
+        testid="sys-runners"
+        label="Runners"
+        value={fleet[:runners]}
+        tone={runners_tone(fleet[:runners], health_total(fleet.health))}
+        condition={(fleet[:runners] && "Connected across the cluster") || "Not read yet"}
+        href={~p"/cluster"}
+      />
+      <.tile
+        testid="sys-relays"
+        label="Relays"
+        value={health_total(fleet.health)}
+        tone={health_tone(fleet.health)}
+        condition={health_condition(fleet.health)}
+        href={~p"/relays"}
+      >
+        <.strip counts={fleet.health} testid="sys-relays-strip" />
+      </.tile>
+      <% {problems_tone, problems_condition} = problems_said(@shell_pulse.items) %>
+      <.tile
+        testid="sys-problems"
+        label="Open problems"
+        value={length(@shell_pulse.items)}
+        tone={problems_tone}
+        condition={problems_condition}
+        href={~p"/problems"}
+      />
+      <% {controller_tone, controller_value, controller_condition} =
+        controller_said(NodeManager.connected_node(), fleet) %>
+      <.tile
+        testid="sys-controller"
+        label="Controller"
+        value={controller_value}
+        tone={controller_tone}
+        condition={controller_condition}
+        href={~p"/controller"}
+      />
+    </div>
+  </.section>
+
+  <%!-- This namespace, from this screen's own tick --%>
+  <.section
+    testid="home-namespace"
+    help="This namespace: its relays and their health, what serves them, what flows through them and how close each limit is. Read every 2 seconds."
+  >
+    <:title>{@ns}</:title>
+    <.skeleton :if={!@loaded?} rows={2} testid="home-namespace-loading" />
+    <%= cond do %>
+      <% !@loaded? -> %>
+      <% condition == :empty -> %>
+        <.empty_state icon="hero-squares-plus" testid="topology-empty">
+          A <.term key="runner" /> is an SDK process that serves factories, and a
+          <.term key="relay" /> is started from one of those factories and runs on its runner.
+          Nothing runs in {@ns} yet: a runner must connect before a relay can run.
+          <:action :if={NodeManager.granted?(@operations, "Relay.start")}>
+            <.button phx-click="launcher_open" size="sm" data-testid="start-relay-empty-btn">
+              Start relay
+            </.button>
+          </:action>
+        </.empty_state>
+      <% true -> %>
+        <div class="fui-indicators" data-testid="home-namespace-tiles">
+          <% health = Enum.map(@topology.health, &{&1.health, &1.count}) %>
+          <.tile
+            testid="ns-relays"
+            label="Relays"
+            value={@topology.relay_count}
+            tone={health_tone(health)}
+            condition={health_condition(health)}
+          >
+            <.strip counts={health} testid="ns-relays-strip" />
+            <span class="fui-indicator-links">
+              <.link
+                :for={bucket <- @topology.health}
+                :if={bucket.health != :healthy}
+                navigate={bucket.href}
+                data-testid={"ns-relays-#{bucket.health}"}
+              >
+                {bucket.count} {String.downcase(Words.text(:health, bucket.health))}
+              </.link>
+              <.link navigate={~p"/namespaces/#{@ns}/relays"} data-testid="ns-relays-all">
+                List them
+              </.link>
+            </span>
+          </.tile>
+          <.tile
+            testid="ns-runners"
+            label="Runners"
+            value={length(@runners)}
+            tone={runners_tone(length(@runners), length(@rows))}
+            condition={runners_digest(@runners, @runner_marks)}
+            href={~p"/cluster"}
+          />
+          <% plugins = plugin_count(@plugin_pairs) %>
+          <.tile
+            testid="ns-plugins"
+            label="Plugins"
+            value={plugins}
+            condition={plugins_condition(@plugin_pairs)}
+            href={~p"/namespaces/#{@ns}/plugins"}
+          />
+          <.tile
+            testid="ns-schedules"
+            label="Schedules"
+            value={length(@schedules)}
+            condition={schedules_condition(@schedules)}
+            href={~p"/namespaces/#{@ns}/schedules"}
+          />
+          <.tile
+            testid="ns-parked"
+            label="Parked"
+            value={@topology.parked}
+            tone={(@topology.parked > 0 && :negative) || :positive}
+            condition={
+              (@topology.parked > 0 && "Dead-letter entries waiting for a retry or a discard") ||
+                "Nothing is parked"
+            }
+            href={~p"/dlq"}
+          />
+          <.tile
+            testid="ns-flow"
+            label="Flow in"
+            value={inbound && Topology.rate_label(inbound.in)}
+            tone={(inbound && inbound.in > 0 && :positive) || :neutral}
+            condition={flow_condition(inbound)}
+          >
+            <.sparkline
+              samples={@topology_state.history |> Map.values() |> Topology.sum_history()}
+              key={:in}
+              width={160}
+              height={28}
+              testid="ns-flow-spark"
+              label="Inbound rate history"
+            />
+          </.tile>
+          <% limits = limit_rows(@quotas) %>
+          <.tile
+            testid="ns-limits"
+            label="Limits"
+            value={peak_use(limits)}
+            tone={(@quota_breached && :negative) || :neutral}
+            condition={limits_digest(@quotas, @declared)}
+          >
+            <span :if={limits != []} class="fui-indicator-meters">
+              <span :for={row <- limits} data-testid={"ns-limit-#{row.kind}"}>
+                {Words.humanize(row.kind)} · {limit_use(row)}
+                <.meter
+                  value={row.value}
+                  max={row.limit}
+                  tone={row.breached? && :negative}
+                  label={"#{Words.humanize(row.kind)}: #{limit_use(row)}"}
+                />
+              </span>
+            </span>
+          </.tile>
+        </div>
+    <% end %>
+  </.section>
+<% end %>
 
 <%!-- What this console saw happen --%>
 <.section

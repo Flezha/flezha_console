@@ -421,7 +421,7 @@ defmodule FlezhaUiWeb.Attention do
           <p class="fui-problem-what">
             <span
               class={"fui-shape fui-tone-#{item.severity}"}
-              data-shape={if item.severity == :negative, do: "cross", else: "triangle"}
+              data-shape={Words.shape(item.severity)}
               aria-hidden="true"
             >
             </span>

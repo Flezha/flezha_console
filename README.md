@@ -51,7 +51,7 @@ scope switch moves between the two forms.
 | Route | Shows |
 | --- | --- |
 | `/` | Redirects to the Home of the namespace last worked in, then to the first reachable one, then to `/namespaces` |
-| `/namespaces/:ns` | **Home** — a headline sentence and the namespace's figures, its open problems (three, then a link), a live map of its sources, runner bands with their relays as lanes, outputs and the dead-letter drain, what happened while the screen was open, and as sections that fold: quotas, access (role bindings and tokens), partition groups, finished relays and runners; drop a runner and readmit its process |
+| `/namespaces/:ns` | **Home** — a headline sentence and the namespace's figures, its open problems (three, then a link), indicator tiles for everything the token reaches (namespaces, controller nodes, runners, relays by health, open problems, controller health) and for the namespace (relays by health with a link per verdict, runners, plugins, schedules, parked entries, inbound flow with its history, limits), what happened while the screen was open, and as sections that fold: quotas, access (role bindings and tokens), partition groups, finished relays and runners; drop a runner and readmit its process |
 | `/problems` | **Open problems** in every reachable namespace, worst first, each saying what is wrong, why, and offering the action that fixes it |
 | `/namespaces` | Declared and running namespaces as tiles, with a health strip, counts and quota breaches |
 | `/namespaces/:ns/relays` | That namespace's relays: health, run, node, runner, plugins and the measured rate — messages a second, and bytes where the controller counts them — with its recent history; a relay's name and its Open button go to its page, a partition group links each member, a row opens in an inspector, and its menu opens, inspects or stops it |
@@ -93,7 +93,9 @@ namespace and some are not, and it says which is which.
 - **Problems are counted on the rail.** A per-session pulse reads every
   reachable namespace every ten seconds, with the operator's own token and a
   fixed number of calls per namespace, and the Problems entry shows how many
-  are open in the tone of the worst.
+  are open in the tone of the worst. Home's system tiles read the same pulse,
+  which counts runners, nodes and the controller's status only for Home and
+  only while its tab is shown.
 - **Scope lives in the URL, never in the session.** `FlezhaUiWeb.Layouts`
   reads it back out of the path on every navigation, so the rail, the picker
   and the screen cannot disagree, and a pasted link opens the scope it names.
@@ -120,7 +122,8 @@ namespace and some are not, and it says which is which.
   folded section stating what it holds. The viewer's last choice is restored
   from `localStorage`; a breached quota opens its section regardless.
 - **Every screen that refreshes says so** — its interval, when it last did, and
-  a control to hold it still.
+  a control to hold it still. Home and the relay page read nothing while their
+  tab is hidden, and a burst of relay or runner events costs one read.
 
 ### On a phone or tablet
 
@@ -214,7 +217,7 @@ In dev the UI seeds testnet relays — flow and steps, `orders`, the runner's
 relay API fixture, and `testnet_showcase`, whose graph holds every shape the
 relay graph draws, with its sources, an input filter and output plugins —
 websocket plugins and a `hook_webhook` controller plugin once the controller is
-reachable, so Home's map is populated on arrival. A runner that does not
+reachable, so Home's tiles count them on arrival. A runner that does not
 announce `showcase` skips that relay with one log line. See
 `:dev_setup` in `config/dev.exs`. Before the controller boots, the
 `plugin_packages` service builds the `flezha_http` plugin package with the

@@ -2,7 +2,6 @@
 
 ## Purpose
 The console's own design layer: role-named tokens and their contrast and use gates, self-hosted typefaces, the single component kit, the page grammar, loading skeletons, visible focus, and the dev-only kit page.
-
 ## Requirements
 ### Requirement: The console names its design tokens by role
 
@@ -134,6 +133,8 @@ exactly one Phoenix function component:
 - drawer, dialog, popover and tooltip;
 - toast;
 - sparkline and meter;
+- indicator tile, with a figure, a tone, a condition sentence, an optional link
+  and room for a strip, meter or sparkline;
 - empty state;
 - skeleton;
 - code block;
@@ -147,6 +148,12 @@ elements.
 
 - **WHEN** any screen renders an action
 - **THEN** it is the kit's button component in one of its declared variants
+
+#### Scenario: An indicator is rendered
+
+- **WHEN** Home renders a count or a condition as a tile
+- **THEN** it is the kit's tile component, and `/dev/kit` shows that tile in each
+  tone and with and without a link
 
 #### Scenario: No stylebook skin outside the shell and the relay graph
 

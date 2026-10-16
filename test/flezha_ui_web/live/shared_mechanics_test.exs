@@ -309,7 +309,7 @@ defmodule FlezhaUiWeb.SharedMechanicsTest do
         modal: "stop-confirm-modal",
         cancel: "stop-cancel-btn",
         call: {Relay, :stop},
-        kept: "map-lane-relay_a"
+        kept: "inspector-relay"
       },
       %{
         screen: "relays index",
@@ -768,7 +768,6 @@ defmodule FlezhaUiWeb.SharedMechanicsTest do
   describe "a relay's verdicts on each screen that lists it" do
     # `reads` is the element that states one relay's facts on that screen.
     @screens [
-      %{screen: "namespace home", route: "/namespaces/default", reads: :lane},
       %{screen: "relays index", route: "/relays", reads: :row},
       %{screen: "relay detail", route: "/namespaces/default/relays/:id", reads: :header}
     ]
@@ -790,14 +789,6 @@ defmodule FlezhaUiWeb.SharedMechanicsTest do
     defp facts_of(conn, row, id) do
       {:ok, _view, html} = live(conn, String.replace(row.route, ":id", id))
       read(html, row.reads, id)
-    end
-
-    defp read(html, :lane, id) do
-      html
-      |> LazyHTML.from_document()
-      |> LazyHTML.query(~s([data-testid="map-lane-#{id}"]))
-      |> LazyHTML.attribute("aria-label")
-      |> Enum.join()
     end
 
     defp read(html, :row, id), do: text_of(html, ~s([data-testid="relay-index-row-#{id}"]))

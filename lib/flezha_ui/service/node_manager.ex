@@ -752,6 +752,19 @@ defmodule FlezhaUi.Service.NodeManager do
   def placed_rows(rows) when is_list(rows), do: Enum.reject(rows, &is_nil(&1[:node]))
 
   @doc """
+  The cluster's controller nodes, as `[%{name:, connected?:}]` sorted by name:
+  every node holding a hub as the controller answers `hub_nodes`, and the node
+  this UI reached, which is always a member even before it hosts a hub.
+  """
+  def cluster_nodes(hub_nodes, connected) when is_list(hub_nodes) do
+    hub_nodes
+    |> Enum.concat(List.wrap(connected))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.map(&%{name: &1, connected?: &1 == connected})
+  end
+
+  @doc """
   Plugin counts per relay id, from `relay_plugins/2`'s pairs.
 
   Keyed by string id, because a row's id and a plugin pair's id are the same

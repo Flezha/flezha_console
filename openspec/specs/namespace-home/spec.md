@@ -1,8 +1,7 @@
 # namespace-home Specification
 
 ## Purpose
-A namespace's Home: the screen the root address lands on, its headline sentence, the namespace map with its lanes, bounds and selection, and the teaching state of an empty namespace.
-
+A namespace's Home: the screen the root address lands on, its headline sentence, the system and namespace indicator tiles, how it reads its controller (paused while hidden, one read per burst of events), and the teaching state of an empty namespace.
 ## Requirements
 ### Requirement: Home is the namespace's own screen
 
@@ -12,28 +11,36 @@ bottom it SHALL hold:
 
 - a headline sentence;
 - the namespace's attention items;
-- the live namespace map;
+- the system indicators;
+- the namespace indicators;
 - the event river;
 - the namespace's folded sections: limits, access, partition groups, finished
   relays and runners.
 
-No other screen SHALL render the namespace data-plane summary.
+No other screen SHALL render the namespace data-plane summary. Home SHALL NOT draw
+a map of the namespace's data plane.
 
 #### Scenario: Opening a namespace
 
 - **WHEN** an operator opens `/namespaces/default`
-- **THEN** the headline, the attention items for `default`, the map and the river
-  render in that order above the folded sections
+- **THEN** the headline, the attention items for `default`, the system indicators,
+  the namespace indicators and the river render in that order above the folded
+  sections
 
 #### Scenario: The summary is not duplicated
 
 - **WHEN** the routed screens are rendered
-- **THEN** only Home renders the namespace data-plane summary and its map
+- **THEN** only Home renders the namespace data-plane summary and its indicators
 
 #### Scenario: The dashboard module is gone
 
 - **WHEN** the codebase is searched for `DashboardLive`
 - **THEN** no module, route or template of that name exists
+
+#### Scenario: The map is gone
+
+- **WHEN** the codebase is searched for `namespace_map` and `fui-map-`
+- **THEN** no component, test id or style of either name exists
 
 ### Requirement: The root address lands on a Home
 
@@ -93,144 +100,123 @@ once two snapshots exist, and the parked count. The condition SHALL be one of:
 #### Scenario: The controller is unreachable
 
 - **WHEN** no controller node is connected
-- **THEN** the headline states that the controller cannot be reached, and no map
-  renders
-
-### Requirement: The namespace map draws the data plane at fixed cost
-
-Home SHALL draw the namespace's data plane as a map. The map SHALL be built from
-the reads the namespace summary already makes, plus one
-`Flezha.Service.Relay.relay_plugins/2` call, and SHALL issue no per-relay
-controller call. It SHALL draw these columns:
-
-- sources: each distinct `on_input` plugin binding, and one source for calls and
-  sends;
-- runner bands: one per runner serving the namespace, labelled with the runner's
-  shortened id and its OS pid, and holding a lane for each relay bound to it;
-- an unbound zone below the bands, holding relays that have no runner, drawn in
-  the warning style;
-- outputs: each distinct `on_output` plugin binding, and the runner stream;
-- a dead-letter drain carrying the parked count, linked to the dead-letter screen.
-
-Wires SHALL join each lane to the sources and outputs it is bound to.
-
-#### Scenario: A relay bound to a runner
-
-- **WHEN** relay `orders` is bound to runner `default_58efe7505741`
-- **THEN** its lane sits inside that runner's band
-
-#### Scenario: A relay with no runner
-
-- **WHEN** relay `testnet_echo` has no runner
-- **THEN** its lane sits in the unbound zone outside every band, in the warning
-  style, and says it is waiting for a runner
-
-#### Scenario: Plugins become sources and outputs
-
-- **WHEN** `orders` has an `on_input` binding and an `on_output` binding
-- **THEN** the map draws that input as a source and that output as an output,
-  each wired to the `orders` lane
-
-#### Scenario: The cost does not grow with relays
-
-- **WHEN** the map is assembled for a namespace of any size
-- **THEN** no controller call is made per relay
-
-#### Scenario: Parked entries are visible
-
-- **WHEN** the dead-letter statistics report parked entries
-- **THEN** the drain shows their count and links to `/dlq`
-
-### Requirement: Map lanes carry health, history and flow
-
-Each relay lane SHALL be a focusable control. It SHALL show:
-
-- the relay id;
-- its run;
-- its health, both in words and as a shape distinct per verdict, never by colour
-  alone;
-- a sparkline of the relay's last 60 measured rates;
-- its current inbound rate.
-
-A wire SHALL animate at the speed bucket of its measured rate and SHALL be static
-at zero rate or before two snapshots exist. Lanes SHALL be ordered with relays
-needing attention first, then by measured throughput, then by id.
-
-#### Scenario: A busy relay
-
-- **WHEN** a relay's inbound rate is above zero after two snapshots
-- **THEN** its lane shows the rate and a sparkline, and its wires carry the
-  matching `topo-flow-*` speed class
-
-#### Scenario: The first snapshot
-
-- **WHEN** the map renders from its first snapshot
-- **THEN** no wire animates and no rate figure is shown
-
-#### Scenario: Attention comes first
-
-- **WHEN** a suspended relay and a busier healthy relay share a band
-- **THEN** the suspended relay's lane is drawn first
-
-#### Scenario: Health is not colour alone
-
-- **WHEN** a lane's health is anything other than healthy
-- **THEN** the lane carries the health in words and a shape distinct from a
-  healthy lane
-
-### Requirement: The map stays bounded at any fleet size
-
-Within a runner band, more than three relays started from one factory SHALL be
-drawn as one stack lane. A stack lane SHALL name the factory and the member count,
-and SHALL show its members' health counts and combined rate. A stack lane SHALL
-expand into its member lanes on request. A band SHALL draw at most twelve lanes,
-and then a link reading "+N more", which opens the relays index filtered to that
-runner.
-
-#### Scenario: Several relays of one factory
-
-- **WHEN** four relays started from `store_input` share a runner
-- **THEN** the band draws one `store_input ×4` stack lane
-
-#### Scenario: Expanding a stack
-
-- **WHEN** the operator activates a stack lane's expand control
-- **THEN** its four member lanes are drawn in its place
-
-#### Scenario: A crowded band
-
-- **WHEN** a band would hold more than twelve lanes after stacking
-- **THEN** it draws twelve and a "+N more" link to the relays index filtered by
-  that runner
-
-### Requirement: Selecting on the map inspects in place
-
-Home SHALL inspect map selections in place: activating a relay lane, a runner
-band's heading, or a source or output node SHALL open that object's inspector on Home, as the `in-place-inspection`
-capability defines, without navigating away. The selected element SHALL be marked
-on the map.
-
-#### Scenario: Selecting a relay
-
-- **WHEN** the operator activates the `orders` lane
-- **THEN** the relay inspector for `orders` opens beside the map
-- **AND** the address bar carries the selection
-
-#### Scenario: Selecting a runner
-
-- **WHEN** the operator activates a runner band's heading
-- **THEN** the runner inspector opens for that runner
+- **THEN** the headline states that the controller cannot be reached, and neither
+  row of indicators renders
 
 ### Requirement: An empty namespace teaches instead of drawing nothing
 
-When a namespace has no relays and no runners, the map region SHALL say in one
-sentence what a runner and a relay are. It SHALL offer Start relay when the
-operator's operations include starting one. It SHALL state that a runner must
-connect before a relay can run.
+When a namespace has no relays and no runners, the namespace indicators SHALL be
+replaced by one sentence saying what a runner and a relay are. It SHALL offer
+Start relay when the operator's operations include starting one. It SHALL state
+that a runner must connect before a relay can run. The system indicators SHALL
+still render.
 
 #### Scenario: A fresh namespace
 
 - **WHEN** an operator opens the Home of a namespace with nothing running
-- **THEN** the map region explains that runners serve factories and relays are
-  started from them, and offers Start relay when allowed
+- **THEN** in place of the namespace indicators Home explains that runners serve
+  factories and relays are started from them, and offers Start relay when allowed
+- **AND** the system indicators still render
+
+### Requirement: Home shows the system in indicator tiles
+
+Above the namespace's own figures, Home SHALL show one row of tiles for everything
+the operator's token reaches:
+
+- **Namespaces:** how many are reachable.
+- **Controller nodes:** how many, and which one this console is connected to.
+- **Runners:** how many serve any reachable namespace.
+- **Relays:** how many across the reachable namespaces, with a health strip and
+  the healthy count.
+- **Open problems:** how many, in the tone of the worst, linking to `/problems`.
+- **Controller:** whether it is connected, its durability posture, and its
+  durability breaches.
+
+The figures SHALL come from the shell pulse (see `attention`). The row SHALL state
+when it was last read.
+
+#### Scenario: Two namespaces are reachable
+
+- **WHEN** the token reaches `default` with three relays and `sandbox` with two
+- **THEN** the Namespaces tile reads 2 and the Relays tile reads 5
+
+#### Scenario: Nothing needs attention
+
+- **WHEN** no attention item is open anywhere
+- **THEN** the Open problems tile reads that nothing needs attention, in the
+  positive tone
+
+#### Scenario: A durability breach
+
+- **WHEN** the controller reports a durability RPO breach
+- **THEN** the Controller tile says so in words and in the negative tone
+
+### Requirement: Home shows its namespace in indicator tiles
+
+Below the system tiles, Home SHALL show one row of tiles for its namespace:
+
+- **Relays:** the total, a health strip, and a count for each non-healthy verdict,
+  each linking to the relays index filtered to this namespace and that health.
+- **Runners:** how many serve the namespace, and how many are dropped.
+- **Plugins:** how many distinct plugins are bound to its relays.
+- **Schedules:** how many belong to it, and when the next one fires.
+- **Parked:** the parked dead-letter count, linking to `/dlq`.
+- **Flow:** the measured inbound rate with a sparkline of its last 60 samples,
+  shown only once two snapshots exist.
+- **Limits:** a meter for each quota kind, breached ones first.
+
+Every tile SHALL be a kit tile. Every tile SHALL state its figure and condition in
+words and SHALL mark a non-neutral tone with a shape as well as a colour. A figure
+that changes between ticks SHALL be marked as changed. The row SHALL be built from
+reads Home's tick already makes, with no call per relay.
+
+#### Scenario: One relay is suspended
+
+- **WHEN** seven relays are healthy and one is suspended
+- **THEN** the Relays tile reads 8, its strip carries both verdicts, and a
+  "1 suspended" link opens `/relays?namespace=default&health=suspended`
+
+#### Scenario: The first snapshot
+
+- **WHEN** Home renders from its first snapshot
+- **THEN** the Flow tile says the rate is being measured and shows no figure or
+  sparkline
+
+#### Scenario: A breached quota
+
+- **WHEN** the namespace's `relays` quota is breached
+- **THEN** the Limits tile shows the `relays` meter first, in the negative tone,
+  with its value and limit in words
+
+#### Scenario: The cost does not grow with relays
+
+- **WHEN** Home ticks for a namespace of two relays and of fifty
+- **THEN** it makes the same number of controller calls
+
+### Requirement: Home reads nothing while its tab is hidden
+
+Home SHALL stop its tick while the browser tab is hidden. When the tab is shown
+again it SHALL read at once.
+
+#### Scenario: The operator switches tabs
+
+- **WHEN** Home's tab has been hidden for a minute
+- **THEN** no tick read is made during that minute
+- **AND** one read is made as soon as the tab is visible again
+
+### Requirement: A burst of events costs one read
+
+Relay lifecycle events and runner events that concern Home's namespace SHALL
+request a read rather than make one. Requests arriving within the coalescing
+window SHALL result in a single read.
+
+#### Scenario: Ten relays stop together
+
+- **WHEN** ten `relay_stopped` events for the namespace arrive within the window
+- **THEN** Home makes one read for them, and all ten appear on the river
+
+#### Scenario: An event for another namespace
+
+- **WHEN** a runner of another namespace disconnects
+- **THEN** Home makes no read for it
 

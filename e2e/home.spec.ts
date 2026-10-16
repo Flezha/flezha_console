@@ -1,57 +1,69 @@
-import { test, expect, testIds } from './fixtures';
+import { test, expect, startRelayCli, stopRelayCli, uniqueId } from './fixtures';
 
 /**
- * A namespace's Home against the dev stack: the headline, the live map of
- * its runners and relays, and inspection in place.
+ * A namespace's Home against the dev stack: the headline, the system and
+ * namespace tiles, and inspection from a shared link.
  *
- * The map's drawing — bands, stacks, the lane cap, flow speeds — and what each
- * inspector says are asserted against arranged fleets in
+ * What each tile says for an arranged fleet — every verdict, the flow before
+ * two readings, a breached limit, the fleet figures' cost — is asserted in
  * `test/flezha_ui_web/live/topology_live_test.exs`; what lives here is that
- * the real fleet reaches it, and that clicking the map moves the address.
+ * the real fleet reaches the tiles and that their links lead on.
  */
-test('/ lands on the Home last worked in, whose map draws the seeded relays and inspects in place', async ({
-  page,
-  live,
-}) => {
+test('/ lands on the Home last worked in, whose tiles count the dev stack', async ({ page, live }) => {
   await live('/namespaces/default');
   await page.goto('/');
   await expect(page).toHaveURL(/\/namespaces\/default$/);
 
   await expect(page.getByTestId('home-headline')).toHaveAttribute('data-condition', /\w+/);
   await expect(page.getByTestId('home-figures')).toContainText(/relays? healthy/);
-  await expect(page.getByTestId('namespace-map')).toBeVisible();
 
-  const bands = await testIds(page, 'map-band-');
-  expect(bands.length, 'the dev runner draws a band').toBeGreaterThan(0);
+  // The dev stack runs one controller and a runner serving the seeded relays.
+  for (const tile of ['sys-namespaces', 'sys-nodes', 'sys-runners', 'sys-relays', 'ns-relays', 'ns-runners']) {
+    await expect(page.getByTestId(`${tile}-value`), tile).toHaveText(/[1-9]/);
+  }
+  await expect(page.getByTestId('sys-nodes-condition')).toContainText('This console is connected to');
+  await expect(page.getByTestId('ns-flow')).toBeVisible();
 
-  await page.locator('[data-testid^="map-runner-"]').first().click();
-  await expect(page.getByTestId('inspector-runner')).toBeVisible();
-  await expect(page.getByTestId('inspector-factories')).toContainText('store_input');
-  await page.getByTestId('inspector-close').click();
-  await expect(page.getByTestId('inspector-runner')).toHaveCount(0);
+  await page.getByTestId('ns-relays-all').click();
+  await expect(page).toHaveURL(/\/namespaces\/default\/relays$/);
+  await expect(page.getByTestId('relays-index-table')).toBeVisible();
 
-  // Which seeded relays get a lane of their own depends on what other workers
-  // run beside them: four relays of one factory share a stack lane, and a band
-  // draws twelve lanes. A seeded relay is never stopped, so the first one drawn
-  // stays while this test clicks it.
-  const lane = page.locator('[data-testid^="map-lane-testnet_"][aria-label^="Relay testnet_"]').first();
-  // "Relay <id>, <state>, <run> · <factory>[, <rate> in]"
-  const label = (await lane.getAttribute('aria-label')) ?? '';
-  const [name, , sub] = label.split(', ');
-  const id = name?.replace(/^Relay /, '');
-  const factory = sub?.split(' · ').pop();
-  expect(factory, `a seeded relay's lane names its relay and factory: ${label}`).toMatch(/^\w+$/);
+  await page.goBack();
+  await page.getByTestId('sys-problems').click();
+  await expect(page).toHaveURL(/\/problems$/);
+});
 
-  await lane.click();
-  await expect(page).toHaveURL(new RegExp(`/namespaces/default\\?inspect=relay(%3A|:)${id}$`));
+test('a relay started and stopped from flz reaches the river without a reload', async ({ page, live }) => {
+  // Other workers start and stop relays in `default` too, so the counts are
+  // asserted in ExUnit; the river names this test's own relay.
+  const id = uniqueId('pw_home');
+  await live('/namespaces/default');
+  const river = page.getByTestId('home-river');
+
+  try {
+    await startRelayCli(id, 'store_input');
+    await expect(river.locator('li', { hasText: id }).filter({ hasText: 'started from store_input' })).toHaveCount(1);
+  } finally {
+    await stopRelayCli(id);
+  }
+
+  await expect(river.locator('li', { hasText: id }).filter({ hasText: 'stopped' })).toHaveCount(1);
+  await expect(page.getByTestId('ns-relays-value')).toHaveText(/[1-9]/);
+});
+
+test('a shared link opens a relay inspector on Home, which opens the relay', async ({ page, live }) => {
+  // A seeded relay is never stopped, so it stays while this test inspects it.
+  await live('/namespaces/default?inspect=relay:testnet_noop');
+
   await expect(page.getByTestId('inspector-relay')).toBeVisible();
-  await expect(page.getByTestId('inspector-sentence')).toContainText(factory!);
+  await expect(page.getByTestId('inspector-sentence')).toBeVisible();
 
   await page.getByTestId('inspector-close').click();
   await expect(page.getByTestId('inspector-relay')).toHaveCount(0);
   await expect(page).toHaveURL(/\/namespaces\/default$/);
 
-  await page.getByTestId(`map-lane-${id}`).click();
+  await page.goBack();
+  await expect(page.getByTestId('inspector-relay')).toBeVisible();
   await page.getByTestId('inspector-open').click();
-  await expect(page).toHaveURL(new RegExp(`/namespaces/default/relays/${id}$`));
+  await expect(page).toHaveURL(/\/namespaces\/default\/relays\/testnet_noop$/);
 });

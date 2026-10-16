@@ -61,7 +61,11 @@ A test waits only for a condition it caused, and stops as soon as it holds:
   (`FLEZHA_UI_REFRESH_INTERVAL_MS` in `docker-compose.dev.yml`), so traffic sent
   across two ticks moves a rate within a second.
 - **ExUnit.** A test sends `:refresh` to a view itself; `config/test.exs` sets the
-  screens' interval to an hour so no timer fires one in its place. A rate needs
+  screens' interval to an hour so no timer fires one in its place, and the
+  window that coalesces an event's read to zero, so a forwarded event reads at
+  once. A test of the coalescing itself sets a window longer than the test
+  (`TestEnv.put_app(:refresh_coalesce_ms, …)`) and sends `:refresh_requested`
+  itself, as it sends `:refresh`. A rate needs
   time between two readings, so `LiveCase.tick/1` moves the last reading a
   second into the past and ticks, rather than waiting a second. A message
   that must not arrive is refuted after a synchronous barrier — `:sys.get_state/1`

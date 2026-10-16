@@ -83,6 +83,7 @@ defmodule FlezhaUi.FormatTest do
       assert "512 B" = Format.bytes(512)
       assert "1.0 KB" = Format.bytes(1_024)
       assert "1.5 MB" = Format.bytes(1_572_864)
+      assert "100.0 GB" = Format.bytes(107_374_182_400)
     end
   end
 

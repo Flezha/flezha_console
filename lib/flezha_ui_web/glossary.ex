@@ -111,7 +111,7 @@ defmodule FlezhaUiWeb.Glossary do
   # Per screen kind: what it shows, what it is for, and the terms it marks.
   @screens %{
     home: {
-      "Home draws this namespace live: its sources on the left, its runners as bands holding the relays bound to them, and where records leave on the right. Problems sit above the map; the river below lists what happened while you watched.",
+      "Home sums up everything you can reach, then this namespace, in tiles: how many relays, runners, plugins and schedules there are, how healthy they are, what is flowing and how close each limit is. Problems sit above the tiles; the river below lists what happened while you watched.",
       ["namespace", "runner", "relay", "factory", "health", "quota"]
     },
     relays: {

@@ -692,7 +692,7 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     test "each data screen shows skeletons, never an empty state", %{conn: conn} do
       for {path, skeleton, empty} <- [
             {~p"/relays", "relays-loading", "relays-empty"},
-            {~p"/namespaces/default", "map-loading", "topology-empty"},
+            {~p"/namespaces/default", "home-namespace-loading", "topology-empty"},
             {~p"/plugins", "plugins-loading", "plugins-empty"},
             {~p"/schedules", "schedules-loading", "schedule-empty"},
             {~p"/problems", "problems-loading", "problems-clear"}

@@ -195,16 +195,21 @@ defmodule FlezhaUiWeb.ScheduleLive do
       {:ok, entries} ->
         assign(socket,
           loaded?: true,
-          schedules:
-            entries
-            |> Enum.map(&decorate/1)
-            |> NodeManager.in_namespace(socket.assigns.scoped_namespace),
+          schedules: rows(entries, socket.assigns.scoped_namespace),
           load_error: nil
         )
 
       {:error, reason} ->
         assign(socket, schedules: [], load_error: reason, loaded?: true)
     end
+  end
+
+  @doc """
+  The schedules `NodeManager.schedule_list/1` answered, as the console shows
+  them, narrowed to `namespace` when there is one.
+  """
+  def rows(entries, namespace) do
+    entries |> Enum.map(&decorate/1) |> NodeManager.in_namespace(namespace)
   end
 
   # The controller joins each stored entry with what the schedule hub holds

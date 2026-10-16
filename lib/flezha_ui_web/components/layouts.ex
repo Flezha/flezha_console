@@ -578,10 +578,17 @@ defmodule FlezhaUiWeb.Layouts do
   One pulse: the open problems of every reachable namespace, read with the
   socket's own token, assigned as `:shell_pulse`:
 
-      %{items:, checked_at:, error:}
+      %{items:, checked_at:, error:, fleet:}
 
   Items keep the time they were first seen across pulses. `error` is why the
   namespaces could not be listed, so no problem list stands for an all-clear.
+
+  `fleet` counts what the pulse's reads already answer: `namespaces`, the
+  relays' `health` as `NodeManager.health_counts/1` pairs, and the durability
+  `breaches`. A screen that assigns `pulse_fleet: true` also gets `runners`,
+  `nodes` (`NodeManager.cluster_nodes/2`) and the controller's `status`, at two
+  calls per namespace and one more; while its tab is hidden those are kept
+  from the last pulse rather than read.
   """
   def pulse(socket) do
     token = FlezhaUi.Accounts.Scope.flezha_token(socket.assigns[:current_scope])
@@ -608,12 +615,13 @@ defmodule FlezhaUiWeb.Layouts do
       end
 
     {verdicts, _notice} = Topology.stall(token)
+    breaches = NodeManager.ok_or(NodeManager.durability_breaches(token), [])
 
     items =
       Attention.derive(%{
         namespaces: reads,
         dlq: NodeManager.ok_or(NodeManager.dlq_stats(token), []),
-        breaches: NodeManager.ok_or(NodeManager.durability_breaches(token), []),
+        breaches: breaches,
         verdicts: verdicts,
         authz: NodeManager.authz_status(token),
         skew: skew([catalog_error | Enum.map(reads, & &1.error)])
@@ -622,12 +630,47 @@ defmodule FlezhaUiWeb.Layouts do
     {items, _appeared, _cleared} =
       Attention.track(Attention.by_id((previous && previous.items) || []), items, now)
 
+    fleet = %{
+      namespaces: length(names),
+      health: reads |> Enum.flat_map(& &1.rows) |> NodeManager.health_counts(),
+      breaches: length(breaches)
+    }
+
     Phoenix.Component.assign(socket, :shell_pulse, %{
       items: items,
       checked_at: now,
-      error: catalog_error
+      error: catalog_error,
+      fleet: Map.merge(fleet, fleet_reach(socket, names, previous, token))
     })
   end
+
+  @reach_keys [:runners, :nodes, :status]
+
+  defp fleet_reach(%{assigns: %{pulse_fleet: true}} = socket, names, previous, token) do
+    if socket.assigns[:refresh_hidden] do
+      ((previous && previous[:fleet]) || %{}) |> Map.take(@reach_keys)
+    else
+      runners =
+        Enum.flat_map(names, &(&1 |> NodeManager.runners(token) |> NodeManager.ok_or([])))
+
+      hub_nodes =
+        Enum.flat_map(names, fn name ->
+          name
+          |> NodeManager.cluster_status(token)
+          |> NodeManager.ok_or(%{})
+          |> Map.get(:nodes, [])
+          |> Enum.map(& &1.node)
+        end)
+
+      %{
+        runners: runners |> Enum.uniq_by(&NodeManager.identifier_id/1) |> length(),
+        nodes: NodeManager.cluster_nodes(hub_nodes, NodeManager.connected_node()),
+        status: NodeManager.ok_or(NodeManager.controller_status(token), nil)
+      }
+    end
+  end
+
+  defp fleet_reach(_socket, _names, _previous, _token), do: %{}
 
   defp skew(errors) do
     Enum.find(errors, &match?({:api_missing, _module, _function, _arity}, &1))

@@ -110,7 +110,6 @@
   --fui-on-negative: var(--text-on-negative);
 
   --fui-logo: var(--logo-ink);
-  --fui-brand-subtle: color-mix(in oklab, var(--accent-plum) 7%, var(--fui-surface));
 
   /* What the stylebook has no token for */
   --fui-signal: #8a580c;
@@ -142,7 +141,6 @@
  */
 [data-theme='dark'] {
   --fui-accent-subtle: color-mix(in oklab, var(--fui-accent) 16%, var(--fui-surface));
-  --fui-brand-subtle: color-mix(in oklab, var(--accent-plum) 30%, var(--fui-surface));
 
   --fui-signal: var(--gold);
   --fui-signal-subtle: color-mix(in oklab, var(--fui-signal) 14%, var(--fui-surface));

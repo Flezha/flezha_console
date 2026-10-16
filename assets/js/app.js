@@ -474,6 +474,26 @@ function pointAt(m, d) {
   return [ax + (bx - ax) * t, ay + (by - ay) * t]
 }
 
+// A hidden tab's page keeps ticking, so a screen that reads on a tick is told
+// to stop while its tab is hidden and to read at once when it is shown again.
+// Answers `report`, which a rejoined LiveView sends again, and `stop`.
+function reportVisibility(hook, onShown = () => {}) {
+  const report = () => {
+    hook.pushEvent("refresh_visibility", {hidden: document.hidden})
+    if (!document.hidden) { onShown() }
+  }
+  document.addEventListener("visibilitychange", report)
+  if (document.hidden) { report() }
+  return {report, stop: () => document.removeEventListener("visibilitychange", report)}
+}
+
+// For a screen with no hook of its own to report through.
+Hooks.FlzVisibility = {
+  mounted() { this.visibility = reportVisibility(this) },
+  reconnected() { if (document.hidden) { this.visibility.report() } },
+  destroyed() { this.visibility.stop() }
+}
+
 Hooks.FlzPipeline = {
   mounted() {
     this.frameEl = this.el.closest(".topo-frame")
@@ -514,13 +534,7 @@ Hooks.FlzPipeline = {
       this.draw(performance.now())
     })
 
-    // A hidden tab's page keeps ticking, so the screen is told to stop reading.
-    this.onVisibility = () => {
-      this.pushEvent("refresh_visibility", {hidden: document.hidden})
-      if (!document.hidden) { this.resume() }
-    }
-    this.listen(document, "visibilitychange", this.onVisibility)
-    if (document.hidden) { this.onVisibility() }
+    this.visibility = reportVisibility(this, () => this.resume())
 
     this.seen = new IntersectionObserver(entries => {
       this.onScreen = entries.some(entry => entry.isIntersecting)
@@ -574,11 +588,12 @@ Hooks.FlzPipeline = {
   // A rejoined LiveView starts afresh, so it is told again about a hidden tab
   // and about the viewer's direction.
   reconnected() {
-    if (document.hidden) { this.onVisibility() }
+    if (document.hidden) { this.visibility.report() }
     this.pushView()
   },
 
   destroyed() {
+    this.visibility?.stop()
     for (const [target, type, fn, opts] of this.listeners ?? []) { target.removeEventListener(type, fn, opts) }
     this.seen?.disconnect()
     this.resized?.disconnect()

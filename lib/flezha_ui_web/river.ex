@@ -40,7 +40,7 @@ defmodule FlezhaUiWeb.River do
           when event in unquote(lifecycle) do
         case FlezhaUiWeb.River.lifecycle(socket, namespace, entry) do
           ^socket -> {:noreply, socket}
-          socket -> {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket)}
+          socket -> {:noreply, FlezhaUiWeb.Live.Refresh.request_tick(__MODULE__, socket)}
         end
       end
 

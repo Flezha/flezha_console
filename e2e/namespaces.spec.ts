@@ -20,7 +20,7 @@ test.describe('Namespaces', () => {
     await page.getByTestId('namespace-view-default').click();
 
     await expect(page).toHaveURL(/\/namespaces\/default$/);
-    await expect(page.getByTestId('namespace-map')).toBeVisible();
+    await expect(page.getByTestId('home-namespace-tiles')).toBeVisible();
     await expect(page.getByTestId('start-relay-btn')).toBeVisible();
   });
 });

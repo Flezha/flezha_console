@@ -217,6 +217,35 @@ defmodule FlezhaUiWeb.KitTest do
     end
   end
 
+  describe "tile/1" do
+    test "states its figure and condition, its tone as a shape too" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.tile testid="t" label="Relays" value={8} tone={:warning} condition="1 suspended" />
+        """)
+
+      assert attr_of(html, "div.fui-tile", "data-tone") == "warning"
+      assert attr_of(html, ".fui-shape", "data-shape") == "triangle"
+      assert html |> q(~s([data-testid="t-value"])) |> LazyHTML.text() == "8"
+      assert html |> q(~s([data-testid="t-condition"])) |> LazyHTML.text() =~ "1 suspended"
+    end
+
+    test "with a link the whole tile navigates, and with no figure none is drawn" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.tile testid="t" label="Flow" href="/dlq" condition="Measuring" />
+        """)
+
+      assert attr_of(html, "a.fui-tile", "href") == "/dlq"
+      assert attr_of(html, ".fui-shape", "data-shape") == "ring"
+      refute html =~ ~s(data-testid="t-value")
+    end
+  end
+
   describe "controls" do
     test "a switch is a labelled button reporting its state" do
       assigns = %{}

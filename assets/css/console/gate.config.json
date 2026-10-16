@@ -84,10 +84,6 @@
     [
       "--fui-negative-subtle",
       "--fui-ink-1"
-    ],
-    [
-      "--fui-brand-subtle",
-      "--fui-ink-1"
     ]
   ],
   "base": {

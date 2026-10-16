@@ -104,7 +104,8 @@ defmodule FlezhaUi.Format do
   def bytes(nil), do: "—"
   def bytes(bytes) when bytes < 1_024, do: "#{bytes} B"
   def bytes(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1_024, 1)} KB"
-  def bytes(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MB"
+  def bytes(bytes) when bytes < 1_073_741_824, do: "#{Float.round(bytes / 1_048_576, 1)} MB"
+  def bytes(bytes), do: "#{:erlang.float_to_binary(bytes / 1_073_741_824, decimals: 1)} GB"
 
   @doc "An absolute time, for a value an operator may compare against a clock."
   def timestamp(nil), do: "—"

@@ -28,9 +28,10 @@
   <ul :if={@cluster_nodes != []} data-testid="cluster-nodes" class="fui-tiles">
     <li :for={node <- @cluster_nodes} data-testid={"cluster-node-#{node.name}"} class="fui-tile">
       <span class="flex items-center gap-2">
+        <% tone = (node.connected? && :positive) || :neutral %>
         <span
-          class={["fui-shape", (node.connected? && "fui-tone-positive") || "fui-tone-neutral"]}
-          data-shape={(node.connected? && "dot") || "ring"}
+          class={"fui-shape fui-tone-#{tone}"}
+          data-shape={Words.shape(tone)}
           aria-hidden="true"
         >
         </span>

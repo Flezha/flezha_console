@@ -159,5 +159,6 @@ NOT offer Drop. Errors SHALL be shown through the console's coded-error display.
 #### Scenario: The fleet follows drop activity
 
 - **WHEN** a runner is dropped or readmitted from another console or from `flz`
-- **THEN** the open runner listings and the namespace map update without a page reload
+- **THEN** the open runner listings and Home's Runners tile update without a page
+  reload
 

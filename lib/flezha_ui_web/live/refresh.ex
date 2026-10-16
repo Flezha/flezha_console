@@ -92,13 +92,34 @@ defmodule FlezhaUiWeb.Live.Refresh do
     end
   end
 
+  @doc """
+  Asks for a read soon rather than now. Requests made within
+  `:refresh_coalesce_ms` (300 ms unless configured) are answered by one read,
+  so a burst of events costs one; a window of `0` reads at once.
+  """
+  def request_tick(module, socket) do
+    window = Application.get_env(:flezha_ui, :refresh_coalesce_ms, 300)
+
+    cond do
+      window == 0 ->
+        tick(module, socket)
+
+      socket.assigns[:tick_requested] ->
+        socket
+
+      true ->
+        Process.send_after(self(), :refresh_requested, window)
+        Phoenix.Component.assign(socket, :tick_requested, true)
+    end
+  end
+
   @doc false
   # A runner of the screen's namespace came or went: what was read once and
   # kept, such as a relay's announced graph, may be stale, so `:runner_epoch`
-  # counts these for whoever keys a cache on it, and the screen reads at once.
+  # counts these for whoever keys a cache on it, and the screen reads soon.
   def runner_changed(module, socket) do
     epoch = (socket.assigns[:runner_epoch] || 0) + 1
-    tick(module, Phoenix.Component.assign(socket, :runner_epoch, epoch))
+    request_tick(module, Phoenix.Component.assign(socket, :runner_epoch, epoch))
   end
 
   @doc false
@@ -210,6 +231,11 @@ defmodule FlezhaUiWeb.Live.Refresh do
         # Rescheduled unconditionally, so a paused screen resumes on its own
         # rather than needing whatever unpaused it to restart the timer.
         schedule_refresh()
+        {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket)}
+      end
+
+      def handle_info(:refresh_requested, socket) do
+        socket = Phoenix.Component.assign(socket, :tick_requested, false)
         {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket)}
       end
 

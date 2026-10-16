@@ -314,8 +314,7 @@ defmodule FlezhaUiWeb.RelayIndexLive do
   def history_of(%{partitions: _, members: members}, state) do
     members
     |> Enum.map(&Map.get(state.history, to_string(&1.id), []))
-    |> Enum.zip_with(&Topology.sum_rates/1)
-    |> Enum.reverse()
+    |> Topology.sum_history()
   end
 
   def history_of(row, state),

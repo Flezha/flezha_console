@@ -274,7 +274,9 @@ SHALL be its own bucket. A relay that is unhealthy, unplaced, suspended, parked,
 or a member of a partition group whose coverage is faulted SHALL be surfaced as a
 problem even when its throughput is zero. The summary SHALL be assembled from a
 number of controller calls that does not grow with the number of relays, and SHALL
-feed Home's headline and the namespace map.
+feed Home's headline and its namespace indicators. A host that has already read
+the namespace's relay rows, partition groups or runners on the same tick SHALL
+hand them over, and the summary SHALL NOT read them again.
 
 #### Scenario: Home summarises its own namespace
 
@@ -293,15 +295,15 @@ feed Home's headline and the namespace map.
 - **WHEN** a relay is unhealthy or unplaced but its counters have not advanced
 - **THEN** the summary surfaces it despite its zero throughput
 
-#### Scenario: Throughput orders the map
-
-- **WHEN** two snapshots have been taken and several relays have advanced their counters
-- **THEN** the map orders lanes that need no attention by their measured throughput, highest first
-
 #### Scenario: Summary cost does not grow with the fleet
 
 - **WHEN** the summary is assembled for a namespace
 - **THEN** it issues no per-relay controller call
+
+#### Scenario: Prefetched runners are not read again
+
+- **WHEN** Home's tick has read the namespace's runners and assembles the summary
+- **THEN** `Flezha.Service.Fleet.runners/2` is called once on that tick
 
 #### Scenario: Namespace has nothing running
 

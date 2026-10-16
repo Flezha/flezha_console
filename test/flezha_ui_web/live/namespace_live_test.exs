@@ -68,42 +68,23 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     end
   end
 
-  # A relay's lane on Home's map, as its accessible name reads it.
-  defp lane(html, id) do
-    html
-    |> LazyHTML.from_document()
-    |> LazyHTML.query(~s([data-testid="map-lane-#{id}"]))
-    |> LazyHTML.attribute("aria-label")
-    |> List.first()
-  end
-
   describe "the show page" do
-    test "draws the relays running in the namespace on its map", %{conn: conn, node: node} do
+    test "counts the relays running in the namespace", %{conn: conn, node: node} do
       with_relays(node, ["relay_a", "relay_b"])
 
       {:ok, _view, html} = live(conn, ~p"/namespaces/default")
 
-      assert html =~ ~s(data-testid="namespace-map")
-      assert lane(html, "relay_a")
-      assert lane(html, "relay_b")
+      assert text_of(html, ~s([data-testid="ns-relays-value"])) == "2"
     end
   end
 
   describe "relay health" do
-    test "the node, factory and runner come from the same rows", %{conn: conn, node: node} do
-      with_relays(node, [
-        %{id: "relay_a", node: :"flezha@node-b", factory: "compare_filter", runner: "runner-z"}
-      ])
+    test "the inspector places the relay on the node its row names", %{conn: conn, node: node} do
+      with_relays(node, [%{id: "relay_a", node: :"flezha@node-b"}])
 
-      FakeController.set(node, {Fleet, :runners}, {:ok, [%{id: "runner-z", pid: nil}]})
+      {:ok, _view, html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
 
-      {:ok, view, html} = live(conn, ~p"/namespaces/default")
-
-      assert lane(html, "relay_a") =~ "compare_filter"
-      assert html =~ "runner-z"
-
-      view |> element(~s([data-testid="map-lane-relay_a"])) |> render_click()
-      assert render(view) =~ "flezha@node-b"
+      assert text_of(html, ~s([data-testid="inspector-relay"])) =~ "flezha@node-b"
     end
 
     test "a listing tick costs the same whether the namespace holds two or fifty", %{
@@ -286,15 +267,14 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       :ok
     end
 
-    # The map's lane opens the relay's inspector, whose Stop asks first.
+    # The relay's inspector, opened from a shared link, asks before Stop.
     defp stop(view) do
-      view |> element(~s([data-testid="map-lane-relay_a"])) |> render_click()
       view |> element(~s([data-testid="inspector-stop"])) |> render_click()
       view |> element(~s([data-testid="stop-confirm-btn"])) |> render_click()
     end
 
     test "confirming reaches the controller", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
 
       stop(view)
 
@@ -304,7 +284,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "a cooperative stop says the relay finishes its work first", %{conn: conn, node: node} do
       FakeController.set(node, {Relay, :stop}, {:ok, %{id: "relay_a", stopped: :cooperative}})
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
 
       assert stop(view) =~ "finishes its in-flight work"
     end
@@ -312,7 +292,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "surfaces a refused stop", %{conn: conn, node: node} do
       FakeController.set(node, {Relay, :stop}, FakeController.error("relay.not_found"))
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {:ok, view, _html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
 
       assert stop(view) =~ "relay.not_found (test)"
     end

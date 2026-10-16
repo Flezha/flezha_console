@@ -88,11 +88,11 @@ The UI SHALL read a namespace's registered factories together with the runners s
 
 ### Requirement: Relay listing within a namespace
 
-A namespace's Home SHALL show its relays as lanes on the namespace map and its
-active runners as the map's runner bands. It SHALL also list the runners in its
-folded runners section, and SHALL offer the namespace's registered factories when
-starting a relay. Every relay SHALL be reachable from the map: directly as a lane,
-by expanding its stack, or through a band's "+N more" link.
+A namespace's Home SHALL count its relays and runners in its namespace indicators.
+It SHALL list the runners in its folded runners section, and SHALL offer the
+namespace's registered factories when starting a relay. Every relay SHALL be
+reachable from Home through the Relays tile. The tile links to the relays index
+filtered to the namespace, and per health verdict to that verdict.
 
 Each relay SHALL carry these fields, read from `Flezha.Service.Relay.list/2`:
 
@@ -102,43 +102,47 @@ Each relay SHALL carry these fields, read from `Flezha.Service.Relay.list/2`:
 - its run;
 - its bound runner.
 
-Home and the relays index SHALL render every health verdict the controller
-answers — `healthy`, `degraded`, `recovering`, `unbound`, `failed`, `parked`,
-`suspended` and `unknown` — each distinctly. A relay the loop has not yet observed
-SHALL be shown as `unknown` and SHALL NOT be reported as healthy. Runners SHALL be
-read from `Flezha.Service.Fleet.runners/2`, which covers the whole cluster.
+The relays index SHALL render every health verdict the controller answers —
+`healthy`, `degraded`, `recovering`, `unbound`, `failed`, `parked`, `suspended` and
+`unknown` — each distinctly, and Home's Relays tile SHALL count each one
+separately. A relay the loop has not yet observed SHALL be shown as `unknown` and
+SHALL NOT be reported as healthy. Runners SHALL be read from
+`Flezha.Service.Fleet.runners/2`, which covers the whole cluster.
 
 #### Scenario: Namespace has relays
 
 - **WHEN** an operator opens a namespace that has running relays
-- **THEN** each relay is reachable from the map with its health and run, and its
-  inspector shows its node, factory and runner
+- **THEN** the Relays tile links to the relays index for that namespace, where
+  each relay shows its health and run, and its inspector shows its node, factory
+  and runner
 - **AND** the inspector links to the relay's Live view
 
 #### Scenario: A relay is unhealthy
 
 - **WHEN** a relay's health is `degraded`, `unbound`, `failed`, or `parked`
-- **THEN** its lane states that health distinctly from a healthy lane
+- **THEN** Home's Relays tile counts it under that verdict, and its row on the
+  relays index states that health distinctly from a healthy row
 
 #### Scenario: A relay is recovering
 
 - **WHEN** the controller reports a relay as `recovering` while it moves it off a runner that went away
-- **THEN** the lane reads `recovering`, distinctly from `failed` and from `healthy`
+- **THEN** its row reads `recovering`, distinctly from `failed` and from `healthy`
 
 #### Scenario: A relay has not yet been classified
 
 - **WHEN** a row has no health from the Convergence Loop
-- **THEN** the lane reads `unknown`
+- **THEN** the row reads `unknown`, and Home's Relays tile counts it as unknown,
+  not healthy
 
 #### Scenario: A relay is unplaced
 
 - **WHEN** a row has no live node
-- **THEN** the lane states that it is unplaced
+- **THEN** the row states that it is unplaced
 
 #### Scenario: Runners on other controllers are listed
 
 - **WHEN** a runner serving the namespace is connected to another controller node of the cluster
-- **THEN** it is drawn as a band on the map and listed among the namespace's runners
+- **THEN** it is counted in Home's Runners tile and listed among the namespace's runners
 
 #### Scenario: Namespace has registered factories
 
