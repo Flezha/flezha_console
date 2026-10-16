@@ -79,7 +79,13 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       assert text_of(html, ~s([data-testid="partition-menu-orders#p2"])) =~
                "p2 · keys 128–191"
 
-      assert has_element?(view, ~s([data-testid="partition-menu-orders#p1"][aria-current="true"]))
+      assert has_element?(view, ~s([data-testid="partition-menu-orders#p1"][aria-checked="true"]))
+
+      assert has_element?(
+               view,
+               ~s([data-testid="partition-menu-orders#p2"][aria-checked="false"])
+             )
+
       refute has_element?(view, ~s([data-testid="partition-menu-relay_a"]))
       refute has_element?(view, ~s([data-testid="partition-menu-other#p0"]))
 

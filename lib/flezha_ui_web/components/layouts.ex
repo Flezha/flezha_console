@@ -213,7 +213,8 @@ defmodule FlezhaUiWeb.Layouts do
       <.link
         :for={member <- @members}
         navigate={relay_path(@ns, member.id, @view)}
-        aria-current={member == @current && "true"}
+        role="menuitemradio"
+        aria-checked={to_string(member == @current)}
         data-testid={"partition-menu-#{member.id}"}
         data-fui-pop-item
         class="fui-menu-item fui-num"
