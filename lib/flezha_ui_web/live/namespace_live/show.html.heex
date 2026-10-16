@@ -320,7 +320,7 @@
           <.link navigate={~p"/namespaces/#{@ns}/relays/#{member.id}"}>{member.id}</.link>
         </:col>
         <:col :let={member} label="Key groups" num>
-          {elem(member.partition.range, 0)}–{elem(member.partition.range, 1)}
+          {Format.key_range(member.partition.range)}
         </:col>
         <:col :let={member} label="Runner">
           <.ident :if={member[:runner]} value={member[:runner]} />

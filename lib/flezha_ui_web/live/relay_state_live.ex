@@ -66,6 +66,14 @@ defmodule FlezhaUiWeb.RelayStateLive do
         auto_refresh_state: false
       )
 
+    # Read once, on the connected mount: it resolves the whole namespace.
+    partitions =
+      if connected?(socket),
+        do: NodeManager.relay_partitions(ns, id, socket.assigns[:flezha_token]),
+        else: []
+
+    socket = assign(socket, partitions: partitions)
+
     {:ok, refresh(socket)}
   end
 

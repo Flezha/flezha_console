@@ -416,18 +416,21 @@ Hooks.FlzPalette = {
 //
 // The view: the graph fits its panel, the zoom buttons, ctrl/⌘ + wheel and a
 // drag on the background change only the SVG's view box, and full screen only
-// the frame. The direction is the viewer's own choice, kept in this browser
-// and sent with the panel's size, since Auto is decided by the fit.
+// the frame. Once the viewer has zoomed or panned, opening or closing a Cell
+// sheet keeps that zoom and only brings the tasklet into view. The direction
+// is the viewer's own choice, kept in this browser and sent with the panel's
+// size, since Auto is decided by the fit.
 //
 // The motion: each tick's `pipeline_counts` says how many records each
-// counted node took. Marks start only at sources; a mark reaching a node is
-// handed on along its wires in proportion to what the next nodes took, while
-// their budget lasts, so records are drawn in the order they pass. A mark
-// stands for as many records as its wire's sampling needs, a wire streaming
-// twelve or more a second flows continuously instead, and budget no mark has
-// reached within a few seconds is launched as is. Marks are drawn on a canvas laid
-// over the SVG, at about 24 frames a second, only while something moves and
-// the graph is on screen.
+// counted node took, and what the wires into a tasklet reading several
+// channels and each channel carried. Marks start only at sources; a mark
+// reaching a node is handed on along its wires in proportion to what each
+// wire carried, while the next node's budget lasts, so records are drawn in
+// the order they pass. A mark stands for as many records as its wire's
+// sampling needs, a wire streaming twelve or more a second flows continuously
+// instead, and budget no mark has reached within a few seconds is launched as
+// is. Marks are drawn on a canvas laid over the SVG, at about 24 frames a
+// second, only while something moves and the graph is on screen.
 const MARKS_DRAWN = 80
 const MARKS_A_SECOND = 4
 const marksIn = span => (MARKS_A_SECOND * span) / 1000
@@ -443,6 +446,8 @@ const FLOW_PERIOD = 18
 const FLOW_DASH = 4
 const FLOW_STEPS_A_SECOND = 20
 const DIRECTION_KEY = "flz-pipeline-direction"
+// Counts that belong to wires, never to a node waiting for marks.
+const WIRE_COUNTS = new Set(["chan", "feed"])
 
 const storedDirection = () => {
   const value = pref.get(DIRECTION_KEY)
@@ -540,11 +545,16 @@ Hooks.FlzPipeline = {
     this.readGraph()
     const layout = this.el.dataset.layout
     const cells = this.el.dataset.cells
-    if (layout !== this.layoutKey || cells !== this.cellsKey) {
+    if (layout !== this.layoutKey || (cells !== this.cellsKey && !this.adjusted)) {
       this.layoutKey = layout
       this.cellsKey = cells
       this.sizeStage()
       this.fit()
+    } else if (cells !== this.cellsKey) {
+      this.cellsKey = cells
+      this.restage()
+      if (cells) { this.reveal(cells) }
+      this.applyView()
     } else {
       this.applyView()
     }
@@ -655,7 +665,9 @@ Hooks.FlzPipeline = {
 
   // The stage width the Cell sheet leaves, as wide as a desktop panel before
   // the panel has a width.
-  freeWidth() { return Math.max(200, (this.el.clientWidth || 1200) - this.sheetWidth()) },
+  freeWidth() { return Math.max(200, this.stageWidth() - this.sheetWidth()) },
+
+  stageWidth() { return this.el.clientWidth || 1200 },
 
   sizeStage() {
     const max = this.maxHeight()
@@ -672,7 +684,32 @@ Hooks.FlzPipeline = {
     const free = Math.max(200, cw - this.sheetWidth())
     const s = Math.min(1, free / b.w, ch / b.h)
     this.view = {x: b.x - (free / s - b.w) / 2, y: b.y - (ch / s - b.h) / 2, w: cw / s, h: ch / s}
+    this.adjusted = false
     this.applyView()
+  },
+
+  // A stage sized afresh keeps the viewer's own zoom, from the same corner,
+  // or refits. A stage with no size has no zoom to keep, so the view waits.
+  restage() {
+    const s = this.scale()
+    this.sizeStage()
+    if (!this.adjusted) { this.fit(); return }
+    const {clientWidth: cw, clientHeight: ch} = this.el
+    if (s > 0 && Number.isFinite(s) && cw && ch) { this.view = {...this.view, w: cw / s, h: ch / s} }
+  },
+
+  // Pans no further than needed to bring a node into the part of the stage
+  // the Cell sheet leaves free.
+  reveal(id) {
+    const box = this.el.querySelector(`[data-node="${CSS.escape(id)}"]`)?.getBBox?.()
+    if (!box) { return }
+    const s = this.scale()
+    const pad = 16 / s
+    const into = (lo, size, at, len) =>
+      at - pad < lo || len + 2 * pad > size ? at - pad - lo : Math.max(0, at + len + pad - (lo + size))
+    const v = this.view
+    this.view = {...v, x: v.x + into(v.x, this.freeWidth() / s, box.x, box.width),
+      y: v.y + into(v.y, (this.el.clientHeight || 1) / s, box.y, box.height)}
   },
 
   scale() {
@@ -693,8 +730,7 @@ Hooks.FlzPipeline = {
     const k = s / Math.max(0.25, Math.min(3, s * factor))
     const cx = px ?? this.view.x + this.view.w / 2
     const cy = py ?? this.view.y + this.view.h / 2
-    this.view = {x: cx - (cx - this.view.x) * k, y: cy - (cy - this.view.y) * k, w: this.view.w * k, h: this.view.h * k}
-    this.applyView()
+    this.adjust({x: cx - (cx - this.view.x) * k, y: cy - (cy - this.view.y) * k, w: this.view.w * k, h: this.view.h * k})
   },
 
   oneToOne() {
@@ -702,7 +738,13 @@ Hooks.FlzPipeline = {
     const cy = this.view.y + this.view.h / 2
     const w = this.el.clientWidth
     const h = this.el.clientHeight
-    this.view = {x: cx - w / 2, y: cy - h / 2, w, h}
+    this.adjust({x: cx - w / 2, y: cy - h / 2, w, h})
+  },
+
+  // A view the viewer chose, kept until they ask for a fit.
+  adjust(view) {
+    this.view = view
+    this.adjusted = true
     this.applyView()
   },
 
@@ -728,19 +770,21 @@ Hooks.FlzPipeline = {
     }
   },
 
+  // The width sent leaves the Cell sheet out, so opening one never makes Auto
+  // turn the graph.
   pushView() {
-    const width = this.freeWidth()
+    const width = this.stageWidth()
     const height = this.maxHeight()
     this.sentSize = [width, height]
     this.pushEvent("graph_view", {direction: this.direction, width, height: Math.round(height)})
   },
 
-  // A panel that changed size refits; Auto may now fit the other direction
-  // larger, so the server is told the new size.
+  // A panel that changed size refits, or keeps the viewer's own zoom; Auto
+  // may now fit the other direction larger, so the server is told the size.
   resize() {
-    this.sizeStage()
-    this.fit()
-    const width = Math.max(200, this.el.clientWidth - this.sheetWidth())
+    this.restage()
+    this.applyView()
+    const width = this.stageWidth()
     const [w0, h0] = this.sentSize ?? [0, 0]
     if (Math.abs(width - w0) > w0 * 0.1 || Math.abs(this.maxHeight() - h0) > h0 * 0.1) { this.pushView() }
   },
@@ -774,8 +818,7 @@ Hooks.FlzPipeline = {
     if (!pan.moved && Math.hypot(dx, dy) < 3) { return }
     if (!pan.moved) { pan.moved = true; this.el.setPointerCapture(event.pointerId); this.el.classList.add("is-panning") }
     const s = this.scale()
-    this.view = {...pan.view, x: pan.view.x - dx / s, y: pan.view.y - dy / s}
-    this.applyView()
+    this.adjust({...pan.view, x: pan.view.x - dx / s, y: pan.view.y - dy / s})
   },
 
   drop(event) {
@@ -891,7 +934,7 @@ Hooks.FlzPipeline = {
       const kind = kindOf(id)
       if (kind === "source" || (kind === "entry" && !this.inTo.get(id)?.length)) {
         if (n > 0) { starts.push([id, n, kind]) }
-      } else if (n > 0) {
+      } else if (n > 0 && !WIRE_COUNTS.has(kind)) {
         remaining[id] = (remaining[id] ?? 0) + n
         since[id] ??= now
       }
@@ -956,8 +999,8 @@ Hooks.FlzPipeline = {
   },
 
   // `weight` records reach `id`: each outgoing wire takes its share, the
-  // share of what the node it reaches took against what this node took, as
-  // far as that node's budget lasts.
+  // share of what it carried against what this node took, as far as the
+  // budget of the node it reaches lasts.
   handOn(id, weight, entry, now) {
     const t = this.tick
     if (!t) { return }
@@ -971,20 +1014,23 @@ Hooks.FlzPipeline = {
     if (kind === "filter" && entry) { outs = outs.filter(w => w.kind === "skip" || !w.entry || w.entry === entry) }
     const counted = outs.filter(w => t.budgets[w.to] !== undefined)
     const own = t.budgets[id] ?? 0
-    const of = own > 0 ? own : counted.reduce((sum, w) => sum + t.budgets[w.to], 0)
+    const of = own > 0 ? own : counted.reduce((sum, w) => sum + this.carried(w), 0)
     const pause = kind === "tasklet" ? TASKLET_PAUSE_MS : kind === "run" ? TASKLET_PAUSE_MS * 2 : 0
     for (const wire of outs) {
       let give = weight
       if (t.budgets[wire.to] !== undefined) {
         // What the next node has not counted yet is owed to it, and handed on
         // when its count arrives, often a tick after this mark's.
-        const want = of > 0 && t.budgets[wire.to] > 0 ? (weight * t.budgets[wire.to]) / of : weight
+        const want = of > 0 && t.budgets[wire.to] > 0 ? (weight * this.carried(wire)) / of : weight
         give = this.take(wire.to, want)
         if (want - give > 0.01) { wire.owed = {weight: (wire.owed?.weight ?? 0) + want - give, entry, at: wire.owed?.at ?? now} }
       }
       this.carryOn(wire, give, wire.entry ?? entry, now + pause)
     }
   },
+
+  // What a wire carried this tick: its own count, else what its node took.
+  carried(wire) { return this.tick.budgets[wire.key] ?? this.tick.budgets[wire.to] },
 
   // Takes up to `want` of a node's budget.
   take(id, want) {
@@ -1024,7 +1070,8 @@ Hooks.FlzPipeline = {
   },
 
   // A count no mark has reached within the grace is launched as is, on the
-  // wires into its node, so no count goes undrawn.
+  // wires into its node by what each carried, so no count goes undrawn and a
+  // quiet input stays quiet.
   flushStale(now) {
     const t = this.tick
     for (const [id, at] of Object.entries(t.since)) {
@@ -1034,7 +1081,9 @@ Hooks.FlzPipeline = {
       delete t.since[id]
       t.remaining[id] = 0
       if (left < 0.5 || !into.length) { continue }
-      for (const wire of into) { this.spread(wire, left / into.length, now, TAP_FLUSH_MS * 2) }
+      const shares = into.map(w => this.carried(w) ?? 0)
+      const total = shares.reduce((sum, n) => sum + n, 0)
+      into.forEach((wire, i) => this.spread(wire, total > 0 ? (left * shares[i]) / total : left / into.length, now, TAP_FLUSH_MS * 2))
     }
   },
 

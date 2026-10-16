@@ -510,3 +510,22 @@ When filters leave the relays index with no rows, the index SHALL say that no ru
 - **WHEN** no filter is chosen and no relay runs in any reachable namespace
 - **THEN** the index states that no relays are running
 
+### Requirement: A partition member opens its group's other partitions
+
+A relay that is a partition member SHALL offer, in the page header of its Live, Listen and State views, a menu naming its partition (`Partition p1 of 2`). The menu SHALL list every member of its group from the namespace's relay rows, by partition index, each with its key-group range and health. Choosing one SHALL open that partition on the same view. A relay of no partition group SHALL show no menu.
+
+#### Scenario: Switching partition on Live
+
+- **WHEN** an operator on `demo#p0`'s Live view chooses `p1` from the partition menu
+- **THEN** `demo#p1`'s Live view opens
+
+#### Scenario: The view is kept
+
+- **WHEN** an operator on `orders#p1`'s Listen view chooses `p0`
+- **THEN** `orders#p0`'s Listen view opens
+
+#### Scenario: No group, no menu
+
+- **WHEN** an operator opens a relay that carries no partition identity
+- **THEN** its header offers no partition menu
+

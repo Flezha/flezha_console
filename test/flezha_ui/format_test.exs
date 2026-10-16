@@ -86,6 +86,12 @@ defmodule FlezhaUi.FormatTest do
     end
   end
 
+  describe "key_range/1" do
+    test "shows a partition's first and last key group" do
+      assert Format.key_range({64, 127}) == "64–127"
+    end
+  end
+
   describe "humanize/1" do
     test "renders a controller id as a label" do
       assert "Relay Websocket" = Format.humanize("relay_websocket")

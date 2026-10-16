@@ -593,6 +593,30 @@ defmodule FlezhaUi.Service.NodeManager do
     authorized_list_call(token, Flezha.Service.Relay, :relay_plugins, [namespace])
   end
 
+  @doc "`relay_id`'s row among `rows`, as `relay_rows/2` answers them, or nil."
+  def relay_row(rows, relay_id), do: Enum.find(rows, &(to_string(&1.id) == to_string(relay_id)))
+
+  @doc """
+  The rows of `relay_id`'s partition group among `rows` (as `relay_rows/2`
+  answers them), by partition index, or `[]` when it is no partition member.
+  """
+  def partition_members(rows, relay_id) do
+    case relay_row(rows, relay_id) do
+      %{partition: %{group: group}} ->
+        rows
+        |> Enum.filter(&match?(%{partition: %{group: ^group}}, &1))
+        |> Enum.sort_by(& &1.partition.index)
+
+      _other ->
+        []
+    end
+  end
+
+  @doc "`partition_members/2` of a namespace's relays, read for one screen."
+  def relay_partitions(namespace, relay_id, token) do
+    namespace |> relay_rows(token) |> ok_or([]) |> partition_members(relay_id)
+  end
+
   @doc """
   A namespace's partition groups from `rows` (as `relay_rows/2` answers them),
   each `%{id:, declared:, members:, partitions:, coverage:}` where coverage is

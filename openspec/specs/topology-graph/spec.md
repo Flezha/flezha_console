@@ -12,13 +12,23 @@ The system SHALL compute message rates as the difference between successive coun
 - **Relay counters:** read from `Flezha.Service.Controller.liveness_counters/1`, measured on the UI's monotonic clock. A relay's counters SHALL be read from the snapshot's `relays` list, keyed by `relay_id`.
 - **Tasklets:** from the difference of `admitted_total` between successive reads of `Flezha.Service.Relay.activity/4`, divided by the difference of the reads' `read_at_ms`.
 - **Output channels:** from a tally listen's totals between successive reports. A new epoch starts a new baseline.
+- **Channels inside the relay:** worked out each tick from the counts above, since every reader of a channel receives all of its records:
+  - the admitted delta of a tasklet that reads only that channel, the largest where several do;
+  - else its tally;
+  - else what a reader's admitted delta leaves once its other inputs are known;
+  - else an even share of what a reader's delta leaves over its inputs still unknown;
+  - an entry channel none of these settle keeps its share of IN.
+- **Wires into a tasklet reading several channels:** that tasklet's admitted delta, shared in proportion to what each of its channels carried.
 
 Negative differences SHALL clamp to zero.
 
 Rates SHALL be displayed only where a counter exists:
-- on each entry port's wire: the relay's IN rate, split by entry as the motion is;
+- on each entry port's wire: the relay's IN rate, split by entry as the motion is; an entry whose readers settle it at nothing SHALL take no share of IN;
 - on each tasklet node, beside its name, in a slot whose width does not depend on the figure;
-- on each output channel's wire, from the tally, or from the relay's `forwarded` count when the relay has one output channel or no tally can be read.
+- on each output channel's wire, from the tally, or from the relay's `forwarded` count when the relay has one output channel or no tally can be read;
+- beside the name of each channel inside the relay and of each entry port, what that channel carried, in a slot whose width does not depend on the figure: the larger of its worked-out rate and its tally's, since an edge filter lowers the one and a tally read lags the other. Top to bottom, the figure SHALL take a second line, and the lanes of the gap below SHALL clear it.
+
+A wire into a tasklet SHALL take its rate and state from what it carried: the tasklet's own rate when it reads only that channel, otherwise its share of the tasklet's rate.
 
 Plugin-to-plugin wires SHALL carry no rate figure.
 
@@ -78,6 +88,16 @@ The pipeline SHALL display, and SHALL animate from, the mean of the newest seven
 
 - **WHEN** the activity read is refused, times out, or the runner does not report activity
 - **THEN** the tasklet graph still renders and no tasklet carries a rate figure
+
+#### Scenario: A tasklet reading two channels does not lend its rate to both
+
+- **WHEN** a tick shows `volume_signal`, reading `ohlc_out` and `config_out`, admitting 28 records, and `adr`, reading only `ohlc_out`, admitting 28
+- **THEN** `ohlc_out` carried 28, `config_out` carried none, and only the wire from `ohlc` into `volume_signal` streams
+
+#### Scenario: A fan-out reads along the graph
+
+- **WHEN** `ohlc` admits 4 trades a second from `trades_in` and emits 28 candles a second on `ohlc_out`
+- **THEN** the `trades_in` entry reads `trades_in · 4.0/s`, the `ohlc_out` label reads `ohlc_out · 28.0/s`, and the layout is the same as before the figures appeared
 
 ### Requirement: On-demand payload tap
 
@@ -468,10 +488,10 @@ The graph SHALL show record movement on every tick, whether or not a tap is open
 - A mark reaching a node SHALL be handed on along that node's outgoing wires while their budget for the tick lasts:
   - a filter hands it to the entry or to the skipped end;
   - an entry port hands it to every tasklet reading it;
-  - a tasklet hands it on after a short pause, as many as its own outputs allow;
+  - a tasklet hands it on after a short pause, along each wire as many as that wire carried allow;
   - an output port hands it to its plugins;
   - a call target hands it to the answer channel.
-- A count no mark reaches within a few seconds SHALL be launched as is, so every count is drawn or counted. A mark reaching a node whose count arrives a tick later SHALL wait for that count rather than be dropped.
+- A count no mark reaches within a few seconds SHALL be launched as is, on the wires into its node by what each carried, so every count is drawn or counted and a quiet input stays quiet. A mark reaching a node whose count arrives a tick later SHALL wait for that count rather than be dropped.
 - An entry nothing drawn feeds, its records sent to the relay directly, SHALL start marks as a source does.
 
 **Sampling:**
@@ -515,6 +535,11 @@ The graph SHALL show record movement on every tick, whether or not a tap is open
 
 - **WHEN** the refresh tick re-renders the graph while marks are travelling
 - **THEN** those marks continue to their destinations
+
+#### Scenario: A quiet input of a busy tasklet draws nothing
+
+- **WHEN** `volume_signal` admits 28 records in a tick, all from `ohlc_out`, and `route_latest` emits none on `config_out`
+- **THEN** no mark travels from `route_latest` into `volume_signal`
 
 ### Requirement: A stream and a trickle read differently
 
@@ -704,7 +729,7 @@ The graph SHALL draw wires at right angles with rounded corners.
 - Where one net crosses another, the line beneath SHALL be visibly cut by the one above.
 - Every point where a net splits SHALL carry a junction dot.
 
-**Colours:** each net SHALL take one of six wire colours, defined for both themes. Two nets that run side by side in a gap, or arrive at the same node, SHALL NOT share a colour, and nets sharing a gap SHALL avoid sharing one while a colour is left. Motion SHALL keep the signal colour on any wire.
+**Colours:** each net SHALL take one of six wire colours, defined for both themes. Two nets that run side by side in a gap, or arrive at the same node, SHALL NOT share a colour, and nets sharing a gap SHALL avoid sharing one while a colour is left. A channel's nets on either side of its port SHALL share one colour, so the channel reads as one line through it. Motion SHALL keep the signal colour on any wire.
 
 **Focus:** hovering or focusing a wire or a node SHALL light the nets touching it and their ends, and dim the rest. With nothing hovered, a selected tasklet SHALL keep that focus.
 
@@ -723,6 +748,11 @@ The graph SHALL draw wires at right angles with rounded corners.
 - **WHEN** the viewer hovers `merge_ticks`
 - **THEN** its two input wires and its fan-out are lit and every other wire and node is dimmed
 
+#### Scenario: A channel keeps its colour through its port
+
+- **WHEN** `boll_out` and `sma_out` leave the relay side by side for `demo_indicators`
+- **THEN** each keeps the colour it had inside the relay on its way to the plugin, and the two still differ
+
 ### Requirement: A tasklet's Cells open in a table
 
 Selecting a tasklet SHALL open a sheet over the graph's right side.
@@ -738,11 +768,11 @@ Selecting a tasklet SHALL open a sheet over the graph's right side.
 - A row whose Cell admitted a record since the previous read SHALL carry a fresh mark.
 - When the tasklet has more Cells than rows, the sheet SHALL say how many, and that the rows are the most recently active ones the runner picked.
 
-**Layout:** the graph SHALL refit into the width the sheet leaves free.
+**Layout:** while the viewer has not zoomed or panned since the graph was last fitted, the graph SHALL refit into the width the sheet leaves free. Once they have, the sheet SHALL keep their zoom and SHALL pan only as far as needed to bring the selected tasklet into the width it leaves free. The sheet SHALL NOT count against the panel's width when Auto picks the direction.
 
 **Reads:** the Cell rows SHALL be read only while the sheet is open. When the runner answers no Cells, the sheet SHALL say that this runner does not report its Cells.
 
-**Closing:** Escape or the close control SHALL close the sheet and refit the graph.
+**Closing:** Escape or the close control SHALL close the sheet. It SHALL refit the graph only while the viewer has not zoomed or panned.
 
 #### Scenario: A static tasklet's Cells
 
@@ -763,4 +793,14 @@ Selecting a tasklet SHALL open a sheet over the graph's right side.
 
 - **WHEN** the relay's runner answers `cells: nil` (a runner built before the SDKs shared the core's per-Cell counters)
 - **THEN** the sheet states that this runner does not report its Cells, and the tasklet's own figures still show
+
+#### Scenario: The viewer's zoom survives the sheet
+
+- **WHEN** the viewer zooms in twice and selects a tasklet
+- **THEN** the zoom is unchanged, the tasklet lies beside the sheet, and closing the sheet leaves the view where it was
+
+#### Scenario: An untouched graph refits for the sheet
+
+- **WHEN** the viewer selects a tasklet on a graph they have not zoomed or panned
+- **THEN** the graph refits into the width the sheet leaves free
 

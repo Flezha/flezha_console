@@ -608,7 +608,16 @@ defmodule FlezhaUiWeb.RelayLive do
   defp load_data(socket) do
     %{ns: ns, relay_id: relay_id, flezha_token: token} = socket.assigns
 
-    socket = assign(socket, row: namespace_row(ns, relay_id, token))
+    # Health, live node and partition identity are registry facts, not
+    # overwatch ones — they come from the same namespace-wide read the listing
+    # makes, so this screen agrees with the listing it was reached from.
+    rows = ns |> NodeManager.relay_rows(token) |> NodeManager.ok_or([])
+
+    socket =
+      assign(socket,
+        row: NodeManager.relay_row(rows, relay_id),
+        partitions: NodeManager.partition_members(rows, relay_id)
+      )
 
     socket =
       case NodeManager.overwatch_facts(ns, relay_id, token, socket.assigns[:feeding]) do
@@ -685,16 +694,6 @@ defmodule FlezhaUiWeb.RelayLive do
   end
 
   defp load_completion(socket), do: assign(socket, completion: nil)
-
-  # Health, live node and partition identity are registry facts, not overwatch
-  # ones — they come from the same namespace-wide read the listing makes, so
-  # this screen agrees with the listing it was reached from.
-  defp namespace_row(ns, relay_id, token) do
-    ns
-    |> NodeManager.relay_rows(token)
-    |> NodeManager.ok_or([])
-    |> Enum.find(&(to_string(&1.id) == to_string(relay_id)))
-  end
 
   # Spread for the panels that read one field each, and kept whole for the
   # pipeline graph, so a tick fetches the overwatch state once rather than

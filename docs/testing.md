@@ -255,12 +255,14 @@ listed as revoked.
 ## The trader stack's market relay
 
 `relay-data-flow.spec.ts` needs what only flezha_trader's dev stack runs: the
-`demo` market group and its fourteen-tasklet graph. That stack runs this
-checkout as its console, on the port its `FLEZHA_UI_HOST_PORT` gives
-(`E2E_MARKET_URL`, `http://localhost:4000` by default); `E2E_MARKET_STACK=1`
+`demo` market group, its two partitions and its fourteen-tasklet graph, and an
+analyzer runner with a graph of its own. That stack serves its own pinned
+checkout of the console, not this one, so a change is seen there only once that
+checkout carries it; it listens on the port its `FLEZHA_UI_HOST_PORT` gives
+(`E2E_MARKET_URL`, `http://localhost:4000` by default). `E2E_MARKET_STACK=1`
 adds a `market` project that runs the spec there, logged in as that stack's
-seeded user, beside the rest of the suite on this stack. Its runner predates
-per-Cell figures, so the spec also sees the Cell sheet say so:
+seeded user, beside the rest of the suite on this stack. A runner without a
+graph or without Cell rows is covered in ExUnit:
 
 ```bash
 E2E_MARKET_STACK=1 E2E_BASE_URL=http://localhost:4001 npx playwright test           # both stacks

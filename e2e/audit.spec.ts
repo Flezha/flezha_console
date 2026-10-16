@@ -59,10 +59,12 @@ test.describe('Audit log', () => {
     const file = page.getByTestId('audit-file').filter({ hasText: filename });
     const recorded = await readFigure(file.locator('td').nth(1));
 
+    // A file that closed after a long quiet holds more than the read's limit.
+    const limit = 1000;
     await page.getByTestId('audit-filter-file').fill(filename);
-    await page.getByTestId('audit-filter-limit').fill('1000');
+    await page.getByTestId('audit-filter-limit').fill(String(limit));
     await page.getByTestId('audit-read-btn').click();
-    await expect(page.getByTestId('audit-records').locator('> *')).toHaveCount(recorded);
+    await expect(page.getByTestId('audit-records').locator('> *')).toHaveCount(Math.min(recorded, limit));
 
     await page.getByTestId('audit-filter-file').fill('no-such-audit-file.log');
     await page.getByTestId('audit-read-btn').click();

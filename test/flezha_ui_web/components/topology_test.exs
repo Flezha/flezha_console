@@ -668,6 +668,65 @@ defmodule FlezhaUiWeb.TopologyTest do
       end
     end
 
+    test "a channel keeps its colour through its port" do
+      for input <- [lr(market()), tb(market()), lr(showcase()), tb(showcase())] do
+        graph = Topology.pipeline(input)
+        colour = Map.new(graph.nets, &{&1.id, &1.colour})
+        ws = wires(graph)
+
+        for {port, into} <- Enum.group_by(ws, & &1.to),
+            String.starts_with?(port, ["entry-", "exit-"]),
+            [arriving] <- [into |> Enum.map(&net_of(graph, &1)) |> Enum.uniq()],
+            leaving = Enum.find(ws, &(&1.from == port)) do
+          assert colour[arriving] == colour[net_of(graph, leaving)],
+                 "#{port} changes colour in #{graph.direction}"
+        end
+      end
+
+      graph = Topology.pipeline(lr(market()))
+
+      assert net(graph, "tasklet-bollinger|boll_out").colour ==
+               net(graph, "exit-boll_out|boll_out").colour
+
+      assert net(graph, "tasklet-sma|sma_out").colour !=
+               net(graph, "tasklet-bollinger|boll_out").colour
+    end
+
+    test "top to bottom, no lane runs through a channel's name or its rate below it" do
+      for input <- [tb(market()), tb(showcase())] do
+        graph = Topology.pipeline(input)
+
+        for l <- graph.labels, l.kind == :channel do
+          right = l.x + max(String.length(l.text), 7) * 6.3
+
+          hits =
+            for {_net, y, a, b} <- lane_runs(graph),
+                y > l.y - 9 and y < l.y + 14,
+                a < right and b > l.x,
+                do: y
+
+          assert hits == [], "a lane crosses #{l.text} at #{inspect(hits)}"
+        end
+      end
+    end
+
+    test "two sources into one entry keep apart in colour" do
+      sources = [source("ws1", "input"), source("ws2", "input")]
+      bindings = for id <- ~w(ws1 ws2), do: %{binding(id, "on_terminate") | provider: @websocket}
+
+      input =
+        chain(%{
+          facts: facts(%{factory_id: "static_cell", bindings: bindings, sources: sources})
+        })
+
+      for input <- [lr(input), tb(input)] do
+        graph = Topology.pipeline(input)
+
+        assert net(graph, "source-ws1|input").colour != net(graph, "source-ws2|input").colour,
+               graph.direction
+      end
+    end
+
     test "lanes are ordered to cross as few nets as they can" do
       for {input, most} <- [
             {lr(market()), 7},

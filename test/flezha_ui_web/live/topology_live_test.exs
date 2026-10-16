@@ -751,8 +751,9 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       report(node, view, %{"alerts" => 20, "orders" => 4}, 1)
       tick(view)
 
+      # A channel no tasklet reads carries what its tally counted.
       assert_push_event(view, "pipeline_counts", %{
-        budgets: %{"exit-alerts" => 10.0, "exit-orders" => 2.0}
+        budgets: %{"exit-alerts" => 10.0, "exit-orders" => 2.0, "chan-alerts" => 10.0}
       })
 
       # A new epoch counts from zero again: no advance is drawn from it.
@@ -1020,6 +1021,135 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       {:ok, _view, html} = live(conn, @relay)
       assert html =~ "this controller does not report relay graphs"
+    end
+  end
+
+  describe "channel rates" do
+    # The market's fan-in: `volume_signal` reads `ohlc_out` and `config_out`,
+    # `route_latest` reads `trades_in` beside `config_in`.
+    setup %{node: node} do
+      stack(node,
+        graph:
+          graph(
+            [
+              FakeController.graph_channel("trades_in", "entry", nil, ~w(ohlc route_latest)),
+              FakeController.graph_channel("config_in", "entry", nil, ["route_latest"]),
+              FakeController.graph_channel(
+                "ohlc_out",
+                "inter_tasklet",
+                "ohlc",
+                ~w(adr volume_signal),
+                "output"
+              ),
+              FakeController.graph_channel(
+                "config_out",
+                "inter_tasklet",
+                "route_latest",
+                ["volume_signal"]
+              ),
+              FakeController.graph_channel("adr_out", "plugin_bound", "adr", [], "output"),
+              FakeController.graph_channel(
+                "signal_out",
+                "plugin_bound",
+                "volume_signal",
+                [],
+                "output"
+              )
+            ],
+            "market"
+          )
+      )
+
+      snapshot(node, [{"relay_a", 0, 0}])
+      :ok
+    end
+
+    defp market_activity(node, read_at, n) do
+      rows =
+        for {name, k} <- [ohlc: 1, route_latest: 1, adr: 7, volume_signal: 7],
+            do: FakeController.activity_row("#{name}", %{admitted_total: n * k})
+
+      activity(node, read_at, rows)
+    end
+
+    test "a wire into a tasklet reading several channels carries only its own channel's share",
+         %{conn: conn, node: node} do
+      market_activity(node, 1_000, 0)
+      {:ok, view, _html} = live(conn, @relay)
+
+      market_activity(node, 3_000, 4)
+      snapshot(node, [{"relay_a", 1, 1}])
+      tick(view)
+
+      assert_push_event(view, "pipeline_counts", %{budgets: budgets})
+
+      # Each channel: from a reader of it alone, else what a reader's intake
+      # leaves beside its known inputs.
+      assert budgets["chan-trades_in"] == 4.0
+      assert budgets["chan-ohlc_out"] == 28.0
+      assert budgets["chan-config_in"] == 0.0
+      assert budgets["chan-config_out"] == 0.0
+      assert budgets["feed-volume_signal>ohlc_out"] == 28.0
+      assert budgets["feed-volume_signal>config_out"] == 0.0
+      assert budgets["feed-route_latest>trades_in"] == 4.0
+      # IN goes to the entries that carried anything, not to a quiet one.
+      assert budgets["entry-config_in"] == 0
+      assert budgets["entry-trades_in"] == 1.0
+
+      config = ~s([data-wire="tasklet-route_latest>tasklet-volume_signal>config_out"])
+      ohlc = ~s([data-wire="tasklet-ohlc>tasklet-volume_signal>ohlc_out"])
+      assert has_element?(view, config <> ~s([data-key="feed-volume_signal>config_out"]))
+      refute has_element?(view, config <> ~s([data-mode="streaming"]))
+      assert has_element?(view, ohlc <> ~s([data-mode="streaming"]))
+      # A reader of one channel keeps its own intake as the wire's.
+      assert has_element?(
+               view,
+               ~s([data-wire="tasklet-ohlc>tasklet-adr>ohlc_out"][data-key="tasklet-adr"])
+             )
+    end
+
+    test "a channel's name carries its rate, so a tasklet's fan-out reads along the graph",
+         %{conn: conn, node: node} do
+      market_activity(node, 1_000, 0)
+      {:ok, view, html} = live(conn, @relay)
+      refute view |> element(~s([data-testid="topo-chan-ohlc_out"])) |> render() =~ "/s"
+      wires = attrs(html, ".topo-net path", "d")
+      assert wires != []
+
+      market_activity(node, 3_000, 4)
+      snapshot(node, [{"relay_a", 1, 1}])
+      html = tick(view)
+
+      assert text_of(html, ~s([data-testid="topo-chan-ohlc_out"])) =~ ~r"^ohlc_out (· )?[\d.]+/s$"
+
+      assert text_of(html, ~s([data-testid="topo-chan-trades_in"])) =~
+               ~r"^trades_in (· )?[\d.]+/s$"
+
+      assert_in_delta figure(html, "topo-chan-ohlc_out") / figure(html, "topo-chan-trades_in"),
+                      7,
+                      0.1
+
+      assert attrs(html, ".topo-net path", "d") == wires
+    end
+
+    test "a channel's label takes its tally when that is larger, while its marks keep its readers' count",
+         %{conn: conn, node: node} do
+      market_activity(node, 1_000, 0)
+      {:ok, view, _html} = live(conn, @relay)
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      report(node, view, %{"ohlc_out" => 0}, 1)
+      tick(view)
+
+      market_activity(node, 3_000, 4)
+      report(node, view, %{"ohlc_out" => 40}, 1)
+      html = tick(view)
+
+      assert_push_event(view, "pipeline_counts", %{
+        budgets: %{"chan-ohlc_out" => 28.0, "exit-ohlc_out" => 40.0}
+      })
+
+      assert figure(html, "topo-chan-ohlc_out") == figure(html, "topo-rate-out-ohlc_out")
+      assert figure(html, "topo-chan-ohlc_out") > figure(html, "topo-rate-tasklet-adr")
     end
   end
 
@@ -1677,6 +1807,12 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       refute html =~ ~s(data-testid="topology-stall-disabled")
       refute html =~ ~s(data-testid="topology-stall")
     end
+  end
+
+  # The figure a rate label reads, as a number.
+  defp figure(html, testid) do
+    [n] = Regex.run(~r"[\d.]+(?=/s)", text_of(html, ~s([data-testid="#{testid}"])))
+    String.to_float(n)
   end
 
   defp attrs(html, selector, name) do

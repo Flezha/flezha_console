@@ -57,6 +57,27 @@ defmodule FlezhaUiWeb.RelayStateLiveTest do
   defp run(node, run),
     do: FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{builder: %{run: run}}})
 
+  describe "partitions" do
+    test "a partition member's menu opens another partition on State", %{conn: conn, node: node} do
+      partition_group(node, "orders", 2)
+
+      {:ok, view, html} = live(conn, "/namespaces/default/relays/orders%23p0/state")
+
+      assert text_of(html, ~s([data-testid="partition-menu"])) == "Partition p0 of 2"
+
+      assert {:error, {:live_redirect, %{to: "/namespaces/default/relays/orders%23p1/state"}}} =
+               view |> element(~s([data-testid="partition-menu-orders#p1"])) |> render_click()
+    end
+
+    test "a relay of no partition group shows no menu", %{conn: conn, node: node} do
+      partition_group(node, "orders", 2)
+
+      {:ok, _view, html} = live(conn, @url)
+
+      refute html =~ ~s(data-testid="partition-menu")
+    end
+  end
+
   describe "cell listing" do
     test "cells are listed with their sequences and durability metrics", %{
       conn: conn,

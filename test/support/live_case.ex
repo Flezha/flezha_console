@@ -35,6 +35,7 @@ defmodule FlezhaUiWeb.LiveCase do
       import FlezhaUiWeb.LiveCase,
         only: [
           open_section: 2,
+          partition_group: 3,
           text_of: 2,
           tick: 1,
           enforce_operations: 3,
@@ -86,6 +87,33 @@ defmodule FlezhaUiWeb.LiveCase do
 
     send(view.pid, :refresh)
     Phoenix.LiveViewTest.render(view)
+  end
+
+  @doc """
+  Answers the namespace's relay rows with `count` members of the partition
+  group `group`, `group#p0` onwards, beside one relay of no group and one
+  member of another group.
+  """
+  def partition_group(node, group, count) do
+    members =
+      for i <- 0..(count - 1) do
+        FakeController.relay_row("#{group}#p#{i}", %{
+          partition: %{group: group, index: i, count: count, range: {i * 64, i * 64 + 63}}
+        })
+      end
+
+    FakeController.set(
+      node,
+      {Flezha.Service.Relay, :relay_rows},
+      {:ok,
+       members ++
+         [
+           FakeController.relay_row("relay_a"),
+           FakeController.relay_row("other#p0", %{
+             partition: %{group: "other", index: 0, count: 2, range: {0, 127}}
+           })
+         ]}
+    )
   end
 
   @doc """

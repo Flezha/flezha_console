@@ -58,7 +58,7 @@ scope switch moves between the two forms.
 | `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update, with a typed field for each option the provider declares |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
 | `/relays` | The Relays screen's **All namespaces** switch — every relay across every reachable namespace, filterable by namespace, health, run and runner; starts one into any of them; what happened while the screen was open |
-| `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph — its sources, input filters, entry channels, tasklets, output channels and the plugins and called relays they end at, in one layout drawn left to right or top to bottom and fitted to its panel, records moving in the order they pass, each tasklet's input rate, backlog, shed and dead-letter badges and a table of its Cells, a payload tap opened from any channel port, and a sentence and timeline of what the relay is doing — and as sections that fold: diagnosis, the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema |
+| `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph — its sources, input filters, entry channels, tasklets, output channels and the plugins and called relays they end at, in one layout drawn left to right or top to bottom and fitted to its panel, records moving in the order they pass, what each channel carries beside its name, each tasklet's input rate, backlog, shed and dead-letter badges and a table of its Cells, a payload tap opened from any channel port, and a sentence and timeline of what the relay is doing — and as sections that fold: diagnosis, the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema; a partition member's menu opens any partition of its group on the same view, here and on Listen and State |
 | `/namespaces/:ns/relays/:id/listen` | **Listen** — the relay's live outputs or inputs |
 | `/namespaces/:ns/relays/:id/state` | **State** — steps facts as sentences, the task journal and input log, SDK state, and durable cells with their sequences and lag; point-in-time reads, a cell's outbox, replay, rotate, delete; retention, the history one settable |
 | `/plugins` | Enabled plugins per namespace, the providers on offer, and the packages installed on the controller with why one was refused |
@@ -355,7 +355,7 @@ the content of every screen is drawn with the console's own component kit.
 - **The relay pipeline graph** draws nodes and wires with the stylebook's
   relay-graph recipe (`.flz-graph-*`); the console's own `topo-*` rules add
   the relay's edge, nets in six hues (`--fui-wire-0` to `--fui-wire-5`, both
-  themes), halos and junction dots, ports and their taps, badges, focus, the
+  themes; a channel keeps its hue through its port), halos and junction dots, ports and their taps, badges, focus, the
   view controls, the Cell sheet, the flow sentence and the timeline.
   `Topology.pipeline/1` places every node on abstract ranks and orders — sources
   and input filters, entry ports, tasklets by depth, exit ports, then the
@@ -366,11 +366,17 @@ the content of every screen is drawn with the console's own component kit.
   (`Fleet.providers/1`), on the entry it names or the first one. The
   `FlzPipeline` hook owns the view box (Fit, zoom, ctrl/⌘ + wheel, drag to pan,
   full screen) and the viewer's direction, kept in `localStorage` and sent with
-  the panel size so Auto picks the direction that fits larger. Each tick the
-  server pushes how many records each counted node took (`pipeline_counts`):
-  IN by entry, each tasklet's admitted advance from `Relay.activity/4`, each
-  output channel's count from a tally listen held while the page shows a relay
-  with two or more outputs, and what was skipped and parked. The hook starts
+  the panel size so Auto picks the direction that fits larger. Once the viewer
+  zooms or pans, opening or closing a tasklet's Cells keeps that zoom and only
+  pans the tasklet beside the sheet. Each tick the server pushes how many
+  records each counted node took (`pipeline_counts`): IN by entry, each
+  tasklet's admitted advance from `Relay.activity/4`, each output channel's
+  count from a tally listen held while the page shows a relay with two or more
+  outputs, and what was skipped and parked; and what each channel carried —
+  every reader takes all of it, so it is worked out from its readers' intake,
+  else its tally — and each wire into a tasklet reading several channels, its
+  channel's share. A channel's label shows that rate, so a tasklet that emits
+  several records per input reads as a jump along the graph. The hook starts
   marks at the sources and hands them on node by node on a canvas over the SVG,
   at about 24 frames a second, only while something moves and the graph is on
   screen; a wire of twelve or more records a second flows instead. Selecting a

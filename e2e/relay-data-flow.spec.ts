@@ -3,12 +3,12 @@ import { test, expect, expectGraphFits, readFigure, sendToRelay, startRelay, sto
 /**
  * The relay's graph against flezha_trader's dev stack.
  *
- * Only that stack runs both cases a browser has to see: the `demo` market
+ * Only that stack runs real runners a browser has to see: the `demo` market
  * group, whose runner announces a graph of fourteen tasklets fed by websocket
- * sources and read by six Kafka producers, and an analyzer runner older than
- * the graph, whose relays fall back to an empty boundary. The layout, the
- * figures and the fallback's reasons are covered in ExUnit; here a real
- * browser draws them from a real runner.
+ * sources and read by six Kafka producers and reports its Cells, and the
+ * analyzer runner, whose relays announce a graph of their own. The layout, the
+ * figures and the fallbacks for a runner without a graph or Cell rows are
+ * covered in ExUnit; here a real browser draws them from a real runner.
  *
  *   E2E_MARKET_STACK=1 E2E_BASE_URL=http://localhost:4001 npx playwright test  # both stacks
  *   E2E_MARKET_STACK=1 npx playwright test --project=market
@@ -74,9 +74,7 @@ test.describe("A relay's data flow", () => {
     expect(producer.x).toBeGreaterThan(boundary.x + boundary.width);
   });
 
-  // The trader stack's runner is built on an SDK older than per-Cell figures,
-  // so its sheet says so: the degraded path a newer runner never shows.
-  test('a trade sent to its entry gives the ohlc tasklet a rate above zero, and a runner without Cell rows says so', async ({ page }) => {
+  test('a trade sent to its entry gives the ohlc tasklet a rate above zero, and its sheet lists the Cells', async ({ page }) => {
     await visitLive(page, MARKET);
 
     await sendToRelay(page, TRADE_FRAME, { channel: 'trades_in' });
@@ -85,12 +83,27 @@ test.describe("A relay's data flow", () => {
 
     await page.getByTestId('topo-node-tasklet-ohlc').click();
     await expect(page.getByTestId('topology-cells')).toBeVisible();
-    await expect(page.getByTestId('cells-not-reported')).toBeVisible();
+    await expect(page.locator('[data-testid^="cell-"]').first()).toBeVisible();
+    await expect(page.getByTestId('cells-not-reported')).toHaveCount(0);
 
     await page.getByTestId('topo-node-plugin-demo_indicators#p0').click();
     const detail = page.getByTestId('topology-detail');
     await expect(detail).toContainText('sma_out, ema_out, rsi_out, macd_out, boll_out');
     await expect(page.getByTestId('topology-plugin-order')).toContainText('position order');
+  });
+
+  test('its channels state what they carry, and the partition menu opens demo#p1 on the same view', async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await visitLive(page, MARKET);
+
+    for (const channel of ['trades_in', 'ohlc_out']) {
+      await expect(page.getByTestId(`topo-chan-${channel}`)).toContainText(/ · [<\d.]+\/s/);
+    }
+
+    await page.getByTestId('partition-menu').click();
+    await page.getByTestId('partition-menu-demo#p1').click();
+    await expect(page).toHaveURL(/\/relays\/demo%23p1$/);
+    await expect(page.getByTestId('partition-menu')).toHaveText(/Partition p1 of 2/);
   });
 
   test('the graph fits its panel at a phone and a tablet width', async ({ page }) => {
@@ -102,20 +115,17 @@ test.describe("A relay's data flow", () => {
     }
   });
 
-  test('a relay whose runner announces no graph is an empty boundary and says why', async ({ page }) => {
-    const id = uniqueId('pw_nograph');
+  test('an analyzer relay draws the graph its runner announces', async ({ page }) => {
+    const id = uniqueId('pw_analyzer');
 
     try {
       await visitLive(page, '/namespaces/analyzers/relays');
       await startRelay(page, id, { namespace: 'analyzers', factory: 'momentum_percentile' });
       await visitLive(page, `/namespaces/analyzers/relays/${id}`);
 
-      await expect(page.getByTestId('topology-inside-note')).toContainText(
-        'the runners of factory momentum_percentile announced no graph',
-      );
-      await expect(page.getByTestId('topo-node-inside')).toBeVisible();
-      await expect(page.locator('[data-testid^="topo-node-tasklet-"]')).toHaveCount(0);
-      await expect(page.getByTestId('topology-inside')).toHaveCount(0);
+      await expect(page.getByTestId('topology-inside')).toBeVisible();
+      await expect(page.locator('[data-testid^="topo-node-tasklet-"]').first()).toBeVisible();
+      await expect(page.getByTestId('topology-inside-note')).toHaveCount(0);
     } finally {
       await stopRelay(page, id, 'analyzers');
     }

@@ -15,6 +15,9 @@
     <% end %>
     its SDK state and its durable <.term key="cell">cells</.term>.
   </:sentence>
+  <:actions>
+    <Layouts.partition_menu ns={@ns} relay_id={@relay_id} view={:state} members={@partitions} />
+  </:actions>
 </.page_header>
 
 <.runtime_error error={@load_error} action="the state listing" />

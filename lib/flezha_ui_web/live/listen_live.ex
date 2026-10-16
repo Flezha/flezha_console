@@ -36,6 +36,14 @@ defmodule FlezhaUiWeb.ListenLive do
         message_count: 0
       )
 
+    # Read once, on the connected mount: it resolves the whole namespace.
+    partitions =
+      if connected?(socket),
+        do: NodeManager.relay_partitions(ns, relay_id, socket.assigns[:flezha_token]),
+        else: []
+
+    socket = assign(socket, partitions: partitions)
+
     {:ok, if(connected?(socket), do: listen(socket), else: socket)}
   end
 

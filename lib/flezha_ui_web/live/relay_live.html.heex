@@ -46,10 +46,9 @@
       Effectively once.
     </span>
     <span :if={@row && @row[:partition]} data-testid="relay-partition">
-      Partition p{@row.partition.index} of {@row.partition.count}, key groups {elem(
-        @row.partition.range,
-        0
-      )}–{elem(@row.partition.range, 1)}, in <.link
+      Partition p{@row.partition.index} of {@row.partition.count}, key groups {Format.key_range(
+        @row.partition.range
+      )}, in <.link
         navigate={~p"/namespaces/#{@ns}"}
         data-testid="relay-partition-group"
       >group {@row.partition.group}</.link>.
@@ -59,6 +58,7 @@
     </span>
   </:figures>
   <:actions>
+    <Layouts.partition_menu ns={@ns} relay_id={@relay_id} view={:live} members={@partitions} />
     <.button
       :if={is_nil(@completion) and NodeManager.granted?(@operations, "Relay.send")}
       icon="hero-paper-airplane"

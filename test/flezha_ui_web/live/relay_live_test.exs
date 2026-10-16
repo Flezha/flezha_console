@@ -62,6 +62,29 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       {:ok, _view, html} = live(conn, @url)
 
       refute html =~ ~s(data-testid="relay-partition")
+      refute html =~ ~s(data-testid="partition-menu")
+    end
+
+    test "a partition member's menu opens each partition of its group on Live", %{
+      conn: conn,
+      node: node
+    } do
+      overwatch(node, %{factory_id: "store_input"})
+      partition_group(node, "orders", 3)
+
+      {:ok, view, html} = live(conn, "/namespaces/default/relays/orders%23p1")
+
+      assert text_of(html, ~s([data-testid="partition-menu"])) == "Partition p1 of 3"
+
+      assert text_of(html, ~s([data-testid="partition-menu-orders#p2"])) =~
+               "p2 · keys 128–191"
+
+      assert has_element?(view, ~s([data-testid="partition-menu-orders#p1"][aria-current="true"]))
+      refute has_element?(view, ~s([data-testid="partition-menu-relay_a"]))
+      refute has_element?(view, ~s([data-testid="partition-menu-other#p0"]))
+
+      assert {:error, {:live_redirect, %{to: "/namespaces/default/relays/orders%23p2"}}} =
+               view |> element(~s([data-testid="partition-menu-orders#p2"])) |> render_click()
     end
 
     test "a relay absent from the rows still renders its overwatch facts", %{

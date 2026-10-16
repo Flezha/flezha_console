@@ -388,6 +388,9 @@ defmodule FlezhaUiWeb.Topology do
         input.activity
         |> tasklet_rates(before.activity)
         |> Map.merge(Map.new(counts, fn {id, n} -> {id, per_second(n, seconds)} end))
+        |> Map.merge(
+          Map.new(tally_by || %{}, fn {ch, n} -> {"tally-#{ch}", per_second(n, seconds)} end)
+        )
         |> Map.put(:parked, per_second(parked_by, seconds))
 
       history = sample_more(ticked.history, relay_id, rates)
@@ -903,8 +906,8 @@ defmodule FlezhaUiWeb.Topology do
     %{
       in: smoothed(history, :in),
       out: smoothed(history, :out),
-      bytes_in: smoothed_bytes(history, :bytes_in),
-      bytes_out: smoothed_bytes(history, :bytes_out)
+      bytes_in: measured(history, :bytes_in),
+      bytes_out: measured(history, :bytes_out)
     }
   end
 
@@ -967,6 +970,7 @@ defmodule FlezhaUiWeb.Topology do
       lifecycle: Enum.sort_by(lifecycle, & &1.plugin_id),
       skipped?: filters != [] or skipped_total(input) > 0,
       runs: runs(graph),
+      reads: reads(graph),
       observers: observers(listeners),
       plugin_ids: Map.keys(by_plugin)
     }
@@ -1119,7 +1123,7 @@ defmodule FlezhaUiWeb.Topology do
       else: %{acc | nodes: [node | acc.nodes], seen: MapSet.put(acc.seen, node.id)}
   end
 
-  @edge %{ch: nil, kind: :inner, side: false, label: nil, meter: false, entry: nil}
+  @edge %{ch: nil, kind: :inner, side: false, label: nil, meter: false, entry: nil, feed: nil}
 
   defp link(acc, from, to, fields) do
     edge = Map.merge(@edge, Map.merge(fields, %{from: from, to: to}))
@@ -1168,7 +1172,9 @@ defmodule FlezhaUiWeb.Topology do
             to = tid.(consumer),
             to != from,
             reduce: acc do
-          acc -> link(acc, from, to, %{ch: c.name, label: c.kind != "entry" && c.name})
+          acc ->
+            feed = if match?([_, _ | _], shape.reads[consumer]), do: feed_key(consumer, c.name)
+            link(acc, from, to, %{ch: c.name, label: c.kind != "entry" && c.name, feed: feed})
         end
 
       if exit?(c) and from,
@@ -1431,6 +1437,8 @@ defmodule FlezhaUiWeb.Topology do
   @max_name 34
   # The widest rate a tasklet's slot holds, so a figure never resizes it.
   @rate_slot " 000.0/s"
+  # The same for a channel's name and its rate.
+  @chan_slot " · 000.0/s"
 
   defp shorten(name) do
     if String.length(name) <= @max_name,
@@ -1439,6 +1447,13 @@ defmodule FlezhaUiWeb.Topology do
   end
 
   defp text_w(text, advance \\ @advance), do: String.length(text || "") * advance
+
+  # Left to right a channel's rate follows its name; top to bottom it takes a
+  # second line, so ports keep their width.
+  defp chan_w(name, "LR"), do: text_w(name <> @chan_slot, @chan_advance)
+
+  defp chan_w(name, _dir),
+    do: max(text_w(name, @chan_advance), text_w(String.trim(@rate_slot), @chan_advance))
 
   # A dynamic tasklet's caption carries its live Cell count, so its width is
   # taken from the widest the count can read.
@@ -1462,6 +1477,9 @@ defmodule FlezhaUiWeb.Topology do
 
   @gap_cross 16
   @lane 12
+  # Top to bottom, a channel's rate line below its name keeps the gap's lanes
+  # this much further down.
+  @rate_line 20
 
   # The layout for the viewer's direction, from the cache when this shape was
   # placed before. Auto draws whichever direction fits the panel larger.
@@ -1507,7 +1525,12 @@ defmodule FlezhaUiWeb.Topology do
           if stacked?(node), do: {w + 6, 52}, else: {w, 46}
       end
 
-    label_w = if node.type in [:entry, :exit], do: text_w(node.label, @chan_advance) + 12, else: 0
+    label_w =
+      case node.type do
+        :entry -> chan_w(node.label, dir) + 12
+        :exit -> text_w(node.label, @chan_advance) + 12
+        _other -> 0
+      end
 
     {main, cross} =
       cond do
@@ -1955,8 +1978,8 @@ defmodule FlezhaUiWeb.Topology do
       |> Enum.reduce({%{}, %{}, 0}, fn {row, ri}, {main, gaps, at} ->
         t = Enum.at(thick, ri)
         main = Enum.reduce(row, main, &Map.put(&2, &1, at + t / 2))
-        g = gap_after(ri, rows, nodes, wires, lanes, lr?)
-        {main, Map.put(gaps, ri, {at + t, at + t + g}), at + t + g}
+        {g, head} = gap_after(ri, rows, nodes, wires, lanes, lr?)
+        {main, Map.put(gaps, ri, {at + t, at + t + g, head}), at + t + g}
       end)
 
     hollow = nodes["inside"]
@@ -1986,7 +2009,7 @@ defmodule FlezhaUiWeb.Topology do
 
     lane_at =
       for {ri, list} <- lanes, list != [], into: %{} do
-        {start, stop} = gaps[ri]
+        {start, stop, head} = gaps[ri]
         r = ri + min_rank
 
         centre =
@@ -2000,7 +2023,7 @@ defmodule FlezhaUiWeb.Topology do
         # The whole block of lanes stays inside its gap, which is wide
         # enough for it, so no two lanes are pressed onto one line.
         width = (length(list) - 1) * @lane
-        centre = centre |> max(start + 14 + width / 2) |> min(stop - 14 - width / 2)
+        centre = centre |> max(start + head + width / 2) |> min(stop - 14 - width / 2)
 
         {ri,
          list
@@ -2127,10 +2150,12 @@ defmodule FlezhaUiWeb.Topology do
   # Where a port writes its channel's name: inside the boundary beside it.
   defp port_tag(:entry, x, y, true), do: %{x: x + 12, y: y - 9, anchor: "start"}
   defp port_tag(:exit, x, y, true), do: %{x: x - 12, y: y - 9, anchor: "end"}
-  defp port_tag(:entry, x, y, false), do: %{x: x + 12, y: y + 14, anchor: "start"}
+  defp port_tag(:entry, x, y, false), do: %{x: x + 12, y: y + 14, anchor: "start", stacked?: true}
   defp port_tag(:exit, x, y, false), do: %{x: x + 12, y: y - 6, anchor: "start"}
   defp port_tag(_type, _x, _y, _lr?), do: nil
 
+  # The size of the gap after a row, and how far into it its lanes start:
+  # top to bottom, below the rate line of a channel named at its head.
   defp gap_after(ri, rows, nodes, wires, lanes, lr?) do
     row = Enum.at(rows, ri)
     next = Enum.at(rows, ri + 1) || []
@@ -2143,9 +2168,9 @@ defmodule FlezhaUiWeb.Topology do
         need =
           Enum.reduce(wires, 64, fn w, need ->
             cond do
-              w.side or not MapSet.member?(in_row, hd(w.chain)) -> need
+              not from_row?(w, in_row) -> need
               w.meter -> max(need, 168)
-              w.label -> max(need, text_w(w.label, @chan_advance) + 30 + lane_count * @lane)
+              w.label -> max(need, chan_w(w.label, "LR") + 30 + lane_count * @lane)
               true -> need
             end
           end)
@@ -2159,8 +2184,15 @@ defmodule FlezhaUiWeb.Topology do
         if Enum.any?(row ++ next, port?), do: 72, else: 64
       end
 
-    max(need, (lane_count - 1) * @lane + 48)
+    rate_line =
+      if not lr? and Enum.any?(wires, &(&1.label && from_row?(&1, in_row))),
+        do: @rate_line,
+        else: 0
+
+    {max(need + rate_line, (lane_count - 1) * @lane + 48 + rate_line), 14 + rate_line}
   end
+
+  defp from_row?(wire, in_row), do: not wire.side and MapSet.member?(in_row, hd(wire.chain))
 
   # Repeated points go, and so does a point in the middle of a straight run.
   defp tidy(pts) do
@@ -2244,15 +2276,30 @@ defmodule FlezhaUiWeb.Topology do
   # Six hues, given greedily to the nets with the most neighbours first. Nets
   # running side by side in a gap, or into one node, never share one; nets
   # merely sharing a gap avoid it while a hue is left, since a gap can hold
-  # more nets than there are hues.
+  # more nets than there are hues. A port's one arriving net takes the hue of
+  # the net leaving it, so a channel reads as one line through its port.
   defp colours(wires, groups, arriving) do
-    group_net = for {_ri, list} <- groups, g <- list, into: %{}, do: {elem(g.key, 1), g.net}
+    through =
+      for {port, ws} <- Enum.group_by(wires, & &1.to),
+          String.starts_with?(port, ["entry-", "exit-"]),
+          [net] <- [ws |> Enum.map(& &1.net) |> Enum.uniq()],
+          leaving = Enum.find(wires, &(&1.from == port)),
+          into: %{},
+          do: {net, leaving.net}
+
+    hue =
+      for w <- wires, not String.starts_with?(w.net, ["side:", "edge:"]), into: %{} do
+        {w.net, Map.get(through, w.net, w.net)}
+      end
+
+    of = &Map.get(hue, &1, &1)
+    group_net = for {_ri, list} <- groups, g <- list, into: %{}, do: {elem(g.key, 1), of.(g.net)}
 
     side_by_side =
       Enum.flat_map(groups, fn {_ri, list} ->
         list
         |> Enum.sort_by(& &1.src)
-        |> Enum.map(& &1.net)
+        |> Enum.map(&of.(&1.net))
         |> Enum.dedup()
         |> Enum.chunk_every(2, 1, :discard)
       end)
@@ -2265,7 +2312,9 @@ defmodule FlezhaUiWeb.Topology do
     hard = clash_map(side_by_side ++ into_one)
 
     soft =
-      clash_map(Enum.map(groups, fn {_ri, list} -> list |> Enum.map(& &1.net) |> Enum.uniq() end))
+      clash_map(
+        Enum.map(groups, fn {_ri, list} -> list |> Enum.map(&of.(&1.net)) |> Enum.uniq() end)
+      )
 
     near = &Map.get(&1, &2, MapSet.new())
 
@@ -2274,18 +2323,23 @@ defmodule FlezhaUiWeb.Topology do
       |> Enum.map(& &1.net)
       |> Enum.uniq()
       |> Enum.reject(&String.starts_with?(&1, ["side:", "edge:"]))
+      |> Enum.map(of)
+      |> Enum.uniq()
       |> Enum.sort_by(&{-MapSet.size(near.(hard, &1)), -MapSet.size(near.(soft, &1))})
 
-    Enum.reduce(order, %{}, fn net, colour ->
-      taken = &(near.(&1, net) |> Enum.map(fn other -> colour[other] end) |> MapSet.new())
-      {hard_taken, soft_taken} = {taken.(hard), taken.(soft)}
+    by_hue =
+      Enum.reduce(order, %{}, fn net, colour ->
+        taken = &(near.(&1, net) |> Enum.map(fn other -> colour[other] end) |> MapSet.new())
+        {hard_taken, soft_taken} = {taken.(hard), taken.(soft)}
 
-      c =
-        Enum.find(0..5, fn c -> c not in hard_taken and c not in soft_taken end) ||
-          Enum.find(0..5, 5, &(&1 not in hard_taken))
+        c =
+          Enum.find(0..5, fn c -> c not in hard_taken and c not in soft_taken end) ||
+            Enum.find(0..5, 5, &(&1 not in hard_taken))
 
-      Map.put(colour, net, c)
-    end)
+        Map.put(colour, net, c)
+      end)
+
+    Map.new(hue, fn {net, h} -> {net, by_hue[h]} end)
   end
 
   defp clash_map(lists) do
@@ -2312,7 +2366,7 @@ defmodule FlezhaUiWeb.Topology do
         wires:
           Enum.map(
             ws,
-            &Map.take(&1, [:from, :to, :ch, :kind, :side, :meter, :entry, :xy, :label])
+            &Map.take(&1, [:from, :to, :ch, :kind, :side, :meter, :entry, :feed, :xy, :label])
           )
       }
     end)
@@ -2329,7 +2383,16 @@ defmodule FlezhaUiWeb.Topology do
       |> Enum.map(fn w ->
         {x, y} = hd(w.xy)
         {lx, ly} = if lr?, do: {x + 8, y - 6}, else: {x + 6, y + 15}
-        %{kind: :channel, text: w.label, x: lx, y: ly, anchor: "start"}
+
+        %{
+          kind: :channel,
+          ch: w.ch,
+          text: w.label,
+          x: lx,
+          y: ly,
+          anchor: "start",
+          stacked?: not lr?
+        }
       end)
 
     meters =
@@ -2383,7 +2446,9 @@ defmodule FlezhaUiWeb.Topology do
   # input filters skipped. A node absent here is not counted and hands on
   # whatever reaches it.
   defp budgets(shape, relay, tasklets, tally_by) do
-    entries = entry_counts(shape, relay.in, tasklets)
+    settled = settled_channels(shape, tasklets, tally_by || %{})
+    entries = entry_counts(shape, relay.in, tasklets, settled)
+    channels = channel_counts(shape, tasklets, settled, entries)
     outputs = output_channels(shape.graph)
     fed = Enum.filter(shape.sources, &is_nil(&1.attached))
     filtered = Enum.filter(fed, &(chain(shape, &1.entry) != []))
@@ -2412,6 +2477,8 @@ defmodule FlezhaUiWeb.Topology do
       Map.new(tasklets, fn {name, n} -> {"tasklet-#{name}", n} end),
       runs,
       exits,
+      Map.new(channels, fn {ch, n} -> {"chan-#{ch}", n} end),
+      feed_counts(shape, tasklets, channels),
       if(shape.skipped?, do: %{"skipped" => relay.filtered}, else: %{})
     ]
     |> Enum.reduce(&Map.merge(&2, &1))
@@ -2419,18 +2486,16 @@ defmodule FlezhaUiWeb.Topology do
 
   # IN per entry: the admitted advance of the one tasklet that reads only that
   # entry, where there is one, and the rest of IN shared evenly over the other
-  # entries. An entry a call's answers come back on is fed by the call.
-  defp entry_counts(%{graph: nil}, _taken, _tasklets), do: %{}
-
-  defp entry_counts(shape, taken, tasklets) do
-    graph = shape.graph
-    reads = fn name -> for c <- graph.channels, name in c.consumers, do: c.name end
+  # entries. An entry a call's answers come back on is fed by the call, and
+  # one its readers settle at nothing took none of IN.
+  defp entry_counts(shape, taken, tasklets, settled) do
+    quiet = for e <- shape.entries, settled[e] == 0, into: %{}, do: {e, 0}
 
     known =
-      for %{kind: "entry", name: e, consumers: [consumer]} <- graph.channels,
-          reads.(consumer) == [e],
+      for %{kind: "entry", name: e, consumers: [consumer]} <- channels_of(shape.graph),
+          shape.reads[consumer] == [e],
           n = tasklets[consumer],
-          into: %{},
+          into: quiet,
           do: {e, n}
 
     rest = Enum.reject(shape.entries, &(Map.has_key?(known, &1) or &1 in shape.answers))
@@ -2438,6 +2503,91 @@ defmodule FlezhaUiWeb.Topology do
     share = if rest == [], do: 0, else: left / length(rest)
 
     Map.merge(known, Map.new(rest, &{&1, share}))
+  end
+
+  # The channels each tasklet reads.
+  defp reads(graph) do
+    for c <- channels_of(graph), t <- c.consumers, reduce: %{} do
+      acc -> Map.update(acc, t, [c.name], &(&1 ++ [c.name]))
+    end
+  end
+
+  defp feed_key(tasklet, ch), do: "feed-#{tasklet}>#{ch}"
+
+  # Records each channel carried, as every reader receives them all: the
+  # intake of a tasklet reading only it, else its tally, which arrives in
+  # bursts a tick cannot subtract from, else what a reader's intake leaves
+  # once its other inputs are known.
+  defp settled_channels(shape, tasklets, tally_by) do
+    channels = channels_of(shape.graph)
+    reads = shape.reads
+
+    direct =
+      for c <- channels,
+          alone = Enum.filter(c.consumers, &(reads[&1] == [c.name])),
+          seen = Enum.flat_map(alone, &List.wrap(tasklets[&1])),
+          n = if(seen == [], do: tally_by[c.name], else: Enum.max(seen)),
+          into: %{},
+          do: {c.name, n}
+
+    settle(direct, channels, reads, tasklets)
+  end
+
+  # The settled channels, and an even share of what is left for the rest; an
+  # entry no reader settles keeps its share of IN.
+  defp channel_counts(shape, tasklets, known, entries) do
+    rest =
+      for c <- channels_of(shape.graph), not Map.has_key?(known, c.name), into: %{} do
+        case leftovers(c, known, shape.reads, tasklets, :share) do
+          [] -> {c.name, entries[c.name]}
+          left -> {c.name, Enum.min(left)}
+        end
+      end
+
+    known |> Map.merge(rest) |> Map.reject(fn {_ch, n} -> is_nil(n) end)
+  end
+
+  # Settles, until nothing more can be, every channel some reader of it
+  # reads beside channels already known.
+  defp settle(known, channels, reads, tasklets) do
+    found =
+      for c <- channels,
+          not Map.has_key?(known, c.name),
+          left = leftovers(c, known, reads, tasklets, :alone),
+          left != [],
+          into: %{},
+          do: {c.name, Enum.min(left)}
+
+    if found == %{}, do: known, else: settle(Map.merge(known, found), channels, reads, tasklets)
+  end
+
+  # What each counted reader of a channel took beyond its known inputs:
+  # only from readers left with this channel alone (`:alone`), or shared
+  # over every input still unknown (`:share`).
+  defp leftovers(channel, known, reads, tasklets, how) do
+    for t <- channel.consumers,
+        n = tasklets[t],
+        unknown = Enum.reject(reads[t], &Map.has_key?(known, &1)),
+        how == :share or unknown == [channel.name] do
+      left = max(n - (reads[t] |> Enum.map(&Map.get(known, &1, 0)) |> Enum.sum()), 0)
+      left / length(unknown)
+    end
+  end
+
+  # A tasklet reading several channels took its intake from each in
+  # proportion to what the channel carried.
+  defp feed_counts(shape, tasklets, channels) do
+    for {t, [_, _ | _] = chs} <- shape.reads, n = tasklets[t], reduce: %{} do
+      acc ->
+        carried = Enum.map(chs, &Map.get(channels, &1, 0))
+        total = Enum.sum(carried)
+
+        chs
+        |> Enum.zip(carried)
+        |> Enum.reduce(acc, fn {ch, c}, acc ->
+          Map.put(acc, feed_key(t, ch), if(total > 0, do: n * c / total, else: n / length(chs)))
+        end)
+    end
   end
 
   # What each tasklet is doing, from this tick's activity read beside the
@@ -2524,6 +2674,7 @@ defmodule FlezhaUiWeb.Topology do
     ])
     |> Map.merge(%{
       tag: node[:tag],
+      carried: if(node.type == :entry, do: rate_label(chan_rate(node.label, reading), "/s")),
       attached: node[:attached],
       sub: if(node.type == :skip, do: skipped_sub(reading), else: node_sub(node, figure)),
       rate: figure_rate(figure),
@@ -2615,6 +2766,7 @@ defmodule FlezhaUiWeb.Topology do
 
   defp count_key(w) do
     cond do
+      w[:feed] -> w.feed
       counted?(w.to) -> w.to
       counted?(w.from) -> w.from
       w.kind == :out and is_nil(w.ch) -> :out
@@ -2650,7 +2802,10 @@ defmodule FlezhaUiWeb.Topology do
     end
   end
 
-  defp label_view(%{kind: :channel} = label, _reading), do: label
+  defp label_view(%{kind: :channel} = label, reading) do
+    rate = chan_rate(label.ch, reading)
+    Map.merge(label, %{more: rate_label(rate, "/s"), rate: rate, testid: "topo-chan-#{label.ch}"})
+  end
 
   defp label_view(%{key: key} = label, reading) when label.kind in [:in, :out] do
     key = label_key(label, key)
@@ -2666,6 +2821,15 @@ defmodule FlezhaUiWeb.Topology do
       rate: rate,
       testid: "topo-rate-#{label.kind}-#{label.ch || "relay"}"
     })
+  end
+
+  # What a channel inside the relay carried: the larger of what its readers
+  # took and its tally, since an edge filter lowers the one and a tally read
+  # lags the other.
+  defp chan_rate(ch, reading) do
+    [measured(reading.history, "chan-#{ch}"), measured(reading.history, "tally-#{ch}")]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.max(fn -> nil end)
   end
 
   defp label_key(%{kind: :in, ch: nil}, _key), do: :in
@@ -2926,9 +3090,9 @@ defmodule FlezhaUiWeb.Topology do
     Enum.sum(Enum.map(samples, &Map.get(&1, key, 0))) / length(samples)
   end
 
-  # Bytes are smoothed like messages, but only once the controller has
-  # reported them; before that they are unmeasured, not zero.
-  defp smoothed_bytes(history, key) do
+  # A figure only some reads carry, such as bytes or a channel's count, is
+  # smoothed once one has; before that it is unmeasured, not zero.
+  defp measured(history, key) do
     if Enum.any?(history, &Map.has_key?(&1, key)), do: smoothed(history, key)
   end
 
@@ -3343,14 +3507,12 @@ defmodule FlezhaUiWeb.Topology do
                 label[:rate] == 0 && "is-muted"
               ]}
             >
-              {label.text}<tspan :if={label[:more] && !label[:stacked?]}> · {label.more}</tspan>
-              <tspan
-                :if={label[:more] && label[:stacked?]}
+              <.named_figure
+                text={label.text}
+                more={label[:more]}
+                stacked={label[:stacked?]}
                 x={label.x}
-                dy="12"
-              >
-                {label.more}
-              </tspan>
+              />
             </text>
           </g>
           <g class="topo-nodes">
@@ -3490,6 +3652,26 @@ defmodule FlezhaUiWeb.Topology do
     """
   end
 
+  attr :text, :string, required: true
+  attr :more, :string, default: nil
+  attr :stacked, :boolean, default: false
+  attr :x, :any, required: true
+
+  # A name and the figure that goes with it: beside it, or on a line of its
+  # own below it.
+  defp named_figure(assigns) do
+    ~H"""
+    {@text}<tspan :if={@more && !@stacked}> · {@more}</tspan>
+    <tspan
+      :if={@more && @stacked}
+      x={@x}
+      dy="12"
+    >
+      {@more}
+    </tspan>
+    """
+  end
+
   attr :net, :map, required: true
 
   # One net: a halo in the canvas colour first, so where a later net crosses
@@ -3625,14 +3807,20 @@ defmodule FlezhaUiWeb.Topology do
         y={r1(@node.tag.y)}
         text-anchor={@node.tag.anchor}
         class="topo-chan topo-halo"
+        data-testid={@node.type == :entry && "topo-chan-#{@node.label}"}
       >
-        {@node.label}
+        <.named_figure
+          text={@node.label}
+          more={@node[:carried]}
+          stacked={@node.tag[:stacked?]}
+          x={r1(@node.tag.x)}
+        />
       </text>
       <text
         :if={@tapped?}
         data-testid={"topo-tapping-#{@node.id}"}
         x={r1(@node.tag.x)}
-        y={r1(@node.tag.y + 13)}
+        y={r1(@node.tag.y + if(@node[:carried] && @node.tag[:stacked?], do: 26, else: 13))}
         text-anchor={@node.tag.anchor}
         class="topo-tapping topo-halo"
       >

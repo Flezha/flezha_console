@@ -145,6 +145,9 @@ defmodule FlezhaUi.Format do
   def unix_time(nil, _unit), do: "—"
   def unix_time(other, _unit), do: inspect(other)
 
+  @doc "A partition's key groups, `{first, last}`, as `first–last`."
+  def key_range({first, last}), do: "#{first}–#{last}"
+
   @doc "A snake_case controller id as a human-readable label."
   def humanize(id) do
     id

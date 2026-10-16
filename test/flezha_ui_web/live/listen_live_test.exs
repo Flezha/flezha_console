@@ -34,6 +34,19 @@ defmodule FlezhaUiWeb.ListenLiveTest do
     view
   end
 
+  describe "partitions" do
+    test "a partition member's menu opens another partition on Listen", %{conn: conn, node: node} do
+      partition_group(node, "orders", 2)
+
+      {:ok, view, html} = live(conn, "/namespaces/default/relays/orders%23p1/listen")
+
+      assert text_of(html, ~s([data-testid="partition-menu"])) == "Partition p1 of 2"
+
+      assert {:error, {:live_redirect, %{to: "/namespaces/default/relays/orders%23p0/listen"}}} =
+               view |> element(~s([data-testid="partition-menu-orders#p0"])) |> render_click()
+    end
+  end
+
   describe "connecting" do
     test "listens to the relay's outputs and reports when it is attached", %{
       conn: conn,

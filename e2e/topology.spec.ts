@@ -171,6 +171,49 @@ test.describe('Pipeline graph', () => {
     await chooseDirection(page, 'auto');
   });
 
+  test("refits for a tasklet's Cells while untouched, and once zoomed keeps the zoom and pans the tasklet beside the sheet", async ({
+    page,
+    live,
+  }) => {
+    await live(relay(SHOWCASE));
+    await chooseDirection(page, 'LR');
+    const svg = page.locator('#topology-svg');
+    const zoom = page.getByTestId('topology-zoom');
+    const sheet = page.getByTestId('topology-cells');
+    const tasklet = page.getByTestId('topo-node-tasklet-merge_ticks');
+    const corner = async () => (await svg.getAttribute('viewBox'))!.split(' ').slice(0, 2);
+
+    await page.getByTestId('topology-fit').click();
+    const fitted = await svg.getAttribute('viewBox');
+    await tasklet.focus();
+    await page.keyboard.press('Enter');
+    await expect(sheet).toBeVisible();
+    await expect.poll(() => svg.getAttribute('viewBox')).not.toBe(fitted);
+    await page.keyboard.press('Escape');
+    await expect(sheet).toHaveCount(0);
+
+    await page.getByTestId('topology-zoom-in').click();
+    await page.getByTestId('topology-zoom-in').click();
+    const level = (await zoom.textContent())!;
+    await tasklet.focus();
+    await page.keyboard.press('Enter');
+    await expect(sheet).toBeVisible();
+    await expect(zoom).toHaveText(level);
+    const stage = (await page.getByTestId('topology-canvas').boundingBox())!;
+    const panel = (await sheet.boundingBox())!;
+    const box = (await tasklet.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(stage.x);
+    expect(box.x + box.width).toBeLessThanOrEqual(panel.x);
+    expect(box.y).toBeGreaterThanOrEqual(stage.y);
+    expect(box.y + box.height).toBeLessThanOrEqual(stage.y + stage.height);
+
+    const open = await corner();
+    await page.keyboard.press('Escape');
+    await expect(sheet).toHaveCount(0);
+    await expect(zoom).toHaveText(level);
+    expect(await corner()).toEqual(open);
+  });
+
   test('fits its panel without scrolling the page at a desk, a tablet and a phone width', async ({ page, live }) => {
     for (const width of [1280, 768, 390]) {
       await page.setViewportSize({ width, height: 844 });

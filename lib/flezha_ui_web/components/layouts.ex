@@ -165,13 +165,67 @@ defmodule FlezhaUiWeb.Layouts do
   is read.
   """
   def relay_tabs(namespace, relay_id, current) do
-    for {view, label, path} <- [
-          {:live, "Live", ~p"/namespaces/#{namespace}/relays/#{relay_id}"},
-          {:listen, "Listen", ~p"/namespaces/#{namespace}/relays/#{relay_id}/listen"},
-          {:state, "State", ~p"/namespaces/#{namespace}/relays/#{relay_id}/state"}
-        ] do
-      %{label: label, path: path, current?: view == current, testid: "relay-tab-#{view}"}
+    for {view, label} <- [live: "Live", listen: "Listen", state: "State"] do
+      %{
+        label: label,
+        path: relay_path(namespace, relay_id, view),
+        current?: view == current,
+        testid: "relay-tab-#{view}"
+      }
     end
+  end
+
+  @doc "One of a relay's three views by name: `:live`, `:listen` or `:state`."
+  def relay_path(namespace, relay_id, :live), do: ~p"/namespaces/#{namespace}/relays/#{relay_id}"
+
+  def relay_path(namespace, relay_id, :listen),
+    do: ~p"/namespaces/#{namespace}/relays/#{relay_id}/listen"
+
+  def relay_path(namespace, relay_id, :state),
+    do: ~p"/namespaces/#{namespace}/relays/#{relay_id}/state"
+
+  @doc """
+  A partition member's way to the other partitions of its group, each opened
+  on the same view; nothing for a relay that is no partition member.
+  `members` are `NodeManager.partition_members/2`'s rows.
+  """
+  attr :ns, :string, required: true
+  attr :relay_id, :string, required: true
+  attr :view, :atom, required: true, values: [:live, :listen, :state]
+  attr :members, :list, required: true
+
+  def partition_menu(assigns) do
+    assigns = assign(assigns, :current, NodeManager.relay_row(assigns.members, assigns.relay_id))
+
+    ~H"""
+    <.popover
+      :if={@current}
+      id="relay-partition-menu"
+      testid="partition-menu"
+      label={"Partition p#{@current.partition.index} of #{@current.partition.count}"}
+      align="end"
+      trigger_class="flz-button flz-button--secondary flz-button--md"
+    >
+      <:trigger>
+        Partition p{@current.partition.index} of {@current.partition.count}
+        <.icon name="hero-chevron-down-micro" />
+      </:trigger>
+      <.link
+        :for={member <- @members}
+        navigate={relay_path(@ns, member.id, @view)}
+        aria-current={member == @current && "true"}
+        data-testid={"partition-menu-#{member.id}"}
+        data-fui-pop-item
+        class="fui-menu-item fui-num"
+      >
+        p{member.partition.index} · keys {Format.key_range(member.partition.range)} · {Words.text(
+          :health,
+          member.health
+        )}
+        <.icon :if={member == @current} name="hero-check-micro" class="ml-auto" />
+      </.link>
+    </.popover>
+    """
   end
 
   @doc """

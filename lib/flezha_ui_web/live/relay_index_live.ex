@@ -101,7 +101,7 @@ defmodule FlezhaUiWeb.RelayIndexLive do
 
   @impl true
   def handle_event("confirm_stop", %{"relay_id" => id} = params, socket) do
-    row = Enum.find(socket.assigns.rows, &(to_string(&1.id) == id))
+    row = NodeManager.relay_row(socket.assigns.rows, id)
     namespace = params["namespace"] || (row && row.namespace)
     {:noreply, assign(socket, confirm_stop: namespace && %{relay: id, namespace: namespace})}
   end
