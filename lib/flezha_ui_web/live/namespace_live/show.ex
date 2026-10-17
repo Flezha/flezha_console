@@ -420,7 +420,9 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     groups = rows |> NodeManager.partition_groups(token) |> with_group_health(rows)
     declared = NodeManager.ok_or(NodeManager.namespace_record(ns, token), nil)
     quotas = NodeManager.quota_usage(ns, declared && declared.quotas, token)
-    connected_runners = ns |> NodeManager.runners(token) |> NodeManager.ok_or([])
+
+    {connected_runners, runners_error} =
+      ns |> NodeManager.runners(token) |> NodeManager.ok_or_error([])
 
     socket
     |> assign(
@@ -434,6 +436,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         |> FlezhaUiWeb.ScheduleLive.rows(ns),
       groups: groups,
       runners: FlezhaUiWeb.Runners.rows(connected_runners),
+      runners_read?: is_nil(runners_error),
       runner_marks: ns |> NodeManager.dropped_runners(token) |> NodeManager.ok_or([]),
       declared: declared,
       quotas: quotas,
@@ -491,10 +494,10 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   # a suspended relay can wake depends on it. At most one read per shown
   # problem, and none when no runner is connected at all. A read that fails
   # leaves its factory unknown rather than unserved.
-  defp serving(shown, %{assigns: %{ns: ns, runners: runners, flezha_token: token}}) do
+  defp serving(shown, %{assigns: %{ns: ns, runners: runners, flezha_token: token} = assigns}) do
     factories = Attention.waiting_factories(shown)
 
-    if runners == [] do
+    if runners == [] and assigns.runners_read? do
       Map.new(factories, &{&1, 0})
     else
       factories

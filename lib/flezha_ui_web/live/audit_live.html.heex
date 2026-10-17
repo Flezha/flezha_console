@@ -136,7 +136,7 @@
         <.runtime_error :if={@read_error} error={@read_error} action="this audit read" />
 
         <%= cond do %>
-          <% @read_error -> %>
+          <% @read_error && is_nil(@records) -> %>
           <% is_nil(@records) -> %>
             <p class="fui-figures">Read loads the records this filter matches.</p>
           <% @records == [] -> %>

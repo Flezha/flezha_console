@@ -1548,6 +1548,26 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
                "No runner serves factory f1"
     end
 
+    test "runners that could not be read leave a card's runners unknown, not none", %{
+      conn: conn,
+      node: node
+    } do
+      stack(node, rows: [summary_row("sus", %{health: :suspended, factory: "orders"})])
+      FakeController.set(node, {Fleet, :runners}, FakeController.error("controller.timeout"))
+
+      FakeController.set(
+        node,
+        {Fleet, :runners_for_factory},
+        FakeController.error("controller.timeout")
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+
+      assert html =~ ~s(data-testid="problem-state-relay:default:sus")
+      refute html =~ ~s(data-testid="problem-state-relay:default:sus-serving")
+      refute html =~ ~s(data-testid="problem-state-relay:default:sus-next")
+    end
+
     test "a healthy namespace lists none", %{conn: conn, node: node} do
       stack(node)
 

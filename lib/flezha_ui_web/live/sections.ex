@@ -58,6 +58,8 @@ defmodule FlezhaUiWeb.Live.Sections do
         {:noreply, FlezhaUiWeb.CoreComponents.reveal(socket, key)}
       end
 
+      def handle_event("section_reveal", _params, socket), do: {:noreply, socket}
+
       @doc false
       def section_opened(socket, _key), do: socket
 
@@ -69,9 +71,10 @@ defmodule FlezhaUiWeb.Live.Sections do
   end
 
   @page_size 20
-  # A count a client sends is bounded, so a forged one cannot make a screen
-  # render an unbounded listing in one go.
+  # A count and an id a client sends are bounded, so a forged one cannot make
+  # a screen render an unbounded listing or hold an unbounded map.
   @max_shown 10_000
+  @max_id_bytes 96
 
   @doc """
   Paging for every screen of a live session: `@paging` holds how many rows
@@ -93,7 +96,8 @@ defmodule FlezhaUiWeb.Live.Sections do
   @events ~w(grid_more)
 
   defp grow(event, %{"id" => id, "shown" => shown, "step" => step}, socket)
-       when event in @events and is_binary(id) and is_binary(shown) and is_binary(step) do
+       when event in @events and is_binary(id) and byte_size(id) <= @max_id_bytes and
+              is_binary(shown) and is_binary(step) do
     with {shown, ""} <- Integer.parse(shown),
          {step, ""} <- Integer.parse(step),
          true <- shown >= 0 and step > 0 do

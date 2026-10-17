@@ -345,6 +345,28 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       refute html =~ ~s(data-testid="audit-record-json-0")
     end
 
+    test "a Read more the controller refuses keeps the records already shown", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {AuditLog, :read},
+        {:ok, [audited(1, 10), audited(2, 20), audited(3, 30)]}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/audit")
+      filter(view, %{"limit" => "2"})
+      read(view)
+
+      FakeController.set(node, {AuditLog, :read}, FakeController.error("controller.timeout"))
+      html = view |> element(~s([data-testid="audit-read-more"])) |> render_click()
+
+      assert html =~ "controller.timeout"
+      assert html =~ ~s(data-testid="audit-record-1")
+      assert html =~ ~s(data-testid="audit-read-more")
+    end
+
     test "Read more reads on past the records shown, by position, with the read's own filter",
          %{conn: conn, node: node} do
       # Timestamps are a VM's monotonic clock, so a restart makes them run

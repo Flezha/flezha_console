@@ -1031,7 +1031,7 @@ button.fui-menu-item--danger:hover {
   }
 }
 
-.fui-record-head:hover,
+button.fui-record-head:hover,
 .fui-record-head[aria-expanded="true"] {
   background: var(--fui-hover);
 }
@@ -2048,9 +2048,16 @@ dialog.fui-dialog-panel::backdrop {
   grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
 }
 
-/* A tile's surface, edge, hover and focus are the stylebook's `.flz-tile`. */
+/* A tile's surface, edge, hover and focus are the stylebook's `.flz-tile`.
+   Its fixed rows belong to an indicator; a tile in a list of objects stacks
+   what it holds from the top. */
 .fui-tile {
   gap: var(--fui-space-3);
+}
+
+.fui-tiles > .fui-tile {
+  align-content: start;
+  grid-template-rows: none;
 }
 
 .fui-tile-title {
