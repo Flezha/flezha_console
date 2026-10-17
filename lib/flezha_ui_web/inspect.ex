@@ -344,7 +344,7 @@ defmodule FlezhaUiWeb.Inspect do
 
   def inspector(%{inspected: %{kind: "plugin"}} = assigns) do
     it = assigns.inspected
-    assigns = assign(assigns, it: it, ctx: it.context, provider: it.provider)
+    assigns = assign(assigns, it: it, ctx: it.context, help: it.provider && it.provider[:help])
 
     ~H"""
     <.drawer
@@ -361,9 +361,7 @@ defmodule FlezhaUiWeb.Inspect do
         )}.
       </p>
       <.runtime_error error={@it.error} action="the provider description" />
-      <p :if={@provider && @provider[:help]} data-testid="inspector-provider-help">
-        {@provider.help}
-      </p>
+      <.code_block :if={@help} testid="inspector-provider-help">{@help}</.code_block>
       <dl class="fui-facts">
         <.stat label="Hooks">
           <span class="flex flex-wrap gap-1">

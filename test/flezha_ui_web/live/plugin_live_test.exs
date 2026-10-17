@@ -73,7 +73,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       assert html =~ ~s(data-testid="inspector-plugin")
 
-      assert view |> element(~s([data-testid="inspector-provider-help"])) |> render() =~
+      assert view |> element(~s(pre[data-testid="inspector-provider-help"])) |> render() =~
                "relay_stdout options"
     end
 
