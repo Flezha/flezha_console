@@ -1929,6 +1929,10 @@ dialog.fui-dialog-panel::backdrop {
 .fui-glyph[data-tone="3"] { background: color-mix(in oklab, var(--fui-wire-3) 13%, var(--fui-surface)); color: var(--fui-wire-3); }
 .fui-glyph[data-tone="4"] { background: color-mix(in oklab, var(--fui-wire-4) 13%, var(--fui-surface)); color: var(--fui-wire-4); }
 .fui-glyph[data-tone="5"] { background: color-mix(in oklab, var(--fui-wire-5) 13%, var(--fui-surface)); color: var(--fui-wire-5); }
+.fui-glyph[data-tone="positive"] { background: var(--fui-positive-subtle); color: var(--fui-positive); }
+.fui-glyph[data-tone="warning"] { background: var(--fui-warning-subtle); color: var(--fui-warning); }
+.fui-glyph[data-tone="negative"] { background: var(--fui-negative-subtle); color: var(--fui-negative); }
+.fui-glyph[data-tone="neutral"] { background: var(--fui-hover); }
 
 /* ---- A guided flow down a rail ----
  * The steps stand in a rail beside the body, under a bar of how far the flow
@@ -2034,14 +2038,15 @@ dialog.fui-dialog-panel::backdrop {
 }
 
 .fui-flow-rail .fui-step[aria-current="step"]::before {
-  animation: fui-step-pulse 1.8s var(--fui-ease) infinite;
+  animation: fui-pulse 1.8s var(--fui-ease) infinite;
   background: var(--fui-accent);
   border-color: var(--fui-accent);
   color: var(--fui-on-accent);
 }
 
-@keyframes fui-step-pulse {
-  from { box-shadow: 0 0 0 0 color-mix(in oklab, var(--fui-accent) 45%, transparent); }
+/* A ripple out of whatever it marks, in `--fui-pulse` (the accent unless set). */
+@keyframes fui-pulse {
+  from { box-shadow: 0 0 0 0 color-mix(in oklab, var(--fui-pulse, var(--fui-accent)) 45%, transparent); }
   to { box-shadow: 0 0 0 0.5rem transparent; }
 }
 
@@ -2603,8 +2608,59 @@ button.fui-step-text:hover .fui-step-label {
   grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
 }
 
-.fui-indicator {
+/* Doubled up: the stylebook's `.flz-tile` loads after this sheet. */
+.flz-tile.fui-indicator {
+  gap: var(--fui-space-3);
+}
+
+/* The glyph and the verdict pill carry the tone, so the tile's tone
+   edge would only say it a third time. */
+.flz-tile.fui-indicator::before {
+  content: none;
+}
+
+.fui-indicator-head {
+  align-items: center;
+  display: flex;
   gap: var(--fui-space-2);
+  min-width: 0;
+}
+
+/* A figure re-read every few seconds: a slow ripple in the live signal's
+   colour. Positioned, it takes no cell of the tile's grid. */
+.fui-indicator-pulse {
+  --fui-pulse: var(--fui-signal);
+
+  animation: fui-pulse 2s var(--fui-ease) infinite;
+  background: var(--fui-signal);
+  border-radius: 50%;
+  height: 0.5rem;
+  position: absolute;
+  right: var(--fui-space-3);
+  top: var(--fui-space-3);
+  width: 0.5rem;
+}
+
+/* Digits that keep changing hold their width, so the figure does not jitter. */
+.fui-indicator--live .fui-figure {
+  font-family: var(--fui-font-mono);
+}
+
+/* The end row: an edge-to-edge chart, then the foot. */
+.fui-indicator-end {
+  align-content: end;
+  display: grid;
+  gap: var(--fui-space-2);
+}
+
+.fui-indicator .fui-indicator-end > .fui-spark {
+  height: 2.5rem;
+  margin: 0 calc(-1 * var(--fui-space-4));
+  width: calc(100% + 2 * var(--fui-space-4));
+}
+
+.fui-spark-area {
+  fill: var(--fui-signal-subtle);
 }
 
 /* A tile's body and its meters: one column that never outgrows the tile. */
@@ -2617,9 +2673,41 @@ button.fui-step-text:hover .fui-step-label {
 }
 
 .fui-indicator-foot {
+  align-items: center;
+  border-top: 1px solid var(--fui-line);
+  color: var(--fui-ink-3);
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--fui-space-1) var(--fui-space-3);
+  gap: var(--fui-space-2);
+  justify-content: space-between;
+  padding-top: var(--fui-space-2);
+}
+
+.fui-indicator-foot-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A live tile's foot is a shaded strip across its bottom, under the chart. */
+.fui-indicator--live .fui-indicator-foot {
+  background: var(--fui-page);
+  border-radius: 0 0 var(--fui-radius-surface) var(--fui-radius-surface);
+  border-top: 0;
+  margin: 0 calc(-1 * var(--fui-space-4)) calc(-1 * var(--fui-space-3));
+  padding: var(--fui-space-2) var(--fui-space-4);
+}
+
+/* Scoped past the icon utility, which sets its own size. */
+.fui-indicator .fui-indicator-go {
+  color: var(--fui-ink-3);
+  flex: none;
+  height: 1rem;
+  transition: color var(--fui-fast), transform var(--fui-fast);
+  width: 1rem;
+}
+
+a.fui-indicator:hover .fui-indicator-go {
+  color: var(--fui-accent);
+  transform: translateX(3px);
 }
 
 /* Inside a tile a sparkline takes the tile's width, never its own. */
@@ -2639,10 +2727,18 @@ button.fui-step-text:hover .fui-step-label {
   text-transform: uppercase;
 }
 
-.fui-indicator-figure {
+/* The figure and its verdict pill share a line while both fit; on a narrow
+   tile the pill drops under the figure. Doubled up to win over the
+   stylebook's `.flz-figure-fit`, which loads after this sheet. */
+.fui-indicator .fui-indicator-figure {
   align-items: center;
-  gap: var(--fui-space-2);
+  flex-wrap: wrap;
+  gap: var(--fui-space-1) var(--fui-space-2);
   min-height: 2.25rem;
+}
+
+.fui-indicator .flz-figure-value {
+  font-size: clamp(var(--fui-text-xl), 20cqi, var(--fui-text-3xl));
 }
 
 .fui-indicator .fui-figures {

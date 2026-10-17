@@ -48,6 +48,7 @@
       <% fleet = @shell_pulse.fleet %>
       <.tile
         testid="sys-namespaces"
+        icon="hero-rectangle-stack"
         label="Namespaces"
         value={fleet.namespaces}
         condition="Reachable with your token"
@@ -55,42 +56,54 @@
       >
         <:foot>You are in {@ns}</:foot>
       </.tile>
-      <% {nodes_tone, nodes_condition} = nodes_said(fleet[:nodes]) %>
+      <% {nodes_tone, nodes_verdict, nodes_condition} = nodes_said(fleet[:nodes]) %>
       <.tile
         testid="sys-nodes"
+        icon="hero-server-stack"
         label="Controller nodes"
         value={fleet[:nodes] && length(fleet.nodes)}
         tone={nodes_tone}
+        verdict={nodes_verdict}
         condition={nodes_condition}
         href={~p"/cluster"}
       />
+      <% {sys_runners_tone, sys_runners_verdict} =
+        runners_said(fleet[:runners], health_total(fleet.health)) %>
       <.tile
         testid="sys-runners"
+        icon="hero-cube"
         label="Runners"
         value={fleet[:runners]}
-        tone={runners_tone(fleet[:runners], health_total(fleet.health))}
+        tone={sys_runners_tone}
+        verdict={sys_runners_verdict}
         condition={(fleet[:runners] && "Connected across the cluster") || "Not read yet"}
         href={~p"/cluster"}
       >
         <:foot>{length(@runners)} in {@ns}</:foot>
       </.tile>
+      <% {relays_tone, relays_verdict, relays_condition} = health_said(fleet.health) %>
       <.tile
         testid="sys-relays"
+        icon="hero-cpu-chip"
         label="Relays"
         value={health_total(fleet.health)}
-        tone={health_tone(fleet.health)}
-        condition={health_condition(fleet.health)}
+        tone={relays_tone}
+        verdict={relays_verdict}
+        condition={relays_condition}
         href={~p"/relays"}
       >
         <.strip counts={fleet.health} testid="sys-relays-strip" />
         <:foot :if={@topology[:relay_count]}>{@topology.relay_count} in {@ns}</:foot>
       </.tile>
-      <% {problems_tone, problems_condition} = problems_said(@shell_pulse.items) %>
+      <% {problems_tone, problems_verdict, problems_condition} =
+        problems_said(@shell_pulse.items) %>
       <.tile
         testid="sys-problems"
+        icon="hero-exclamation-triangle"
         label="Open problems"
         value={length(@shell_pulse.items)}
         tone={problems_tone}
+        verdict={problems_verdict}
         condition={problems_condition}
         href={~p"/problems"}
       >
@@ -100,6 +113,7 @@
         controller_said(NodeManager.connected_node(), fleet) %>
       <.tile
         testid="sys-controller"
+        icon="hero-server"
         label="Controller"
         value={controller_value}
         tone={controller_tone}
@@ -135,12 +149,15 @@
       <% true -> %>
         <div class="fui-indicators" data-testid="home-namespace-tiles">
           <% health = Enum.map(@topology.health, &{&1.health, &1.count}) %>
+          <% {relays_tone, relays_verdict, relays_condition} = health_said(health) %>
           <.tile
             testid="ns-relays"
+            icon="hero-cpu-chip"
             label="Relays"
             value={@topology.relay_count}
-            tone={health_tone(health)}
-            condition={health_condition(health)}
+            tone={relays_tone}
+            verdict={relays_verdict}
+            condition={relays_condition}
           >
             <.strip counts={health} testid="ns-relays-strip" />
             <span class="fui-indicator-links">
@@ -157,11 +174,14 @@
               </.link>
             </span>
           </.tile>
+          <% {runners_tone, runners_verdict} = runners_said(length(@runners), length(@rows)) %>
           <.tile
             testid="ns-runners"
+            icon="hero-cube"
             label="Runners"
             value={length(@runners)}
-            tone={runners_tone(length(@runners), length(@rows))}
+            tone={runners_tone}
+            verdict={runners_verdict}
             condition={runners_digest(@runners, @runner_marks)}
             href={~p"/cluster"}
           >
@@ -170,6 +190,7 @@
           <% plugins = plugin_count(@plugin_pairs) %>
           <.tile
             testid="ns-plugins"
+            icon="hero-puzzle-piece"
             label="Plugins"
             value={plugins}
             condition={plugins_condition(@plugin_pairs)}
@@ -179,6 +200,7 @@
           </.tile>
           <.tile
             testid="ns-schedules"
+            icon="hero-clock"
             label="Schedules"
             value={length(@schedules)}
             condition={schedules_condition(@schedules)}
@@ -186,16 +208,15 @@
           >
             <:foot :if={@schedules != []}>{schedules_armed(@schedules)}</:foot>
           </.tile>
+          <% {parked_tone, parked_verdict, parked_condition} = parked_said(@topology.parked) %>
           <.tile
             testid="ns-parked"
+            icon="hero-inbox-stack"
             label="Dead letters"
             value={@topology.parked}
-            tone={(@topology.parked > 0 && :negative) || :positive}
-            condition={
-              (@topology.parked > 0 &&
-                 "Records a tasklet could not process, waiting for a replay or a drop") ||
-                "Every record reached its tasklet"
-            }
+            tone={parked_tone}
+            verdict={parked_verdict}
+            condition={parked_condition}
             href={~p"/dlq"}
           >
             <:foot>
@@ -203,30 +224,40 @@
                 "The queue is empty"}
             </:foot>
           </.tile>
+          <% {flow_tone, flow_verdict, flow_condition} = flow_said(inbound) %>
           <.tile
             testid="ns-flow"
+            icon="hero-arrow-trending-up"
             label="Flow in"
             value={inbound && Topology.rate_label(inbound.in, "")}
             unit="msgs/s"
-            tone={(inbound && inbound.in > 0 && :positive) || :neutral}
-            condition={flow_condition(inbound)}
+            tone={flow_tone}
+            verdict={flow_verdict}
+            condition={flow_condition}
+            live
           >
-            <.sparkline
-              samples={flow}
-              key={:in}
-              width={160}
-              height={28}
-              testid="ns-flow-spark"
-              label="Inbound rate history"
-            />
+            <:edge>
+              <.sparkline
+                samples={flow}
+                key={:in}
+                width={160}
+                height={40}
+                area
+                testid="ns-flow-spark"
+                label="Inbound rate history"
+              />
+            </:edge>
             <:foot :if={inbound}>Out {Topology.rate_label(inbound[:out] || 0.0)}</:foot>
           </.tile>
           <% limits = limit_rows(@quotas) %>
           <.tile
             testid="ns-limits"
+            icon="hero-adjustments-horizontal"
             label="Limits"
             value={peak_use(limits)}
             tone={(@quota_breached && :negative) || :neutral}
+            verdict={if @quota_breached, do: Words.text(:quota, :breached)}
+            live
             condition={limits_digest(@quotas, @declared)}
           >
             <span :if={limits != []} class="fui-indicator-meters">

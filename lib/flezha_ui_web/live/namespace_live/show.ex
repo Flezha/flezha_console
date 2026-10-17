@@ -630,55 +630,76 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
   # ---- Indicator tiles: each figure's tone and its words ----
 
-  defp flow_condition(nil), do: "Measuring: a rate needs two readings"
+  # Each `*_said` answers a tile's tone, its verdict pill (nil for none) and
+  # its condition, decided together.
 
-  defp flow_condition(%{in: rate} = measured) when rate > 0 do
+  defp flow_said(nil), do: {:neutral, nil, "Measuring: a rate needs two readings"}
+
+  defp flow_said(%{in: rate} = measured) when rate > 0 do
     case Topology.byte_rate_label(measured[:bytes_in]) do
-      nil -> "Records arriving each second"
-      bytes -> "Records arriving each second, #{bytes}"
+      nil -> {:positive, "Flowing", "Records arriving each second"}
+      bytes -> {:positive, "Flowing", "Records arriving each second, #{bytes}"}
     end
   end
 
-  defp flow_condition(_rate), do: "Nothing arrived since the last reading"
+  defp flow_said(_rate), do: {:neutral, nil, "Nothing arrived since the last reading"}
+
+  defp parked_said(0), do: {:positive, "Clear", "Every record reached its tasklet"}
+
+  defp parked_said(_parked),
+    do:
+      {:negative, "Waiting",
+       "Records a tasklet could not process, waiting for a replay or a drop"}
 
   defp health_total(health), do: health |> Enum.map(&elem(&1, 1)) |> Enum.sum()
 
-  defp health_tone([]), do: :neutral
+  # Relays by verdict: painted in the worst, whose count is the pill.
+  defp health_said([]), do: {:neutral, nil, "None running"}
 
-  defp health_tone(health),
-    do: health |> Enum.map(fn {verdict, _} -> Words.tone(:health, verdict) end) |> Words.worst()
+  defp health_said(health) do
+    worst =
+      health |> Enum.map(fn {verdict, _} -> Words.tone(:health, verdict) end) |> Words.worst()
 
-  defp health_condition([]), do: "None running"
-  defp health_condition([{:healthy, _count}]), do: "All healthy"
+    verdict =
+      Enum.find_value(health, "Healthy", fn {verdict, count} = bucket ->
+        if count > 0 and verdict != :healthy and Words.tone(:health, verdict) == worst,
+          do: counted(bucket)
+      end)
 
-  defp health_condition(health) do
-    health
-    |> Enum.map(fn {verdict, count} ->
-      "#{count} #{String.downcase(Words.text(:health, verdict))}"
-    end)
-    |> Enum.join(" · ")
+    condition =
+      case health do
+        [{:healthy, _count}] -> "All healthy"
+        _mixed -> Enum.map_join(health, " · ", &counted/1)
+      end
+
+    {worst, verdict, condition}
   end
 
-  # No runner is a problem only while there are relays waiting for one.
-  defp runners_tone(nil, _relays), do: :neutral
-  defp runners_tone(0, 0), do: :neutral
-  defp runners_tone(0, _relays), do: :warning
-  defp runners_tone(_runners, _relays), do: :positive
+  defp counted({verdict, count}), do: "#{count} #{String.downcase(Words.text(:health, verdict))}"
 
-  defp nodes_said(nil), do: {:neutral, "Not read yet"}
-  defp nodes_said([]), do: {:negative, "None reachable"}
+  # No runner is a problem only while there are relays waiting for one.
+  defp runners_said(nil, _relays), do: {:neutral, nil}
+  defp runners_said(0, 0), do: {:neutral, nil}
+  defp runners_said(0, _relays), do: {:warning, "Needed"}
+  defp runners_said(_runners, _relays), do: {:positive, "Connected"}
+
+  defp nodes_said(nil), do: {:neutral, nil, "Not read yet"}
+  defp nodes_said([]), do: {:negative, "Unreachable", "None reachable"}
 
   defp nodes_said(nodes) do
     case Enum.find(nodes, & &1.connected?) do
-      nil -> {:negative, "This console is connected to none of them"}
-      node -> {:positive, "This console is connected to #{node.name}"}
+      nil -> {:negative, "Disconnected", "This console is connected to none of them"}
+      node -> {:positive, "Connected", "This console is connected to #{node.name}"}
     end
   end
 
-  defp problems_said([]), do: {:positive, "Nothing needs attention"}
+  defp problems_said([]), do: {:positive, "Clear", "Nothing needs attention"}
 
-  defp problems_said(items),
-    do: {Attention.worst(items), need_attention(length(items), "problem")}
+  defp problems_said(items) do
+    tone = Attention.worst(items)
+    verdict = if tone == :negative, do: "Urgent", else: "Attention"
+    {tone, verdict, need_attention(length(items), "problem")}
+  end
 
   # How many of the namespace's items need attention: relays when every item
   # is one, problems otherwise.

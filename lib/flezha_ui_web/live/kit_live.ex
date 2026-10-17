@@ -189,26 +189,32 @@ defmodule FlezhaUiWeb.KitLive do
       <div class="fui-indicators">
         <.tile
           testid="kit-tile-positive"
+          icon="hero-cpu-chip"
           label="Relays"
           value={8}
           tone={:positive}
+          verdict="Healthy"
           condition="All healthy"
         >
           <.strip counts={[{:healthy, 8}]} />
         </.tile>
         <.tile
           testid="kit-tile-warning"
+          icon="hero-cube"
           label="Runners"
           value={0}
           tone={:warning}
+          verdict="Needed"
           condition="None connected"
           href="/dev/kit"
         />
         <.tile
           testid="kit-tile-negative"
+          icon="hero-inbox-stack"
           label="Dead letters"
           value={3}
           tone={:negative}
+          verdict="Waiting"
           condition="Waiting for a replay or a drop"
           href="/dev/kit"
         >
@@ -216,12 +222,14 @@ defmodule FlezhaUiWeb.KitLive do
         </.tile>
         <.tile
           testid="kit-tile-neutral"
+          icon="hero-arrow-trending-up"
           label="Flow in"
           value={123_456.7}
           unit="msgs/s"
           condition="A large figure shrinks and stays inside its tile"
+          live
         >
-          <.sparkline samples={@samples} />
+          <:edge><.sparkline samples={@samples} width={160} height={40} area /></:edge>
           <:foot><.link navigate="/dev/kit">Open the relays</.link></:foot>
         </.tile>
       </div>

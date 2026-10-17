@@ -753,13 +753,27 @@ defmodule FlezhaUiWeb.CoreComponents do
     assigns = assign(assigns, :said, Words.say(assigns.kind, assigns.value))
 
     ~H"""
-    <span
+    <.badge
+      said={@said}
+      count={@count}
+      class={@class}
+      title={@title}
       data-testid={@testid || (@kind == :health && "health-badge")}
       data-health={@kind == :health && to_string(@value || :unknown)}
       data-state={@kind != :health && state_attr(@value)}
-      class={["fui-badge", tone_class(@said.tone), @class]}
-      title={@title}
-    >
+    />
+    """
+  end
+
+  attr :said, :map, required: true, doc: "`%{text:, tone:}`, and a `shape:` to draw"
+  attr :count, :any, default: nil
+  attr :class, :any, default: nil
+  attr :title, :string, default: nil
+  attr :rest, :global
+
+  defp badge(assigns) do
+    ~H"""
+    <span {@rest} class={["fui-badge", tone_class(@said.tone), @class]} title={@title}>
       <span :if={@said[:shape]} class="fui-shape" data-shape={@said.shape} aria-hidden="true"></span>
       <span :if={not is_nil(@count)} class="fui-badge-count">{@count}</span>
       {@said.text}
@@ -1128,6 +1142,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   attr :height, :integer, default: 20
   attr :testid, :string, default: "sparkline"
   attr :label, :string, default: "Rate history"
+  attr :area, :boolean, default: false, doc: "also fill the area under the line"
 
   def sparkline(assigns) do
     values = Enum.map(assigns.samples, &sample_value(&1, assigns.key))
@@ -1150,6 +1165,11 @@ defmodule FlezhaUiWeb.CoreComponents do
       data-testid={@testid}
       data-samples={length(@values)}
     >
+      <polygon
+        :if={@area}
+        class="fui-spark-area"
+        points={"0,#{@height} #{@points} #{@width},#{@height}"}
+      />
       <polyline points={@points} />
     </svg>
     """
@@ -1205,19 +1225,29 @@ defmodule FlezhaUiWeb.CoreComponents do
   end
 
   @doc """
-  An indicator: one figure under its label, with a sentence saying what it
-  means, in a tone drawn as a shape as well as a colour. A changed figure is
-  marked as it changes. `href` makes the whole tile a link; the inner block
-  holds a strip, a meter, a sparkline or links of its own, so a tile holding
-  links takes no `href`.
+  An indicator: one figure under its icon and label, with a verdict pill
+  beside it and a sentence saying what it means. The tone tints the icon and
+  the pill, and is drawn as a shape too. A changed figure is marked as it
+  changes. `href` makes the whole tile a link; the inner block holds a strip,
+  a meter, a sparkline or links of its own, so a tile holding links takes no
+  `href`.
 
-      <.tile testid="ns-relays" label="Relays" value={8} tone={:warning}
-             condition="7 healthy, 1 suspended">
+      <.tile testid="ns-relays" icon="hero-cpu-chip" label="Relays" value={8}
+             tone={:warning} verdict="1 suspended" condition="7 healthy, 1 suspended">
         <.strip counts={@health} />
       </.tile>
   """
   attr :testid, :string, required: true, doc: "also names the figure's DOM id"
   attr :label, :string, required: true
+  attr :icon, :string, default: nil, doc: "a `hero-*` name, drawn as a glyph in the tone"
+
+  attr :verdict, :string,
+    default: nil,
+    doc: "the tone in a word or two, as a pill beside the figure"
+
+  attr :live, :boolean,
+    default: false,
+    doc: "re-read every few seconds: figures in mono and a pulse in the corner"
 
   attr :value, :any,
     default: nil,
@@ -1229,12 +1259,13 @@ defmodule FlezhaUiWeb.CoreComponents do
   attr :href, :string, default: nil
   slot :inner_block
   slot :foot, doc: "a link or what the tile leaves out, on its bottom line"
+  slot :edge, doc: "a chart drawn edge to edge across the tile, just above its foot"
 
   def tile(%{href: href} = assigns) when is_binary(href) do
     ~H"""
     <.link
       navigate={@href}
-      class="fui-tile fui-indicator flz-tile"
+      class={tile_class(@live)}
       data-testid={@testid}
       data-tone={@tone}
     >
@@ -1245,21 +1276,29 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   def tile(assigns) do
     ~H"""
-    <div class="fui-tile fui-indicator flz-tile" data-testid={@testid} data-tone={@tone}>
+    <div class={tile_class(@live)} data-testid={@testid} data-tone={@tone}>
       <.tile_body {assigns} />
     </div>
     """
   end
 
-  # Four rows, always — label, figure, body, foot — so every tile of a row
-  # puts its parts on the same lines.
+  defp tile_class(live),
+    do: ["fui-tile fui-indicator flz-tile", live && "fui-indicator--live"]
+
+  # Four rows, always — head, figure, body, end — so every tile of a row puts
+  # its parts on the same lines.
   defp tile_body(assigns) do
     assigns = assign(assigns, :shown, assigns.value && Format.compact(assigns.value))
 
     ~H"""
-    <span class="fui-indicator-label">{@label}</span>
+    <span class="fui-indicator-head">
+      <.glyph :if={@icon} icon={@icon} tone={@tone} />
+      <span class="fui-indicator-label">{@label}</span>
+    </span>
+    <span :if={@live} class="fui-indicator-pulse" aria-hidden="true"></span>
     <span class="fui-indicator-figure flz-figure-fit">
       <span
+        :if={is_nil(@verdict) and @tone != :neutral}
         class={"fui-shape fui-tone-#{@tone}"}
         data-shape={Words.shape(@tone)}
         aria-hidden="true"
@@ -1274,6 +1313,11 @@ defmodule FlezhaUiWeb.CoreComponents do
         testid={"#{@testid}-value"}
       />
       <span :if={@unit && not is_nil(@value)} class="flz-figure-unit">{@unit}</span>
+      <.badge
+        :if={@verdict}
+        said={%{text: @verdict, tone: @tone, shape: Words.shape(@tone)}}
+        data-testid={"#{@testid}-verdict"}
+      />
     </span>
     <span class="fui-indicator-body">
       <span :if={@condition} class="fui-figures" data-testid={"#{@testid}-condition"}>
@@ -1281,7 +1325,13 @@ defmodule FlezhaUiWeb.CoreComponents do
       </span>
       {render_slot(@inner_block)}
     </span>
-    <span :if={@foot != []} class="fui-indicator-foot flz-tile-foot">{render_slot(@foot)}</span>
+    <span class="fui-indicator-end">
+      {render_slot(@edge)}
+      <span :if={@foot != [] or @href} class="fui-indicator-foot flz-tile-foot">
+        <span class="fui-indicator-foot-text">{render_slot(@foot)}</span>
+        <.icon :if={@href} name="hero-arrow-right" class="fui-indicator-go" />
+      </span>
+    </span>
     """
   end
 
@@ -1331,12 +1381,17 @@ defmodule FlezhaUiWeb.CoreComponents do
   end
 
   @doc """
-  An icon on a tile tinted with one of the wire hues, which tells a kind of
-  thing apart from its neighbours — a provider's role, a factory's run. What
-  the kind is, is said in words beside it.
+  An icon on a tile, tinted with one of the wire hues, which tells a kind of
+  thing apart from its neighbours — a provider's role, a factory's run — or
+  with a status tone, which says how that thing is. What it is, is said in
+  words beside it.
   """
   attr :icon, :string, required: true
-  attr :tone, :integer, required: true, doc: "the wire hue, 0 to 5"
+
+  attr :tone, :any,
+    required: true,
+    doc: "a wire hue, 0 to 5, or `:positive`, `:warning`, `:negative` or `:neutral`"
+
   attr :size, :string, default: "md", values: ~w(md lg)
 
   def glyph(assigns) do

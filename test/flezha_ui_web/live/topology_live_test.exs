@@ -1633,6 +1633,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert text_of(html, ~s([data-testid="ns-relays-value"])) == "8"
       assert text_of(html, ~s([data-testid="ns-relays-condition"])) == "7 healthy · 1 suspended"
       assert attrs(html, ~s([data-testid="ns-relays"]), "data-tone") == ["warning"]
+      assert text_of(html, ~s([data-testid="ns-relays-verdict"])) == "1 suspended"
       assert html =~ ~s(data-testid="ns-relays-strip")
 
       assert {:error, {:live_redirect, %{to: "/relays?namespace=default&health=suspended"}}} =
@@ -1672,6 +1673,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       assert text_of(html, ~s([data-testid="ns-relays-condition"])) == "All healthy"
       assert attrs(html, ~s([data-testid="ns-relays"]), "data-tone") == ["positive"]
+      assert text_of(html, ~s([data-testid="ns-relays-verdict"])) == "Healthy"
 
       assert {:error, {:live_redirect, %{to: "/namespaces/default/relays"}}} =
                view |> element(~s([data-testid="ns-relays-all"])) |> render_click()
@@ -1695,6 +1697,11 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       # The two relays' rates, summed into one figure, its unit apart.
       assert text_of(html, ~s([data-testid="ns-flow-value"])) =~ ~r/^[1-9][\d.]*$/
       assert text_of(html, ~s([data-testid="ns-flow"] .flz-figure-unit)) == "msgs/s"
+      assert text_of(html, ~s([data-testid="ns-flow-verdict"])) == "Flowing"
+      # Re-read every tick: drawn live, its history filled edge to edge.
+      assert [class] = attrs(html, ~s([data-testid="ns-flow"]), "class")
+      assert class =~ "fui-indicator--live"
+      assert html =~ ~s(class="fui-spark-area")
 
       assert text_of(html, ~s([data-testid="ns-flow"] .fui-indicator-foot)) =~
                ~r/^Out [\d.]+ msgs\/s$/
@@ -1727,6 +1734,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert text_of(html, ~s([data-testid="ns-parked"] .fui-indicator-label)) == "Dead letters"
       refute text_of(html, ~s([data-testid="ns-parked"])) =~ "parked"
       assert attrs(html, ~s([data-testid="ns-parked"]), "data-tone") == ["negative"]
+      assert text_of(html, ~s([data-testid="ns-parked-verdict"])) == "Waiting"
       assert has_element?(view, ~s(a[data-testid="ns-parked"][href="/dlq"]))
     end
 
@@ -1815,6 +1823,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       assert attrs(html, ~s([data-testid="ns-limits"]), "data-tone") == ["negative"]
       assert text_of(html, ~s([data-testid="ns-limits-value"])) == "100%"
+      assert text_of(html, ~s([data-testid="ns-limits-verdict"])) == "At its limit"
 
       assert attrs(html, ~s([data-testid="ns-limits"] [data-testid^="ns-limit-"]), "data-testid") ==
                ["ns-limit-relays", "ns-limit-runners"]
@@ -1879,6 +1888,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert foot.("ns-runners") == "Running 2 relays"
       assert foot.("ns-plugins") == "ws_in, kafka_out +1"
       assert foot.("ns-parked") == "The queue is empty"
+      assert text_of(html, ~s([data-testid="ns-parked-verdict"])) == "Clear"
     end
 
     test "the namespace's tiles are headed by its kind and its name", %{conn: conn, node: node} do
@@ -1921,6 +1931,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       html = render(view)
       assert text_of(html, ~s([data-testid="ns-runners-value"])) == "0"
       assert attrs(html, ~s([data-testid="ns-runners"]), "data-tone") == ["warning"]
+      assert text_of(html, ~s([data-testid="ns-runners-verdict"])) == "Needed"
     end
 
     test "a runner event of another namespace does not reload the page", %{conn: conn, node: node} do
@@ -1945,6 +1956,11 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       # Two namespaces of two relays each.
       assert text_of(html, ~s([data-testid="sys-relays-value"])) == "4"
       assert text_of(html, ~s([data-testid="sys-relays-condition"])) == "All healthy"
+      assert text_of(html, ~s([data-testid="sys-relays-verdict"])) == "Healthy"
+      assert text_of(html, ~s([data-testid="sys-runners-verdict"])) == "Connected"
+      assert text_of(html, ~s([data-testid="sys-nodes-verdict"])) == "Connected"
+      # A count with no verdict draws no pill.
+      refute html =~ ~s(data-testid="sys-namespaces-verdict")
       # Each namespace answers the same runner id: it is one runner.
       assert text_of(html, ~s([data-testid="sys-runners-value"])) == "1"
       assert text_of(html, ~s([data-testid="sys-nodes-value"])) == "1"
@@ -1953,6 +1969,8 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       assert text_of(html, ~s([data-testid="sys-problems-condition"])) ==
                "Nothing needs attention"
+
+      assert text_of(html, ~s([data-testid="sys-problems-verdict"])) == "Clear"
 
       assert attrs(html, ~s([data-testid="sys-controller"]), "data-tone") == ["positive"]
       assert html =~ ~s(data-testid="home-system-checked")
@@ -1981,6 +1999,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       # One failed relay in each of the two namespaces.
       assert text_of(html, ~s([data-testid="sys-problems-value"])) == "2"
       assert attrs(html, ~s([data-testid="sys-problems"]), "data-tone") == ["negative"]
+      assert text_of(html, ~s([data-testid="sys-problems-verdict"])) == "Urgent"
       assert has_element?(view, ~s(a[data-testid="sys-problems"][href="/problems"]))
     end
 

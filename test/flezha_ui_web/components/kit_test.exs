@@ -242,8 +242,40 @@ defmodule FlezhaUiWeb.KitTest do
         """)
 
       assert attr_of(html, "a.fui-tile", "href") == "/dlq"
-      assert attr_of(html, ".fui-shape", "data-shape") == "ring"
+      # A neutral tile states no verdict, so it draws no shape; its foot points on.
+      refute html =~ "fui-shape"
+      assert html |> q(".fui-indicator-foot .fui-indicator-go") |> Enum.count() == 1
       refute html =~ ~s(data-testid="t-value")
+    end
+
+    test "an icon, a verdict pill carrying the tone's shape, and a live tile's edge chart" do
+      assigns = %{samples: [1, 3, 2]}
+
+      html =
+        rendered_to_string(~H"""
+        <.tile
+          testid="t"
+          icon="hero-cpu-chip"
+          label="Relays"
+          value={8}
+          tone={:warning}
+          verdict="1 suspended"
+          live
+        >
+          <:edge><.sparkline samples={@samples} area /></:edge>
+        </.tile>
+        """)
+
+      assert attr_of(html, ".fui-glyph", "data-tone") == "warning"
+      assert attr_of(html, ".fui-glyph > span", "class") =~ "hero-cpu-chip"
+      assert html |> q(~s([data-testid="t-verdict"])) |> LazyHTML.text() =~ "1 suspended"
+      assert attr_of(html, ~s([data-testid="t-verdict"]), "class") =~ "fui-badge--warning"
+      # The pill carries the shape, so none stands beside the figure.
+      assert attr_of(html, ".fui-shape", "data-shape") == "triangle"
+      assert html |> q(".fui-shape") |> Enum.count() == 1
+      assert attr_of(html, "div.fui-tile", "class") =~ "fui-indicator--live"
+      assert html |> q(".fui-indicator-pulse") |> Enum.count() == 1
+      assert attr_of(html, ".fui-indicator-end > svg .fui-spark-area", "points") =~ ~r/^0,20 /
     end
 
     test "a large figure is compact, with its unit apart and its exact value as the title" do
