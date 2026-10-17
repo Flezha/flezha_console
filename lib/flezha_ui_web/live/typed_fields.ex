@@ -206,7 +206,7 @@ defmodule FlezhaUiWeb.Live.TypedFields do
       name={input_name(@form, @secret_name, spec)}
       type={input_type(spec.kind)}
       label={spec.name <> if(Map.get(spec, :required), do: " *", else: "")}
-      hint={hint(spec)}
+      hint={hint(spec, @form[spec.name].value)}
       value={if spec.kind != :secret, do: @form[spec.name].value}
       errors={Enum.map(@form[spec.name].errors, &translate_error/1)}
       options={options(spec)}
@@ -244,6 +244,41 @@ defmodule FlezhaUiWeb.Live.TypedFields do
   end
 
   defp hint(spec), do: Map.get(spec, :doc)
+
+  # A whole number in a unit its name spells is read back at a size a person
+  # takes in at a glance: `timeout_ms` at 30000 reads "= 30s".
+  defp hint(%{kind: :int} = spec, value) do
+    reading =
+      case Integer.parse(to_string(value || "")) do
+        {typed, ""} -> reading(spec.name, typed, "= ")
+        _not_typed -> reading(spec.name, Map.get(spec, :default), "default ")
+      end
+
+    case Enum.reject([hint(spec), reading], &is_nil/1) do
+      [] -> nil
+      parts -> Enum.join(parts, " · ")
+    end
+  end
+
+  defp hint(spec, _value), do: hint(spec)
+
+  defp reading(name, n, said) when is_integer(n) do
+    cond do
+      String.ends_with?(name, "_ms") and n >= 1_000 ->
+        said <> Format.duration(n)
+
+      String.ends_with?(name, ["_s", "_secs", "_seconds"]) and n >= 60 ->
+        said <> Format.duration(n * 1_000)
+
+      String.ends_with?(name, "_bytes") and n >= 1_024 ->
+        said <> Format.bytes(n)
+
+      true ->
+        nil
+    end
+  end
+
+  defp reading(_name, _not_a_number, _said), do: nil
 
   defp options(%{kind: :bool}), do: ~w(true false)
 

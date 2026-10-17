@@ -351,7 +351,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       assert html =~ ~s(data-testid="input-plugin-single")
 
       html =
-        submit(view, %{
+        submit_plugin_form(view, %{
           "name" => "hooks_1",
           "hooks" => ["", "on_relay_started", "on_relay_stopped"],
           "single" => "true",
@@ -382,7 +382,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       open_enable(view)
       choose(view, "hook_webhook")
 
-      html = submit(view, %{"name" => "hooks_1"})
+      html = submit_plugin_form(view, %{"name" => "hooks_1"})
 
       assert html =~
                "Plugin hooks_1 enabled. It does not run on flezha@node-b, which lacks its provider."
@@ -397,7 +397,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       open_enable(view)
       choose(view, "hook_webhook")
 
-      html = submit(view, %{"name" => "hooks_1"})
+      html = submit_plugin_form(view, %{"name" => "hooks_1"})
 
       assert html =~ "Plugin hooks_1 enabled."
       refute html =~ "does not run on"
@@ -418,7 +418,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       open_enable(view)
       choose(view, "hook_webhook")
 
-      assert submit(view, %{"name" => "hooks_1"}) =~
+      assert submit_plugin_form(view, %{"name" => "hooks_1"}) =~
                "Plugin hooks_1 was already enabled."
     end
 
@@ -436,6 +436,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       {:ok, view, _html} = live(conn, ~p"/plugins")
       open_enable(view)
       choose(view, "relay_stdout")
+      to_step(view, 1)
 
       html = change(view, %{"namespace" => "staging"})
 
@@ -453,10 +454,177 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       html = choose(view, "hook_webhook")
       assert html =~ ~s(data-testid="input-plugin-namespace")
 
-      submit(view, %{"name" => "hooks_1", "namespace" => "staging"})
+      submit_plugin_form(view, %{"name" => "hooks_1", "namespace" => "staging"})
 
       assert [["hooks_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
       assert fields[:namespace] == "staging"
+    end
+  end
+
+  describe "the enable flow" do
+    test "providers are grouped by what they do, and the chosen one is described before the form",
+         %{conn: conn, node: node} do
+      with_namespaces(node, %{"default" => {:ok, []}})
+
+      providers(
+        node,
+        [
+          Map.put(provider("relay_file_input", :relay), :feeds, true),
+          provider("relay_stdout", :relay),
+          provider("hook_webhook", :controller)
+        ],
+        0
+      )
+
+      describe_provider(node, "relay_stdout", :relay, [:on_output], [
+        FakeController.option_row("prefix", %{type: :string, required: true, doc: "Put first"})
+      ])
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
+      html = open_enable(view)
+
+      assert text_of(html, ~s([data-testid="provider-grid"])) =~
+               ~r/Sources\s*Relay File Input.*Taps and sinks\s*Relay Stdout.*Controller plugins\s*Hook Webhook/
+
+      html = view |> element(~s([data-testid="provider-role-controller"])) |> render_click()
+      assert html =~ ~s(data-testid="provider-btn-hook_webhook")
+      refute html =~ ~s(data-testid="provider-btn-relay_stdout")
+
+      view |> element(~s([data-testid="provider-role-all"])) |> render_click()
+      html = choose(view, "relay_stdout")
+
+      detail = text_of(html, ~s([data-testid="provider-detail"]))
+      assert detail =~ "Taps and sinks"
+      assert detail =~ "runs on a relay"
+      assert detail =~ "1 required of 1"
+      assert detail =~ "on_output"
+      assert detail =~ ~r/prefix\s*Put first/
+      assert text_of(html, ~s([data-testid="plugin-steps-step-0"])) =~ "Relay Stdout"
+      assert has_element?(view, ~s([data-testid="plugin-placement"][hidden]))
+
+      view |> element(~s([data-testid="provider-use-btn"])) |> render_click()
+      refute has_element?(view, ~s([data-testid="plugin-placement"][hidden]))
+
+      assert has_element?(
+               view,
+               ~s([data-testid="input-hook-on_output"] ~ span),
+               "Each record the relay puts out"
+             )
+    end
+
+    test "each step is checked before the next opens, and a done step goes back", %{
+      conn: conn,
+      node: node
+    } do
+      with_namespaces(node, %{"default" => {:ok, []}})
+      providers(node, [provider("hook_webhook", :controller)], 0)
+
+      describe_provider(node, "hook_webhook", :controller, [:on_relay_started], [
+        FakeController.option_row("url", %{type: :string, required: true})
+      ])
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
+      open_enable(view)
+      choose(view, "hook_webhook")
+      view |> element(~s([data-testid="attach-next-btn"])) |> render_click()
+
+      named = fn -> view |> element(~s([data-testid="input-plugin-name"])) |> render() end
+      before = named.()
+      view |> element(~s([data-testid="plugin-rename-btn"])) |> render_click()
+      assert named.() != before
+
+      at = fn n -> has_element?(view, ~s([data-testid="plugin-steps"][data-step="#{n}"])) end
+
+      html = step(view, %{name: " "})
+      assert text_of(html, ~s([data-testid="attach-error"])) =~ "A plugin name is required."
+      assert at.(1)
+
+      html = step(view, %{name: "hooks_1", hooks: ["", "on_relay_started"]})
+      assert at.(2)
+      assert text_of(html, ~s([data-testid="plugin-steps-step-1"])) =~ "hooks_1 in default"
+
+      step(view, %{opts: %{url: ""}})
+      assert has_element?(view, ~s([data-testid="input-option-url"] ~ .fui-error), "is required")
+      assert at.(2)
+
+      html = step(view, %{opts: %{url: "http://h.test"}})
+      assert at.(3)
+
+      assert text_of(html, ~s([data-testid="plugin-review"])) =~
+               "Enable Hook Webhook as hooks_1 in default."
+
+      view |> element(~s([data-testid="plugin-steps-go-1"])) |> render_click()
+      assert at.(1)
+      step(view, %{})
+      html = step(view, %{})
+
+      assert text_of(html, ~s([data-testid="plugin-command"])) ==
+               "flz plugin enable hooks_1 hook_webhook --namespace default " <>
+                 "--hook=on_relay_started --Xurl=http://h.test"
+
+      assert FakeController.calls(node, {PluginManager, :enable}) == []
+    end
+
+    test "a step's field sent again from another step keeps what its own step chose", %{
+      conn: conn,
+      node: node
+    } do
+      with_namespaces(node, %{"default" => {:ok, []}})
+      providers(node, [provider("relay_stdout", :relay)], 0)
+      describe_provider(node, "relay_stdout", :relay, [:on_output], [])
+      FakeController.set(node, {Relay, :list_relays}, {:ok, ["relay_a"]})
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
+      open_enable(view)
+      choose(view, "relay_stdout")
+      to_step(view, 1)
+
+      step(view, %{name: "out_1", relay_id: "relay_a", hooks: ["", "on_output"]})
+      html = step(view, %{name: "other", relay_id: "", hooks: [""]})
+
+      assert text_of(html, ~s([data-testid="review-relay"])) == "relay_a"
+      assert text_of(html, ~s([data-testid="review-hooks"])) == "on_output"
+      assert text_of(html, ~s([data-testid="plugin-review"])) =~ "Enable Relay Stdout as out_1"
+    end
+
+    test "another provider drops what was typed for the last", %{conn: conn, node: node} do
+      with_namespaces(node, %{"default" => {:ok, []}})
+
+      providers(
+        node,
+        [provider("relay_stdout", :relay), provider("hook_webhook", :controller)],
+        0
+      )
+
+      FakeController.set(
+        node,
+        {Fleet, :provider},
+        {:per_arg, 0,
+         %{
+           "relay_stdout" =>
+             {:ok, %{provider: "relay_stdout", help: nil, type: :relay, hooks: [], options: []}}
+         },
+         {:ok,
+          %{
+            provider: "hook_webhook",
+            help: nil,
+            type: :controller,
+            hooks: [],
+            options: [FakeController.option_row("url", %{type: :string})]
+          }}}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
+      open_enable(view)
+      choose(view, "hook_webhook")
+      to_step(view, 2)
+      change(view, %{"opts" => %{"url" => "http://typed.test"}})
+      assert has_element?(view, ~s([data-testid="input-option-url"][value="http://typed.test"]))
+
+      to_step(view, 0)
+      choose(view, "relay_stdout")
+      choose(view, "hook_webhook")
+      refute has_element?(view, ~s([data-testid="input-option-url"][value="http://typed.test"]))
     end
   end
 
@@ -486,7 +654,11 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       assert html =~ ~s(data-testid="input-plugin-channel")
 
       html =
-        submit(view, %{"relay_id" => "relay_b", "hooks" => ["", "on_output"], "channel" => "out"})
+        submit_plugin_form(view, %{
+          "relay_id" => "relay_b",
+          "hooks" => ["", "on_output"],
+          "channel" => "out"
+        })
 
       assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :bind})
       assert fields[:relay_id] == "relay_b"
@@ -501,7 +673,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       {:ok, view, _html} = live(conn, ~p"/plugins")
       view |> element(~s([data-testid="plugin-bind-out_1"])) |> render_click()
 
-      assert submit(view, %{"relay_id" => "relay_a"}) =~
+      assert submit_plugin_form(view, %{"relay_id" => "relay_a"}) =~
                "relay_a already holds plugin out_1."
     end
 
@@ -560,7 +732,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
         assert html =~ "merged into the options the plugin has"
         refute html =~ ~s(data-testid="input-hooks")
 
-        html = submit(view, %{"opts" => ~s({"prefix": "x"})})
+        html = submit_plugin_form(view, %{"opts" => ~s({"prefix": "x"})})
 
         assert html =~ "Plugin out_1 updated: #{said}. Bound to relay_a."
       end
@@ -693,7 +865,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
     defp option(name), do: ~s([data-testid="input-option-#{name}"])
     defp option_error(name), do: option(name) <> " ~ .fui-error"
 
-    defp enable(view, opts), do: submit(view, %{"name" => "hooks_1", "opts" => opts})
+    defp enable(view, opts), do: submit_plugin_form(view, %{"name" => "hooks_1", "opts" => opts})
 
     test "each option is a field of the control its type needs", %{conn: conn} do
       view = choose_webhook(conn)
@@ -742,6 +914,36 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       refute has_element?(view, ~s([data-testid="input-plugin-opts"]))
       assert has_element?(view, ~s(details[data-testid="provider-help"]))
       refute has_element?(view, ~s(details[data-testid="provider-help"][open]))
+    end
+
+    test "the optional options stay folded until unfolded, and open when one is refused", %{
+      conn: conn
+    } do
+      view = choose_webhook(conn)
+      folded = ~s([data-testid="plugin-optional-toggle"][aria-expanded="false"])
+
+      assert has_element?(view, folded)
+      assert has_element?(view, ~s(#plugin-optional[hidden] ) <> option("timeout_ms"))
+
+      view |> element(~s([data-testid="plugin-optional-toggle"])) |> render_click()
+      refute has_element?(view, ~s(#plugin-optional[hidden]))
+      view |> element(~s([data-testid="plugin-optional-toggle"])) |> render_click()
+      assert has_element?(view, folded)
+
+      enable(view, %{"url" => "http://hooks.test", "timeout_ms" => "0"})
+      assert has_element?(view, option_error("timeout_ms"), "must be at least 1")
+      refute has_element?(view, ~s(#plugin-optional[hidden]))
+    end
+
+    test "a number in a unit its name spells is read back at a glance", %{conn: conn} do
+      view = choose_webhook(conn)
+      hint = option("timeout_ms") <> " ~ .fui-hint"
+
+      assert has_element?(view, hint, "Budget for one request · default 5s")
+
+      to_step(view, 2)
+      change(view, %{"opts" => %{"timeout_ms" => "90000"}})
+      assert has_element?(view, hint, "Budget for one request · = 1m 30s")
     end
 
     test "enable sends exactly the filled options, typed and keyed by text", %{
@@ -870,7 +1072,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       assert has_element?(view, option("timeout_ms") <> " ~ .fui-hint", "changed in place")
       assert has_element?(view, option("headers"))
 
-      html = submit(view, %{"opts" => %{"timeout_ms" => "7000", "url" => ""}})
+      html = submit_plugin_form(view, %{"opts" => %{"timeout_ms" => "7000", "url" => ""}})
 
       assert html =~ "Plugin out_1 updated: applied live."
       assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :update})
@@ -904,7 +1106,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       {:ok, view, _html} = live(conn, ~p"/plugins")
       view |> element(~s([data-testid="plugin-update-out_1"])) |> render_click()
 
-      assert submit(view, %{}) =~
+      assert submit_plugin_form(view, %{}) =~
                "Plugin out_1 updated: nothing changed."
 
       assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :update})
@@ -996,10 +1198,11 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       view = secret_form(conn)
       secret = %{"api_key" => @secret}
 
+      to_step(view, 2)
       html = change(view, %{"secret" => secret})
       refute html =~ @secret
 
-      html = submit(view, %{"secret" => secret})
+      html = submit_plugin_form(view, %{"secret" => secret})
 
       assert has_element?(
                view,
@@ -1011,8 +1214,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       assert FakeController.calls(node, {PluginManager, :enable}) == []
 
       html =
-        submit(view, %{
-          "name" => "hooks_1",
+        submit_plugin_form(view, %{
           "opts" => %{"url" => "http://h.test"},
           "secret" => secret
         })
@@ -1026,8 +1228,28 @@ defmodule FlezhaUiWeb.PluginLiveTest do
                "The controller refused this value (plugin.option_invalid)."
              )
 
-      assert [["hooks_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
+      assert [[_name, fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
       assert fields[:opts] == %{"url" => "http://h.test", "api_key" => @secret}
+    end
+
+    test "is read from the environment in the review's command, never written in it", %{
+      conn: conn
+    } do
+      view = secret_form(conn)
+
+      fields = %{
+        "name" => "hooks_1",
+        "opts" => %{"url" => "http://h.test/x?y=1"},
+        "secret" => %{"api_key" => @secret}
+      }
+
+      html = Enum.reduce(1..3, nil, fn _step, _html -> step(view, fields) end)
+
+      assert text_of(html, ~s([data-testid="plugin-command"])) ==
+               ~s(flz plugin enable hooks_1 hook_webhook --namespace default --Xapi_key="$API_KEY" --Xurl='http://h.test/x?y=1')
+
+      assert text_of(html, ~s([data-testid="review-options"])) =~ ~r/api_key\s*set, not shown/
+      refute html =~ @secret
     end
 
     test "an update sends it when filled and leaves it out when blank", %{conn: conn, node: node} do
@@ -1040,7 +1262,7 @@ defmodule FlezhaUiWeb.PluginLiveTest do
         view |> element(~s([data-testid="plugin-update-out_1"])) |> render_click()
         opts = if secret == "", do: %{"url" => "http://h.test"}, else: %{}
 
-        submit(view, %{"opts" => opts, "secret" => %{"api_key" => secret}})
+        submit_plugin_form(view, %{"opts" => opts, "secret" => %{"api_key" => secret}})
 
         assert [["out_1", fields, _ctx] | _] =
                  node |> FakeController.calls({PluginManager, :update}) |> Enum.reverse()
@@ -1131,11 +1353,16 @@ defmodule FlezhaUiWeb.PluginLiveTest do
   defp choose(view, provider),
     do: view |> element(~s([data-testid="provider-btn-#{provider}"])) |> render_click()
 
-  defp submit(view, fields) do
-    view
-    |> form(~s(form[phx-submit="plugin_form_submit"]), plugin: fields)
-    |> render_submit()
-  end
+  # One submit of the plugin form, which on an enable moves on one step.
+  defp step(view, fields),
+    do: view |> form(~s([data-testid="plugin-form"]), plugin: fields) |> render_submit()
+
+  # Moves the open enable flow to `step`: back at once, forward a step at a
+  # time, as the rail and Next do.
+  defp to_step(view, 0), do: render_click(view, "plugin_form_step", %{"step" => "0"})
+
+  defp to_step(view, step),
+    do: for(s <- 1..step, do: render_click(view, "plugin_form_step", %{"step" => "#{s}"}))
 
   defp change(view, fields) do
     view

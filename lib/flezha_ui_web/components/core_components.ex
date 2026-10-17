@@ -1300,6 +1300,53 @@ defmodule FlezhaUiWeb.CoreComponents do
     """
   end
 
+  @doc """
+  A command line that does what a flow will, ready to copy: a `flz` command a
+  review shows beside what it states. A note may follow it.
+  """
+  attr :id, :string, required: true
+  attr :testid, :string, required: true
+  attr :command, :string, required: true
+  slot :inner_block
+
+  def command(assigns) do
+    ~H"""
+    <div class="fui-command">
+      <div class="fui-command-head">
+        <p class="fui-eyebrow">The same from the CLI</p>
+        <.button
+          variant="secondary"
+          size="sm"
+          icon="hero-clipboard"
+          data-fui-copy-from={"##{@id}"}
+          data-testid={"#{@testid}-copy"}
+        >
+          Copy
+        </.button>
+      </div>
+      <.code_block id={@id} testid={@testid}>{@command}</.code_block>
+      {render_slot(@inner_block)}
+    </div>
+    """
+  end
+
+  @doc """
+  An icon on a tile tinted with one of the wire hues, which tells a kind of
+  thing apart from its neighbours — a provider's role, a factory's run. What
+  the kind is, is said in words beside it.
+  """
+  attr :icon, :string, required: true
+  attr :tone, :integer, required: true, doc: "the wire hue, 0 to 5"
+  attr :size, :string, default: "md", values: ~w(md lg)
+
+  def glyph(assigns) do
+    ~H"""
+    <span class={["fui-glyph", @size == "lg" && "fui-glyph--lg"]} data-tone={@tone}>
+      <.icon name={@icon} class={if @size == "lg", do: "h-6 w-6", else: "h-5 w-5"} />
+    </span>
+    """
+  end
+
   @doc "A key, as the keyboard labels it."
   slot :inner_block, required: true
 
@@ -1822,8 +1869,8 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   attr :size, :string,
     default: "confirm",
-    values: ~w(confirm form wide),
-    doc: "what the dialog is for; the width follows from it"
+    values: ~w(confirm form wide flow),
+    doc: "what the dialog is for; the width follows from it. `flow` holds a railed `steps/1`"
 
   attr :on_close, :string,
     default: nil,
@@ -2003,30 +2050,188 @@ defmodule FlezhaUiWeb.CoreComponents do
   A guided flow's layout: its steps across the top, the current step's body,
   and its foot of back and next controls. The flow's state is the caller's;
   this draws where it is.
+
+  `rail` stands the steps down a rail beside the body instead, under a bar of
+  how far the flow has come, each step with a summary of what was chosen
+  there. With `on_step`, a done step is a control that sends that event with
+  `phx-value-step`, so the operator can go back to it.
   """
-  attr :steps, :list, required: true, doc: "each step's label, in order"
+  attr :steps, :list,
+    required: true,
+    doc: "each step's label, or `{label, summary}`, in order"
+
   attr :current, :integer, required: true, doc: "the current step's index"
   attr :testid, :string, default: "steps"
+  attr :rail, :boolean, default: false
+  attr :on_step, :string, default: nil
   slot :inner_block, doc: "the current step's body; a form may keep its fields below instead"
+  slot :aside, doc: "a note at the foot of the rail"
   slot :foot
 
   def steps(assigns) do
+    steps = Enum.map(assigns.steps, fn step -> if is_tuple(step), do: step, else: {step, nil} end)
+    last = max(length(steps) - 1, 1)
+
+    assigns =
+      assign(assigns, steps: steps, progress: round(min(assigns.current, last) * 100 / last))
+
     ~H"""
-    <div data-testid={@testid}>
-      <ol class="fui-steps" aria-label="Steps">
-        <li
-          :for={{label, index} <- Enum.with_index(@steps)}
-          class="fui-step"
-          aria-current={index == @current && "step"}
-          data-done={index < @current && "true"}
-          data-testid={"#{@testid}-step-#{index}"}
-        >
-          {label}
-        </li>
-      </ol>
+    <div data-testid={@testid} data-step={@current} class={@rail && "fui-flow"}>
+      <div :if={@rail} class="fui-flow-progress" aria-hidden="true">
+        <span style={"width: #{@progress}%"}></span>
+      </div>
+      <div class={@rail && "fui-flow-rail"}>
+        <ol class="fui-steps" aria-label="Steps">
+          <li
+            :for={{{label, summary}, index} <- Enum.with_index(@steps)}
+            class="fui-step"
+            aria-current={index == @current && "step"}
+            data-done={index < @current && "true"}
+            data-testid={"#{@testid}-step-#{index}"}
+          >
+            <button
+              :if={@on_step && index < @current}
+              type="button"
+              class="fui-step-text"
+              phx-click={@on_step}
+              phx-value-step={index}
+              data-testid={"#{@testid}-go-#{index}"}
+            >
+              <span class="fui-step-label">{label}</span>
+              <span :if={@rail && summary} class="fui-step-summary">{summary}</span>
+            </button>
+            <span :if={!(@on_step && index < @current)} class="fui-step-text">
+              <span class="fui-step-label">{label}</span>
+              <span :if={@rail && summary} class="fui-step-summary">{summary}</span>
+            </span>
+          </li>
+        </ol>
+        <div :if={@rail && @aside != []} class="fui-flow-note">{render_slot(@aside)}</div>
+      </div>
       <div :if={@inner_block != []} class="fui-steps-body">{render_slot(@inner_block)}</div>
       <div :if={@foot != []} class="fui-steps-foot">{render_slot(@foot)}</div>
     </div>
+    """
+  end
+
+  @doc """
+  Where a guided flow moves when the operator asks for `target` from
+  `current`: back to any step already done, or forward one step, and only
+  once `check` — the current step's own checks — answers `:ok`. Answers
+  `{:ok, step}`, the check's `{:error, reason}`, or `:stay` for a target past
+  `last` or more than one step ahead.
+  """
+  def move_step(current, target, _last, _check) when target <= current, do: {:ok, max(target, 0)}
+
+  def move_step(current, target, last, check) when target == current + 1 and target <= last do
+    with :ok <- check.(), do: {:ok, target}
+  end
+
+  def move_step(_current, _target, _last, _check), do: :stay
+
+  @doc """
+  Choosing one of a list, with the choice described beside it: a filter box
+  and any further tools above, the list, and the description in a pane that
+  stays in view. The filter narrows every item marked `data-fui-item`, as
+  `pick_choice/1` is, and a group of items it empties says nothing.
+  """
+  attr :search, :string, required: true, doc: "the filter box's placeholder and name"
+  attr :search_testid, :string, required: true
+  attr :list_testid, :string, required: true
+  slot :tools
+  slot :inner_block, required: true
+  slot :detail, required: true
+
+  def picker(assigns) do
+    ~H"""
+    <div class="fui-pick" data-fui-filterable>
+      <div class="fui-pick-tools">
+        <input
+          type="search"
+          class="fui-input--compact"
+          placeholder={@search}
+          aria-label={@search}
+          data-fui-filter
+          data-testid={@search_testid}
+        />
+        {render_slot(@tools)}
+      </div>
+      <div class="fui-pick-split">
+        <div class="fui-pick-list" data-testid={@list_testid}>{render_slot(@inner_block)}</div>
+        {render_slot(@detail)}
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
+  One item of a `picker/1`: a card with its glyph, its text, and a mark at the
+  end that turns to a check once it is the chosen one. The click is the
+  caller's.
+  """
+  attr :chosen, :boolean, required: true
+  attr :glyph, :any, required: true, doc: "`{icon, tone}`, as `glyph/1` takes them"
+  attr :rest, :global, include: ~w(disabled)
+  slot :inner_block, required: true
+
+  def pick_choice(assigns) do
+    ~H"""
+    <button
+      type="button"
+      class="fui-choice fui-choice--row"
+      aria-pressed={to_string(@chosen)}
+      data-fui-item
+      {@rest}
+    >
+      <.glyph icon={elem(@glyph, 0)} tone={elem(@glyph, 1)} />
+      <span class="min-w-0">{render_slot(@inner_block)}</span>
+      <.icon
+        name={if @chosen, do: "hero-check-circle-mini", else: "hero-chevron-right-mini"}
+        class="fui-choice-mark h-5 w-5"
+      />
+    </button>
+    """
+  end
+
+  @doc """
+  The pane of a `picker/1` describing the chosen item: its glyph, title and
+  subtitle, what the caller says of it, and the `:action` that moves on.
+  With `empty`, an icon name, nothing is chosen yet and the inner block says
+  what choosing will show.
+  """
+  attr :testid, :string, required: true
+  attr :empty, :string, default: nil
+  attr :glyph, :any, default: nil, doc: "`{icon, tone}`, as `glyph/1` takes them"
+  attr :title, :string, default: nil
+  attr :subtitle, :string, default: nil
+  attr :mono, :atom, default: nil, values: [nil, :title, :subtitle], doc: "which is an identifier"
+  slot :inner_block, required: true
+  slot :action
+
+  def pick_pane(%{empty: icon} = assigns) when is_binary(icon) do
+    ~H"""
+    <aside class="fui-pane fui-pane--empty" data-testid={@testid}>
+      <.icon name={@empty} class="h-8 w-8" />
+      <p>{render_slot(@inner_block)}</p>
+    </aside>
+    """
+  end
+
+  def pick_pane(assigns) do
+    ~H"""
+    <aside class="fui-pane" data-testid={@testid}>
+      <div class="fui-pane-head">
+        <.glyph icon={elem(@glyph, 0)} tone={elem(@glyph, 1)} size="lg" />
+        <div class="min-w-0">
+          <h3 class={["fui-pane-title", @mono == :title && "fui-num"]}>{@title}</h3>
+          <p :if={@subtitle} class={["fui-muted text-xs", @mono == :subtitle && "fui-num"]}>
+            {@subtitle}
+          </p>
+        </div>
+      </div>
+      {render_slot(@inner_block)}
+      {render_slot(@action)}
+    </aside>
     """
   end
 

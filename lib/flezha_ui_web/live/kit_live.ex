@@ -301,6 +301,38 @@ defmodule FlezhaUiWeb.KitLive do
           <.button>Next</.button>
         </:foot>
       </.steps>
+      <%!-- A railed flow fills a `flow` dialog; here it stands in a box of that height. --%>
+      <div class="fui-dialog-panel fui-dialog-panel--flow mt-6" data-testid="kit-flow-rail">
+        <div class="fui-dialog-body">
+          <.steps
+            steps={[
+              {"Provider", "HTTP Server"},
+              {"Placement", "web in default"},
+              {"Review", "Check, enable"}
+            ]}
+            current={1}
+            rail
+            testid="kit-rail"
+          >
+            <:aside>A note at the foot of the rail.</:aside>
+            <div class="fui-pick-list">
+              <.pick_choice chosen glyph={{"hero-arrow-down-tray", 0}}>
+                <span class="font-medium">A chosen card, with its glyph</span>
+              </.pick_choice>
+            </div>
+            <.command
+              id="kit-command"
+              testid="kit-command"
+              command="flz relay start echo --namespace default"
+            />
+            <:foot>
+              <.button variant="ghost">Cancel</.button>
+              <.button variant="secondary">Back</.button>
+              <.button>Next</.button>
+            </:foot>
+          </.steps>
+        </div>
+      </div>
       <div class="mt-6">
         <.tabs items={[
           %{label: "Live", path: "/dev/kit", current?: true},

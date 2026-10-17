@@ -162,13 +162,51 @@ defmodule FlezhaUi.Format do
   @doc "A partition's key groups, `{first, last}`, as `first–last`."
   def key_range({first, last}), do: "#{first}–#{last}"
 
+  # Words a controller id spells in lower case that a reader knows in another
+  # case: `http_api` reads "HTTP API", not "Http Api".
+  @spelled %{
+    "api" => "API",
+    "beam" => "BEAM",
+    "http" => "HTTP",
+    "https" => "HTTPS",
+    "id" => "ID",
+    "io" => "IO",
+    "ip" => "IP",
+    "json" => "JSON",
+    "pem" => "PEM",
+    "sql" => "SQL",
+    "ssl" => "SSL",
+    "tcp" => "TCP",
+    "tls" => "TLS",
+    "uri" => "URI",
+    "url" => "URL",
+    "websocket" => "WebSocket"
+  }
+
   @doc "A snake_case controller id as a human-readable label."
   def humanize(id) do
     id
     |> to_string()
     |> String.replace("_", " ")
     |> String.split(" ")
-    |> Enum.map_join(" ", &String.capitalize/1)
+    |> Enum.map_join(" ", &Map.get(@spelled, String.downcase(&1), String.capitalize(&1)))
+  end
+
+  @doc """
+  A command line from its words, each quoted for a POSIX shell only where it
+  has to be, so a copied command runs as shown. A word given as a list is its
+  parts joined, each quoted alone: `["--Xurl=", url]`. `{:raw, text}` is put
+  in as written, for a part meant to be expanded, such as `"$API_KEY"`.
+  """
+  def command(words), do: Enum.map_join(words, " ", &shell_word/1)
+
+  defp shell_word(parts) when is_list(parts), do: Enum.map_join(parts, &shell_word/1)
+  defp shell_word({:raw, text}), do: text
+
+  defp shell_word(word) do
+    if word =~ ~r/^[A-Za-z0-9_@%+=:,.\/-]+$/,
+      do: word,
+      else: "'" <> String.replace(word, "'", ~S('"'"')) <> "'"
   end
 
   @doc "A module name as text, for a provider shown in a table."

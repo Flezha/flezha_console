@@ -1860,6 +1860,532 @@ dialog.fui-dialog-panel::backdrop {
   overflow-y: auto;
 }
 
+/* A card laid out as a row: a glyph, the text, and a mark at the end that
+   turns to a check once chosen. */
+.fui-choice--row {
+  align-items: center;
+  gap: var(--fui-space-3);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  transition: border-color var(--fui-fast) var(--fui-ease), background var(--fui-fast) var(--fui-ease);
+}
+
+.fui-choice-mark {
+  color: var(--fui-ink-3);
+  opacity: 0;
+  transition: opacity var(--fui-fast) var(--fui-ease), transform var(--fui-fast) var(--fui-ease);
+}
+
+.fui-choice--row:hover:not(:disabled) .fui-choice-mark,
+.fui-choice--row:focus-visible .fui-choice-mark {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+.fui-choice[aria-pressed="true"] .fui-choice-mark {
+  color: var(--fui-accent);
+  opacity: 1;
+  transform: none;
+}
+
+/* A card holding a checkbox reads as a card holding a radio. */
+.fui-choice:has(> input[type="checkbox"]) {
+  cursor: pointer;
+  gap: var(--fui-space-1) var(--fui-space-3);
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.fui-choice > input[type="checkbox"] {
+  margin-top: 0.15rem;
+}
+
+/* Choices side by side, as many as fit: a provider's hooks. */
+.fui-choices--tiles {
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  max-height: none;
+  overflow: visible;
+}
+
+/* A role or a run told apart by one of the wire hues; what it is, is said in
+   words beside it. */
+.fui-glyph {
+  align-items: center;
+  border-radius: var(--fui-radius-control);
+  color: var(--fui-ink-2);
+  display: inline-flex;
+  flex: none;
+  height: 2.25rem;
+  justify-content: center;
+  width: 2.25rem;
+}
+
+.fui-glyph--lg {
+  height: 3rem;
+  width: 3rem;
+}
+
+.fui-glyph[data-tone="0"] { background: color-mix(in oklab, var(--fui-wire-0) 13%, var(--fui-surface)); color: var(--fui-wire-0); }
+.fui-glyph[data-tone="1"] { background: color-mix(in oklab, var(--fui-wire-1) 13%, var(--fui-surface)); color: var(--fui-wire-1); }
+.fui-glyph[data-tone="2"] { background: color-mix(in oklab, var(--fui-wire-2) 13%, var(--fui-surface)); color: var(--fui-wire-2); }
+.fui-glyph[data-tone="3"] { background: color-mix(in oklab, var(--fui-wire-3) 13%, var(--fui-surface)); color: var(--fui-wire-3); }
+.fui-glyph[data-tone="4"] { background: color-mix(in oklab, var(--fui-wire-4) 13%, var(--fui-surface)); color: var(--fui-wire-4); }
+.fui-glyph[data-tone="5"] { background: color-mix(in oklab, var(--fui-wire-5) 13%, var(--fui-surface)); color: var(--fui-wire-5); }
+
+/* ---- A guided flow down a rail ----
+ * The steps stand in a rail beside the body, under a bar of how far the flow
+ * has come; each step says what was chosen there. The dialog holding it keeps
+ * one height, so moving between steps never makes it jump.
+ */
+.fui-dialog-panel--flow {
+  display: flex;
+  flex-direction: column;
+  height: min(48rem, calc(100dvh - 2 * var(--fui-space-9)));
+  max-width: 68rem;
+}
+
+.fui-dialog-panel--flow > .fui-dialog-head {
+  padding-bottom: var(--fui-space-4);
+}
+
+.fui-dialog-panel--flow > .fui-dialog-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+}
+
+.fui-flow {
+  display: grid;
+  grid-template-areas:
+    "bar bar"
+    "rail body"
+    "rail foot";
+  grid-template-columns: 15rem minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+}
+
+.fui-flow-progress {
+  background: var(--fui-line);
+  grid-area: bar;
+  height: 3px;
+}
+
+.fui-flow-progress > span {
+  background: var(--fui-accent);
+  display: block;
+  height: 100%;
+  transition: width var(--fui-slow) var(--fui-ease);
+}
+
+.fui-flow-rail {
+  background: var(--fui-canvas);
+  border-right: 1px solid var(--fui-line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--fui-space-5);
+  grid-area: rail;
+  overflow-y: auto;
+  padding: var(--fui-space-5) var(--fui-space-4);
+}
+
+.fui-flow-rail > .fui-steps {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+
+.fui-flow-rail .fui-step {
+  align-items: start;
+  display: grid;
+  gap: var(--fui-space-3);
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  min-height: 4.25rem;
+  position: relative;
+}
+
+.fui-flow-rail .fui-step::before {
+  background: var(--fui-raised);
+  border-color: var(--fui-line-strong);
+  height: 1.75rem;
+  position: relative;
+  transition: background var(--fui-base) var(--fui-ease), border-color var(--fui-base) var(--fui-ease);
+  width: 1.75rem;
+  z-index: 1;
+}
+
+/* The line from one step to the next, filled once the step is done. */
+.fui-flow-rail .fui-step:not(:last-child)::after {
+  background: var(--fui-line);
+  bottom: var(--fui-space-1);
+  content: "";
+  left: calc(0.875rem - 1px);
+  position: absolute;
+  top: 1.875rem;
+  width: 2px;
+}
+
+.fui-flow-rail .fui-step[data-done]::after {
+  background: var(--fui-positive);
+}
+
+.fui-flow-rail .fui-step[data-done]::before {
+  background: var(--fui-positive);
+  border-color: var(--fui-positive);
+  color: var(--fui-on-positive);
+}
+
+.fui-flow-rail .fui-step[aria-current="step"]::before {
+  animation: fui-step-pulse 1.8s var(--fui-ease) infinite;
+  background: var(--fui-accent);
+  border-color: var(--fui-accent);
+  color: var(--fui-on-accent);
+}
+
+@keyframes fui-step-pulse {
+  from { box-shadow: 0 0 0 0 color-mix(in oklab, var(--fui-accent) 45%, transparent); }
+  to { box-shadow: 0 0 0 0.5rem transparent; }
+}
+
+.fui-step-text {
+  color: inherit;
+  display: grid;
+  min-width: 0;
+  text-align: left;
+}
+
+.fui-flow-rail .fui-step-label {
+  color: var(--fui-ink-2);
+  font-weight: 600;
+  padding-top: 0.2rem;
+}
+
+.fui-flow-rail .fui-step[aria-current="step"] .fui-step-label {
+  color: var(--fui-ink-1);
+}
+
+button.fui-step-text:hover .fui-step-label {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.fui-step-summary {
+  color: var(--fui-ink-3);
+  display: block;
+  font-size: var(--fui-text-xs);
+  font-weight: 400;
+  line-height: 1.35;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.fui-step[data-done] .fui-step-summary {
+  color: var(--fui-ink-2);
+  font-family: var(--fui-font-mono);
+}
+
+.fui-flow-note {
+  border: 1px dashed var(--fui-line-strong);
+  color: var(--fui-ink-2);
+  font-size: var(--fui-text-xs);
+  line-height: 1.45;
+  margin-top: auto;
+  padding: var(--fui-space-3);
+}
+
+.fui-flow > .fui-steps-body {
+  align-content: start;
+  animation: fui-step-in var(--fui-slow) var(--fui-ease);
+  grid-area: body;
+  margin-top: 0;
+  overflow-y: auto;
+  padding: var(--fui-space-5) var(--fui-space-6);
+}
+
+@keyframes fui-step-in {
+  from { opacity: 0; transform: translateX(var(--fui-space-4)); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.fui-flow > .fui-steps-foot {
+  background: var(--fui-raised);
+  grid-area: foot;
+  margin-top: 0;
+  padding: var(--fui-space-3) var(--fui-space-6);
+}
+
+/* The first control of the foot (Cancel) stands apart from the rest. */
+.fui-flow > .fui-steps-foot > :first-child {
+  margin-right: auto;
+}
+
+.fui-flow-form,
+.fui-flow-section {
+  display: grid;
+  gap: var(--fui-space-5);
+}
+
+.fui-flow-section[hidden] {
+  display: none;
+}
+
+.fui-flow-group {
+  display: grid;
+  gap: var(--fui-space-2);
+}
+
+.fui-flow-fields {
+  display: grid;
+  gap: var(--fui-space-4) var(--fui-space-5);
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+}
+
+.fui-flow-fields > .fui-field:has(textarea) {
+  grid-column: 1 / -1;
+}
+
+/* A typed value's check, stated under its field as it is typed. */
+.fui-flow-check {
+  align-items: center;
+  color: var(--fui-ink-2);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--fui-text-xs);
+  gap: var(--fui-space-1);
+  margin-top: var(--fui-space-2);
+}
+
+/* A section folded away until it is wanted. */
+.fui-disclosure {
+  border-top: 1px solid var(--fui-line);
+  padding-top: var(--fui-space-3);
+}
+
+.fui-disclosure > summary,
+.fui-disclosure-toggle {
+  align-items: baseline;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  font-family: var(--fui-font-display);
+  font-weight: 600;
+  gap: var(--fui-space-2);
+  text-align: left;
+}
+
+.fui-disclosure-mark {
+  align-self: center;
+  transition: transform var(--fui-fast) var(--fui-ease);
+}
+
+.fui-disclosure-toggle[aria-expanded="true"] .fui-disclosure-mark {
+  transform: rotate(90deg);
+}
+
+.fui-flow-fields[hidden] {
+  display: none;
+}
+
+:is(.fui-disclosure > summary, .fui-disclosure-toggle) .fui-muted {
+  font-family: var(--fui-font-sans);
+  font-size: var(--fui-text-xs);
+  font-weight: 400;
+}
+
+/* ---- Choosing from a list, with the choice described beside it ---- */
+.fui-pick {
+  display: grid;
+  gap: var(--fui-space-4);
+}
+
+.fui-pick-tools {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fui-space-3);
+}
+
+.fui-pick-tools > input[type="search"] {
+  flex: 1 1 14rem;
+}
+
+.fui-pick-split {
+  align-items: start;
+  display: grid;
+  gap: var(--fui-space-5);
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
+}
+
+.fui-pick-list {
+  display: grid;
+  gap: var(--fui-space-2);
+}
+
+.fui-pick-group {
+  display: grid;
+  gap: var(--fui-space-2);
+}
+
+.fui-pick-group + .fui-pick-group {
+  margin-top: var(--fui-space-3);
+}
+
+/* A group whose every item the filter hid says nothing. */
+.fui-pick-group:not(:has([data-fui-item]:not([hidden]))) {
+  display: none;
+}
+
+.fui-pane {
+  animation: fui-step-in var(--fui-base) var(--fui-ease);
+  background: var(--fui-canvas);
+  border: 1px solid var(--fui-line);
+  display: grid;
+  gap: var(--fui-space-4);
+  padding: var(--fui-space-5);
+  position: sticky;
+  top: 0;
+}
+
+.fui-pane--empty {
+  color: var(--fui-ink-3);
+  font-size: var(--fui-text-sm);
+  justify-items: center;
+  padding: var(--fui-space-8) var(--fui-space-5);
+  text-align: center;
+}
+
+.fui-pane-head {
+  align-items: center;
+  display: flex;
+  gap: var(--fui-space-3);
+}
+
+.fui-pane-title {
+  font-family: var(--fui-font-display);
+  font-size: var(--fui-text-xl);
+  font-weight: 600;
+  line-height: var(--fui-leading-tight);
+  overflow-wrap: anywhere;
+}
+
+.fui-pane-needs {
+  display: grid;
+  font-size: var(--fui-text-sm);
+  gap: var(--fui-space-2);
+}
+
+.fui-pane-needs dt {
+  font-weight: 500;
+}
+
+/* A command that does what the flow will, ready to copy. */
+.fui-command {
+  display: grid;
+  gap: var(--fui-space-2);
+}
+
+.fui-command-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.flz-button[data-copied] {
+  border-color: var(--fui-positive);
+  color: var(--fui-positive);
+}
+
+/* What a flow did, once it is done. */
+.fui-done {
+  display: grid;
+  gap: var(--fui-space-3);
+  justify-items: center;
+  padding: var(--fui-space-5) 0;
+  text-align: center;
+}
+
+.fui-done-mark {
+  align-items: center;
+  animation: fui-pop var(--fui-slow) var(--fui-ease);
+  background: var(--fui-positive-subtle);
+  border-radius: var(--fui-radius-round);
+  color: var(--fui-positive);
+  display: inline-flex;
+  height: 4.5rem;
+  justify-content: center;
+  width: 4.5rem;
+}
+
+@keyframes fui-pop {
+  0% { opacity: 0; transform: scale(0.4); }
+  70% { transform: scale(1.1); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Below desk width the list and its description stack, the description
+   first once there is one; on a phone the rail lies across the top. */
+@media (width <= 899px) {
+  .fui-pick-split {
+    grid-template-columns: 1fr;
+  }
+
+  .fui-pane {
+    order: -1;
+    position: static;
+  }
+
+  .fui-pane--empty {
+    display: none;
+  }
+}
+
+@media (width <= 699px) {
+  .fui-dialog-panel--flow {
+    height: auto;
+  }
+
+  .fui-flow {
+    grid-template-areas: "bar" "rail" "body" "foot";
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto auto;
+  }
+
+  .fui-flow-rail {
+    border-bottom: 1px solid var(--fui-line);
+    border-right: 0;
+    padding: var(--fui-space-3) var(--fui-space-4);
+  }
+
+  .fui-flow-rail > .fui-steps {
+    flex-direction: row;
+    gap: var(--fui-space-4);
+  }
+
+  .fui-flow-rail .fui-step {
+    min-height: 0;
+  }
+
+  /* Across a phone only the current step is named; the others are their
+     dots, which still say done or to come. */
+  .fui-flow-rail .fui-step::after,
+  .fui-flow-rail .fui-step-summary,
+  .fui-flow-rail .fui-step:not([aria-current]) .fui-step-text,
+  .fui-flow-note {
+    display: none;
+  }
+
+  .fui-flow-rail .fui-step:not([aria-current]) {
+    grid-template-columns: 1.75rem;
+  }
+
+  .fui-flow > .fui-steps-body {
+    overflow: visible;
+    padding: var(--fui-space-4);
+  }
+
+  .fui-dialog .fui-flow > .fui-steps-foot {
+    padding: var(--fui-space-3) var(--fui-space-4);
+  }
+}
+
 /* ======================================================================
    Problems and the event river
    ====================================================================== */

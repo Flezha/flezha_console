@@ -63,9 +63,10 @@ defmodule FlezhaUiWeb.LauncherTest do
     |> render_submit()
   end
 
-  # Factory, then Details: answers the review.
+  # Factory, Continue, then Details: answers the review.
   defp review(view, fields \\ %{id: "relay_new"}) do
     click(view, "factory-choice-store_input")
+    click(view, "start-next-btn")
     details(view, fields)
   end
 
@@ -156,11 +157,68 @@ defmodule FlezhaUiWeb.LauncherTest do
     } do
       view = open(conn)
 
-      html = click(view, "factory-choice-chat_loop_steps")
+      click(view, "factory-choice-chat_loop_steps")
+      html = click(view, "start-next-btn")
 
       assert html =~ "which runs as steps"
       refute has_element?(view, ~s([name="start[run]"]))
       refute has_element?(view, ~s([name="start[kind]"]))
+    end
+
+    test "choosing a factory describes it beside the list, and Continue moves on", %{conn: conn} do
+      view = open(conn)
+      assert has_element?(view, ~s{[data-testid="start-next-btn"][disabled]})
+
+      html = click(view, "factory-choice-store_input")
+
+      detail = text_of(html, ~s([data-testid="factory-detail"]))
+      assert detail =~ "stores its input"
+      assert detail =~ "Each record passes through its tasklets once"
+
+      assert has_element?(
+               view,
+               ~s([data-testid="factory-choice-store_input"][aria-pressed="true"])
+             )
+
+      assert text_of(html, ~s([data-testid="start-steps-step-0"])) =~ "store_input · flow"
+      refute html =~ ~s(id="start-details")
+
+      html = click(view, "factory-use-btn")
+      assert html =~ ~s(id="start-details")
+    end
+
+    test "the init values are checked as they are typed", %{conn: conn} do
+      view = open(conn)
+      click(view, "factory-choice-store_input")
+      click(view, "start-next-btn")
+
+      change = fn values ->
+        view
+        |> form(~s(form[phx-submit="launcher_next"]), start: %{init_values: values})
+        |> render_change()
+        |> text_of(~s([data-testid="init-values-check"]))
+      end
+
+      assert change.("") =~ "None: each tasklet starts with the state its class builds."
+      assert change.(~s({"ohlc": {}, "agg": 1})) =~ ~r/Seeds 2 tasklets:\s*agg, ohlc/
+      assert change.("{") =~ "Init Values must be valid JSON."
+    end
+
+    test "the review states the command that does the same, and a done step goes back", %{
+      conn: conn
+    } do
+      view = open(conn)
+      html = review(view, %{id: "my relay", init_values: ~s({"seed": 7})})
+
+      assert text_of(html, ~s([data-testid="start-command"])) ==
+               ~s(flz relay start store_input --namespace default --id 'my relay' --init-values '{"seed":7}')
+
+      assert text_of(html, ~s([data-testid="start-steps-step-1"])) =~
+               "my relay · 1 tasklet seeded"
+
+      html = click(view, "start-steps-go-0")
+      assert html =~ ~s(data-testid="factory-detail")
+      refute has_element?(view, ~s([data-testid="start-steps-go-1"]))
     end
 
     test "Back returns from the review to the details, and a forged second Start starts nothing more",
@@ -316,7 +374,7 @@ defmodule FlezhaUiWeb.LauncherTest do
       html = click(view, "start-submit-btn")
 
       assert [["staging", _fields, _ctx]] = starts(node)
-      assert text_of(html, ~s([data-testid="start-result"])) =~ "Relay started in staging:"
+      assert text_of(html, ~s([data-testid="start-result"])) =~ "It runs in staging as"
     end
   end
 end

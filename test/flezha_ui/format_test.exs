@@ -95,12 +95,34 @@ defmodule FlezhaUi.FormatTest do
 
   describe "humanize/1" do
     test "renders a controller id as a label" do
-      assert "Relay Websocket" = Format.humanize("relay_websocket")
+      assert "Relay WebSocket" = Format.humanize("relay_websocket")
       assert "Store Input" = Format.humanize("store_input")
+    end
+
+    test "spells acronyms the way readers know them" do
+      assert "HTTP API" = Format.humanize("http_api")
+      assert "Monitored IO Forward" = Format.humanize("monitored_io_forward")
+      assert "Relay BEAM Msg" = Format.humanize("relay_beam_msg")
     end
 
     test "accepts an atom field name" do
       assert "Post Connect" = Format.humanize(:post_connect)
+    end
+  end
+
+  describe "command/1" do
+    test "quotes only the words a shell would split or expand" do
+      assert Format.command(["flz", "relay", "start", "echo", "--init-values", ~s({"a": 1})]) ==
+               ~s(flz relay start echo --init-values '{"a": 1}')
+
+      assert Format.command(["it's", ""]) == ~S('it'"'"'s' '')
+    end
+
+    test "joins a word's parts, quoting each alone, and puts a raw part in as written" do
+      assert Format.command([["--Xurl=", "http://h.test/x?a=1"]]) ==
+               "--Xurl='http://h.test/x?a=1'"
+
+      assert Format.command([["--Xkey=", {:raw, ~s("$KEY")}]]) == ~s(--Xkey="$KEY")
     end
   end
 

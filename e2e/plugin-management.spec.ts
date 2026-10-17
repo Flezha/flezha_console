@@ -86,13 +86,33 @@ test.describe('Plugin writes', () => {
       await page.getByTestId('enable-plugin-btn').click();
       await page.getByTestId('provider-btn-hook_webhook').click();
 
+      // What it is and what it will ask for are said before the form.
+      const detail = page.getByTestId('provider-detail');
+      await expect(detail).toContainText('Controller plugins');
+      await expect(detail).toContainText('on_relay_started');
+      await expect(detail).toContainText('url');
+      await page.getByTestId('provider-use-btn').click();
+
       // A controller plugin runs on controllers, so no relay is asked for.
       await expect(page.getByTestId('input-plugin-relay')).toHaveCount(0);
       await expect(page.getByTestId('input-plugin-single')).toBeVisible();
 
       await page.getByTestId('input-plugin-name').fill(name);
       await page.getByTestId('input-hook-on_relay_started').check();
+      await page.getByTestId('attach-next-btn').click();
+
+      // The required option is checked before the review opens.
+      await page.getByTestId('attach-next-btn').click();
+      await expect(page.getByTestId('input-option-url').locator('xpath=..').locator('.fui-error')).toContainText(
+        'is required',
+      );
       await page.getByTestId('input-option-url').fill(RECEIVER);
+      await page.getByTestId('attach-next-btn').click();
+
+      await expect(page.getByTestId('plugin-review')).toContainText('Enable Hook Webhook');
+      await expect(page.getByTestId('plugin-command')).toHaveText(
+        `flz plugin enable ${name} hook_webhook --namespace default --hook=on_relay_started --Xurl=${RECEIVER}`,
+      );
       await page.getByTestId('attach-submit-btn').click();
 
       // One controller holds the namespace, so none lacks the provider.

@@ -289,9 +289,14 @@ export async function closeStart(page: Page): Promise<void> {
   await expect(page.getByTestId('start-modal')).toHaveCount(0);
 }
 
-/** Chooses `factory` in the open start flow, which moves on to its details. */
+/**
+ * Chooses `factory` in the open start flow, which describes it beside the
+ * list, and continues to its details.
+ */
 export async function chooseFactory(page: Page, factory: string): Promise<void> {
   await page.getByTestId(`factory-choice-${factory}`).click();
+  await expect(page.getByTestId('factory-detail')).toContainText(factory);
+  await page.getByTestId('start-next-btn').click();
   await expect(page.getByTestId('input-relay-id')).toBeVisible();
 }
 
@@ -303,6 +308,7 @@ export async function reviewAndStart(page: Page): Promise<void> {
   for (const fact of ['review-factory', 'review-namespace', 'review-id', 'review-init-values']) {
     await expect(page.getByTestId(fact)).not.toBeEmpty();
   }
+  await expect(page.getByTestId('start-command')).toContainText('flz relay start ');
   await page.getByTestId('start-submit-btn').click();
 }
 
@@ -487,25 +493,33 @@ export type PluginFields = {
 
 /**
  * Opens the plugin form with the `opener` button — the relay screen's
- * `attach-plugin-btn` or the plugins screen's `enable-plugin-btn` — picks the
- * provider and fills `fields`: each option typed into its own field, a
- * selection chosen by its value. Leaves the form open and unsubmitted.
+ * `attach-plugin-btn` or the plugins screen's `enable-plugin-btn` — and walks
+ * its steps: picks the provider, fills the placement, then each option typed
+ * into its own field (an optional one unfolded first), a selection chosen by
+ * its value. Leaves the form open on its review, unsubmitted.
  */
 export async function fillPluginForm(page: Page, opener: string, fields: PluginFields): Promise<void> {
   await page.getByTestId(opener).click();
   await expect(page.getByTestId('provider-grid')).toBeVisible();
   await page.getByTestId(`provider-btn-${fields.provider}`).click();
+  await expect(page.getByTestId(`provider-btn-${fields.provider}`)).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('attach-next-btn').click();
   await expect(page.getByTestId('input-plugin-name')).toBeVisible();
 
   if (fields.name) await page.getByTestId('input-plugin-name').fill(fields.name);
   if (fields.relay) await page.getByTestId('input-plugin-relay').selectOption(fields.relay);
   for (const hook of fields.hooks ?? []) await page.getByTestId(`input-hook-${hook}`).check();
+  await page.getByTestId('attach-next-btn').click();
+  await expect(page.getByTestId('plugin-options')).toBeVisible();
 
   for (const [option, value] of Object.entries(fields.opts ?? {})) {
     const field = page.getByTestId(`input-option-${option}`);
+    if (!(await field.isVisible())) await page.getByTestId('plugin-optional-toggle').click();
     if ((await field.evaluate((el) => el.tagName)) === 'SELECT') await field.selectOption(value);
     else await field.fill(value);
   }
+  await page.getByTestId('attach-next-btn').click();
+  await expect(page.getByTestId('plugin-review')).toBeVisible();
 }
 
 /** The error shown on a plugin option's field, inside the field's own container. */

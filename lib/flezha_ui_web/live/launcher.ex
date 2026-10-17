@@ -21,10 +21,12 @@ defmodule FlezhaUiWeb.Live.Launcher do
   host renders `launcher_dialog/1` and points a control at the `launcher_open`
   event; everything else — the four events and the catalog read — is injected.
 
-  It is a guided flow of three steps: Factory (searchable, each with its
-  description, its run and how many runners serve it, an unserved one shown
-  unavailable with that reason), Details (the optional id and the init values),
-  and Review (one sentence saying what will start, then Start). How a relay
+  It is a guided flow of three steps down a rail: Factory (searchable, each
+  with its description, its run and how many runners serve it, an unserved one
+  shown unavailable with that reason, and the chosen one described beside the
+  list), Details (the optional id and the init values, checked as they are
+  typed), and Review (one sentence saying what will start, the facts, the
+  `flz relay start` that does the same, then Start). How a relay
   runs is its factory's, so the flow asks for none. The namespace and factory
   listings ride `FlezhaUiWeb.Live.Target`, which the schedule form aims the
   same way.
@@ -160,39 +162,46 @@ defmodule FlezhaUiWeb.Live.Launcher do
   # The typed-factory fallback changes nothing until it is submitted.
   def handle_event(_module, "launcher_change", _params, socket), do: socket
 
-  # Choosing a factory moves on to its details; an unserved one cannot be
-  # chosen, whatever the client sends.
+  # Choosing a listed factory describes it beside the list; a typed one, which
+  # the catalog could not describe, moves on to its details. An unserved one
+  # cannot be chosen, whatever the client sends.
   def handle_event(_module, "launcher_pick", %{"factory" => factory_id}, socket) do
     state = socket.assigns.launcher
+    form = Map.put(state.form, "factory_id", factory_id)
 
     case Enum.find(state.target.factories, &(&1.id == factory_id)) do
-      %{servable?: false} ->
-        socket
-
-      _known_or_typed ->
-        put_launcher(socket, %{
-          state
-          | form: Map.put(state.form, "factory_id", factory_id),
-            step: 1,
-            error: nil
-        })
+      %{servable?: false} -> socket
+      nil -> put_launcher(socket, %{state | form: form, step: 1, error: nil})
+      _listed -> put_launcher(socket, %{state | form: form, error: nil})
     end
   end
 
-  # The details are checked before the review, so the review states what
+  # Each step is checked before the next opens, so the review states what
   # would start and nothing is sent until Start.
   def handle_event(_module, "launcher_next", params, socket) do
     state = socket.assigns.launcher
     form = Map.merge(state.form, params["start"] || %{})
+    target = min(state.step + 1, 2)
 
-    case details(state, form) do
-      :ok -> put_launcher(socket, %{state | form: form, step: 2, error: nil})
+    case move_step(state.step, target, 2, fn -> details(state, form) end) do
+      {:ok, step} -> put_launcher(socket, %{state | form: form, step: step, error: nil})
       {:error, error} -> put_launcher(socket, %{state | form: form, error: error})
     end
   end
 
-  def handle_event(_module, "launcher_back", _params, socket) do
-    update_launcher(socket, &%{&1 | step: max(&1.step - 1, 0), error: nil})
+  # A step named goes back to that step; none goes back one. Neither goes
+  # forward.
+  def handle_event(_module, "launcher_back", params, socket) do
+    update_launcher(socket, fn state ->
+      target =
+        case Integer.parse(to_string(params["step"])) do
+          {step, ""} -> min(step, state.step)
+          _one_back -> state.step - 1
+        end
+
+      {:ok, step} = move_step(state.step, target, 2, fn -> :ok end)
+      %{state | step: step, error: nil}
+    end)
   end
 
   # A second click while the first start is answered starts nothing more.
@@ -246,10 +255,15 @@ defmodule FlezhaUiWeb.Live.Launcher do
     with :ok <- require_namespace(String.trim(form["namespace"] || "")),
          :ok <- require_factories(state.target),
          :ok <- require_factory(String.trim(form["factory_id"] || "")),
-         {:ok, _init_values} <- NodeManager.parse_init_values(form["init_values"]) do
+         {:ok, _init_values} <- init_values(state.step, form) do
       :ok
     end
   end
+
+  # The init values are asked for on Details, so the Factory step does not
+  # read them.
+  defp init_values(0, _form), do: {:ok, %{}}
+  defp init_values(_step, form), do: NodeManager.parse_init_values(form["init_values"])
 
   defp require_namespace(""), do: {:error, "A namespace is required."}
   defp require_namespace(_namespace), do: :ok
@@ -288,6 +302,11 @@ defmodule FlezhaUiWeb.Live.Launcher do
 
   defp run_meaning(_run), do: "As the factory's runners announce it."
 
+  # A glyph and a hue per run, which only tell the cards apart.
+  defp run_glyph(run) when run in [:flow, "flow"], do: {"hero-arrow-long-right", 1}
+  defp run_glyph(run) when run in [:steps, "steps"], do: {"hero-queue-list", 4}
+  defp run_glyph(_run), do: {"hero-cube", 5}
+
   @doc "The guided start, as a dialog: Factory, then Details, then Review."
   attr :launcher, :map, required: true
 
@@ -301,19 +320,33 @@ defmodule FlezhaUiWeb.Live.Launcher do
         init_values: NodeManager.parse_init_values(form["init_values"])
       )
 
+    assigns = assign(assigns, command: command(form, assigns.relay_id, assigns.init_values))
+
     ~H"""
-    <.dialog :if={@launcher.open?} testid="start-modal" size="form" on_close="launcher_close">
+    <.dialog
+      :if={@launcher.open?}
+      testid="start-modal"
+      size={if @launcher.started, do: "form", else: "flow"}
+      on_close="launcher_close"
+    >
       <:title>Start a relay</:title>
 
       <%!-- What the controller answered: the id the relay runs under, which it
             generates when none was asked for, and whether this call started it. --%>
-      <div :if={@launcher.started} data-testid="start-result" class="space-y-4">
-        <.notice icon="hero-check-circle">
+      <div :if={@launcher.started} data-testid="start-result" class="fui-done">
+        <span class="fui-done-mark"><.icon name="hero-check" class="h-8 w-8" /></span>
+        <p class="fui-sentence fui-sentence--headline">
+          {if @launcher.started.outcome == :already_running,
+            do: "Already running",
+            else: "Relay started"}
+        </p>
+        <p class="fui-quiet">
           <span :if={@launcher.started.outcome == :already_running}>
-            A relay with that id is already running in {@launcher.started.namespace}:
+            A relay with that id is already running in {@launcher.started.namespace}, so nothing
+            new was started:
           </span>
           <span :if={@launcher.started.outcome != :already_running}>
-            Relay started in {@launcher.started.namespace}:
+            It runs in {@launcher.started.namespace} as
           </span>
           <.link
             navigate={~p"/namespaces/#{@launcher.started.namespace}/relays/#{@launcher.started.id}"}
@@ -322,22 +355,35 @@ defmodule FlezhaUiWeb.Live.Launcher do
           >
             {@launcher.started.id}
           </.link>
-        </.notice>
-        <div class="flex justify-end">
+        </p>
+        <div class="flex flex-wrap justify-center gap-2">
+          <.button
+            variant="secondary"
+            navigate={~p"/namespaces/#{@launcher.started.namespace}/relays/#{@launcher.started.id}"}
+            icon_right="hero-arrow-right-mini"
+          >
+            Open the relay
+          </.button>
           <.button phx-click="launcher_close" data-testid="start-done-btn">Done</.button>
         </div>
       </div>
 
       <.steps
         :if={is_nil(@launcher.started)}
-        steps={["Factory", "Details", "Review"]}
+        steps={rail(@launcher, @factory, @relay_id, @init_values)}
         current={@launcher.step}
+        rail
+        on_step="launcher_back"
         testid="start-steps"
       >
+        <:aside>
+          A relay runs as its factory says, so a start names only the factory. The
+          review shows the matching <code>flz relay start</code>.
+        </:aside>
         <.form_error error={@launcher.error} action="the start" testid="start-error" />
 
         <%!-- Factory --%>
-        <div :if={@launcher.step == 0} class="space-y-4">
+        <div :if={@launcher.step == 0} class="fui-flow-section">
           <form :if={is_nil(@launcher.fixed_namespace)} phx-change="launcher_change">
             <Target.namespace_field
               target={@launcher.target}
@@ -347,7 +393,7 @@ defmodule FlezhaUiWeb.Live.Launcher do
               testid="input-namespace"
             />
           </form>
-          <p :if={@launcher.fixed_namespace}>
+          <p :if={@launcher.fixed_namespace} class="fui-quiet">
             Into <span class="fui-num">{@launcher.fixed_namespace}</span>. Pick the
             factory the relay starts from.
           </p>
@@ -371,39 +417,41 @@ defmodule FlezhaUiWeb.Live.Launcher do
             />
             <.button type="submit" data-testid="start-typed-factory">Continue</.button>
           </form>
-          <div :if={@launcher.target.factories != []} data-fui-filterable class="space-y-2">
-            <input
-              type="search"
-              placeholder="Find a factory"
-              aria-label="Find a factory"
-              data-fui-filter
-              data-testid="factory-search"
-            />
-            <div class="fui-choices" data-testid="factory-choices">
-              <button
-                :for={factory <- @launcher.target.factories}
-                type="button"
-                class="fui-choice"
-                data-fui-item
-                phx-click="launcher_pick"
-                phx-value-factory={factory.id}
-                disabled={factory.servable? == false}
-                aria-pressed={to_string(factory.id == @launcher.form["factory_id"])}
-                data-testid={"factory-choice-#{factory.id}"}
-              >
-                <span class="flex flex-wrap items-center gap-2">
-                  <span class="fui-num font-medium">{factory.id}</span>
-                  <.chip :if={factory.run}>{factory.run}</.chip>
-                </span>
-                <span :if={factory.description} class="fui-quiet text-sm">{factory.description}</span>
-                <span class="fui-muted text-xs">
-                  {if factory.servable? == false,
-                    do: "Unavailable: no runner serves it right now.",
-                    else: "Served by " <> Words.count(length(factory.runners || []), "runner") <> "."}
-                </span>
-              </button>
-            </div>
-          </div>
+          <.picker
+            :if={@launcher.target.factories != []}
+            search="Find a factory"
+            search_testid="factory-search"
+            list_testid="factory-choices"
+          >
+            <:tools>
+              <span class="fui-figures">
+                {Words.count(length(@launcher.target.factories), "factory", "factories")}
+              </span>
+            </:tools>
+            <.pick_choice
+              :for={factory <- @launcher.target.factories}
+              chosen={factory.id == @launcher.form["factory_id"]}
+              glyph={run_glyph(factory.run)}
+              phx-click="launcher_pick"
+              phx-value-factory={factory.id}
+              disabled={factory.servable? == false}
+              data-testid={"factory-choice-#{factory.id}"}
+            >
+              <span class="flex flex-wrap items-center gap-2">
+                <span class="fui-num font-medium">{factory.id}</span>
+                <.chip :if={factory.run}>{factory.run}</.chip>
+              </span>
+              <span :if={factory.description} class="fui-quiet block text-sm">
+                {factory.description}
+              </span>
+              <span class="fui-muted block text-xs">
+                {if factory.servable? == false,
+                  do: "Unavailable: no runner serves it right now.",
+                  else: "Served by " <> Words.count(length(factory.runners || []), "runner") <> "."}
+              </span>
+            </.pick_choice>
+            <:detail><.factory_detail factory={@factory} /></:detail>
+          </.picker>
         </div>
 
         <%!-- Details --%>
@@ -412,9 +460,9 @@ defmodule FlezhaUiWeb.Live.Launcher do
           id="start-details"
           phx-change="launcher_change"
           phx-submit="launcher_next"
-          class="space-y-4"
+          class="fui-flow-section"
         >
-          <p class="fui-figures">
+          <p class="fui-quiet">
             A relay from
             <span class="fui-num">{@launcher.form["factory_id"]}</span><span :if={
               @factory && @factory.run
@@ -424,30 +472,65 @@ defmodule FlezhaUiWeb.Live.Launcher do
             type="text"
             name="start[id]"
             label="Relay id"
-            hint="The name the relay runs under. Left empty, the controller generates one."
+            hint={
+              "The name the relay runs under. Left empty, the controller generates one: " <>
+                "#{@launcher.form["factory_id"]}-<16 characters>. Give one when the start may " <>
+                "be retried: starting an id that already runs starts nothing."
+            }
             value={@launcher.form["id"]}
             placeholder="my-relay"
             maxlength="32"
             mono
             data-testid="input-relay-id"
           />
-          <.input
-            type="textarea"
-            name="start[init_values]"
-            label="Initial values"
-            hint={
-              ~s(A JSON object the factory starts the relay with, such as {"symbol": "BTC"}. Left empty, it starts with none.)
-            }
-            value={@launcher.form["init_values"]}
-            placeholder="{}"
-            mono
-            data-testid="input-init-values"
-          />
+          <div>
+            <.input
+              type="textarea"
+              name="start[init_values]"
+              label="Initial values"
+              hint={
+                ~s(A JSON object keyed by tasklet name, such as {"ohlc": {"1m": {"high": 0}}}. A name the factory does not carry is ignored, not refused, so check the spelling.)
+              }
+              value={@launcher.form["init_values"]}
+              placeholder="{}"
+              rows="5"
+              mono
+              data-testid="input-init-values"
+            />
+            <p class="fui-flow-check" data-testid="init-values-check">
+              <%= case @init_values do %>
+                <% {:ok, values} when values == %{} -> %>
+                  <.icon name="hero-minus-circle-mini" class="h-4 w-4" />
+                  None: each tasklet starts with the state its class builds.
+                <% {:ok, values} when is_map(values) -> %>
+                  <span class="fui-tone-positive inline-flex items-center gap-1">
+                    <.icon name="hero-check-circle-mini" class="h-4 w-4" />
+                    Seeds {Words.count(map_size(values), "tasklet")}:
+                  </span>
+                  <span class="fui-num">
+                    {values |> Map.keys() |> Enum.sort() |> Enum.join(", ")}
+                  </span>
+                <% {:ok, _value} -> %>
+                  <.icon name="hero-information-circle-mini" class="h-4 w-4" />
+                  Valid JSON, though not an object keyed by tasklet.
+                <% {:error, message} -> %>
+                  <span class="fui-tone-negative inline-flex items-center gap-1">
+                    <.icon name="hero-exclamation-circle-mini" class="h-4 w-4" /> {message}
+                  </span>
+              <% end %>
+            </p>
+          </div>
         </form>
 
         <%!-- Review: what will be started, one fact per line --%>
-        <div :if={@launcher.step == 2} class="space-y-4" data-testid="start-review">
-          <p class="fui-figures">Check what will be started, then press Start.</p>
+        <div :if={@launcher.step == 2} class="fui-flow-section" data-testid="start-review">
+          <p class="fui-sentence fui-sentence--headline">
+            Start a relay from <span class="fui-num">{@launcher.form["factory_id"]}</span>
+            in <span class="fui-num">{@launcher.form["namespace"]}</span>, {if @relay_id == "",
+              do: "under an id the controller generates",
+              else: "as"}
+            <span :if={@relay_id != ""} class="fui-num">{@relay_id}</span>.
+          </p>
           <dl class="fui-review" data-testid="start-review-facts">
             <div class="fui-review-row">
               <dt>Factory</dt>
@@ -513,30 +596,35 @@ defmodule FlezhaUiWeb.Live.Launcher do
               </dd>
             </div>
           </dl>
+          <.command id="start-command" testid="start-command" command={@command} />
         </div>
 
         <:foot>
-          <.button
-            :if={@launcher.step == 0}
-            variant="ghost"
-            phx-click="launcher_close"
-            data-testid="start-cancel-btn"
-          >
+          <.button variant="ghost" phx-click="launcher_close" data-testid="start-cancel-btn">
             Cancel
           </.button>
           <.button
             :if={@launcher.step > 0}
-            variant="ghost"
+            variant="secondary"
             phx-click="launcher_back"
             data-testid="start-back-btn"
           >
             Back
           </.button>
-          <span :if={@launcher.step == 0} class="fui-figures">Choose a factory to go on.</span>
+          <.button
+            :if={@launcher.step == 0}
+            phx-click="launcher_next"
+            disabled={is_nil(@factory)}
+            icon_right="hero-arrow-right-mini"
+            data-testid="start-next-btn"
+          >
+            Continue
+          </.button>
           <.button
             :if={@launcher.step == 1}
             type="submit"
             form="start-details"
+            icon_right="hero-arrow-right-mini"
             data-testid="start-next-btn"
           >
             Review
@@ -545,6 +633,7 @@ defmodule FlezhaUiWeb.Live.Launcher do
             :if={@launcher.step == 2}
             phx-click="launcher_submit"
             phx-disable-with="Starting…"
+            icon="hero-play-mini"
             data-testid="start-submit-btn"
             disabled={Target.no_factories?(@launcher.target)}
           >
@@ -554,5 +643,98 @@ defmodule FlezhaUiWeb.Live.Launcher do
       </.steps>
     </.dialog>
     """
+  end
+
+  # Each step and what was chosen there, or what it will ask.
+  defp rail(launcher, factory, relay_id, init_values) do
+    factory_id = launcher.form["factory_id"]
+
+    details =
+      if launcher.step > 1 do
+        id = if relay_id == "", do: "Generated id", else: relay_id
+
+        case init_values do
+          {:ok, values} when is_map(values) and map_size(values) > 0 ->
+            "#{id} · #{Words.count(map_size(values), "tasklet")} seeded"
+
+          _none ->
+            id
+        end
+      else
+        "Its id and initial values"
+      end
+
+    [
+      {"Factory",
+       cond do
+         factory_id in [nil, ""] -> "What the relay starts from"
+         factory && factory.run -> "#{factory_id} · #{factory.run}"
+         true -> factory_id
+       end},
+      {"Details", details},
+      {"Review", "Check, copy the command, start"}
+    ]
+  end
+
+  # What the chosen factory is, how it runs and who serves it.
+  attr :factory, :map, default: nil
+
+  defp factory_detail(%{factory: nil} = assigns) do
+    ~H"""
+    <.pick_pane testid="factory-detail" empty="hero-cube">
+      Choose a factory to see how its relays run and which runners serve it.
+    </.pick_pane>
+    """
+  end
+
+  defp factory_detail(assigns) do
+    ~H"""
+    <.pick_pane
+      testid="factory-detail"
+      glyph={run_glyph(@factory.run)}
+      title={@factory.id}
+      subtitle={@factory.run && "runs as #{@factory.run}"}
+      mono={:title}
+    >
+      <p :if={@factory.description} class="fui-quiet text-sm">{@factory.description}</p>
+      <div>
+        <p class="fui-eyebrow mb-1">How it runs</p>
+        <p class="fui-quiet text-sm">{run_meaning(@factory.run)}</p>
+      </div>
+      <div>
+        <p class="fui-eyebrow mb-1">Served by</p>
+        <p :if={(@factory.runners || []) == []} class="fui-tone-warning text-sm">
+          No runner serves it right now.
+        </p>
+        <div class="flex flex-wrap gap-1">
+          <.chip :for={runner <- @factory.runners || []} mono>{runner}</.chip>
+        </div>
+      </div>
+      <:action>
+        <.button
+          phx-click="launcher_next"
+          icon_right="hero-arrow-right-mini"
+          data-testid="factory-use-btn"
+        >
+          Use {@factory.id}
+        </.button>
+      </:action>
+    </.pick_pane>
+    """
+  end
+
+  # The `flz relay start` that does what the review states.
+  defp command(form, relay_id, init_values) do
+    init =
+      case init_values do
+        {:ok, values} when values != %{} -> ["--init-values", Jason.encode!(values)]
+        _none -> []
+      end
+
+    Format.command(
+      ["flz", "relay", "start", String.trim(form["factory_id"] || "")] ++
+        ["--namespace", String.trim(form["namespace"] || "")] ++
+        if(relay_id == "", do: [], else: ["--id", relay_id]) ++ init
+    )
   end
 end

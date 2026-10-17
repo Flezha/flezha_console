@@ -429,7 +429,12 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       open_attach(view)
       choose_stdout(view)
 
-      html = attach(view, name: "out_1", hooks: ["", "on_output"], opts: ~s({"prefix": "out"}))
+      html =
+        submit_plugin_form(view,
+          name: "out_1",
+          hooks: ["", "on_output"],
+          opts: ~s({"prefix": "out"})
+        )
 
       assert html =~ "Plugin out_1 enabled and bound to relay_a."
 
@@ -451,7 +456,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       open_attach(view)
       choose_stdout(view)
 
-      html = attach(view, name: "out_1", opts: "[1, 2]")
+      html = submit_plugin_form(view, name: "out_1", opts: "[1, 2]")
 
       assert html =~ "Options must be a JSON object."
       assert FakeController.calls(node, {PluginManager, :enable}) == []
@@ -468,7 +473,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       open_attach(view)
       choose_stdout(view)
 
-      assert attach(view, name: "out_1") =~
+      assert submit_plugin_form(view, name: "out_1") =~
                "Plugin out_1 was already enabled; this relay is bound to it."
     end
 
@@ -486,7 +491,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       open_attach(view)
       choose_stdout(view)
 
-      html = attach(view, name: "out_1")
+      html = submit_plugin_form(view, name: "out_1")
       assert html =~ ~s(data-testid="attach-error")
       assert html =~ "a relay_stdout plugin has no option x"
     end
@@ -649,12 +654,6 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
   defp choose_stdout(view),
     do: view |> element(~s([data-testid="provider-btn-relay_stdout"])) |> render_click()
-
-  defp attach(view, fields) do
-    view
-    |> form(~s(form[phx-submit="plugin_form_submit"]), plugin: Map.new(fields))
-    |> render_submit()
-  end
 
   # The relay screen opens the shared plugin form with this relay fixed.
   defp open_attach(view),

@@ -181,4 +181,23 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
       assert error_message(:timeout) == "The flezha controller did not answer in time."
     end
   end
+
+  describe "move_step/4" do
+    test "goes back to any step done, and never before the first" do
+      assert move_step(2, 0, 3, fn -> flunk("a step back checks nothing") end) == {:ok, 0}
+      assert move_step(1, -1, 3, fn -> :ok end) == {:ok, 0}
+    end
+
+    test "goes forward one step once the current step's check passes" do
+      assert move_step(1, 2, 3, fn -> :ok end) == {:ok, 2}
+
+      assert move_step(1, 2, 3, fn -> {:error, "A name is required."} end) ==
+               {:error, "A name is required."}
+    end
+
+    test "stays for a jump ahead or a target past the last step" do
+      assert move_step(0, 2, 3, fn -> :ok end) == :stay
+      assert move_step(3, 4, 3, fn -> :ok end) == :stay
+    end
+  end
 end

@@ -37,6 +37,7 @@ defmodule FlezhaUiWeb.LiveCase do
           open_section: 2,
           partition_group: 3,
           text_of: 2,
+          submit_plugin_form: 2,
           tick: 1,
           enforce_operations: 3,
           grant_operations: 3
@@ -114,6 +115,42 @@ defmodule FlezhaUiWeb.LiveCase do
            })
          ]}
     )
+  end
+
+  @doc """
+  Submits the plugin form with `fields`, and on an enable keeps submitting
+  them, a step at a time, until the flow stops moving on: at a failed check,
+  a refusal, or once it enabled. A test states the fields once, as an
+  operator who filled every step would have. A bind or an update is one
+  submit.
+  """
+  def submit_plugin_form(view, fields) do
+    step = plugin_step(Phoenix.LiveViewTest.render(view))
+
+    html =
+      view
+      |> Phoenix.LiveViewTest.form(~s(form[phx-submit="plugin_form_submit"]),
+        plugin: Map.new(fields)
+      )
+      |> Phoenix.LiveViewTest.render_submit()
+
+    case {step, plugin_step(html)} do
+      {from, to} when is_integer(from) and is_integer(to) and to > from ->
+        submit_plugin_form(view, fields)
+
+      _stopped ->
+        html
+    end
+  end
+
+  defp plugin_step(html) do
+    case html
+         |> LazyHTML.from_document()
+         |> LazyHTML.query(~s([data-testid="plugin-steps"]))
+         |> LazyHTML.attribute("data-step") do
+      [step] -> String.to_integer(step)
+      [] -> nil
+    end
   end
 
   @doc """
