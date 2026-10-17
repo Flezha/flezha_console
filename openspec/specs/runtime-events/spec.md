@@ -46,27 +46,64 @@ Runner connect, disconnect, drop and readmit events SHALL reach the UI as the ru
 ### Requirement: Observability sources and sinks are listed
 
 The UI SHALL list the controller's observability sources, from
-`Flezha.Service.Observability.list_sources/1`, and its sinks, from
-`list_sinks/1`, each with its enabled state. Sources SHALL be grouped by area:
+`Flezha.Service.Observability.list_sources/1`, each with its enabled state, its
+description and its recent activity. Sources SHALL be grouped by the area the
+controller declares for them:
 
-- relay runtime;
-- plugins and transports;
-- platform;
-- the virtual machine and host.
+- relays;
+- storage;
+- plugins;
+- controller;
+- machine.
 
-Each group SHALL state how many of its sources are enabled. A filter SHALL narrow
-the sources by name.
+A source with no declared area SHALL be listed under "Other". The UI SHALL NOT
+derive a source's area from its name.
+
+Each group SHALL state how many of its sources are enabled. Within a group, sources
+that emitted within the controller's history window SHALL be listed first, then
+by name. A filter SHALL narrow the sources to those whose name or description
+contains the typed text.
+
+A source's activity line SHALL be built from the `recent` field the controller
+answers. It SHALL be one of:
+
+- a count per signal that emitted in the window, and how long ago the newest one
+  arrived;
+- a statement that nothing was emitted in the window, naming the window's length;
+- nothing, when the controller answers no `recent` field.
+
+The sinks, from `list_sinks/1`, SHALL be summarised in one line naming each sink
+and what it is for. Any sink that is not running SHALL be marked as such in that
+line.
 
 #### Scenario: Sources and sinks exist
 
 - **WHEN** an operator opens the observability screen
-- **THEN** every source and every sink is listed with whether it is enabled
-- **AND** sources are grouped by area, each group stating how many are enabled
+- **THEN** every source is listed with whether it is enabled, its description and its activity line
+- **AND** sources are grouped by their declared area, each group stating how many are enabled
+- **AND** one line names every sink and marks any that is not running
+
+#### Scenario: A source emitted recently
+
+- **WHEN** the controller answers `flezha_file_sink` with `recent: %{window_ms: 900_000, signals: %{flushed: %{count: 42, last_age_ms: 3_000}}}`
+- **THEN** its row reads that `flushed` arrived 42 times, the last 3 s ago
+- **AND** it is listed above the sources in its group that emitted nothing in the window
+
+#### Scenario: A source was quiet
+
+- **WHEN** the controller answers a source with `recent: %{window_ms: 900_000, signals: %{}}`
+- **THEN** its row states that nothing was emitted in the last 15 minutes
 
 #### Scenario: Filtering sources
 
-- **WHEN** an operator types `http` into the source filter
-- **THEN** only sources whose name contains `http` are shown, still in their groups
+- **WHEN** an operator types `file` into the source filter
+- **THEN** only sources whose name or description contains `file` are shown, still in their groups
+
+#### Scenario: A controller that does not describe its sources
+
+- **WHEN** the controller answers sources without `description`, `area`, `signals` or `recent`
+- **THEN** each source is listed by name under "Other" with its switch and Tail
+- **AND** no activity line and no description are shown, and the screen raises no error
 
 #### Scenario: Observability is disabled on the controller
 
@@ -292,4 +329,79 @@ The relay screen's call activity SHALL be received through `Flezha.Service.Relay
 - **WHEN** `listen/5` answers `{:error, %Flezha.Error{}}` for the `:calls` direction
 - **THEN** the panel states the refusal with the error's code and message
 - **AND** the rest of the relay screen renders unaffected
+
+### Requirement: A source says what it can emit
+
+The controller SHALL declare, for every observability source it registers itself:
+
+- a one-line description;
+- an area;
+- every signal the source can emit, each with its kind and a one-line meaning.
+
+It SHALL answer these in `list_sources/1`. The controller SHALL NOT register a
+source that nothing can make emit.
+
+The UI SHALL show a source's description on its row, and its signals with their
+meanings when the source is tailed. A signal emitted under a name the source does
+not declare SHALL still be shown, with no meaning.
+
+#### Scenario: Every core source is described
+
+- **WHEN** the controller has booted with its default configuration
+- **THEN** every source `list_sources/1` answers has a non-empty description and an area
+- **AND** every signal it declares has a kind and a non-empty meaning
+
+#### Scenario: No source that cannot emit is listed
+
+- **WHEN** an operator opens the observability screen against the controller after this change
+- **THEN** neither `flezha_reconcile`, `flezha_leadership` nor `flezha_bounded_mailbox` is listed
+
+#### Scenario: The tail names what may appear
+
+- **WHEN** an operator tails `flezha_file_sink` and nothing has arrived yet
+- **THEN** the tail lists `flushed`, `refused` and `failed`, each with its meaning
+
+### Requirement: A tail opens with the source's recent history
+
+When an operator starts a tail of a source, the UI SHALL first show the source's
+most recent signals from the controller's history, read through
+`Flezha.Service.Observability.query/2` with the UI's caller context. It SHALL show
+up to 50, under a divider stating they arrived before the tail was opened. Live
+signals SHALL be added above the divider as they arrive. History and live signals
+together SHALL be capped at 200.
+
+#### Scenario: A source with history
+
+- **WHEN** an operator tails a source whose history holds signals
+- **THEN** the tail shows them at once, below a divider stating they arrived before the tail was opened
+- **AND** signals that arrive afterwards appear above the divider, newest first
+
+#### Scenario: The pubsub sink is disabled
+
+- **WHEN** an operator tails a source and the tail answers `{:error, %Flezha.Error{code: "observability.pubsub_disabled"}}`
+- **THEN** the screen states that live tailing is unavailable
+- **AND** the source's history is still shown
+
+### Requirement: A tail line says when, what, about whom and how much
+
+Each signal in a tail SHALL be shown with:
+
+- the time of day it was emitted, shown as the console's other live streams show
+  theirs. It SHALL be derived from the signal's controller timestamp and one reading
+  of the controller's clock taken when the tail is opened;
+- the signal's name and the meaning the source declares for it;
+- its labels, the signal's metadata, as sorted `key=value` pairs;
+- its numbers, the signal's measurements.
+
+On a phone-width screen a line SHALL wrap into a block, not scroll sideways.
+
+#### Scenario: A file sink signal
+
+- **WHEN** `flezha_file_sink` emits `flushed` with measurements `%{count: 1}` and metadata `%{plugin_id: "file_sink#3", path: "/data/out.log"}` during a tail
+- **THEN** the line shows the time it was emitted, `flushed`, its meaning, `path=/data/out.log plugin_id=file_sink#3` and `count 1`
+
+#### Scenario: Buffered and live signals share one clock
+
+- **WHEN** a buffered signal was emitted 60 seconds of controller time before a live one
+- **THEN** their shown times are 60 seconds apart
 

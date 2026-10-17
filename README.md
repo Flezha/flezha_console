@@ -70,7 +70,7 @@ scope switch moves between the two forms.
 | `/namespaces/:ns/relays/:id/state` | **State** — steps facts as sentences, the task journal and input log, SDK state, and durable cells with their sequences and lag; point-in-time reads, a cell's outbox, replay, rotate, delete; retention, the history one settable |
 | `/plugins` | Enabled plugins per namespace, the providers on offer, and the packages installed on the controller with why one was refused |
 | `/cluster` | Cluster nodes, per-node health rollup, hub recovery per node (a notice only while a hub is recovering), runners with what they serve, and which runners serve a factory; drop a runner and readmit its process |
-| `/observability` | Observability sources grouped by area with a name filter and an on/off switch each, sinks, and a live signal tail that opens beside the listing |
+| `/observability` | Every source the controller reports through, grouped by area, each saying what it is and what it said in the last 15 minutes, with a filter, an on/off switch, the sinks in one line, and a tail that opens with the source's recent history and explains each signal |
 | `/controller` | Readiness, authorization and durability in one sentence; durability posture, RPO breaches and the shipper, shutdown and boot state, memory hot spots; drain and stop the controller, watching each phase |
 | `/schedules` | Cron schedules with their status and next fire; run one now, after a confirmation |
 | `/dlq` | Parked dead-letter entries grouped by tasklet; inspect an entry's payload in place, replay, drop |

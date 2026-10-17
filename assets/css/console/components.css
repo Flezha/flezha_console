@@ -539,10 +539,19 @@
   z-index: var(--fui-z-popover);
 }
 
-/* A live tail fills the drawer it opens in. */
+/* A live tail fills the drawer it opens in. Its lines are event rows whose
+   detail takes the drawer's whole width under the time and the name. */
 .fui-tail {
   max-height: calc(100vh - 16rem);
   overflow-y: auto;
+}
+
+.fui-tail .fui-river-event {
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+}
+
+.fui-tail .fui-river-event > :last-child {
+  grid-column: 1 / -1;
 }
 
 /* A review before an action: each fact on its own row, the term on the left,

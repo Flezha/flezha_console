@@ -3,11 +3,11 @@
     <%= if @disabled? do %>
       Observability is switched off on this controller.
     <% else %>
-      The controller emits {Words.count(
+      Each part of the controller reports what it does as signals. See what each one said
+      recently, watch one live, or switch one off. {Words.count(
         Enum.count(@sources, &NodeManager.source_enabled?/1),
         "source"
-      )} of {length(@sources)} and ships them to {Words.count(length(@sinks), "sink")}. Switch a
-      <.term key="source" /> on or off, or tail it live.
+      )} of {length(@sources)} are on.
     <% end %>
   </:sentence>
 </.page_header>
@@ -21,21 +21,36 @@
 
 <.runtime_error error={@toggle_error} action="the source toggle" />
 
+<p :if={not @disabled? and @sinks != []} class="fui-figures" data-testid="sinks-line">
+  Signals go to
+  <span
+    :for={{sink, index} <- Enum.with_index(@sinks)}
+    data-testid={"sink-#{sink[:name]}"}
+  >
+    <span class="fui-num">{sink[:name]}</span>{if purpose = sink_purpose(sink),
+      do: " (#{purpose})"}<span
+      :if={!NodeManager.sink_running?(sink)}
+      class="fui-badge fui-badge--negative ml-1"
+      data-testid={"sink-stopped-#{sink[:name]}"}
+    >Not running</span>{if index == length(@sinks) - 1, do: ".", else: ", "}
+  </span>
+</p>
+
 <.section
   :if={not @disabled?}
   flush
   testid="sources-panel"
-  help="A source is one kind of signal the controller can emit, such as VM memory or relay throughput. Switch it off to stop emitting it; Tail streams it live beside the list."
+  help="A source is one part of the controller that reports on itself, such as the file sink plugin or the Erlang VM. Each row says what it is and what it said recently. Switch a source off to stop its signals; Tail shows its recent signals and then new ones as they arrive."
 >
   <:title>Sources</:title>
   <:actions>
-    <form phx-change="filter_sources" class="w-56" data-testid="source-filter-form">
+    <form phx-change="filter_sources" class="w-64" data-testid="source-filter-form">
       <.input
         type="search"
         name="q"
         value={@source_filter}
-        placeholder="Filter by name"
-        aria-label="Filter sources by name"
+        placeholder="Filter by name or meaning"
+        aria-label="Filter sources by name or description"
         compact
         phx-debounce="150"
         data-testid="source-filter"
@@ -43,7 +58,7 @@
     </form>
   </:actions>
   <.empty_state :if={@sources == []} icon="hero-signal">
-    A source is a stream of signals the controller can emit. This controller reports none.
+    A source is a part of the controller that reports on itself. This controller reports none.
   </.empty_state>
   <div class="space-y-8">
     <div
@@ -65,7 +80,17 @@
         rows={group.sources}
         row_testid={&"source-#{&1[:name]}"}
       >
-        <:col :let={source} label="Source"><span class="fui-num">{source[:name]}</span></:col>
+        <:col :let={source} label="Source">
+          <span class="fui-num">{source[:name]}</span>
+          <span
+            :if={source[:description]}
+            class="block fui-muted text-sm"
+            data-testid={"source-description-#{source[:name]}"}
+          >
+            {source[:description]}
+          </span>
+          <.activity_line source={source} />
+        </:col>
         <:col :let={source} label="Emitting">
           <span
             data-testid={"source-enabled-#{source[:name]}"}
@@ -99,29 +124,6 @@
   </div>
 </.section>
 
-<.section
-  :if={not @disabled?}
-  testid="sinks-panel"
-  help="Where the emitted signals go: pubsub feeds live tails, a ring buffer keeps the recent ones for queries."
->
-  <:title>Sinks</:title>
-  <.empty_state :if={@sinks == []} icon="hero-inbox-arrow-down">
-    A sink is where the controller ships its signals. This controller reports none.
-  </.empty_state>
-  <.paged :let={page} id="sinks" rows={@sinks} paging={@paging}>
-    <ul :if={@sinks != []} class="fui-tiles">
-      <li :for={sink <- page} data-testid={"sink-#{sink[:name]}"} class="fui-tile flz-tile">
-        <span class="fui-num font-medium">{sink[:name]}</span>
-        <span data-testid={"sink-running-#{sink[:name]}"}>
-          <span class={["fui-badge", NodeManager.sink_running?(sink) && "fui-badge--positive"]}>
-            {if NodeManager.sink_running?(sink), do: "Running", else: "Not running"}
-          </span>
-        </span>
-      </li>
-    </ul>
-  </.paged>
-</.section>
-
 <%!-- A drawer, so the tail is in view the moment it starts, wherever the
       source sat in the listing. Closing it stops the tail. --%>
 <.drawer
@@ -132,25 +134,62 @@
   title={to_string(@tailing || "Tail")}
   on_close="stop_tail"
 >
+  <p :if={@tail_source[:description]} class="fui-muted">{@tail_source[:description]}</p>
   <p class="fui-figures" data-testid="tail-count">
-    {Words.count(length(@tail_records), "signal")} so far, newest first.
+    {Words.count(length(@tail_records), "signal")}, newest first.
   </p>
 
   <.notice :if={pubsub_disabled?(@tail_error)} kind={:info} testid="pubsub-sink-disabled">
-    Live tailing is unavailable: the controller's pubsub sink is disabled. The query-based views
-    still work.
+    Live tailing is unavailable: the controller's pubsub sink is disabled. The signals it already
+    holds are shown below.
   </.notice>
   <.runtime_error
     :if={@tail_error && !pubsub_disabled?(@tail_error)}
     error={@tail_error}
     action="the live tail"
   />
+  <.runtime_error error={@history_error} action="the source's recent history" />
   <.notice :if={@tail_reconnected?} kind={:info} testid="tail-reconnected">
     The tail reconnected after its stream to the controller was cut — signals emitted while it was
     down are not shown.
   </.notice>
 
-  <pre :if={@tailing} class="fui-code fui-tail"><span :for={signal <- @tail_records} data-testid="tail-record" class="block">{signal[:source]}.{signal[:name]}  {measurements(signal[:measurements])}</span><span :if={@tail_records == []} class="fui-muted">Waiting for signals. A quiet source emits only when its subject does something.</span></pre>
+  <div :if={@tailing && @tail_records == []} class="space-y-2" data-testid="tail-waiting">
+    <p class="fui-muted">
+      Nothing yet. A source speaks only when the part it reports on does something.
+    </p>
+    <.signal_meanings :if={@tail_source} source={@tail_source} />
+  </div>
+  <details :if={@tail_records != [] && @tail_source[:signals] not in [nil, []]}>
+    <summary class="fui-figures">What this source can say</summary>
+    <.signal_meanings source={@tail_source} />
+  </details>
+
+  <ol
+    :if={@tailing && @tail_records != []}
+    class="fui-river-list fui-tail"
+    aria-label="Signals, newest first"
+  >
+    <.tail_line
+      :for={signal <- Enum.reject(@tail_records, & &1[:history?])}
+      signal={signal}
+      source={@tail_source}
+      offset_us={@clock_offset_us}
+    />
+    <li
+      :if={Enum.any?(@tail_records, & &1[:history?])}
+      class="fui-figures pt-2"
+      data-testid="tail-history-divider"
+    >
+      Before you opened the tail
+    </li>
+    <.tail_line
+      :for={signal <- Enum.filter(@tail_records, & &1[:history?])}
+      signal={signal}
+      source={@tail_source}
+      offset_us={@clock_offset_us}
+    />
+  </ol>
 
   <:actions>
     <.button variant="secondary" phx-click="stop_tail" data-testid="stop-tail" icon="hero-stop">

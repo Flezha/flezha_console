@@ -101,7 +101,7 @@ defmodule FlezhaUiWeb.Glossary do
     {"schedule", "Schedule",
      "A cron expression that starts a relay from a factory each time it fires."},
     {"source", "Source",
-     "A stream of observability signals the controller can emit, switched on or off one by one."}
+     "One part of the controller that reports on itself as signals, such as a plugin or the Erlang VM. Each says what it is and what its signals mean, and can be switched off."}
   ]
 
   @by_key Map.new(@terms, fn {key, name, definition} ->
@@ -184,7 +184,7 @@ defmodule FlezhaUiWeb.Glossary do
       ["posture", "principal", "hub"]
     },
     observability: {
-      "The controller's observability sources and sinks, grouped by area. Switch a source on or off and tail its signals live.",
+      "What each part of the controller reports about itself: every source with what it is, what it said recently and what its signals mean. Watch one live, or switch one off.",
       ["source"]
     },
     audit: {

@@ -47,9 +47,10 @@ defmodule FlezhaUiWeb.Live.Tail do
 
       @doc """
       Opens a tail with `open`, a function of the emit pid, replacing any tail
-      already running. `label` is what the screen calls what it is tailing.
+      already running. `label` is what the screen calls what it is tailing;
+      `seed:` is what to show before the first live record, newest first.
       """
-      def start_tail(socket, open, label \\ true) do
+      def start_tail(socket, open, label \\ true, opts \\ []) do
         socket = stop_tail(socket)
 
         {:ok, feed} =
@@ -62,7 +63,7 @@ defmodule FlezhaUiWeb.Live.Tail do
         Phoenix.Component.assign(socket,
           tailing: label,
           tail_feed: feed,
-          tail_records: [],
+          tail_records: Enum.take(Keyword.get(opts, :seed, []), @tail_max),
           tail_error: nil,
           tail_reconnected?: false
         )
