@@ -692,11 +692,11 @@ defmodule FlezhaUiWeb.Topology do
     )
   end
 
-  # One tick of the shared arithmetic: rates against the previous snapshot,
-  # history advanced and pruned to the ids still present.
+  # One tick of the shared arithmetic: rates of `ids` alone, since the snapshot
+  # covers the whole cluster, and history advanced and pruned to them.
   defp advance(state, snapshot, ids) do
     now = System.monotonic_time(:millisecond)
-    rates = rates(snapshot, state.prev, now - (state.prev_at || now))
+    rates = snapshot |> rates(state.prev, now - (state.prev_at || now)) |> Map.take(ids)
     history = state.history |> push_history(rates) |> Map.take(ids)
 
     {rates,
@@ -902,7 +902,11 @@ defmodule FlezhaUiWeb.Topology do
 
   defp count_ids(ids), do: ids |> Enum.uniq() |> length()
 
-  defp relay_rates(history) do
+  @doc """
+  The rates a history oldest first shows: in and out smoothed (`smoothed/2`),
+  and the bytes behind them once a read has carried them.
+  """
+  def relay_rates(history) do
     %{
       in: smoothed(history, :in),
       out: smoothed(history, :out),

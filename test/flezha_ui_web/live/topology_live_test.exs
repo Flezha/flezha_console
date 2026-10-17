@@ -1370,6 +1370,45 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert {"quiet", _text} = view |> tick() |> headline()
     end
 
+    test "one still reading after a burst keeps reading as flowing", %{conn: conn, node: node} do
+      stack(node)
+      snapshot(node, [{"relay_a", 1, 1}])
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      snapshot(node, [{"relay_a", 5_000, 5_000}])
+      assert {"flowing", _text} = view |> tick() |> headline()
+
+      assert {"flowing", _text} = view |> tick() |> headline()
+    end
+
+    test "another namespace's traffic does not move this one", %{conn: conn, node: node} do
+      stack(node)
+      snapshot(node, [{"relay_a", 1, 1}, {"elsewhere", 0, 0}])
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      snapshot(node, [{"relay_a", 1, 1}, {"elsewhere", 5_000, 5_000}])
+      html = tick(view)
+
+      assert {"quiet", _text} = headline(html)
+      assert figures(html) =~ "0.0 records/s in"
+    end
+
+    test "a runner with no relay still reads as nothing running", %{conn: conn, node: node} do
+      stack(node, relays: [])
+      snapshot(node, [{"elsewhere", 0, 0}])
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      snapshot(node, [{"elsewhere", 5_000, 5_000}])
+      html = tick(view)
+
+      assert {"empty", "Nothing runs in default yet."} = headline(html)
+      assert figures(html) =~ "0 of 0 relays healthy · 1 runner"
+      refute figures(html) =~ "records/s"
+    end
+
     test "one suspended relay of eight needs attention", %{conn: conn, node: node} do
       rows = [
         summary_row("relay_s", %{health: :suspended})

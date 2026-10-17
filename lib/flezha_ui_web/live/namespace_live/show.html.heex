@@ -1,6 +1,6 @@
-<% {condition, headline} =
-  headline(@topology || %{state: :loading}, @items, @topology_state.rates, @ns) %>
-<% inbound = @topology_state.rates |> Map.values() |> Topology.sum_rates() %>
+<% flow = @topology_state.history |> Map.values() |> Topology.sum_history() %>
+<% inbound = if flow != [], do: Topology.relay_rates(flow) %>
+<% {condition, headline} = headline(@topology || %{state: :loading}, @items, inbound, @ns) %>
 <.page_header eyebrow="Namespace" title={@ns} headline>
   <:sentence>
     <span data-testid="home-headline" data-condition={condition}>{headline}</span>
@@ -212,7 +212,7 @@
             condition={flow_condition(inbound)}
           >
             <.sparkline
-              samples={@topology_state.history |> Map.values() |> Topology.sum_history()}
+              samples={flow}
               key={:in}
               width={160}
               height={28}

@@ -581,33 +581,37 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   The headline: the namespace's condition in one sentence, as `{condition,
   text}`. `condition` is `:unreachable`, `:empty`, `:attention`, `:flowing`,
   `:quiet` or `:healthy` (every relay healthy, rates not yet measured).
+  `inbound` is the namespace's smoothed rate, as `figures/3` takes it, so a
+  bursty namespace does not flip between flowing and quiet on every tick.
   """
   # Nothing is claimed before the first read.
-  def headline(%{state: :loading}, _items, _rates, ns), do: {:loading, "Reading #{ns}…"}
+  def headline(%{state: :loading}, _items, _inbound, ns), do: {:loading, "Reading #{ns}…"}
 
-  def headline(%{state: :disconnected}, _items, _rates, ns),
+  def headline(%{state: :disconnected}, _items, _inbound, ns),
     do: {:unreachable, "The controller cannot be reached, so #{ns} cannot be shown."}
 
-  def headline(%{state: :empty}, _items, _rates, ns),
-    do: {:empty, "Nothing runs in #{ns} yet."}
-
-  def headline(_summary, [_ | _] = items, _rates, _ns),
+  def headline(_summary, [_ | _] = items, _inbound, _ns),
     do: {:attention, attention_title(items) <> "."}
 
-  def headline(_summary, [], rates, ns) when rates == %{},
+  # A connected runner with no relay still has nothing running.
+  def headline(%{relay_count: 0}, [], _inbound, ns),
+    do: {:empty, "Nothing runs in #{ns} yet."}
+
+  def headline(_summary, [], nil, ns),
     do: {:healthy, "Every relay in #{ns} is healthy."}
 
-  def headline(_summary, [], rates, ns) do
-    if Enum.any?(rates, fn {_id, rate} -> rate.in + rate.out > 0 end),
+  def headline(_summary, [], inbound, ns) do
+    if inbound.in + inbound.out > 0,
       do: {:flowing, "#{ns} is flowing: every relay is healthy and records are moving."},
       else:
         {:quiet,
-         "#{ns} is quiet: every relay is healthy and none moved records since the last reading."}
+         "#{ns} is quiet: every relay is healthy and none moved records over the last few readings."}
   end
 
   @doc """
   The headline's second line: its figures, in words. `inbound` is the
-  namespace's summed rate, nil before two snapshots.
+  namespace's summed rate smoothed over its newest readings, nil before two
+  snapshots.
   """
   def figures(%{state: :ok} = summary, rows, inbound) do
     healthy = Enum.count(rows, &(NodeManager.row_health(&1) == :healthy))
