@@ -23,7 +23,10 @@ defmodule FlezhaUiWeb.AttentionTest do
       })
 
     assert item.what == "testnet_echo is suspended"
-    assert item.why =~ "suspended"
+    assert item.why =~ "committed boundary on purpose"
+    refute item.why =~ "parked"
+    refute item.why =~ "runner"
+    assert item.relay == %{state: :suspended, factory: "f", serving: nil}
     assert item.severity == :warning
     assert item.namespace == "default"
 
@@ -39,13 +42,15 @@ defmodule FlezhaUiWeb.AttentionTest do
     unknown: {:warning, "The Convergence Loop has not observed it yet."},
     suspended:
       {:warning,
-       "The controller reports it suspended: parked at a committed boundary with no runner to resume on."},
+       "It stopped at a committed boundary on purpose; a suspension is planned, not a fault."},
     degraded:
       {:warning, "The Convergence Loop classifies it degraded: it runs, but not as declared."},
-    recovering: {:warning, "The controller is moving it off a runner that went away."},
-    unbound: {:warning, "No runner serves its factory, so it is waiting for one to connect."},
-    failed: {:negative, "The Convergence Loop classifies it failed: it is not running."},
-    parked: {:negative, "It is parked and processes no input until it is resumed."}
+    recovering:
+      {:warning, "Its runner went away or it lost its binding, and it is still inside its grace."},
+    unbound: {:warning, "No runner is bound to it."},
+    failed: {:negative, "Its runner is gone past its grace, so it is not running."},
+    parked:
+      {:negative, "A fault stopped it that nothing in the system owns, so it processes no input."}
   }
 
   test "every health verdict but healthy is a problem with its own severity and why" do
@@ -61,6 +66,25 @@ defmodule FlezhaUiWeb.AttentionTest do
     end
 
     assert Attention.relay_items("default", [row("r")]) == []
+  end
+
+  test "a relay item counts the runners serving its factory only when they were read" do
+    rows = [
+      row("s", %{health: :suspended}),
+      row("u", %{health: :unbound, factory: "g"}),
+      row("d", %{health: :degraded, factory: "h"})
+    ]
+
+    items = Attention.relay_items("default", rows)
+
+    # Only a runner-bound state waits on runners.
+    assert Enum.sort(Attention.waiting_factories(items)) == ["f", "g"]
+
+    # Read and unserved, versus not read at all.
+    by_id =
+      items |> Attention.put_serving(%{"f" => 0}) |> Map.new(&{&1.object.id, &1.relay.serving})
+
+    assert by_id == %{"s" => 0, "u" => nil, "d" => nil}
   end
 
   test "a row with no health reads as unknown, never as healthy" do
@@ -121,7 +145,7 @@ defmodule FlezhaUiWeb.AttentionTest do
         ]
       })
 
-    assert item.what == "3 entries parked for orders"
+    assert item.what == "3 dead letters for orders"
     assert item.why =~ "Tasklets t1 and t2"
     assert [%{navigate: "/dlq?class=orders"}] = item.actions
   end

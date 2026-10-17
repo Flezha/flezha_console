@@ -58,7 +58,7 @@ test.beforeAll(async ({ browser }, testInfo) => {
   await sendRecords(relay, ['poison']);
 
   await openQueue(admin);
-  await expect(groupCount(admin)).toHaveText('1 parked');
+  await expect(groupCount(admin)).toHaveText('1 dead letter');
   [ref] = await listedRefs(admin);
 });
 
@@ -79,10 +79,10 @@ test.describe('Dead-letter queue', () => {
     await openQueue(page);
   });
 
-  test('a poisoned input is parked under its relay and tasklet, counted, filtered and inspected', async ({
+  test('a poisoned input becomes a dead letter under its relay and tasklet, counted, filtered and inspected', async ({
     page,
   }) => {
-    await expect(groupCount(page)).toHaveText('1 parked');
+    await expect(groupCount(page)).toHaveText('1 dead letter');
     const row = page.getByTestId(`dlq-row-${ref}`);
     await expect(row).toContainText('input');
     await expect(row).toContainText('poison payload');
@@ -91,7 +91,7 @@ test.describe('Dead-letter queue', () => {
 
     await page.getByTestId('dlq-filter').fill('no_such_relay_class');
     await expect(page.getByTestId('dlq-empty')).toContainText(
-      'None is parked for that relay class.',
+      'None waits for that relay class.',
     );
     await expect(group(page)).toHaveCount(0);
 
@@ -106,7 +106,7 @@ test.describe('Dead-letter queue', () => {
     await expect(page.getByTestId('inspector-entry')).toHaveCount(0);
   });
 
-  test('a replay is confirm-gated, and one that fails again is parked as the next generation', async ({
+  test('a replay is confirm-gated, and one that fails again is a dead letter of the next generation', async ({
     page,
   }) => {
     await menuAction(page, `dlq-menu-${ref}`, `dlq-replay-${ref}`);

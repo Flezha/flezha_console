@@ -612,6 +612,17 @@ defmodule FlezhaUi.Service.NodeManager do
     end
   end
 
+  @doc """
+  How many runners serve `factory` in `namespace`, or nil when that could not
+  be read — which must never read as none.
+  """
+  def serving_count(namespace, factory, token) do
+    case runners_for_factory(namespace, to_string(factory), token) do
+      {:ok, runners} -> length(runners)
+      {:error, _reason} -> nil
+    end
+  end
+
   @doc "`partition_members/2` of a namespace's relays, read for one screen."
   def relay_partitions(namespace, relay_id, token) do
     namespace |> relay_rows(token) |> ok_or([]) |> partition_members(relay_id)

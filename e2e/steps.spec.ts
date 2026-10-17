@@ -3,6 +3,7 @@ import {
   test,
   expect,
   openSection,
+  growListing,
   sendToRelay,
   stopRelay,
 } from './fixtures';
@@ -81,6 +82,9 @@ test.describe('Steps relays', () => {
     await openSection(page, 'finished-relays');
     await page.getByTestId('reload-finished').click();
     const row = page.getByTestId(`finished-row-${id}`);
+    // Finished relays stay listed for their retention window, so this one may
+    // sit past the first page.
+    await growListing(page, 'finished', row);
     await expect(row).toContainText('Cancelled');
 
     await row.getByRole('link').click();

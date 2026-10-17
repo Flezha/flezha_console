@@ -115,17 +115,19 @@ preloaded. Inter, Space Grotesk and JetBrains Mono SHALL no longer be served.
 ### Requirement: Every element comes from one component kit
 
 Every control and display SHALL be rendered through the console's `fui-` kit, on
-every screen including the auth, settings and error pages. Two parts keep the
-stylebook's recipes: the shell's rail and topbar, with their brand, menus and
-chrome buttons, and the relay pipeline graph until its own redesign. Each element SHALL have
-exactly one Phoenix function component:
+every screen including the auth, settings and error pages. The stylebook's own
+recipes are kept for the buttons, for tiles and the figures that fit them, for the
+shell's rail and topbar with their brand, menus and chrome buttons, and for the
+relay pipeline graph until its own redesign. Each element SHALL have exactly one
+Phoenix function component:
 
 - button, in primary, secondary, ghost and danger variants, at two sizes;
 - text, select and textarea fields, checkbox, switch, segmented control and
   combobox;
 - chip;
 - state badge;
-- grid (table);
+- grid (table), paged;
+- the control that grows a listing by a page;
 - row menu;
 - section, with an optional digest;
 - page header;
@@ -133,8 +135,8 @@ exactly one Phoenix function component:
 - drawer, dialog, popover and tooltip;
 - toast;
 - sparkline and meter;
-- indicator tile, with a figure, a tone, a condition sentence, an optional link
-  and room for a strip, meter or sparkline;
+- indicator tile, with a figure and its unit, a tone, a condition sentence, an
+  optional link, room for a strip, meter or sparkline, and a foot;
 - empty state;
 - skeleton;
 - code block;
@@ -153,13 +155,14 @@ elements.
 
 - **WHEN** Home renders a count or a condition as a tile
 - **THEN** it is the kit's tile component, and `/dev/kit` shows that tile in each
-  tone and with and without a link
+  tone, with and without a link, with a unit and with a foot
 
-#### Scenario: No stylebook skin outside the shell and the relay graph
+#### Scenario: No stylebook skin outside its places
 
 - **WHEN** `lib/` is searched for `flz-` classes
-- **THEN** they occur only in the shell layout, the chrome form of the brand
-  lockup, and the relay pipeline graph's rendering
+- **THEN** they occur only on buttons, on tiles and their figures, in the shell
+  layout, in the chrome form of the brand lockup, and in the relay pipeline graph's
+  rendering
 
 ### Requirement: Screens follow one page grammar
 
@@ -179,7 +182,14 @@ titles, not nested inside cards. A raised surface SHALL be used only for:
 - a drawer;
 - a dialog;
 - a popover;
-- a toast.
+- a toast;
+- a tile — an indicator, or an object such as a namespace, a node or a sink
+  laid out in a row of tiles.
+
+A tile SHALL take the stylebook's tile recipe: a raised surface with an
+edge in its tone, a lift and an accent border on hover when it is a link, and the
+focus ring on keyboard focus, with no movement when the operator prefers reduced
+motion.
 
 #### Scenario: A relay screen
 
@@ -191,6 +201,11 @@ titles, not nested inside cards. A raised surface SHALL be used only for:
 
 - **WHEN** any screen is rendered
 - **THEN** no raised surface is nested inside another raised surface
+
+#### Scenario: Hovering a link tile
+
+- **WHEN** the pointer rests on a tile that links somewhere
+- **THEN** the tile lifts and takes the accent border and a deeper shadow
 
 ### Requirement: A screen awaiting data shows skeletons
 
@@ -230,4 +245,24 @@ Outside the dev environment the route SHALL NOT exist.
 
 - **WHEN** the application runs without dev routes
 - **THEN** `/dev/kit` answers 404
+
+### Requirement: A figure never leaves its box
+
+A figure in a tile or a fact SHALL shrink with its container down to a legible floor,
+SHALL NOT wrap or overflow it, and SHALL carry its full value as its title when it is
+cut. Counts and rates of 10 000 or more SHALL be written in compact notation
+(`12.4k`, `3.1M`), with the exact value as the title. A sparkline SHALL take its
+container's width rather than a fixed width. The figure-fit recipe SHALL live in the
+stylebook.
+
+#### Scenario: A large rate in a narrow tile
+
+- **WHEN** the Flow tile shows 123 456 msgs/s at 360 px wide
+- **THEN** it reads "123.5k" with the unit "msgs/s", inside the tile, and its title
+  carries 123456
+
+#### Scenario: No tile overflows
+
+- **WHEN** any screen with tiles renders at 1280, 390 and 360 px wide
+- **THEN** no element inside a tile extends past the tile's box
 

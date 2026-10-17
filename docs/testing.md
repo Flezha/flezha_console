@@ -131,7 +131,10 @@ A test asserts only on what it made or caused — a relay it started, a plugin
 bound to that relay, a schedule, a namespace, a token, records it sent — named
 by `uniqueId()`, and removes it in `finally`. It asserts its own ids are or are
 not listed, never that a global count equals an earlier read: another worker may
-have started a relay in between. No test binds a plugin to or retunes a seeded
+have started a relay in between. Every listing shows 20 rows and grows by a page,
+so other workers' rows — revoked tokens, finished relays, rotated audit files —
+can push a test's own row past the first page: `growListing(page, listing, row)`
+grows the listing until that row is shown, and without a row shows every one. No test binds a plugin to or retunes a seeded
 relay. Actions that reach every session on the stack — stopping the controller,
 dropping a runner — are driven to their confirmation and cancelled in the
 browser; the confirmed path is asserted in ExUnit.

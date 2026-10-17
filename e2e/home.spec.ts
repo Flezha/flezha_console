@@ -67,3 +67,47 @@ test('a shared link opens a relay inspector on Home, which opens the relay', asy
   await page.getByTestId('inspector-open').click();
   await expect(page).toHaveURL(/\/namespaces\/default\/relays\/testnet_noop$/);
 });
+
+test('the system and namespace tiles stand level, keep their content inside, and lift on hover', async ({
+  page,
+  live,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await live('/namespaces/default');
+  await expect(page.getByTestId('home-namespace-tiles')).toBeVisible();
+
+  const heights = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-testid$="-tiles"] .fui-indicator')].map((tile) =>
+      Math.round(tile.getBoundingClientRect().height),
+    ),
+  );
+  // They share one minimum height; a tile whose words wrap further at this
+  // width may stand a line taller, never more.
+  expect(Math.max(...heights) - Math.min(...heights), `tile heights ${heights}`).toBeLessThanOrEqual(16);
+
+  // Nothing a tile holds — a figure, a sparkline, a meter — leaves its box.
+  const spilled = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.fui-indicator')].flatMap((tile) => {
+        const box = tile.getBoundingClientRect();
+        return [...tile.querySelectorAll('*')]
+          .filter((el) => {
+            const inner = el.getBoundingClientRect();
+            return inner.width > 0 && (inner.right > box.right + 0.5 || inner.left < box.left - 0.5);
+          })
+          .map((el) => `${tile.getAttribute('data-testid')}: ${el.className}`);
+      }),
+    );
+
+  expect(await spilled(), 'at 1280px').toEqual([]);
+  for (const width of [390, 360]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(await spilled(), `at ${width}px`).toEqual([]);
+  }
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const link = page.getByTestId('ns-runners');
+  const resting = await link.evaluate((el) => getComputedStyle(el).boxShadow);
+  await link.hover();
+  await expect.poll(() => link.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe(resting);
+});

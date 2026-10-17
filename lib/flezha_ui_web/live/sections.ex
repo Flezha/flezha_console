@@ -1,6 +1,7 @@
 defmodule FlezhaUiWeb.Live.Sections do
   @moduledoc """
-  Which of a long screen's panels are open.
+  Which of a long screen's panels are open, and how many rows each of its
+  listings shows.
 
   A screen carrying more than four panels opens on what the operator came for
   and folds the rest away. Which ones start open is the screen's own decision,
@@ -46,6 +47,17 @@ defmodule FlezhaUiWeb.Live.Sections do
           else: {:noreply, section_closed(socket, key)}
       end
 
+      # Opens a section if it is folded, and brings it into view: a link to a
+      # section from elsewhere on the screen.
+      def handle_event("section_reveal", %{"key" => key}, socket) do
+        socket =
+          if socket.assigns.sections[key],
+            do: socket,
+            else: section_opened(FlezhaUiWeb.Live.Sections.toggle(socket, key), key)
+
+        {:noreply, FlezhaUiWeb.CoreComponents.reveal(socket, key)}
+      end
+
       @doc false
       def section_opened(socket, _key), do: socket
 
@@ -55,6 +67,51 @@ defmodule FlezhaUiWeb.Live.Sections do
       defoverridable section_opened: 2, section_closed: 2
     end
   end
+
+  @page_size 20
+  # A count a client sends is bounded, so a forged one cannot make a screen
+  # render an unbounded listing in one go.
+  @max_shown 10_000
+
+  @doc """
+  Paging for every screen of a live session: `@paging` holds how many rows
+  each listing shows, by listing id, and one `grid_more` event grows a
+  listing by a page. It is held here rather than in the browser for the
+  reason sections are — the screens tick, and a tick that re-reads the rows
+  must not shrink a listing the operator grew.
+
+      live_session :authenticated, on_mount: [{FlezhaUiWeb.Live.Sections, :paging}]
+  """
+  def on_mount(:paging, _params, _session, socket) do
+    {:cont,
+     socket
+     |> Phoenix.Component.assign(:paging, %{})
+     |> Phoenix.LiveView.attach_hook(:paging, :handle_event, &grow/3)}
+  end
+
+  # Named exactly, so a screen's own events pass through untouched.
+  @events ~w(grid_more)
+
+  defp grow(event, %{"id" => id, "shown" => shown, "step" => step}, socket)
+       when event in @events and is_binary(id) and is_binary(shown) and is_binary(step) do
+    with {shown, ""} <- Integer.parse(shown),
+         {step, ""} <- Integer.parse(step),
+         true <- shown >= 0 and step > 0 do
+      count = min(shown + step, @max_shown)
+      {:halt, Phoenix.Component.update(socket, :paging, &Map.put(&1, id, count))}
+    else
+      _forged -> {:halt, socket}
+    end
+  end
+
+  defp grow(event, _params, socket) when event in @events, do: {:halt, socket}
+  defp grow(_event, _params, socket), do: {:cont, socket}
+
+  @doc "The rows a listing shows at first."
+  def page_size, do: @page_size
+
+  @doc "How many rows the listing `id` shows: its first page until it is grown."
+  def shown(paging, id, page_size \\ @page_size), do: Map.get(paging || %{}, id, page_size)
 
   @doc """
   Folds a section shut, or opens it.

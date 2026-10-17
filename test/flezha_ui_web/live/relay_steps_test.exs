@@ -217,7 +217,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       assert html =~ ~s(data-testid="journal-dead-lettered-9")
 
       assert html =~
-               ~r/Tasklet <span class="fui-num">charge<\/span>\s+parked as <span class="fui-num">relay_steps\/charge\/abc<\/span>/
+               ~r/Tasklet <span class="fui-num">charge<\/span>\s+could not process it: dead letter <span class="fui-num">relay_steps\/charge\/abc<\/span>/
     end
 
     test "the input log shows its depth and offsets", %{conn: conn, node: node} do

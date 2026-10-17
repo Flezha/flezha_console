@@ -3,31 +3,6 @@
 ## Purpose
 TBD - created by archiving change resync-with-flezha-runtime. Update Purpose after archive.
 ## Requirements
-### Requirement: Parked entry listing
-
-The UI SHALL list dead-letter entries from `Flezha.Service.Dlq.list/2` oldest first, showing each entry's reference, cell key, channel, generation, age, and error, and SHALL allow filtering by relay class. Entries SHALL be grouped by tasklet, matching how the controller stores and ships them, with each tasklet's parked count shown on its group.
-
-#### Scenario: Entries are parked
-
-- **WHEN** an operator opens the dead-letter queue
-- **THEN** parked entries are listed oldest first with reference, cell key, channel, generation, age, and error
-
-#### Scenario: Entries span tasklets
-
-- **WHEN** parked entries belong to more than one tasklet
-- **THEN** they are grouped by tasklet with a parked count per group
-
-#### Scenario: Filtering by relay class
-
-- **WHEN** an operator filters by a relay class
-- **THEN** only entries whose `relay_class` is that class are listed
-- **AND** the tasklets listed are those `Flezha.Service.Dlq.tasklets/2` reports for that class
-
-#### Scenario: The queue is empty
-
-- **WHEN** no entries are parked
-- **THEN** an empty state states that the dead-letter queue is empty
-
 ### Requirement: Entry inspection
 
 An operator SHALL be able to open a single entry by reference and see its metadata together with a preview of its payload.
@@ -100,4 +75,29 @@ The UI SHALL display dead-letter statistics as reported by the controller, one f
 
 - **WHEN** the last parked entry of a tasklet is dropped or replayed cleanly
 - **THEN** that tasklet no longer appears in the statistics, including while a durability backend has yet to ship the emptied set and the controller still reports it at zero
+
+### Requirement: Dead-letter entry listing
+
+The UI SHALL list dead-letter entries from `Flezha.Service.Dlq.list/2` oldest first, showing each entry's reference, cell key, channel, generation, age, and error, and SHALL allow filtering by relay class. Entries SHALL be grouped by tasklet, matching how the controller stores and ships them, with each tasklet's dead-letter count shown on its group. Visible text SHALL call the entries dead letters and SHALL NOT call them parked.
+
+#### Scenario: Entries are waiting
+
+- **WHEN** an operator opens the dead-letter queue
+- **THEN** dead letters are listed oldest first with reference, cell key, channel, generation, age, and error
+
+#### Scenario: Entries span tasklets
+
+- **WHEN** dead letters belong to more than one tasklet
+- **THEN** they are grouped by tasklet with a dead-letter count per group
+
+#### Scenario: Filtering by relay class
+
+- **WHEN** an operator filters by a relay class
+- **THEN** only entries whose `relay_class` is that class are listed
+- **AND** the tasklets listed are those `Flezha.Service.Dlq.tasklets/2` reports for that class
+
+#### Scenario: The queue is empty
+
+- **WHEN** no dead letter is waiting
+- **THEN** an empty state states that the dead-letter queue is empty
 

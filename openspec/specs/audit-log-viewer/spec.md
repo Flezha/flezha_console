@@ -115,12 +115,17 @@ The audit screen SHALL offer a control that closes the current audit file and st
 
 ### Requirement: Catalog files are listed by name, record count and size
 
-The audit file catalog SHALL list each rotated file by its file name, its record count and its size, and SHALL NOT render the controller's raw file record.
+The audit file catalog SHALL list each rotated file by its file name, its record count and its size, and SHALL NOT render the controller's raw file record. The file being written now SHALL be listed first, named as the current file, with the record count the statistics report. The catalog SHALL page like every listing (see `paged-listings`).
 
 #### Scenario: Rotated files are listed
 
 - **WHEN** the catalog holds rotated files
 - **THEN** each is listed by name, record count and size
+
+#### Scenario: The current file is listed
+
+- **WHEN** the statistics name `audit-current.jsonl` as the current file
+- **THEN** the catalog's first row is that file, marked as current
 
 ### Requirement: A refused read is not shown as an empty result
 
@@ -131,4 +136,49 @@ When the controller refuses an audit read, the screen SHALL show the refusal and
 - **WHEN** an operator reads a file the audit log does not have
 - **THEN** the controller's `audit.file_not_found` refusal is shown
 - **AND** no "no record matches" statement is shown with it
+
+### Requirement: An audit file opens into its records
+
+An operator whose operations include `AuditLog.read` SHALL be able to open any listed
+audit file with an Open control on its row, by pointer or keyboard, which SHALL read that file through the same
+filtered read the Records section uses, with the file set in the filter and the other
+filter fields kept, and SHALL bring the Records section into view. Without
+`AuditLog.read`, no catalog row SHALL offer Open.
+
+#### Scenario: Opening a rotated file
+
+- **WHEN** an operator activates Open on the row of a rotated file
+- **THEN** `AuditLog.read` is called with that file
+- **AND** its records are shown under Records, with the File filter reading that name
+
+#### Scenario: A viewer without the read
+
+- **WHEN** the operator's operations do not include `AuditLog.read`
+- **THEN** no catalog row offers Open
+
+### Requirement: Audit records are readable rows
+
+Read records SHALL be shown as rows with their time, source, name, actor and outcome
+in words, each of which SHALL expand in place to the whole record, pretty-printed.
+A field a record does not carry SHALL be shown as a dash.
+
+#### Scenario: Expanding a record
+
+- **WHEN** an operator activates a record row
+- **THEN** the row expands to show the whole record as indented JSON
+- **AND** activating it again folds it
+
+### Requirement: A truncated read continues
+
+When a read was truncated by its limit, the Records section SHALL offer Read more,
+which SHALL read the next records of the same file with the filter that read used,
+by their position in the file, and append them, showing no record twice and skipping
+none. Position, not time, orders them: a record's timestamp is its controller's
+monotonic clock, which does not carry on across a restart. The records of a read are
+not paged, since the read's limit bounds them.
+
+#### Scenario: Reading on
+
+- **WHEN** a read of 100 was truncated and the operator activates Read more
+- **THEN** the next records are appended after the first 100, none repeated
 

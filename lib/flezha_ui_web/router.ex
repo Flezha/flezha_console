@@ -66,7 +66,8 @@ defmodule FlezhaUiWeb.Router do
     live_session :authenticated,
       on_mount: [
         {FlezhaUiWeb.UserAuth, :ensure_authenticated},
-        {FlezhaUiWeb.Layouts, :current_path}
+        {FlezhaUiWeb.Layouts, :current_path},
+        {FlezhaUiWeb.Live.Sections, :paging}
       ] do
       live "/namespaces", NamespaceLive.Index
       live "/relays", RelayIndexLive

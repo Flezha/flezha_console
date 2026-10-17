@@ -473,12 +473,34 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     {items, appeared, cleared} =
       Attention.track(Attention.by_id(previous), items, DateTime.utc_now())
 
+    serving = serving(Enum.take(items, problems_shown()), socket)
+    items = Attention.put_serving(items, serving)
+
     # The first read is the baseline, not news.
     appeared = if socket.assigns[:attention_tracked?], do: appeared, else: []
 
     socket
-    |> assign(items: items, attention_tracked?: true)
+    |> assign(items: items, serving: serving, attention_tracked?: true)
     |> FlezhaUiWeb.River.attention(appeared, cleared)
+  end
+
+  @doc "How many of its problems Home lists before linking to the rest."
+  def problems_shown, do: 3
+
+  # How many runners serve the factories the shown problems wait on: whether
+  # a suspended relay can wake depends on it. At most one read per shown
+  # problem, and none when no runner is connected at all. A read that fails
+  # leaves its factory unknown rather than unserved.
+  defp serving(shown, %{assigns: %{ns: ns, runners: runners, flezha_token: token}}) do
+    factories = Attention.waiting_factories(shown)
+
+    if runners == [] do
+      Map.new(factories, &{&1, 0})
+    else
+      factories
+      |> Map.new(&{&1, NodeManager.serving_count(ns, &1, token)})
+      |> Map.reject(fn {_factory, count} -> is_nil(count) end)
+    end
   end
 
   # What the screen already knows about a selection, so opening it costs only
@@ -491,6 +513,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
     %{
       row: row,
+      serving: factory && Map.get(socket.assigns[:serving] || %{}, factory),
       rate: Map.get(state.rates, id),
       history: state.history |> Map.get(id, []) |> Enum.reverse(),
       factory_description: factory && Map.get(factory_descriptions(socket), factory)
@@ -565,16 +588,8 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   def headline(%{state: :empty}, _items, _rates, ns),
     do: {:empty, "Nothing runs in #{ns} yet."}
 
-  def headline(_summary, [_ | _] = items, _rates, _ns) do
-    relays = Enum.count(items, &(&1.kind == :relay))
-
-    text =
-      if relays == length(items),
-        do: need_attention(relays, "relay"),
-        else: need_attention(length(items), "problem")
-
-    {:attention, text <> "."}
-  end
+  def headline(_summary, [_ | _] = items, _rates, _ns),
+    do: {:attention, attention_title(items) <> "."}
 
   def headline(_summary, [], rates, ns) when rates == %{},
     do: {:healthy, "Every relay in #{ns} is healthy."}
@@ -597,8 +612,8 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     [
       "#{healthy} of #{Words.count(length(rows), "relay")} healthy",
       Words.count(summary.runner_count, "runner"),
-      inbound && "#{inbound.in} records/s in",
-      summary.parked > 0 && "#{summary.parked} parked"
+      inbound && Topology.rate_label(inbound.in, " records/s in"),
+      summary.parked > 0 && Words.count(summary.parked, "dead letter")
     ]
     |> Enum.filter(& &1)
     |> Enum.join(" · ")
@@ -658,6 +673,16 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   defp problems_said(items),
     do: {Attention.worst(items), need_attention(length(items), "problem")}
 
+  # How many of the namespace's items need attention: relays when every item
+  # is one, problems otherwise.
+  defp attention_title(items) do
+    relays = Enum.count(items, &(&1.kind == :relay))
+
+    if relays == length(items),
+      do: need_attention(relays, "relay"),
+      else: need_attention(length(items), "problem")
+  end
+
   defp need_attention(count, noun),
     do: "#{Words.count(count, noun)} #{if count == 1, do: "needs", else: "need"} attention"
 
@@ -675,11 +700,25 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
   defp controller_said(_node, _fleet), do: {:positive, "Up", "Connected"}
 
-  defp plugin_count(pairs) do
+  # A registry row names the runner that last hosted a relay, so only a
+  # running relay's runner is counted as serving it.
+  defp runners_foot(rows) do
+    running = Enum.count(rows, &(&1[:runner] && NodeManager.row_health(&1) == :healthy))
+    "Running #{Words.count(running, "relay")}"
+  end
+
+  defp plugin_ids(pairs) do
     pairs
     |> Enum.flat_map(fn {_relay, plugins} -> Enum.map(plugins, &elem(&1, 0)) end)
     |> Enum.uniq()
-    |> length()
+  end
+
+  defp plugin_count(pairs), do: length(plugin_ids(pairs))
+
+  defp plugin_names(pairs) do
+    ids = plugin_ids(pairs)
+    shown = ids |> Enum.take(2) |> Enum.map_join(", ", &to_string/1)
+    if length(ids) > 2, do: "#{shown} +#{length(ids) - 2}", else: shown
   end
 
   defp plugins_condition(pairs) do
@@ -697,6 +736,15 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       fires -> "Next fires at #{Format.time_of_day(Enum.min(fires, DateTime))}"
     end
   end
+
+  defp schedules_armed(schedules) do
+    armed = Enum.count(schedules, & &1.next_fire)
+    "#{armed} of #{length(schedules)} armed"
+  end
+
+  # The tile shows the two fullest limits; the rest are a link away.
+  defp limits_more(limits) when length(limits) > 2, do: "+#{length(limits) - 2} more in Limits"
+  defp limits_more(_limits), do: "All limits"
 
   # The limits that apply, the breached first and then the fullest.
   defp limit_rows(quotas) do

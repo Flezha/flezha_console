@@ -252,6 +252,12 @@
   gap: var(--fui-space-2) var(--fui-space-3);
 }
 
+/* An object's own name heading its section, after the eyebrow naming its kind. */
+.fui-section-name {
+  font-family: var(--fui-font-display);
+  overflow-wrap: anywhere;
+}
+
 .fui-section-digest {
   color: var(--fui-ink-3);
   font-size: var(--fui-text-sm);
@@ -981,9 +987,75 @@ button.fui-menu-item--danger:hover {
 }
 
 .fui-grid-foot {
+  align-items: center;
   color: var(--fui-ink-3);
+  display: flex;
+  flex-wrap: wrap;
   font-size: var(--fui-text-xs);
+  gap: var(--fui-space-2) var(--fui-space-4);
+  justify-content: space-between;
   padding: var(--fui-space-2) var(--fui-space-3);
+}
+
+/* Audit records: one line each — when, from where, what, who, with what
+   outcome — that opens in place to the whole record. */
+.fui-records {
+  border-top: 1px solid var(--fui-line);
+}
+
+.fui-records > li {
+  border-bottom: 1px solid var(--fui-line);
+}
+
+.fui-record-head {
+  align-items: baseline;
+  color: var(--fui-ink-1);
+  display: grid;
+  font-size: var(--fui-text-sm);
+  gap: var(--fui-space-1) var(--fui-space-4);
+  grid-template-columns: 15rem 9rem minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  min-height: var(--fui-control-h);
+  padding: var(--fui-space-2) var(--fui-space-3);
+  text-align: left;
+  width: 100%;
+}
+
+.fui-record-head > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (width <= 899px) {
+  .fui-record-cols {
+    display: none;
+  }
+}
+
+.fui-record-head:hover,
+.fui-record-head[aria-expanded="true"] {
+  background: var(--fui-hover);
+}
+
+.fui-records pre {
+  margin: 0 var(--fui-space-3) var(--fui-space-3);
+}
+
+@media (width <= 899px) {
+  .fui-record-head {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+/* Grows a listing by a page; the count beside it says how much is left. */
+.fui-more {
+  color: var(--fui-accent);
+  font-size: var(--fui-text-sm);
+  font-weight: 600;
+  min-height: var(--fui-control-h-sm);
+}
+
+.fui-more:hover {
+  text-decoration: underline;
 }
 
 /* On a phone a row is a card: its first cell the title, its menu at the top
@@ -1123,6 +1195,7 @@ button.fui-menu-item--danger:hover {
 
 .fui-spark polyline {
   fill: none;
+  vector-effect: non-scaling-stroke;
   stroke: var(--fui-signal);
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -1337,6 +1410,7 @@ button.fui-ident[data-copied]::after {
   color: var(--fui-ink-2);
   display: flex;
   flex-wrap: wrap;
+  font-size: var(--fui-text-xs);
   gap: var(--fui-space-1) var(--fui-space-4);
 }
 
@@ -1790,6 +1864,43 @@ dialog.fui-dialog-panel::backdrop {
    Problems and the event river
    ====================================================================== */
 
+/* A relay's condition as labelled rows: the term on the left, the fact on
+   the right, one line each; a phone stacks them. */
+.fui-state-summary {
+  display: grid;
+  font-size: var(--fui-text-sm);
+  gap: var(--fui-space-2);
+}
+
+.fui-state-summary > div {
+  display: grid;
+  gap: var(--fui-space-1) var(--fui-space-4);
+  grid-template-columns: 9rem minmax(0, 1fr);
+}
+
+.fui-state-summary dt {
+  padding-top: 2px;
+}
+
+.fui-state-summary dd {
+  color: var(--fui-ink-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fui-state-summary > div:first-child dd {
+  align-items: center;
+  display: flex;
+  font-weight: 600;
+  gap: var(--fui-space-2);
+}
+
+@media (width <= 599px) {
+  .fui-state-summary > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .fui-problems {
   display: grid;
   gap: var(--fui-space-3);
@@ -1937,21 +2048,9 @@ dialog.fui-dialog-panel::backdrop {
   grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
 }
 
+/* A tile's surface, edge, hover and focus are the stylebook's `.flz-tile`. */
 .fui-tile {
-  border: 1px solid var(--fui-line);
-  border-radius: var(--fui-radius-surface);
-  display: grid;
   gap: var(--fui-space-3);
-  padding: var(--fui-space-4) var(--fui-space-5);
-}
-
-a.fui-tile {
-  color: var(--fui-ink-1);
-}
-
-a.fui-tile:hover {
-  border-color: var(--fui-accent);
-  text-decoration: none;
 }
 
 .fui-tile-title {
@@ -1962,21 +2061,44 @@ a.fui-tile:hover {
 }
 
 /* Indicators: a row of figures, each under its label. */
+/* Every row of indicators shares one minimum height, so two rows on a screen
+   stand level whatever each tile holds. */
 .fui-indicators {
   display: grid;
   gap: var(--fui-space-3);
-  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+  grid-auto-rows: minmax(16rem, auto);
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
 }
 
 .fui-indicator {
-  align-content: start;
-  background: var(--fui-surface);
   gap: var(--fui-space-2);
-  min-width: 0;
-  padding: var(--fui-space-3) var(--fui-space-4);
 }
 
-.fui-indicator-label {
+/* A tile's body and its meters: one column that never outgrows the tile. */
+.fui-indicator-body,
+.fui-indicator-meters {
+  align-content: start;
+  display: grid;
+  gap: var(--fui-space-2);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.fui-indicator-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fui-space-1) var(--fui-space-3);
+}
+
+/* Inside a tile a sparkline takes the tile's width, never its own. */
+.fui-indicator .fui-spark {
+  display: block;
+  width: 100%;
+}
+
+/* The micro-label over a figure, a fact or a column. */
+.fui-indicator-label,
+.fui-state-summary dt,
+.fui-record-cols {
   color: var(--fui-ink-3);
   font-size: var(--fui-text-xs);
   font-weight: 600;
@@ -1986,7 +2108,6 @@ a.fui-tile:hover {
 
 .fui-indicator-figure {
   align-items: center;
-  display: flex;
   gap: var(--fui-space-2);
   min-height: 2.25rem;
 }
@@ -2003,13 +2124,12 @@ a.fui-tile:hover {
 }
 
 .fui-indicator-meters {
-  display: grid;
   font-size: var(--fui-text-xs);
-  gap: var(--fui-space-2);
 }
 
 @media (width <= 599px) {
   .fui-indicators {
+    grid-auto-rows: minmax(12rem, auto);
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

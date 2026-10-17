@@ -137,7 +137,7 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       html = read(view)
 
       assert html =~ ~s(data-testid="audit-truncated")
-      assert html =~ "More records matched"
+      assert html =~ "More records match than this read took"
     end
 
     test "asks for one more than the limit, so truncation is detectable", %{
@@ -212,6 +212,168 @@ defmodule FlezhaUiWeb.AuditLiveTest do
 
       refute view |> element(~s([data-testid="runtime-error"])) |> render() =~
                ~s(href="/users/settings")
+    end
+  end
+
+  describe "opening a file" do
+    @rotated %{filename: "audit-1.jsonl", record_count: 7, size_bytes: 2048, sha256: "ab"}
+
+    setup %{node: node} do
+      FakeController.set(node, {AuditLog, :list_files}, {:ok, [@rotated]})
+
+      FakeController.set(
+        node,
+        {AuditLog, :stats},
+        {:ok,
+         %{
+           current_file: "app_data/audit/audit-current.jsonl",
+           record_count: 12,
+           current_file_bytes: 4096
+         }}
+      )
+
+      :ok
+    end
+
+    defp open(view, testid),
+      do: view |> element(~s([data-testid="#{testid}"])) |> render_click()
+
+    test "the file being written is listed first, by its name, with its count", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/audit")
+
+      assert text_of(html, ~s([data-testid="audit-file-current"])) =~
+               "audit-current.jsonl current"
+
+      assert text_of(html, ~s([data-testid="audit-file-current"])) =~ "12"
+      assert text_of(html, ~s([data-testid="audit-file-current"])) =~ "4.0 KB"
+      assert :binary.match(html, "audit-file-current") < :binary.match(html, ~s("audit-file"))
+    end
+
+    test "opening a rotated file reads it, keeping the rest of the filter", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {AuditLog, :read}, {:ok, [record(1)]})
+      {:ok, view, _html} = live(conn, ~p"/audit")
+      filter(view, %{"source" => "cli"})
+
+      html = open(view, "audit-open-audit-1.jsonl")
+
+      assert [%{file: "audit-1.jsonl", source: "cli"}, _ctx] =
+               node |> FakeController.calls({AuditLog, :read}) |> List.last()
+
+      assert html =~ ~s(data-testid="audit-record")
+      assert has_element?(view, ~s(input[name="filter[file]"][value="audit-1.jsonl"]))
+      assert_push_event(view, "fui:reveal", %{id: "audit-records"})
+    end
+
+    test "the current file opens by its name alone", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, ~p"/audit")
+      open(view, "audit-open-audit-current.jsonl")
+
+      assert [%{file: "audit-current.jsonl"}, _ctx] =
+               node |> FakeController.calls({AuditLog, :read}) |> List.last()
+    end
+
+    test "without the read nothing in the catalog opens", %{conn: conn, node: node, user: user} do
+      identity = %{principal: "x@default", namespace: "default", role: :viewer}
+      enforce_operations(node, user, identity)
+      grant_operations(node, identity, ["AuditLog.list_files", "AuditLog.stats"])
+
+      {:ok, view, _html} = live(conn, ~p"/audit")
+
+      assert has_element?(view, ~s([data-testid="audit-file"]))
+      refute has_element?(view, ~s([data-testid^="audit-open-"]))
+    end
+
+    test "a forged open of a file the catalog does not list reads nothing", %{
+      conn: conn,
+      node: node
+    } do
+      {:ok, view, _html} = live(conn, ~p"/audit")
+      render_click(view, "open_file", %{"file" => "../../etc/passwd"})
+
+      assert FakeController.calls(node, {AuditLog, :read}) == []
+    end
+  end
+
+  describe "a read record" do
+    setup %{node: node} do
+      FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
+      :ok
+    end
+
+    defp audited(n, ts, overrides \\ %{}) do
+      Map.merge(
+        %{
+          "ts_us" => ts,
+          "ts_iso" => "2026-10-17T10:00:0#{n}.000Z",
+          "source" => "relay_service",
+          "name" => "start",
+          "metadata" => %{"outcome" => "ok", "seq" => n},
+          "caller" => %{"principal" => "alice@default"}
+        },
+        overrides
+      )
+    end
+
+    test "reads as one line of when, where, what, who and outcome, and opens to the whole", %{
+      conn: conn,
+      node: node
+    } do
+      denied =
+        audited(2, 20, %{
+          "name" => "authorization_denied",
+          "metadata" => %{"reason" => "authz.role_insufficient"}
+        })
+
+      FakeController.set(node, {AuditLog, :read}, {:ok, [audited(1, 10), denied]})
+      {:ok, view, _html} = live(conn, ~p"/audit")
+      html = read(view)
+
+      row = text_of(html, ~s([data-testid="audit-record-0"]))
+
+      for part <- ~w(2026-10-17T10:00:01.000Z relay_service start alice@default ok),
+          do: assert(row =~ part)
+
+      assert text_of(html, ~s([data-testid="audit-record-1"])) =~ "authz.role_insufficient"
+
+      html = view |> element(~s([data-testid="audit-record-0"])) |> render_click()
+      assert text_of(html, ~s([data-testid="audit-record-json-0"])) =~ ~s("seq": 1)
+
+      html = view |> element(~s([data-testid="audit-record-0"])) |> render_click()
+      refute html =~ ~s(data-testid="audit-record-json-0")
+    end
+
+    test "Read more reads on past the records shown, by position, with the read's own filter",
+         %{conn: conn, node: node} do
+      # Timestamps are a VM's monotonic clock, so a restart makes them run
+      # backwards in one file: position is the order.
+      file = [audited(1, 50), audited(2, 60), audited(3, 5), audited(4, 6)]
+      FakeController.set(node, {AuditLog, :read}, {:ok, Enum.take(file, 3)})
+
+      {:ok, view, _html} = live(conn, ~p"/audit")
+      filter(view, %{"limit" => "2"})
+      read(view)
+
+      # A filter edited after the read does not leak into reading on.
+      filter(view, %{"source" => "cli"})
+      FakeController.set(node, {AuditLog, :read}, {:ok, file})
+      html = view |> element(~s([data-testid="audit-read-more"])) |> render_click()
+
+      assert [%{limit: 5} = params, _ctx] =
+               node |> FakeController.calls({AuditLog, :read}) |> List.last()
+
+      refute Map.has_key?(params, :since_us)
+      refute Map.has_key?(params, :source)
+
+      seqs = for i <- 0..3, do: text_of(html, ~s([data-testid="audit-record-#{i}"]))
+
+      assert Enum.map(seqs, &String.slice(&1, 0, 24)) ==
+               Enum.map(1..4, &"2026-10-17T10:00:0#{&1}.000Z")
+
+      refute html =~ ~s(data-testid="audit-record-4")
+      refute html =~ ~s(data-testid="audit-read-more")
     end
   end
 

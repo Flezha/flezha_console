@@ -3,9 +3,10 @@ defmodule FlezhaUi.StylebookSkinTest do
   Where the stylebook's skin may appear.
 
   Screen content is drawn with the console's own kit; the stylebook supplies the
-  palette, the buttons, the shell — rail and topbar — and, until its own
-  redesign, the relay pipeline graph. So a `flz-` class belongs only to a
-  button, the shell layout, the chrome form of the brand lockup and the graph,
+  palette, the buttons, the tiles and the figures that fit them, the shell — rail
+  and topbar — and, until its own redesign, the relay pipeline graph. So a `flz-`
+  class belongs only to a button, a tile, the shell layout, the chrome form of the
+  brand lockup and the graph,
   the console's stylesheets read
   colour only through its `--fui-*` roles, and nothing here restyles the shell
   recipe, whose one home is the stylebook.
@@ -26,8 +27,10 @@ defmodule FlezhaUi.StylebookSkinTest do
   @layouts "lib/flezha_ui_web/components/layouts.ex"
   @layouts_allowed ~w(flz-chrome-icon-btn flz-theme-sun flz-theme-moon flz-num)
 
-  # Every button is the stylebook's, as flezha.com wears it, wherever it is drawn.
+  # Every button and every tile is the stylebook's, as flezha.com wears it,
+  # wherever it is drawn.
   @button ~r/^flz-button(--[a-z-]*)?$/
+  @tile ~r/^flz-(tile(-foot)?|figure-(fit|value|unit))$/
 
   # A `data-flz-*` attribute binds a stylebook behaviour, such as the theme
   # toggle; it is not a class.
@@ -35,12 +38,13 @@ defmodule FlezhaUi.StylebookSkinTest do
 
   defp lib_files, do: Path.wildcard("lib/**/*.{ex,heex}")
 
-  test "a flz- class appears only on a button, in the shell, the chrome lockup and the graph" do
+  test "a flz- class appears only on a button or a tile, in the shell, the chrome lockup and the graph" do
     strays =
       for file <- lib_files(),
           file not in [@shell, @graph],
           class <- Regex.scan(@class, File.read!(file)) |> List.flatten(),
           not Regex.match?(@button, class),
+          not Regex.match?(@tile, class),
           not (file == @kit and class in @kit_allowed),
           not (file == @layouts and class in @layouts_allowed),
           uniq: true,

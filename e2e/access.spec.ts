@@ -5,6 +5,7 @@ import {
   menuAction,
   openSection,
   openSettings,
+  growListing,
   uniqueId,
   type Page,
 } from './fixtures';
@@ -54,6 +55,7 @@ async function issueToken(page: Page, principal: string, role: string) {
 async function revokeToken(page: Page, live: (path: string) => Promise<void>, id: string) {
   await live(NS_URL);
   await openSection(page, 'access');
+  await growListing(page, 'tokens-grid', page.getByTestId(`token-${id}`));
   // A revoked token keeps its row but offers no revoke.
   if ((await page.getByTestId(`revoke-token-${id}`).count()) === 0) return;
 
@@ -66,6 +68,7 @@ async function revokeToken(page: Page, live: (path: string) => Promise<void>, id
 async function removeBinding(page: Page, live: (path: string) => Promise<void>, principal: string) {
   await live(NS_URL);
   await openSection(page, 'access');
+  await growListing(page, 'role-bindings-grid', page.getByTestId(`role-binding-${principal}`));
   if ((await page.getByTestId(`unbind-binding-${principal}`).count()) === 0) return;
 
   await menuAction(page, `binding-menu-${principal}`, `unbind-binding-${principal}`);
@@ -95,6 +98,8 @@ test.describe('Tokens', () => {
       await expect(page.getByTestId('issued-token')).toHaveCount(0);
       await page.getByTestId('issue-token-cancel').click();
 
+      // Revoked tokens stay listed, so this one may sit past the first page.
+      await growListing(page, 'tokens-grid', page.getByTestId(`token-${id}`));
       await expect(page.getByTestId(`token-${id}`)).toContainText(principal);
       await expect(page.getByTestId(`token-status-${id}`)).toHaveText('Active');
       await expect(page.locator('body')).not.toContainText('flzt_');
@@ -121,6 +126,7 @@ test.describe('Role bindings', () => {
       await page.getByTestId('bind-role-role-viewer').check();
       await page.getByTestId('bind-role-submit').click();
 
+      await growListing(page, 'role-bindings-grid', page.getByTestId(`role-binding-${principal}`));
       await expect(page.getByTestId(`role-${principal}-viewer`)).toBeVisible();
 
       await menuAction(page, `binding-menu-${principal}`, `unbind-role-${principal}-viewer`);

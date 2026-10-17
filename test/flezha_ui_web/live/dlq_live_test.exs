@@ -53,7 +53,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
   end
 
   describe "listing" do
-    test "renders the parked entries with their cell key", %{conn: conn, node: node} do
+    test "renders the dead letters with their cell key", %{conn: conn, node: node} do
       with_entries(node, [entry(), entry(%{"id" => "18", "cell_key" => "cust-4"})])
 
       {:ok, _view, html} = live(conn, ~p"/dlq")
@@ -63,7 +63,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       assert html =~ "orders/charge/18"
       assert html =~ "upstream refused"
       assert html =~ "cust-9"
-      assert html =~ ~r/data-testid="dlq-group-count-orders-charge"[^>]*>\s*2 parked/
+      assert html =~ ~r/data-testid="dlq-group-count-orders-charge"[^>]*>\s*2 dead letters/
     end
 
     test "renders the statistics per parked tasklet", %{conn: conn, node: node} do
@@ -264,7 +264,7 @@ defmodule FlezhaUiWeb.DlqLiveTest do
   end
 
   describe "grouping across tasklets" do
-    test "entries spanning tasklets are grouped, each with its parked count", %{
+    test "entries spanning tasklets are grouped, each with its dead-letter count", %{
       conn: conn,
       node: node
     } do
@@ -279,8 +279,8 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       assert html =~ ~s(data-testid="dlq-group-relay_a-orders")
       assert html =~ ~s(data-testid="dlq-group-relay_a-shipments")
       assert html =~ ~s(data-testid="dlq-group-count-relay_a-orders")
-      assert html =~ "2 parked"
-      assert html =~ "1 parked"
+      assert html =~ "2 dead letters"
+      assert html =~ ~r/1 dead letter\s*</
     end
 
     test "entries stay oldest first inside a group", %{conn: conn, node: node} do

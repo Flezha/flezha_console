@@ -72,7 +72,7 @@ render a scope-less screen.
 Home SHALL open on one sentence in the display face. The sentence SHALL state the
 namespace's condition. A second line SHALL carry its figures in words: how many
 relays are healthy out of how many, the runner count, the measured inbound rate
-once two snapshots exist, and the parked count. The condition SHALL be one of:
+once two snapshots exist, and the dead-letter count. The condition SHALL be one of:
 
 - flowing: every relay is healthy and at least one moved records since the last
   tick;
@@ -102,6 +102,11 @@ once two snapshots exist, and the parked count. The condition SHALL be one of:
 - **WHEN** no controller node is connected
 - **THEN** the headline states that the controller cannot be reached, and neither
   row of indicators renders
+
+#### Scenario: Dead letters are counted by their name
+
+- **WHEN** three dead-letter entries are waiting in the namespace
+- **THEN** the second line reads "3 dead letters" and never "3 parked"
 
 ### Requirement: An empty namespace teaches instead of drawing nothing
 
@@ -160,15 +165,18 @@ Below the system tiles, Home SHALL show one row of tiles for its namespace:
 - **Runners:** how many serve the namespace, and how many are dropped.
 - **Plugins:** how many distinct plugins are bound to its relays.
 - **Schedules:** how many belong to it, and when the next one fires.
-- **Parked:** the parked dead-letter count, linking to `/dlq`.
+- **Dead letters:** the dead-letter count, linking to `/dlq`.
 - **Flow:** the measured inbound rate with a sparkline of its last 60 samples,
   shown only once two snapshots exist.
-- **Limits:** a meter for each quota kind, breached ones first.
+- **Limits:** the peak use, a meter for each of the two most used quota kinds,
+  breached ones first, and a link naming how many more quota kinds the folded Limits
+  section holds.
 
 Every tile SHALL be a kit tile. Every tile SHALL state its figure and condition in
 words and SHALL mark a non-neutral tone with a shape as well as a colour. A figure
-that changes between ticks SHALL be marked as changed. The row SHALL be built from
-reads Home's tick already makes, with no call per relay.
+that changes between ticks SHALL be marked as changed. A figure SHALL carry its unit
+apart from its number. The row SHALL be built from reads Home's tick already makes,
+with no call per relay.
 
 #### Scenario: One relay is suspended
 
@@ -187,6 +195,18 @@ reads Home's tick already makes, with no call per relay.
 - **WHEN** the namespace's `relays` quota is breached
 - **THEN** the Limits tile shows the `relays` meter first, in the negative tone,
   with its value and limit in words
+
+#### Scenario: Many quota kinds
+
+- **WHEN** the namespace has five quota kinds
+- **THEN** the Limits tile shows two meters and a link reading "+3 more in Limits"
+  that opens the Limits section
+
+#### Scenario: Nothing waits in the dead-letter queue
+
+- **WHEN** no dead-letter entry is waiting
+- **THEN** the Dead letters tile reads 0 in the positive tone and never says
+  "parked"
 
 #### Scenario: The cost does not grow with relays
 
@@ -219,4 +239,29 @@ window SHALL result in a single read.
 
 - **WHEN** a runner of another namespace disconnects
 - **THEN** Home makes no read for it
+
+### Requirement: Home's tiles share one height
+
+Every indicator tile on Home SHALL lay out its label, figure, condition and foot in
+one fixed order, with its foot at the bottom, and both tile rows SHALL share one
+minimum row height, so the system tiles and the namespace tiles stand at the same
+height whenever no tile's content exceeds it.
+
+#### Scenario: Both rows on a desktop
+
+- **WHEN** Home renders at 1280 px wide with the default namespace's tiles
+- **THEN** every system tile and every namespace tile stands at the shared minimum
+  height, or at most one line of text taller where its words wrap further
+
+### Requirement: The namespace row is headed by its kind
+
+The namespace tile row's section heading SHALL name its kind and the namespace, with
+"Namespace" in the label face and the name in the display face, so the name never
+stands alone as a heading.
+
+#### Scenario: The default namespace
+
+- **WHEN** Home renders for `default`
+- **THEN** the namespace section heading reads "Namespace" then "default", in two
+  faces
 

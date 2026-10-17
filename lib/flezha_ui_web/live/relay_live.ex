@@ -18,6 +18,8 @@ defmodule FlezhaUiWeb.RelayLive do
   use FlezhaUiWeb.Topology
   use FlezhaUiWeb.Live.PluginForm
 
+  alias FlezhaUiWeb.RelayState
+
   # The graph and the relay's own facts are what the screen is for; the
   # diagnosis, the calls, the API and the bindings are what an operator goes
   # looking for, so they start folded away.
@@ -59,7 +61,8 @@ defmodule FlezhaUiWeb.RelayLive do
         api_error: nil,
         calls: nil,
         talk: nil,
-        talk_results: []
+        talk_results: [],
+        serving: nil
       )
       |> assign_feeding()
       |> load_data()
@@ -288,7 +291,13 @@ defmodule FlezhaUiWeb.RelayLive do
     talk = %{talk_change(socket.assigns.talk, params, socket.assigns.api) | field_errors: []}
     %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
 
-    case talk_request(talk, params["action"], {ns, id, token}) do
+    request =
+      case RelayState.unservable(socket.assigns.serving, socket.assigns.factory_id) do
+        nil -> talk_request(talk, params["action"], {ns, id, token})
+        reason -> {:error, reason}
+      end
+
+    case request do
       {:ok, kind, call} ->
         {:noreply,
          socket
@@ -322,7 +331,16 @@ defmodule FlezhaUiWeb.RelayLive do
      talk_result(socket, %{kind: socket.assigns.talk.waiting, error: {:remote_error, reason}})}
   end
 
+  # A relay no runner serves cannot act on a message, so the dialog does not
+  # open, whatever the client sent.
   defp open_talk(socket) do
+    case RelayState.unservable(socket.assigns.serving, socket.assigns.factory_id) do
+      nil -> do_open_talk(socket)
+      reason -> put_flash(socket, :error, reason)
+    end
+  end
+
+  defp do_open_talk(socket) do
     mode = if api_channels(socket.assigns.api) == [], do: :raw, else: :channel
 
     talk = %{
@@ -628,8 +646,20 @@ defmodule FlezhaUiWeb.RelayLive do
           socket |> assign(load_error: reason) |> assign_facts(NodeManager.overwatch_facts())
       end
 
-    assign_idle_bindings(socket)
+    socket |> assign_serving() |> assign_idle_bindings()
   end
+
+  # How many runners serve the relay's factory, read only while no runner is
+  # bound to it: a bound relay is served. A read that fails leaves it unknown,
+  # which disables nothing — the controller's answer stays the authority.
+  # Runner events reload the screen, so it stays current.
+  defp assign_serving(%{assigns: %{factory_id: factory, runner_id: nil}} = socket)
+       when not is_nil(factory) do
+    %{ns: ns, flezha_token: token} = socket.assigns
+    assign(socket, serving: NodeManager.serving_count(ns, factory, token))
+  end
+
+  defp assign_serving(socket), do: assign(socket, serving: nil)
 
   # Bindings the controller declares for this relay that its hook table does
   # not hold: a disabled plugin or a provider that did not start. Listed so

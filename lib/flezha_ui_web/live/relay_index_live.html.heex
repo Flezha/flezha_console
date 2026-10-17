@@ -119,6 +119,7 @@
 
 <.grid
   :if={@loaded? and @rows != []}
+  paging={@paging}
   id="relay-rows"
   rows={visible_rows(@rows, @expanded)}
   testid="relays-index-table"

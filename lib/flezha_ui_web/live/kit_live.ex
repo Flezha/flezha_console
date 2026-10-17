@@ -7,6 +7,9 @@ defmodule FlezhaUiWeb.KitLive do
 
   use FlezhaUiWeb, :live_view
 
+  # Mounted on its own as well as on its route, so it brings its own paging.
+  on_mount {FlezhaUiWeb.Live.Sections, :paging}
+
   @healths FlezhaUi.Service.NodeManager.health_verdicts()
 
   @impl true
@@ -136,6 +139,7 @@ defmodule FlezhaUiWeb.KitLive do
     <.section testid="kit-grid" digest="3 rows">
       <:title>Grid with row menus</:title>
       <.grid
+        paging={@paging}
         id="kit-grid-rows"
         rows={[
           %{id: "orders", health: :healthy},
@@ -202,18 +206,23 @@ defmodule FlezhaUiWeb.KitLive do
         />
         <.tile
           testid="kit-tile-negative"
-          label="Parked"
+          label="Dead letters"
           value={3}
           tone={:negative}
-          condition="Dead-letter entries waiting"
+          condition="Waiting for a replay or a drop"
           href="/dev/kit"
-        />
+        >
+          <:foot>Oldest 4m</:foot>
+        </.tile>
         <.tile
           testid="kit-tile-neutral"
           label="Flow in"
-          condition="Measuring: a rate needs two readings"
+          value={123_456.7}
+          unit="msgs/s"
+          condition="A large figure shrinks and stays inside its tile"
         >
           <.sparkline samples={@samples} />
+          <:foot><.link navigate="/dev/kit">Open the relays</.link></:foot>
         </.tile>
       </div>
     </.section>

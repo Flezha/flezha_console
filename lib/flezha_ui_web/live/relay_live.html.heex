@@ -20,14 +20,13 @@
         It failed to initialise; its State view says why.
       </span>
       <span :if={@row && !assigns[:init_error]} data-testid="relay-health">
-        It is
-        <.said kind={:health} value={@row.health} lower />{if @suspended and
-                                                                @row.health != :suspended,
-                                                              do:
-                                                                ", suspended at a committed boundary"}.
+        It is <.said kind={:health} value={FlezhaUiWeb.RelayState.of(@row, @suspended)} lower />.
       </span>
-      <span :if={is_nil(@row)} data-testid="relay-health">
-        Its health is not known{if @suspended, do: "; it is suspended at a committed boundary"}.
+      <span :if={is_nil(@row) and @suspended} data-testid="relay-health">
+        It is <.said kind={:health} value={:suspended} lower />.
+      </span>
+      <span :if={is_nil(@row) and not @suspended} data-testid="relay-health">
+        Its health is not known.
       </span>
     <% end %>
   </:sentence>
@@ -63,6 +62,10 @@
       :if={is_nil(@completion) and NodeManager.granted?(@operations, "Relay.send")}
       icon="hero-paper-airplane"
       phx-click="talk_open"
+      disabled={FlezhaUiWeb.RelayState.unservable(@serving, @factory_id) != nil}
+      aria-describedby={
+        FlezhaUiWeb.RelayState.unservable(@serving, @factory_id) && "talk-unavailable"
+      }
       data-testid="talk-open-btn"
     >
       Send or call
@@ -79,6 +82,18 @@
 </.page_header>
 
 <.runtime_error :if={is_nil(@completion)} error={@load_error} />
+
+<div
+  :if={
+    is_nil(@completion) and FlezhaUiWeb.RelayState.unservable(@serving, @factory_id) != nil and
+      NodeManager.granted?(@operations, "Relay.send")
+  }
+  id="talk-unavailable"
+>
+  <.notice testid="talk-unavailable">
+    Send or call is off: {FlezhaUiWeb.RelayState.unservable(@serving, @factory_id)}
+  </.notice>
+</div>
 
 <.pipeline_graph topology={@topology} tapped={@tap && @tap.feed && @tap.port}>
   <:tap><.payload_tap tap={@tap} /></:tap>
@@ -99,12 +114,13 @@
   </p>
 </.section>
 
-<%!-- Diagnosis, on request --%>
+<%!-- Its condition, and the controller's diagnosis on request --%>
+<% state = FlezhaUiWeb.RelayState.of(@row, @suspended) %>
 <.section
   :if={is_nil(@completion)}
   fold="diagnosis"
-  open={@sections["diagnosis"]}
-  forced={@diagnosis != nil or @diagnosis_error != nil}
+  open={@sections["diagnosis"] or state != :healthy}
+  forced={@diagnosis != nil or @diagnosis_error != nil or state != :healthy}
   testid="diagnose-panel"
   digest={
     cond do
@@ -114,7 +130,7 @@
     end
   }
 >
-  <:title>Diagnosis</:title>
+  <:title>Condition</:title>
   <:actions>
     <.button
       :if={NodeManager.granted?(@operations, "Relay.diagnose")}
@@ -127,14 +143,17 @@
       {if @diagnosis || @diagnosis_error, do: "Run again", else: "Diagnose"}
     </.button>
   </:actions>
-  <p :if={is_nil(@diagnosis) and is_nil(@diagnosis_error)} class="fui-figures">
-    Ask the controller what is wrong with this relay and what to do about it.
-  </p>
-  <FlezhaUiWeb.Attention.diagnosis
-    :if={@diagnosis || @diagnosis_error}
+  <FlezhaUiWeb.RelayState.summary
+    state={state}
+    factory={@factory_id && to_string(@factory_id)}
+    runner={@runner_id && to_string(@runner_id)}
+    serving={@serving}
     diagnosis={@diagnosis}
     error={@diagnosis_error}
   />
+  <p :if={is_nil(@diagnosis) and is_nil(@diagnosis_error)} class="fui-figures mt-3">
+    Diagnose asks the controller what is wrong with this relay and what to do about it.
+  </p>
 </.section>
 
 <%!-- Calls made to the relay from anywhere, as they happen --%>
@@ -234,6 +253,7 @@
       </p>
       <.grid
         :if={entry.channels != []}
+        paging={@paging}
         id={"api-#{entry.factory}"}
         rows={entry.channels}
         testid="api-channels"
@@ -296,6 +316,7 @@
   </.empty_state>
   <.grid
     :if={@bindings != [] or @idle_bindings != []}
+    paging={@paging}
     id="bindings"
     rows={binding_rows(@bindings, @idle_bindings)}
     testid="bindings-table"

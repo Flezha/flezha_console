@@ -109,6 +109,50 @@ defmodule FlezhaUiWeb.SharedMechanicsTest do
     )
   end
 
+  defp arrange(:many_namespaces, node, _user) do
+    names = Enum.map(1..25, &"ns_#{String.pad_leading("#{&1}", 2, "0")}")
+
+    FakeController.set(
+      node,
+      {Relay, :list_namespaces},
+      {:ok, Enum.map(names, &%{namespace: &1, running: true})}
+    )
+  end
+
+  defp arrange(:many_relays, node, _user) do
+    rows =
+      Enum.map(1..25, &FakeController.relay_row("relay_#{String.pad_leading("#{&1}", 2, "0")}"))
+
+    FakeController.set_fleet(node, rows: %{"default" => rows})
+  end
+
+  defp arrange(:many_tokens, node, user) do
+    arrange(:access, node, user)
+
+    tokens =
+      for i <- 1..25 do
+        %{
+          id: "tok-#{i}",
+          principal: "ci",
+          namespace: "default",
+          role: :app,
+          label: "t#{i}",
+          status: :active
+        }
+      end
+
+    FakeController.set(node, {Namespace, :tokens}, {:ok, tokens})
+  end
+
+  defp arrange(:many_bindings, node, user) do
+    arrange(:access, node, user)
+
+    bindings =
+      for i <- 1..25, do: %{principal: "user_#{i}", namespace: "default", roles: [:viewer]}
+
+    FakeController.set(node, {Namespace, :roles}, {:ok, bindings})
+  end
+
   defp arrange(:dlq, node, _user) do
     entry = %{
       "relay_class" => "orders",
@@ -761,6 +805,76 @@ defmodule FlezhaUiWeb.SharedMechanicsTest do
         Process.exit(view.pid, :kill)
 
         assert PeerNode.eventually(fn -> FakeController.streams(node, @row.tail) == [] end)
+      end
+    end
+  end
+
+  describe "a long listing" do
+    # Each listing holds 25 rows: `rows` counts what it shows, `more` is its
+    # control, and `before` opens the folded section it sits in.
+    @listings [
+      %{
+        screen: "namespaces",
+        route: "/namespaces",
+        arrange: :many_namespaces,
+        rows: ~s(li[data-testid^="namespace-row-"]),
+        more: "namespaces-more"
+      },
+      %{
+        screen: "relays index",
+        route: "/relays",
+        arrange: :many_relays,
+        rows: ~s(tr[data-testid^="relay-index-row-"]),
+        more: "relay-rows-more"
+      },
+      %{
+        screen: "namespace home's tokens",
+        route: "/namespaces/default",
+        arrange: :many_tokens,
+        before: ["section-toggle-access"],
+        rows: ~s(tr[data-testid^="token-tok"]),
+        more: "tokens-grid-more"
+      },
+      %{
+        screen: "namespace home's role bindings",
+        route: "/namespaces/default",
+        arrange: :many_bindings,
+        before: ["section-toggle-access"],
+        rows: ~s(tr[data-testid^="role-binding-"]),
+        more: "role-bindings-grid-more"
+      }
+    ]
+
+    defp shown(html, selector),
+      do: html |> LazyHTML.from_document() |> LazyHTML.query(selector) |> Enum.count()
+
+    for row <- @listings do
+      @row row
+
+      test "#{row.screen}: shows a page, grows by one, and keeps it through a tick", %{
+        conn: conn,
+        node: node,
+        user: user
+      } do
+        row = @row
+        arrange(row.arrange, node, user)
+
+        {:ok, view, html} = live(conn, row.route)
+        html = Enum.reduce(row[:before] || [], html, fn testid, _html -> click(view, testid) end)
+
+        assert shown(html, row.rows) == 20
+        assert text_of(html, ~s([data-testid="#{row.more}"])) == "Show 5 more · 20 of 25"
+
+        html =
+          view
+          |> element(~s([data-testid="#{row.more}"][phx-click="grid_more"]))
+          |> render_click()
+
+        assert shown(html, row.rows) == 25
+        refute has_element?(view, ~s([data-testid="#{row.more}"]))
+
+        send(view.pid, :refresh)
+        assert view |> render() |> shown(row.rows) == 25
       end
     end
   end

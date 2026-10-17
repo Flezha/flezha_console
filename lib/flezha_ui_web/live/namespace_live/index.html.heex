@@ -31,60 +31,66 @@
   A namespace is where relays, runners and plugins live. None is reachable with this console's token.
 </.empty_state>
 
-<ul :if={@namespaces != []} data-testid="namespaces-table" class="fui-tiles">
-  <li :for={ns <- @namespaces} data-testid={"namespace-row-#{ns.name}"} class="fui-tile">
-    <div class="flex items-start justify-between gap-3">
-      <.link
-        navigate={~p"/namespaces/#{ns.name}"}
-        class="fui-tile-title fui-num"
-        data-testid={"namespace-view-#{ns.name}"}
-      >
-        {ns.name}
-      </.link>
-      <.row_menu
-        :if={ns.declared?}
-        id={"namespace-menu-#{ns.name}"}
-        label={"Actions for #{ns.name}"}
-        testid={"namespace-menu-#{ns.name}"}
-      >
-        <:item
-          click="confirm_delete"
-          values={%{name: ns.name}}
-          testid={"namespace-delete-#{ns.name}"}
-          danger
-        >
-          Delete
-        </:item>
-      </.row_menu>
-    </div>
-    <p>
-      <.state_badge
-        kind={:namespace_state}
-        value={{ns.declared?, ns.running?}}
-        testid={"namespace-state-#{ns.name}"}
-      />
-    </p>
-    <.strip :if={ns.health != []} counts={ns.health} testid={"namespace-strip-#{ns.name}"} />
-    <p class="fui-figures">
-      <span data-testid={"namespace-relays-#{ns.name}"}>
-        {Words.count(ns.relay_count, "relay")}
-      </span>
-      ·
-      <span data-testid={"namespace-runners-#{ns.name}"}>
-        {Words.count(ns.runner_count, "runner")}
-      </span>
-    </p>
-    <p
-      :if={ns.breaches != []}
-      data-testid={"namespace-breach-#{ns.name}"}
-      class="fui-tone-negative"
+<.paged :let={page} id="namespaces" rows={@namespaces} paging={@paging}>
+  <ul :if={@namespaces != []} data-testid="namespaces-table" class="fui-tiles">
+    <li
+      :for={ns <- page}
+      data-testid={"namespace-row-#{ns.name}"}
+      class="fui-tile flz-tile"
     >
-      At its limit: {Words.join(Enum.map(ns.breaches, &Words.humanize(&1.kind)))}
-    </p>
-    <p :if={ns.breaches == [] and ns.declared?} class="fui-figures">Within every limit</p>
-    <p :if={not ns.declared?} class="fui-figures">Undeclared, so no limits apply</p>
-  </li>
-</ul>
+      <div class="flex items-start justify-between gap-3">
+        <.link
+          navigate={~p"/namespaces/#{ns.name}"}
+          class="fui-tile-title fui-num"
+          data-testid={"namespace-view-#{ns.name}"}
+        >
+          {ns.name}
+        </.link>
+        <.row_menu
+          :if={ns.declared?}
+          id={"namespace-menu-#{ns.name}"}
+          label={"Actions for #{ns.name}"}
+          testid={"namespace-menu-#{ns.name}"}
+        >
+          <:item
+            click="confirm_delete"
+            values={%{name: ns.name}}
+            testid={"namespace-delete-#{ns.name}"}
+            danger
+          >
+            Delete
+          </:item>
+        </.row_menu>
+      </div>
+      <p>
+        <.state_badge
+          kind={:namespace_state}
+          value={{ns.declared?, ns.running?}}
+          testid={"namespace-state-#{ns.name}"}
+        />
+      </p>
+      <.strip :if={ns.health != []} counts={ns.health} testid={"namespace-strip-#{ns.name}"} />
+      <p class="fui-figures">
+        <span data-testid={"namespace-relays-#{ns.name}"}>
+          {Words.count(ns.relay_count, "relay")}
+        </span>
+        ·
+        <span data-testid={"namespace-runners-#{ns.name}"}>
+          {Words.count(ns.runner_count, "runner")}
+        </span>
+      </p>
+      <p
+        :if={ns.breaches != []}
+        data-testid={"namespace-breach-#{ns.name}"}
+        class="fui-tone-negative"
+      >
+        At its limit: {Words.join(Enum.map(ns.breaches, &Words.humanize(&1.kind)))}
+      </p>
+      <p :if={ns.breaches == [] and ns.declared?} class="fui-figures">Within every limit</p>
+      <p :if={not ns.declared?} class="fui-figures">Undeclared, so no limits apply</p>
+    </li>
+  </ul>
+</.paged>
 
 <.dialog
   :if={@show_create}

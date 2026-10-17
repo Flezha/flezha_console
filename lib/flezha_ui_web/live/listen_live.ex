@@ -33,18 +33,30 @@ defmodule FlezhaUiWeb.ListenLive do
         filter_regex: nil,
         filter_error: nil,
         page_title: "Listen: #{relay_id}",
-        message_count: 0
+        message_count: 0,
+        partitions: [],
+        serving: nil,
+        factory_id: nil
       )
 
     # Read once, on the connected mount: it resolves the whole namespace.
-    partitions =
-      if connected?(socket),
-        do: NodeManager.relay_partitions(ns, relay_id, socket.assigns[:flezha_token]),
-        else: []
-
-    socket = assign(socket, partitions: partitions)
+    socket = if connected?(socket), do: read_relay(socket), else: socket
 
     {:ok, if(connected?(socket), do: listen(socket), else: socket)}
+  end
+
+  # Its partitions, and whether a runner serves its factory: a relay none
+  # serves is not offered a message, which would only wait.
+  defp read_relay(%{assigns: %{ns: ns, relay_id: relay_id, flezha_token: token}} = socket) do
+    rows = ns |> NodeManager.relay_rows(token) |> NodeManager.ok_or([])
+    row = NodeManager.relay_row(rows, relay_id)
+    factory = row && row[:factory]
+
+    assign(socket,
+      partitions: NodeManager.partition_members(rows, relay_id),
+      serving: factory && NodeManager.serving_count(ns, factory, token),
+      factory_id: factory
+    )
   end
 
   @impl true

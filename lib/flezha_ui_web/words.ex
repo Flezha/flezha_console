@@ -33,6 +33,14 @@ defmodule FlezhaUiWeb.Words do
     parked: {"Parked", :negative, "square"}
   }
 
+  # What a relay's state summary names beyond its health: a relay the
+  # registry holds but no node runs, and a partition member whose group's
+  # coverage is broken.
+  @relay_conditions %{
+    unplaced: {"Unplaced", :warning, "triangle"},
+    coverage: {"Broken key range", :negative, "cross"}
+  }
+
   @table %{
     authz_posture: %{
       open: {"Open — every call is allowed, whoever makes it", :warning},
@@ -88,7 +96,7 @@ defmodule FlezhaUiWeb.Words do
       expired: {"Expired", :neutral}
     },
     diagnosis: %{
-      ok: {"Nothing wrong", :positive},
+      ok: {"No fault found", :positive},
       warning: {"Worth a look", :warning},
       problem: {"A problem", :negative}
     },
@@ -151,6 +159,13 @@ defmodule FlezhaUiWeb.Words do
     {text, tone, shape} = Map.get(@health, health(value), @health.unknown)
     %{text: text, tone: tone, shape: shape}
   end
+
+  def say(:relay_state, value) when is_map_key(@relay_conditions, value) do
+    {text, tone, shape} = Map.fetch!(@relay_conditions, value)
+    %{text: text, tone: tone, shape: shape}
+  end
+
+  def say(:relay_state, value), do: say(:health, value)
 
   def say(kind, value) do
     case @table |> Map.fetch!(kind) |> lookup(value) do

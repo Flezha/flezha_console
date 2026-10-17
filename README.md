@@ -39,6 +39,13 @@ The UI uses the controller's terms exactly. If a name here disagrees with
 | **Quota** | A per-namespace limit (`max_relays`, `max_runners`, state bytes, …) paired with a live counter. |
 | **Partition group** | A set of relays that split one keyspace between them, each owning a *key-group* range. |
 | **Coverage** | Whether a partition group's members own every key group exactly once. A gap or an overlap is a fault. |
+| **Suspended** | A relay stopped at a committed boundary on purpose, not by a fault. The next message wakes it, if a runner serves its factory. |
+| **Parked** | A relay stopped by a fault nothing in the system owns; it stays stopped until someone fixes it. Never a dead letter. |
+| **Unbound** | A relay no runner is bound to; the Convergence Loop binds it once a runner serving its factory can take it. |
+| **Failed** | A relay whose runner is gone past its grace; the Convergence Loop rebinds it. |
+| **Recovering** | An unbound or failed relay still inside its grace. |
+| **Degraded** | A relay that runs but not as declared; the Convergence Loop repairs it in place. |
+| **Dead letter** | A record a tasklet could not process, kept in the dead-letter queue to be inspected, replayed or dropped. |
 | **Health** | How the Convergence Loop classified a relay: `healthy`, `unknown` (not observed yet), `suspended`, `degraded`, `recovering`, `unbound`, `failed` or `parked`. Suspension is a health value, not a separate flag — which is what makes it readable one call per namespace. |
 
 ## Screens
@@ -51,14 +58,14 @@ scope switch moves between the two forms.
 | Route | Shows |
 | --- | --- |
 | `/` | Redirects to the Home of the namespace last worked in, then to the first reachable one, then to `/namespaces` |
-| `/namespaces/:ns` | **Home** — a headline sentence and the namespace's figures, its open problems (three, then a link), indicator tiles for everything the token reaches (namespaces, controller nodes, runners, relays by health, open problems, controller health) and for the namespace (relays by health with a link per verdict, runners, plugins, schedules, parked entries, inbound flow with its history, limits), what happened while the screen was open, and as sections that fold: quotas, access (role bindings and tokens), partition groups, finished relays and runners; drop a runner and readmit its process |
+| `/namespaces/:ns` | **Home** — a headline sentence and the namespace's figures, indicator tiles for everything the token reaches (namespaces, controller nodes, runners, relays by health, open problems, controller health) and for the namespace (relays by health with a link per verdict, runners, plugins, schedules, dead letters, inbound flow with its history, the two fullest limits), its open problems below them (three, then a link), what happened while the screen was open, and as sections that fold: quotas, access (role bindings and tokens), partition groups, finished relays and runners; drop a runner and readmit its process |
 | `/problems` | **Open problems** in every reachable namespace, worst first, each saying what is wrong, why, and offering the action that fixes it |
 | `/namespaces` | Declared and running namespaces as tiles, with a health strip, counts and quota breaches |
 | `/namespaces/:ns/relays` | That namespace's relays: health, run, node, runner, plugins and the measured rate — messages a second, and bytes where the controller counts them — with its recent history; a relay's name and its Open button go to its page, a partition group links each member, a row opens in an inspector, and its menu opens, inspects or stops it |
 | `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update, with a typed field for each option the provider declares |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
 | `/relays` | The Relays screen's **All namespaces** switch — every relay across every reachable namespace, filterable by namespace, health, run and runner; starts one into any of them; what happened while the screen was open |
-| `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph — its sources, input filters, entry channels, tasklets, output channels and the plugins and called relays they end at, in one layout drawn left to right or top to bottom and fitted to its panel, records moving in the order they pass, what each channel carries beside its name, each tasklet's input rate, backlog, shed and dead-letter badges and a table of its Cells, a payload tap opened from any channel port, and a sentence and timeline of what the relay is doing — and as sections that fold: diagnosis, the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema; a partition member's menu opens any partition of its group on the same view, here and on Listen and State |
+| `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph — its sources, input filters, entry channels, tasklets, output channels and the plugins and called relays they end at, in one layout drawn left to right or top to bottom and fitted to its panel, records moving in the order they pass, what each channel carries beside its name, each tasklet's input rate, backlog, shed and dead-letter badges and a table of its Cells, a payload tap opened from any channel port, and a sentence and timeline of what the relay is doing — and as sections that fold: its condition — state, why, runner, who can run it, what happens next and, on request, the diagnosis — the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema, offered only while a runner serves its factory; a partition member's menu opens any partition of its group on the same view, here and on Listen and State |
 | `/namespaces/:ns/relays/:id/listen` | **Listen** — the relay's live outputs or inputs |
 | `/namespaces/:ns/relays/:id/state` | **State** — steps facts as sentences, the task journal and input log, SDK state, and durable cells with their sequences and lag; point-in-time reads, a cell's outbox, replay, rotate, delete; retention, the history one settable |
 | `/plugins` | Enabled plugins per namespace, the providers on offer, and the packages installed on the controller with why one was refused |
@@ -67,7 +74,7 @@ scope switch moves between the two forms.
 | `/controller` | Readiness, authorization and durability in one sentence; durability posture, RPO breaches and the shipper, shutdown and boot state, memory hot spots; drain and stop the controller, watching each phase |
 | `/schedules` | Cron schedules with their status and next fire; run one now, after a confirmation |
 | `/dlq` | Parked dead-letter entries grouped by tasklet; inspect an entry's payload in place, replay, drop |
-| `/audit` | Audit file catalog, filtered reads, live tail, rotation |
+| `/audit` | Audit file catalog with the file being written first — open any file to read its records — filtered reads as rows that open to the whole record, Read more past the limit, live tail, rotation |
 
 Starting a relay is a guided flow: choose a factory (each says what it is, how
 it runs and how many runners serve it), give the details, then read the start
@@ -346,8 +353,13 @@ the content of every screen is drawn with the console's own component kit.
   sparklines, meters, skeletons, code blocks, steps and identifiers. A screen
   opens on its page header — the kind of object, its name, one sentence on its
   condition, its actions and its tabs — and its sections are separated by space
-  and hairlines rather than nested cards. In dev, `/dev/kit` shows every
-  component in every state.
+  and hairlines rather than nested cards. Tiles are the one raised surface on
+  a page: the stylebook's `.flz-tile`, with a tone edge, a lift on
+  hover and fixed rows so a row of them stands level, and figures that shrink
+  to fit (`.flz-figure-fit`) rather than spill. Every listing shows 20 rows
+  and grows by a page on request, its count kept by the server
+  (`FlezhaUiWeb.Live.Sections`). In dev, `/dev/kit` shows every component in
+  every state.
 - **Type**: flezha.com's faces — Space Grotesk for display, Inter for the
   interface and JetBrains Mono for identifiers and figures — from the
   stylebook's `fonts.css`, served from `priv/static/fonts`.

@@ -87,13 +87,15 @@
         <p>
           Waiting for the relay's {@direction}s. Nothing has passed through since this view opened.
         </p>
+        <% unservable = FlezhaUiWeb.RelayState.unservable(@serving, @factory_id) %>
         <.link
-          :if={NodeManager.granted?(@operations, "Relay.send")}
+          :if={NodeManager.granted?(@operations, "Relay.send") and is_nil(unservable)}
           navigate={~p"/namespaces/#{@ns}/relays/#{@relay_id}?do=talk"}
           data-testid="listen-send"
         >
           Send or call {@relay_id} to see something arrive.
         </.link>
+        <p :if={unservable} data-testid="listen-unservable">{unservable}</p>
       </div>
       <div
         :for={msg <- Enum.reverse(display_messages)}

@@ -67,6 +67,7 @@
 
 <.grid
   :if={@plugins != []}
+  paging={@paging}
   id="plugins"
   rows={@plugins}
   row_testid={&"plugin-row-#{&1.name}"}
@@ -217,31 +218,33 @@
   >
     This controller offers no plugin providers.
   </.empty_state>
-  <div :if={@available_providers != []} class="fui-tiles">
-    <div
-      :for={provider <- @available_providers}
-      data-testid={"provider-#{provider.id}"}
-      class="fui-tile"
-    >
-      <p class="font-medium">{Format.humanize(provider.id)}</p>
-      <p :if={@provider_details[to_string(provider.id)][:description]} class="fui-quiet text-sm">
-        {@provider_details[to_string(provider.id)].description}
-      </p>
-      <p class="flex flex-wrap gap-1">
-        <.chip
-          :for={hook <- (@provider_details[to_string(provider.id)] || %{hooks: []}).hooks}
-          mono
-        >
-          {hook}
-        </.chip>
-      </p>
-      <p class="fui-muted text-xs">Runs on the {provider.type}.</p>
-      <details data-testid={"provider-module-#{provider.id}"}>
-        <summary class="fui-label cursor-pointer">Implementation</summary>
-        <p class="fui-num text-xs mt-1">{provider.module}</p>
-      </details>
+  <.paged :let={page} id="providers" rows={@available_providers} paging={@paging}>
+    <div :if={@available_providers != []} class="fui-tiles">
+      <div
+        :for={provider <- page}
+        data-testid={"provider-#{provider.id}"}
+        class="fui-tile flz-tile"
+      >
+        <p class="font-medium">{Format.humanize(provider.id)}</p>
+        <p :if={@provider_details[to_string(provider.id)][:description]} class="fui-quiet text-sm">
+          {@provider_details[to_string(provider.id)].description}
+        </p>
+        <p class="flex flex-wrap gap-1">
+          <.chip
+            :for={hook <- (@provider_details[to_string(provider.id)] || %{hooks: []}).hooks}
+            mono
+          >
+            {hook}
+          </.chip>
+        </p>
+        <p class="fui-muted text-xs">Runs on the {provider.type}.</p>
+        <details data-testid={"provider-module-#{provider.id}"}>
+          <summary class="fui-label cursor-pointer">Implementation</summary>
+          <p class="fui-num text-xs mt-1">{provider.module}</p>
+        </details>
+      </div>
     </div>
-  </div>
+  </.paged>
 </.section>
 
 <.inspector inspected={@inspected} operations={@operations} />
@@ -308,7 +311,12 @@
   </.empty_state>
 
   <div :if={@catalog != []} class="mt-3">
-    <.grid id="installed-plugins" rows={@catalog} row_testid={&"installed-#{&1[:id]}"}>
+    <.grid
+      paging={@paging}
+      id="installed-plugins"
+      rows={@catalog}
+      row_testid={&"installed-#{&1[:id]}"}
+    >
       <:col :let={plugin} label="Plugin" class="fui-strong fui-num text-xs">{plugin[:id]}</:col>
       <:col :let={plugin} label="Version" class="fui-num text-xs">
         {plugin[:version]}

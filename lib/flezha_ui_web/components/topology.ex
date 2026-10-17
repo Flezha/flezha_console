@@ -3097,13 +3097,14 @@ defmodule FlezhaUiWeb.Topology do
   end
 
   @doc """
-  A displayed message rate; a trickle under 0.05 reads `<0.1 msgs/s`. Inside
-  a relay boundary, where wires are short, the unit is `/s`.
+  A displayed message rate; a trickle under 0.05 reads `<0.1 msgs/s`, and a
+  rate of 10 000 or more is compact, `12.4k msgs/s`. Inside a relay boundary,
+  where wires are short, the unit is `/s`.
   """
   def rate_label(rate, unit \\ " msgs/s")
   def rate_label(nil, _unit), do: nil
   def rate_label(rate, unit) when rate > 0 and rate < 0.05, do: "<0.1" <> unit
-  def rate_label(rate, unit), do: "#{Float.round(rate / 1, 1)}" <> unit
+  def rate_label(rate, unit), do: Format.compact(Float.round(rate / 1, 1)) <> unit
 
   @doc "A displayed byte rate, `2.3 KB/s`, or nil while the bytes are unmeasured."
   def byte_rate_label(nil), do: nil
@@ -3168,7 +3169,7 @@ defmodule FlezhaUiWeb.Topology do
     {parked, taken} = parked_of_taken(history)
     share = if taken > 0, do: "#{round(min(parked / taken, 1) * 100)}% of", else: "records beyond"
 
-    "#{share} what came in over the last two ticks was parked in the dead-letter queue."
+    "#{share} what came in over the last two ticks became dead letters."
   end
 
   defp sentence(:quiet, history, _rates, input) do
@@ -3193,7 +3194,7 @@ defmodule FlezhaUiWeb.Topology do
       )
   end
 
-  @timeline_rows [in: "In", out: "Delivered", filtered: "Skipped", parked: "Parked"]
+  @timeline_rows [in: "In", out: "Delivered", filtered: "Skipped", parked: "Dead letters"]
   @timeline_w 600
   @timeline_row_h 18
 
@@ -3753,7 +3754,7 @@ defmodule FlezhaUiWeb.Topology do
         data-mode="quiet"
         data-pts={@dlq.pts}
       >
-        <title>Records a tasklet failed on, parked in the dead-letter queue</title>
+        <title>Records a tasklet failed on, kept in the dead-letter queue</title>
       </path>
     </g>
     """
@@ -3769,13 +3770,13 @@ defmodule FlezhaUiWeb.Topology do
       data-node="dead-letter"
       data-next=""
       data-prev=""
-      aria-label={"Dead letter: #{@dlq.parked} parked, open the dead-letter queue"}
+      aria-label={"Dead letters: #{@dlq.parked} waiting, open the dead-letter queue"}
       class={["topo-n", "topo-n-bin", @dlq.parked > 0 && "is-hot"]}
     >
       <g class={["flz-graph-node", "flz-graph-node--state", @dlq.parked == 0 && "is-muted"]}>
         <rect x={@dlq.x} y={@dlq.y} width={@dlq.w} height={@dlq.h} rx="4" />
-        <text x={r1(@dlq.x + 12)} y={r1(@dlq.y + 19)} class="topo-label">Dead letter</text>
-        <text x={r1(@dlq.x + 12)} y={r1(@dlq.y + 34)} class="topo-sub">{@dlq.parked} parked</text>
+        <text x={r1(@dlq.x + 12)} y={r1(@dlq.y + 19)} class="topo-label">Dead letters</text>
+        <text x={r1(@dlq.x + 12)} y={r1(@dlq.y + 34)} class="topo-sub">{@dlq.parked} waiting</text>
       </g>
     </.link>
     """
@@ -4466,7 +4467,7 @@ defmodule FlezhaUiWeb.Topology do
         </li>
         <li>
           <span class="topo-legend-badge is-parked" aria-hidden="true">3</span> Dead letters a
-          tasklet parked
+          tasklet left
         </li>
         <li>
           <span class="topo-legend-badge is-backlog" aria-hidden="true">40</span> A backlog: inputs

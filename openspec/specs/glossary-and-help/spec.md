@@ -2,7 +2,6 @@
 
 ## Purpose
 How the console explains itself: flezha terms defined where they appear, a README vocabulary that agrees with the glossary, help for the current screen, and keyboard shortcuts to the main places.
-
 ## Requirements
 ### Requirement: flezha terms explain themselves in place
 
@@ -14,7 +13,9 @@ have a one- or two-sentence definition. The terms SHALL include at least:
 - plugin, provider and hook;
 - hub, posture, principal, role and quota;
 - partition group and coverage;
-- health.
+- health;
+- each relay state: suspended, parked, unbound, failed, recovering and degraded;
+- dead letter.
 
 Where a term first occurs in a page header, a sentence or a section title on a
 screen, it SHALL be rendered with a term marker. That marker SHALL show the
@@ -35,6 +36,12 @@ accessible description.
 
 - **WHEN** a screen's text uses "relay" several times
 - **THEN** only its first occurrence carries the marker
+
+#### Scenario: A state explains itself
+
+- **WHEN** an operator hovers "Suspended" in a relay state summary
+- **THEN** a popover says the relay stopped at a committed boundary on purpose and
+  wakes on the next message when a runner serves its factory
 
 ### Requirement: The README vocabulary and the glossary agree
 

@@ -29,6 +29,7 @@
   <p :if={@boot && @boot.namespaces == []} class="fui-figures">No namespace hub is running.</p>
   <.grid
     :if={@boot && @boot.namespaces != []}
+    paging={@paging}
     id="boot-namespaces"
     rows={@boot.namespaces}
     row_testid={&"boot-#{&1.namespace}"}
@@ -94,6 +95,7 @@
 
   <.grid
     :if={@breaches != []}
+    paging={@paging}
     id="breaches"
     rows={@breaches}
     testid="durability-breach-table"
@@ -128,6 +130,7 @@
     </p>
     <.grid
       :if={@shipper != []}
+      paging={@paging}
       id="shipper"
       rows={@shipper}
       testid="shipper-table"
@@ -221,8 +224,10 @@
       </.stat>
     </dl>
     <.grid
+      paging={@paging}
       id="memory-processes"
-      rows={Enum.take(@memory[:top_processes] || [], 10)}
+      rows={@memory[:top_processes] || []}
+      page_size={10}
       testid="memory-top-processes"
     >
       <:col :let={proc} label="Process">

@@ -11,6 +11,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
 
   use FlezhaUiWeb.LiveCase
 
+  alias Flezha.Service.Fleet
   alias Flezha.Service.Relay
 
   @url "/namespaces/default/relays/relay_a"
@@ -18,6 +19,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
   setup %{node: node} do
     FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{factory_id: "orders"}})
     FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
+    FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
     :ok
   end
 
@@ -112,7 +114,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       refute html =~ ~s(data-testid="diagnose-verdict")
       html = diagnose(view)
 
-      assert html =~ ~r/data-testid="diagnose-verdict"[^>]*>\s*Nothing wrong/
+      assert html =~ ~r/data-testid="diagnose-verdict"[^>]*>\s*No fault found/
       assert html =~ ~s(data-testid="diagnose-finding-diagnose.healthy")
       assert html =~ "diagnose.healthy said so"
       assert html =~ ~s(<code data-testid="runtime-error-code">diagnose.healthy</code>)
@@ -403,6 +405,67 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       refute html =~ ~s(data-testid="talk-error")
       assert html =~ "api.channel_unknown"
       assert html =~ "flz relay api"
+    end
+  end
+
+  describe "a relay nothing can run" do
+    setup %{node: node} do
+      api(node, [])
+      FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, []})
+      :ok
+    end
+
+    test "offers no Send or call, and says why", %{conn: conn, node: node} do
+      {:ok, view, html} = live(conn, @url)
+
+      assert has_element?(view, ~s([data-testid="talk-open-btn"][disabled]))
+
+      assert text_of(html, ~s([data-testid="talk-unavailable"])) =~
+               "No runner serves factory orders"
+
+      assert [["default", "orders", _ctx] | _] =
+               FakeController.calls(node, {Fleet, :runners_for_factory})
+    end
+
+    test "a forged open is refused and nothing is sent", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, @url)
+
+      html = render_click(view, "talk_open", %{})
+
+      refute html =~ ~s(data-testid="talk-modal")
+      assert html =~ "No runner serves factory orders"
+      assert FakeController.calls(node, {Relay, :send}) == []
+    end
+
+    test "the deep link does not open the dialog", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @url <> "?do=talk")
+
+      refute render(view) =~ ~s(data-testid="talk-modal")
+    end
+
+    test "a submit after the last runner left is refused", %{conn: conn, node: node} do
+      FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
+      {:ok, view, _html} = live(conn, @url)
+      talk(view)
+
+      FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, []})
+      send(view.pid, {:flezha_event, :runner_disconnected, {"default", "runner-a"}})
+
+      assert submit_raw(view, %{"payload" => "hello"}, "send") =~
+               "No runner serves factory orders"
+
+      assert FakeController.calls(node, {Relay, :send}) == []
+    end
+
+    test "a runner serving the factory turns Send or call back on", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, @url)
+      assert has_element?(view, ~s([data-testid="talk-open-btn"][disabled]))
+
+      FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
+      send(view.pid, {:flezha_event, :runner_connected, {"default", "runner-a"}})
+
+      refute has_element?(view, ~s([data-testid="talk-open-btn"][disabled]))
+      refute has_element?(view, ~s([data-testid="talk-unavailable"]))
     end
   end
 

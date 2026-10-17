@@ -31,6 +31,7 @@ defmodule FlezhaUiWeb.Runners do
   attr :can_drop, :boolean, default: false
   attr :can_readmit, :boolean, default: false
   attr :error, :any, default: nil, doc: "the last drop or readmit refusal for this namespace"
+  attr :paging, :map, default: nil, doc: "the host's `@paging`"
   slot :empty, required: true, doc: "what stands in when no runner is connected"
 
   def runner_table(assigns) do
@@ -42,6 +43,7 @@ defmodule FlezhaUiWeb.Runners do
         {render_slot(@empty)}
       <% else %>
         <.grid
+          paging={@paging}
           id={"runners-#{@namespace}-grid"}
           rows={@runners}
           testid={"runners-#{@namespace}"}
@@ -82,6 +84,7 @@ defmodule FlezhaUiWeb.Runners do
       <div :if={@marks != []} data-testid={"runner-marks-#{@namespace}"} class="space-y-2">
         <h3 class="fui-eyebrow">Dropped processes</h3>
         <.grid
+          paging={@paging}
           id={"runner-marks-#{@namespace}-grid"}
           rows={@marks}
           row_testid={&"runner-mark-#{&1.stable_id}"}

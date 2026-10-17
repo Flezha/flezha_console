@@ -387,6 +387,24 @@ async function foldSection(page: Page, key: string, open: boolean): Promise<void
 /** Unfolds a section, for a spec reading what is inside it. */
 export const openSection = (page: Page, key: string) => foldSection(page, key, true);
 
+/**
+ * Grows the paged listing `listing` until `row` is shown, or until every row
+ * is when no row is named. A listing renders its first page only, and other
+ * workers' rows can push a test's own row past it; the shown count is kept by
+ * the server, so a row once revealed stays. The caller asserts on the row, so
+ * cleanup can use it too.
+ */
+export async function growListing(page: Page, listing: string, row?: Locator) {
+  const more = page.getByTestId(`${listing}-more`);
+  while ((row === undefined || (await row.count()) === 0) && (await more.count()) > 0) {
+    // Each page lands before the next is asked for: the control states how
+    // many it shows, so its old words leaving is that page arriving.
+    const before = (await more.textContent()) ?? '';
+    await more.click();
+    await expect(more.filter({ hasText: before.trim() })).toHaveCount(0);
+  }
+}
+
 /** Folds a section shut, for a spec asserting the choice is remembered. */
 export const closeSection = (page: Page, key: string) => foldSection(page, key, false);
 

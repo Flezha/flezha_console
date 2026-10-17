@@ -60,6 +60,7 @@
       <p :if={group.sources == []} class="fui-figures">No source in this area matches.</p>
       <.grid
         :if={group.sources != []}
+        paging={@paging}
         id={"sources-#{group.key}"}
         rows={group.sources}
         row_testid={&"source-#{&1[:name]}"}
@@ -107,16 +108,18 @@
   <.empty_state :if={@sinks == []} icon="hero-inbox-arrow-down">
     A sink is where the controller ships its signals. This controller reports none.
   </.empty_state>
-  <ul :if={@sinks != []} class="fui-tiles">
-    <li :for={sink <- @sinks} data-testid={"sink-#{sink[:name]}"} class="fui-tile">
-      <span class="fui-num font-medium">{sink[:name]}</span>
-      <span data-testid={"sink-running-#{sink[:name]}"}>
-        <span class={["fui-badge", NodeManager.sink_running?(sink) && "fui-badge--positive"]}>
-          {if NodeManager.sink_running?(sink), do: "Running", else: "Not running"}
+  <.paged :let={page} id="sinks" rows={@sinks} paging={@paging}>
+    <ul :if={@sinks != []} class="fui-tiles">
+      <li :for={sink <- page} data-testid={"sink-#{sink[:name]}"} class="fui-tile flz-tile">
+        <span class="fui-num font-medium">{sink[:name]}</span>
+        <span data-testid={"sink-running-#{sink[:name]}"}>
+          <span class={["fui-badge", NodeManager.sink_running?(sink) && "fui-badge--positive"]}>
+            {if NodeManager.sink_running?(sink), do: "Running", else: "Not running"}
+          </span>
         </span>
-      </span>
-    </li>
-  </ul>
+      </li>
+    </ul>
+  </.paged>
 </.section>
 
 <%!-- A drawer, so the tail is in view the moment it starts, wherever the

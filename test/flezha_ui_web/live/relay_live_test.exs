@@ -145,13 +145,86 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       refute text_of(html, ~s([data-testid="relay-health"])) =~ "healthy"
     end
 
-    test "marks a suspended relay", %{conn: conn, node: node} do
+    test "marks a suspended relay and says it cannot wake with no runner for its factory", %{
+      conn: conn,
+      node: node
+    } do
       overwatch(node, %{factory_id: "store_input", suspended: true})
+
+      {:ok, view, html} = live(conn, @url)
+
+      assert text_of(html, ~s([data-testid="relay-health"])) == "It is suspended."
+      # Its condition opens by itself, as rows that agree with each other.
+      assert has_element?(view, ~s([data-testid="relay-state"][data-state="suspended"]))
+      assert text_of(html, ~s([data-testid="relay-state-runner"])) =~ "None bound"
+
+      assert text_of(html, ~s([data-testid="relay-state-serving"])) =~
+               "No runner serves factory store_input"
+
+      assert text_of(html, ~s([data-testid="relay-state-next"])) =~
+               "cannot run until a runner for store_input connects"
+
+      refute text_of(html, ~s([data-testid="relay-state-next"] dd)) =~ "wakes it"
+    end
+
+    test "runners that cannot take the relay wake nothing, whatever their count", %{
+      conn: conn,
+      node: node
+    } do
+      overwatch(node, %{factory_id: "store_input", suspended: true})
+      FakeController.set(node, {Flezha.Service.Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Relay, :diagnose},
+        {:ok,
+         %{
+           relay: "relay_a",
+           verdict: :problem,
+           findings: [
+             %{
+               level: :problem,
+               code: "diagnose.runner_mismatch",
+               message:
+                 "runners announce factory 'store_input', but none can take relay 'relay_a'",
+               details: %{},
+               hint: nil
+             }
+           ]
+         }}
+      )
+
+      {:ok, view, _html} = live(conn, @url)
+      html = view |> element(~s([data-testid="diagnose-btn"])) |> render_click()
+
+      assert text_of(html, ~s([data-testid="relay-state-next"] dd)) ==
+               "It cannot run until a runner that can take it connects."
+    end
+
+    test "a relay bound to a runner is not asked about runners on each tick", %{
+      conn: conn,
+      node: node
+    } do
+      overwatch(node, %{factory_id: "store_input", runner_id: "runner-a"})
+
+      {:ok, view, _html} = live(conn, @url)
+      send(view.pid, :refresh)
+      render(view)
+
+      assert FakeController.calls(node, {Flezha.Service.Fleet, :runners_for_factory}) == []
+    end
+
+    test "a suspended relay a runner serves wakes on the next message", %{conn: conn, node: node} do
+      overwatch(node, %{factory_id: "store_input", suspended: true})
+      FakeController.set(node, {Flezha.Service.Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert text_of(html, ~s([data-testid="relay-health"])) =~
-               "suspended at a committed boundary"
+      assert text_of(html, ~s([data-testid="relay-state-serving"])) =~
+               "1 runner serves factory store_input"
+
+      assert text_of(html, ~s([data-testid="relay-state-next"] dd)) ==
+               "The next message wakes it on a runner."
     end
 
     test "reports version skew by naming the missing call", %{conn: conn, node: node} do

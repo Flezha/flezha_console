@@ -15,6 +15,12 @@ defmodule FlezhaUiWeb.Attention do
       %{id:, kind:, severity: :warning | :negative, namespace:, object: %{kind:, id:},
         what:, why:, actions: [action], first_seen:}
 
+  and a relay item also carries `relay: %{state:, factory:, serving:}`, what
+  its state summary shows; `serving` is how many runners serve its factory,
+  nil until a caller that read them sets it with `put_serving/2`. It names no
+  runner: a registry row names the one that last hosted the relay, not the
+  one bound to it now, which only the relay's own Overwatch reads.
+
   and an action is `%{label:, navigate:}` or `%{label:, do: :diagnose,
   operation:, namespace:, relay:}`; `operation` names the controller verb that
   gates it. `first_seen` is when this console first saw the item, kept across
@@ -24,6 +30,7 @@ defmodule FlezhaUiWeb.Attention do
   use FlezhaUiWeb, :html
 
   alias FlezhaUi.Service.NodeManager
+  alias FlezhaUiWeb.RelayState
 
   # Named exactly, so a host's own events cannot be swallowed.
   @events ~w(problem_diagnose)
@@ -103,10 +110,39 @@ defmodule FlezhaUiWeb.Attention do
     |> Enum.sort_by(& &1.object.id)
   end
 
+  @doc """
+  The factories whose runners `items` wait on: those of relay items in a
+  runner-bound state. What a caller reads before `put_serving/2`.
+  """
+  def waiting_factories(items) do
+    for %{relay: %{state: state, factory: factory}} <- items,
+        state in RelayState.runner_bound_states(),
+        is_binary(factory),
+        uniq: true,
+        do: factory
+  end
+
+  @doc """
+  Sets on each relay item how many runners serve its factory, from `serving`
+  (factory id to count); a factory it does not hold stays unread.
+  """
+  def put_serving(items, serving) do
+    Enum.map(items, fn
+      %{relay: %{factory: factory} = relay} = item when is_map_key(serving, factory) ->
+        %{item | relay: %{relay | serving: Map.fetch!(serving, factory)}}
+
+      item ->
+        item
+    end)
+  end
+
   defp relay_item(namespace, row, faulted) do
     id = to_string(row.id)
     health = NodeManager.row_health(row)
     group = row[:partition] && row.partition.group
+    factory = row[:factory] && to_string(row.factory)
+
+    facts = %{factory: factory, serving: nil}
 
     cond do
       health != :healthy ->
@@ -116,33 +152,21 @@ defmodule FlezhaUiWeb.Attention do
             id,
             health,
             severity(health),
-            "#{id} is #{health_word(health)}",
-            why(health)
+            "#{id} is #{RelayState.word(health)}",
+            facts
           )
         ]
 
       is_nil(row[:node]) ->
-        [
-          relay(
-            namespace,
-            id,
-            :unplaced,
-            :warning,
-            "#{id} is unplaced",
-            "The registry holds it, but no live cluster node runs it."
-          )
-        ]
+        [relay(namespace, id, :unplaced, :warning, "#{id} is unplaced", facts)]
 
       group && group in faulted ->
+        why = "Its partition group #{group} does not cover every key group exactly once."
+
         [
-          relay(
-            namespace,
-            id,
-            :coverage,
-            :negative,
-            "#{id} owns a broken key range",
-            "Its partition group #{group} does not cover every key group exactly once."
-          )
+          namespace
+          |> relay(id, :coverage, :negative, "#{id} owns a broken key range", facts)
+          |> Map.put(:why, why)
         ]
 
       true ->
@@ -150,16 +174,17 @@ defmodule FlezhaUiWeb.Attention do
     end
   end
 
-  defp relay(namespace, id, reason, severity, what, why) do
+  defp relay(namespace, id, state, severity, what, facts) do
     %{
       id: "relay:#{namespace}:#{id}",
       kind: :relay,
-      reason: reason,
+      reason: state,
       severity: severity,
       namespace: namespace,
       object: %{kind: :relay, id: id},
       what: what,
-      why: why,
+      why: RelayState.why(state),
+      relay: Map.put(facts, :state, state),
       actions: [
         %{
           label: "Diagnose",
@@ -174,25 +199,8 @@ defmodule FlezhaUiWeb.Attention do
     }
   end
 
-  defp health_word(health), do: String.downcase(Words.text(:health, health))
-
   defp severity(health) when health in [:failed, :parked], do: :negative
   defp severity(_health), do: :warning
-
-  defp why(:suspended),
-    do:
-      "The controller reports it suspended: parked at a committed boundary with no runner to resume on."
-
-  defp why(:unbound), do: "No runner serves its factory, so it is waiting for one to connect."
-
-  defp why(:degraded),
-    do: "The Convergence Loop classifies it degraded: it runs, but not as declared."
-
-  defp why(:recovering), do: "The controller is moving it off a runner that went away."
-  defp why(:failed), do: "The Convergence Loop classifies it failed: it is not running."
-  defp why(:parked), do: "It is parked and processes no input until it is resumed."
-  defp why(:unknown), do: "The Convergence Loop has not observed it yet."
-  defp why(health), do: "The Convergence Loop reports it #{health_word(health)}."
 
   defp group_items(namespace, groups) do
     for group <- groups do
@@ -248,7 +256,7 @@ defmodule FlezhaUiWeb.Attention do
             severity: :warning,
             namespace: nil,
             object: %{kind: :relay_class, id: class},
-            what: "#{Words.count(entries, "entry", "entries")} parked for #{class}",
+            what: "#{Words.count(entries, "dead letter")} for #{class}",
             why:
               "#{tasklet_phrase(tasklets)} could not process them, so they wait in the dead-letter queue to be replayed or dropped.",
             actions: [%{label: "Open dead-letter", navigate: ~p"/dlq?#{[class: class]}"}],
@@ -387,7 +395,8 @@ defmodule FlezhaUiWeb.Attention do
   @doc """
   Attention items, each with what is wrong, why, where, how long it has been
   seen, and its actions as buttons — only those the operator's operations
-  allow. Diagnose answers inline beneath its item.
+  allow. A relay item reads as its `FlezhaUiWeb.RelayState.summary/1`, where
+  Diagnose answers inline.
 
   `limit` shows the first items and a link to the rest on the Open problems
   screen.
@@ -427,7 +436,21 @@ defmodule FlezhaUiWeb.Attention do
             </span>
             {item.what}
           </p>
-          <p class="fui-problem-why" data-testid={"problem-why-#{item.id}"}>{item.why}</p>
+          <RelayState.summary
+            :if={item[:relay]}
+            state={item.relay.state}
+            why={item.why}
+            factory={item.relay.factory}
+            serving={item.relay.serving}
+            diagnosis={@diagnoses[item.id] && @diagnoses[item.id].diagnosis}
+            error={@diagnoses[item.id] && @diagnoses[item.id].error}
+            testid={"problem-state-#{item.id}"}
+            why_testid={"problem-why-#{item.id}"}
+            diagnosis_testid={"problem-diagnosis-#{item.id}"}
+          />
+          <p :if={!item[:relay]} class="fui-problem-why" data-testid={"problem-why-#{item.id}"}>
+            {item.why}
+          </p>
           <p class="fui-problem-meta">
             {[item.namespace, object_words(item.object), seen(item.first_seen, @now)]
             |> Enum.reject(&is_nil/1)
@@ -457,13 +480,6 @@ defmodule FlezhaUiWeb.Attention do
                 {action.label}
               </.button>
             <% end %>
-          </div>
-          <div :if={@diagnoses[item.id]} class="fui-problem-detail">
-            <.diagnosis
-              diagnosis={@diagnoses[item.id].diagnosis}
-              error={@diagnoses[item.id].error}
-              testid={"problem-diagnosis-#{item.id}"}
-            />
           </div>
         </li>
       </ul>
@@ -495,35 +511,4 @@ defmodule FlezhaUiWeb.Attention do
   end
 
   defp seen(_none, _now), do: nil
-
-  @doc """
-  What the controller answered to Diagnose: its verdict in words and each
-  finding, or why it could not be asked. One rendering for the relay screen,
-  the relay inspector and a problem's inline answer.
-  """
-  attr :diagnosis, :map, default: nil
-  attr :error, :any, default: nil
-  attr :testid, :string, default: "diagnosis"
-
-  def diagnosis(assigns) do
-    ~H"""
-    <div data-testid={@testid} class="space-y-3">
-      <div :if={@error} data-testid="diagnose-error">
-        <.runtime_error error={@error} action="the diagnosis" />
-      </div>
-      <p :if={@diagnosis}>
-        <.state_badge kind={:diagnosis} value={@diagnosis.verdict} testid="diagnose-verdict" />
-      </p>
-      <p :if={@diagnosis && @diagnosis.findings == []}>The controller found nothing to report.</p>
-      <ol :if={@diagnosis && @diagnosis.findings != []} class="space-y-2">
-        <li
-          :for={finding <- @diagnosis.findings}
-          data-testid={"diagnose-finding-#{finding.code}"}
-        >
-          <.runtime_error error={finding} kind={if finding.level == :note, do: :info, else: :error} />
-        </li>
-      </ol>
-    </div>
-    """
-  end
 end

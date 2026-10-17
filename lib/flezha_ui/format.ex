@@ -100,6 +100,19 @@ defmodule FlezhaUi.Format do
     {days, rem(hours, 24), rem(minutes, 60), rem(seconds, 60)}
   end
 
+  @doc """
+  A count or rate at a glance: as written below 10 000, then to one decimal at
+  the largest unit that keeps it short — `12.4k`, `3.1M`, `2.0G`.
+  """
+  # Each step starts where the one below would round up to 1000.0.
+  def compact(n) when is_number(n) and abs(n) >= 999_950_000, do: scaled(n, 1.0e9, "G")
+  def compact(n) when is_number(n) and abs(n) >= 999_950, do: scaled(n, 1.0e6, "M")
+  def compact(n) when is_number(n) and abs(n) >= 10_000, do: scaled(n, 1.0e3, "k")
+  def compact(n) when is_float(n), do: :erlang.float_to_binary(n, decimals: 1)
+  def compact(n), do: to_string(n)
+
+  defp scaled(n, unit, suffix), do: :erlang.float_to_binary(n / unit, decimals: 1) <> suffix
+
   @doc "A byte count at the largest unit that keeps it readable."
   def bytes(nil), do: "—"
   def bytes(bytes) when bytes < 1_024, do: "#{bytes} B"
@@ -162,14 +175,19 @@ defmodule FlezhaUi.Format do
   def module_name(nil), do: "—"
   def module_name(module), do: inspect(module)
 
-  @doc "A record as one line of JSON, falling back to `inspect/1`."
-  def json_line(record) when is_map(record) do
-    Jason.encode!(record)
+  @doc """
+  A record as JSON — one line, or indented with `pretty: true` — falling back
+  to `inspect/1`.
+  """
+  def json_line(record, opts \\ [])
+
+  def json_line(record, opts) when is_map(record) do
+    Jason.encode!(record, opts)
   rescue
-    _ -> inspect(record)
+    _ -> inspect(record, pretty: opts[:pretty] == true)
   end
 
-  def json_line(record), do: inspect(record)
+  def json_line(record, _opts), do: inspect(record)
 
   @doc "What an operator is told when `Relay.stop` answered for relay `id`."
   def relay_stopped(id, %{stopped: :cooperative}),

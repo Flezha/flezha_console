@@ -9,10 +9,11 @@ the shared theme contract.
 
 The console SHALL identify itself with the Flezha UI lockup: the badger over the
 FLEZHA name with UI beside it, `priv/static/images/flezha-ui-badger-line-text-white.svg`.
-It SHALL be rendered as a CSS mask, so that it takes the ink of the surface it
-sits on, with its aspect ratio read from the file's own `viewBox`. The mark SHALL
-NOT be a fixed-colour `<img>` or a raster image. Inside the shell, the lockup SHALL
-sit at the top of the rail, in the stylebook's chrome brand recipe.
+UI SHALL be set at about FLEZHA's cap height, in FLEZHA's face, centred on the
+lockup's height. It SHALL be rendered as a CSS mask, so that it takes the ink of
+the surface it sits on, with its aspect ratio read from the file's own `viewBox`.
+The mark SHALL NOT be a fixed-colour `<img>` or a raster image. Inside the shell,
+the lockup SHALL sit at the top of the rail, in the stylebook's chrome brand recipe.
 
 #### Scenario: A screen inside the shell
 
@@ -30,6 +31,12 @@ sit at the top of the rail, in the stylebook's chrome brand recipe.
 
 - **WHEN** the lockup file is replaced by one with a different `viewBox`
 - **THEN** the lockup takes the new proportions without a code change
+
+#### Scenario: The product name is legible
+
+- **WHEN** the rail renders the lockup
+- **THEN** UI stands at about the cap height of FLEZHA and is not clipped by the
+  `viewBox`
 
 #### Scenario: The old marks are gone
 

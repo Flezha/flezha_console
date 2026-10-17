@@ -2,9 +2,9 @@
   <:sentence>
     <%= cond do %>
       <% @entries == [] and @filter in [nil, ""] -> %>
-        Nothing is parked: every record reached its tasklet.
+        No dead letters: every record reached its tasklet.
       <% @entries == [] -> %>
-        Nothing is parked for {@filter}.
+        No dead letters for {@filter}.
       <% true -> %>
         {Words.count(length(@entries), "record")} could not be processed and wait here as <.term key="dead letter">dead letters</.term>, to be replayed or dropped.
     <% end %>
@@ -31,7 +31,7 @@
   <% {:pending, ref} -> %>
     <.notice testid="replay-pending" icon="hero-arrow-path">
       Replaying <span class="fui-ident">{ref}</span>
-      — the controller is waiting to see whether it parks again.
+      — the controller is waiting to see whether it fails again.
     </.notice>
   <% {:replayed, ref} -> %>
     <.notice testid="replay-succeeded" icon="hero-check-circle">
@@ -40,7 +40,7 @@
   <% {:reparked, ref, generation} -> %>
     <.notice kind={:error} testid="replay-reparked">
       <span class="fui-ident">{ref}</span>
-      failed again and was parked as generation {generation}; its new error is on the row.
+      failed again and is a dead letter again, as generation {generation}; its new error is on the row.
     </.notice>
   <% {:refused, _ref, reason} -> %>
     <div data-testid="replay-refused">
@@ -49,22 +49,24 @@
   <% nil -> %>
 <% end %>
 
-<%!-- Statistics: parked counts per tasklet --%>
+<%!-- Statistics: dead letters per tasklet --%>
 <dl :if={@stats != []} data-testid="dlq-stats" class="fui-facts mb-6">
   <.stat :for={stat <- @stats} label={"#{stat[:relay_class]}/#{stat[:tasklet_id]}"}>
-    <span class="fui-figure">{stat[:entries]}</span> parked
+    <span class="fui-figure">{stat[:entries]}</span> {if stat[:entries] == 1,
+      do: "dead letter",
+      else: "dead letters"}
   </.stat>
 </dl>
 
 <.empty_state :if={@entries == []} icon="hero-check-circle" testid="dlq-empty">
-  A record a tasklet cannot process is parked here, so it can be inspected, replayed or dropped. {if @filter in [
-                                                                                                       nil,
-                                                                                                       ""
-                                                                                                     ],
-                                                                                                     do:
-                                                                                                       "The queue is empty.",
-                                                                                                     else:
-                                                                                                       "None is parked for that relay class."}
+  A record a tasklet cannot process waits here as a dead letter, so it can be inspected, replayed or dropped. {if @filter in [
+                                                                                                                    nil,
+                                                                                                                    ""
+                                                                                                                  ],
+                                                                                                                  do:
+                                                                                                                    "The queue is empty.",
+                                                                                                                  else:
+                                                                                                                    "None waits for that relay class."}
 </.empty_state>
 
 <div :if={@entries != []} class="space-y-8">
@@ -79,10 +81,11 @@
         data-testid={"dlq-group-count-#{group.relay_class}-#{group.tasklet_id}"}
         class="fui-figures"
       >
-        {group.parked} parked
+        {Words.count(group.parked, "dead letter")}
       </span>
     </h3>
     <.grid
+      paging={@paging}
       id={"dlq-#{group.relay_class}-#{group.tasklet_id}"}
       rows={group.entries}
       testid="dlq-table"
@@ -156,8 +159,8 @@
 >
   <%= if @confirm.action == "replay" do %>
     Re-send <span class="fui-ident">{@confirm.ref}</span>
-    to its relay as a new input. If it fails again it is
-    parked again, and the outcome is reported here.
+    to its relay as a new input. If it fails again it becomes
+    a dead letter again, and the outcome is reported here.
   <% else %>
     Discard <span class="fui-ident">{@confirm.ref}</span>
     and its payload. This is permanent and cannot be undone.

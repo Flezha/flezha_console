@@ -68,6 +68,7 @@
   </.empty_state>
   <.grid
     :if={@journal.entries != []}
+    paging={@paging}
     id="journal-entries"
     rows={@journal.entries}
     row_testid={&"journal-entry-#{&1[:seq]}"}
@@ -82,7 +83,7 @@
         data-testid={"journal-dead-lettered-#{entry[:seq]}"}
       >
         Tasklet <span class="fui-num">{entry[:tasklet]}</span>
-        parked as <span class="fui-num">{entry[:dlq_entry]}</span>
+        could not process it: dead letter <span class="fui-num">{entry[:dlq_entry]}</span>
       </span>
     </:col>
   </.grid>
@@ -118,6 +119,7 @@
     <p :if={@inbox.entries == []} class="fui-figures">The input log retains no records.</p>
     <.grid
       :if={@inbox.entries != []}
+      paging={@paging}
       id="inbox"
       rows={@inbox.entries}
       row_testid={&"inbox-entry-#{&1.offset}"}
@@ -256,6 +258,7 @@
     >
       <h3 class="fui-eyebrow">Tasklet <span class="fui-num">{tasklet}</span></h3>
       <.grid
+        paging={@paging}
         id={"cells-#{tasklet}"}
         rows={cells}
         row_testid={&"cell-#{&1.key}"}

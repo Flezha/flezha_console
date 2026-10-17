@@ -2,7 +2,6 @@
 
 ## Purpose
 How objects are inspected without leaving the current screen: the drawer, the selection kept in the address bar, keyboard use, and the relay, runner, plugin and parked-entry inspectors.
-
 ## Requirements
 ### Requirement: Objects are inspected in a drawer on the current screen
 
@@ -71,16 +70,16 @@ naming the object.
 A relay inspector SHALL show:
 
 - the relay's sentence header;
-- its health once;
+- its condition once, as the relay state summary (see `relay-state-summary`);
 - its inbound and outbound rates with a sparkline, taken from the host screen's
   existing measurements;
 - its factory and the factory's description;
-- its node, runner and uptime;
+- its node and uptime;
 - the number of plugins bound to it.
 
 It SHALL offer:
 
-- Diagnose, answered inline;
+- Diagnose, answered inline in the summary's Diagnosis row;
 - Stop, through the existing confirmation, when the operator's operations allow;
 - a link that opens the relay's Live view.
 
@@ -90,14 +89,15 @@ made when it opens and not repeated on the host's tick.
 #### Scenario: Opening a running relay
 
 - **WHEN** an operator opens the `orders` inspector
-- **THEN** it shows its sentence, health, rates, factory, node, runner, uptime
-  and bindings
+- **THEN** it shows its sentence, its state summary with its runner, rates, factory,
+  node, uptime and bindings
 - **AND** exactly one overwatch read was made for it
 
 #### Scenario: Diagnosing in place
 
 - **WHEN** the operator activates Diagnose in the inspector
-- **THEN** the controller's diagnosis appears inside the drawer
+- **THEN** the controller's diagnosis appears inside the drawer, in the summary's
+  Diagnosis row
 
 #### Scenario: A viewer cannot stop
 

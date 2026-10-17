@@ -39,7 +39,11 @@ defmodule FlezhaUiWeb.ProblemsLiveTest do
     assert item_ids(html) == ["problem-relay:default:relay_f", "problem-relay:default:relay_s"]
 
     assert view |> element(~s([data-testid="problem-why-relay:default:relay_s"])) |> render() =~
-             "suspended"
+             "committed boundary on purpose"
+
+    # The shell's pulse reads no runners, so the card claims nothing about them.
+    refute has_element?(view, ~s([data-testid="problem-state-relay:default:relay_s-serving"]))
+    refute has_element?(view, ~s([data-testid="problem-state-relay:default:relay_s-next"]))
 
     assert has_element?(
              view,

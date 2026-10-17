@@ -2,7 +2,6 @@
 
 ## Purpose
 How the console speaks: controller values in words with a tone, no raw atoms in visible text, an opening sentence for every object, shortened copyable identifiers, providers described by what they do, and empty states that teach.
-
 ## Requirements
 ### Requirement: Controller values are rendered in words with a tone
 
@@ -121,4 +120,32 @@ operations allow that action.
 - **WHEN** a tap is open and nothing has arrived
 - **THEN** it says what it is waiting for and offers Send or call on the same
   relay when allowed
+
+### Requirement: Each relay-state word means one thing
+
+The console SHALL use each relay-state word with the one meaning the controller's
+verdict gives it, and SHALL NOT use one state's word to explain another:
+
+- **Suspended:** stopped at a committed boundary on purpose, not a fault;
+- **Parked:** stopped by a fault nobody in the system owns, waiting for a user or a
+  plugin fix;
+- **Unbound:** no runner is bound, and the loop is binding one;
+- **Failed:** its runner is gone, and the loop is rebinding it;
+- **Recovering:** unbound or failed within its grace;
+- **Degraded:** running, and being repaired in place.
+
+A dead-letter entry SHALL be called a dead letter in visible text, never "parked",
+so "parked" names only the relay state. The word "asleep" SHALL NOT appear in the
+console's own copy.
+
+#### Scenario: Explaining a suspension
+
+- **WHEN** any screen explains why a relay is suspended
+- **THEN** the text says it stopped at a committed boundary on purpose
+- **AND** it does not say "parked" or "asleep"
+
+#### Scenario: No dead letter is parked
+
+- **WHEN** the web layer's visible copy is searched for "parked"
+- **THEN** every occurrence refers to the parked relay state
 

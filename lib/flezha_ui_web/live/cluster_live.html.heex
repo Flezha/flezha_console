@@ -25,21 +25,27 @@
   <.empty_state :if={@cluster_nodes == []} icon="hero-server" testid="cluster-nodes-empty">
     A controller node hosts namespace hubs. None is reachable from this console.
   </.empty_state>
-  <ul :if={@cluster_nodes != []} data-testid="cluster-nodes" class="fui-tiles">
-    <li :for={node <- @cluster_nodes} data-testid={"cluster-node-#{node.name}"} class="fui-tile">
-      <span class="flex items-center gap-2">
-        <% tone = (node.connected? && :positive) || :neutral %>
-        <span
-          class={"fui-shape fui-tone-#{tone}"}
-          data-shape={Words.shape(tone)}
-          aria-hidden="true"
-        >
+  <.paged :let={page} id="cluster-nodes" rows={@cluster_nodes} paging={@paging}>
+    <ul :if={@cluster_nodes != []} data-testid="cluster-nodes" class="fui-tiles">
+      <li
+        :for={node <- page}
+        data-testid={"cluster-node-#{node.name}"}
+        class="fui-tile flz-tile"
+      >
+        <span class="flex items-center gap-2">
+          <% tone = (node.connected? && :positive) || :neutral %>
+          <span
+            class={"fui-shape fui-tone-#{tone}"}
+            data-shape={Words.shape(tone)}
+            aria-hidden="true"
+          >
+          </span>
+          <span class="fui-num font-medium">{node.name}</span>
         </span>
-        <span class="fui-num font-medium">{node.name}</span>
-      </span>
-      <span :if={node.connected?} class="fui-figures">Connected to this console</span>
-    </li>
-  </ul>
+        <span :if={node.connected?} class="fui-figures">Connected to this console</span>
+      </li>
+    </ul>
+  </.paged>
 </.section>
 
 <%!-- Per-namespace hubs and runners --%>
@@ -98,6 +104,7 @@
       <p :if={ns.per_node == []} class="fui-figures">No relay is placed in this namespace.</p>
       <.grid
         :if={ns.per_node != []}
+        paging={@paging}
         id={"rollup-#{ns.name}"}
         rows={ns.per_node}
         row_testid={&"node-#{&1.node}"}
@@ -147,6 +154,7 @@
         </span>
       </h3>
       <.runner_table
+        paging={@paging}
         namespace={ns.name}
         runners={ns.runners}
         marks={ns.marks}

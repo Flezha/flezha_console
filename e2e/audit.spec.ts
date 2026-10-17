@@ -1,4 +1,4 @@
-import { test, expect, readFigure, type Page } from './fixtures';
+import { test, expect, growListing, readFigure, type Page } from './fixtures';
 
 /**
  * The audit log screen.
@@ -10,11 +10,13 @@ import { test, expect, readFigure, type Page } from './fixtures';
  * where they can be produced on demand.
  */
 
-/** The rotated files the catalog lists, by name. */
-const fileNames = (page: Page) =>
-  page.getByTestId('audit-file').evaluateAll((rows) =>
+/** The rotated files the catalog lists, by name, every page of it shown. */
+const fileNames = async (page: Page) => {
+  await growListing(page, 'audit-file-rows');
+  return page.getByTestId('audit-file').evaluateAll((rows) =>
     rows.map((row) => (row.querySelector('span')?.textContent ?? '').trim()),
   );
+};
 
 test.describe('Audit log', () => {
   test.beforeEach(async ({ live }) => {
@@ -28,21 +30,22 @@ test.describe('Audit log', () => {
     ).toHaveCount(0);
 
     await page.getByTestId('audit-read-btn').click();
-    // Reading the audit log is itself audited, so there is always at least
-    // this UI's own activity to find.
-    await expect(page.getByTestId('audit-records')).toContainText('"source":"ui"');
+    const records = page.getByTestId('audit-record');
+    await expect(records).not.toHaveCount(0);
 
-    const first = page.getByTestId('audit-records').locator('> *').first();
-    const name = JSON.parse((await first.innerText()).trim()).name as string;
+    // A record opens in place to the whole of it.
+    const first = page.getByTestId('audit-record-0');
+    const name = (await first.locator('span').nth(2).innerText()).trim();
+    await first.click();
+    await expect(page.getByTestId('audit-record-json-0')).toContainText(`"name": "${name}"`);
 
     await page.getByTestId('audit-filter-name').fill(name);
     await page.getByTestId('audit-read-btn').click();
-    const records = page.getByTestId('audit-records').locator('> *');
-    await expect(records.filter({ hasNotText: `"name":"${name}"` })).toHaveCount(0);
     await expect(records).not.toHaveCount(0);
+    await expect(records.locator('button span:nth-child(3)').filter({ hasNotText: name })).toHaveCount(0);
   });
 
-  test('the file filter reads one closed file, and an unknown file is refused by name', async ({
+  test('a closed file opens from the catalog, and an unknown file is refused by name', async ({
     page,
   }) => {
     // Other workers rotate too, so the file this rotation closed is told apart
@@ -61,10 +64,11 @@ test.describe('Audit log', () => {
 
     // A file that closed after a long quiet holds more than the read's limit.
     const limit = 1000;
-    await page.getByTestId('audit-filter-file').fill(filename);
     await page.getByTestId('audit-filter-limit').fill(String(limit));
-    await page.getByTestId('audit-read-btn').click();
-    await expect(page.getByTestId('audit-records').locator('> *')).toHaveCount(Math.min(recorded, limit));
+    await page.getByTestId(`audit-open-${filename}`).click();
+    await expect(page.getByTestId('audit-filter-file')).toHaveValue(filename);
+
+    await expect(page.getByTestId('audit-record')).toHaveCount(Math.min(recorded, limit));
 
     await page.getByTestId('audit-filter-file').fill('no-such-audit-file.log');
     await page.getByTestId('audit-read-btn').click();

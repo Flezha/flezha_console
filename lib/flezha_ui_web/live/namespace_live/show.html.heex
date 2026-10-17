@@ -27,16 +27,6 @@
 
 <.runtime_error error={@load_error} action="the relay listing" />
 
-<%!-- The namespace's problems, worst first --%>
-<.problem_list
-  :if={@items != []}
-  items={@items}
-  operations={@operations}
-  diagnoses={@diagnoses}
-  limit={3}
-  testid="home-problems"
-/>
-
 <%= if condition == :unreachable do %>
   <div class="mt-6" data-testid="topology-disconnected">
     <.runtime_error error={:node_not_connected} />
@@ -62,7 +52,9 @@
         value={fleet.namespaces}
         condition="Reachable with your token"
         href={~p"/namespaces"}
-      />
+      >
+        <:foot>You are in {@ns}</:foot>
+      </.tile>
       <% {nodes_tone, nodes_condition} = nodes_said(fleet[:nodes]) %>
       <.tile
         testid="sys-nodes"
@@ -79,7 +71,9 @@
         tone={runners_tone(fleet[:runners], health_total(fleet.health))}
         condition={(fleet[:runners] && "Connected across the cluster") || "Not read yet"}
         href={~p"/cluster"}
-      />
+      >
+        <:foot>{length(@runners)} in {@ns}</:foot>
+      </.tile>
       <.tile
         testid="sys-relays"
         label="Relays"
@@ -89,6 +83,7 @@
         href={~p"/relays"}
       >
         <.strip counts={fleet.health} testid="sys-relays-strip" />
+        <:foot :if={@topology[:relay_count]}>{@topology.relay_count} in {@ns}</:foot>
       </.tile>
       <% {problems_tone, problems_condition} = problems_said(@shell_pulse.items) %>
       <.tile
@@ -98,7 +93,9 @@
         tone={problems_tone}
         condition={problems_condition}
         href={~p"/problems"}
-      />
+      >
+        <:foot>{length(@items)} in {@ns}</:foot>
+      </.tile>
       <% {controller_tone, controller_value, controller_condition} =
         controller_said(NodeManager.connected_node(), fleet) %>
       <.tile
@@ -117,7 +114,10 @@
     testid="home-namespace"
     help="This namespace: its relays and their health, what serves them, what flows through them and how close each limit is. Read every 2 seconds."
   >
-    <:title>{@ns}</:title>
+    <:title>
+      <span class="fui-eyebrow">Namespace</span>
+      <span class="fui-section-name" data-testid="home-namespace-name">{@ns}</span>
+    </:title>
     <.skeleton :if={!@loaded?} rows={2} testid="home-namespace-loading" />
     <%= cond do %>
       <% !@loaded? -> %>
@@ -164,7 +164,9 @@
             tone={runners_tone(length(@runners), length(@rows))}
             condition={runners_digest(@runners, @runner_marks)}
             href={~p"/cluster"}
-          />
+          >
+            <:foot>{runners_foot(@rows)}</:foot>
+          </.tile>
           <% plugins = plugin_count(@plugin_pairs) %>
           <.tile
             testid="ns-plugins"
@@ -172,29 +174,40 @@
             value={plugins}
             condition={plugins_condition(@plugin_pairs)}
             href={~p"/namespaces/#{@ns}/plugins"}
-          />
+          >
+            <:foot :if={plugins > 0}>{plugin_names(@plugin_pairs)}</:foot>
+          </.tile>
           <.tile
             testid="ns-schedules"
             label="Schedules"
             value={length(@schedules)}
             condition={schedules_condition(@schedules)}
             href={~p"/namespaces/#{@ns}/schedules"}
-          />
+          >
+            <:foot :if={@schedules != []}>{schedules_armed(@schedules)}</:foot>
+          </.tile>
           <.tile
             testid="ns-parked"
-            label="Parked"
+            label="Dead letters"
             value={@topology.parked}
             tone={(@topology.parked > 0 && :negative) || :positive}
             condition={
-              (@topology.parked > 0 && "Dead-letter entries waiting for a retry or a discard") ||
-                "Nothing is parked"
+              (@topology.parked > 0 &&
+                 "Records a tasklet could not process, waiting for a replay or a drop") ||
+                "Every record reached its tasklet"
             }
             href={~p"/dlq"}
-          />
+          >
+            <:foot>
+              {(@topology.parked > 0 && "Replay or drop them on the queue") ||
+                "The queue is empty"}
+            </:foot>
+          </.tile>
           <.tile
             testid="ns-flow"
             label="Flow in"
-            value={inbound && Topology.rate_label(inbound.in)}
+            value={inbound && Topology.rate_label(inbound.in, "")}
+            unit="msgs/s"
             tone={(inbound && inbound.in > 0 && :positive) || :neutral}
             condition={flow_condition(inbound)}
           >
@@ -206,6 +219,7 @@
               testid="ns-flow-spark"
               label="Inbound rate history"
             />
+            <:foot :if={inbound}>Out {Topology.rate_label(inbound[:out] || 0.0)}</:foot>
           </.tile>
           <% limits = limit_rows(@quotas) %>
           <.tile
@@ -216,7 +230,7 @@
             condition={limits_digest(@quotas, @declared)}
           >
             <span :if={limits != []} class="fui-indicator-meters">
-              <span :for={row <- limits} data-testid={"ns-limit-#{row.kind}"}>
+              <span :for={row <- Enum.take(limits, 2)} data-testid={"ns-limit-#{row.kind}"}>
                 {Words.humanize(row.kind)} · {limit_use(row)}
                 <.meter
                   value={row.value}
@@ -226,9 +240,31 @@
                 />
               </span>
             </span>
+            <:foot>
+              <.link
+                href="#quotas"
+                phx-click="section_reveal"
+                phx-value-key="quotas"
+                data-testid="ns-limits-more"
+              >
+                {limits_more(limits)}
+              </.link>
+            </:foot>
           </.tile>
         </div>
     <% end %>
+  </.section>
+
+  <%!-- The namespace's problems, worst first --%>
+  <.section :if={@items != []} testid="home-attention">
+    <:title>{attention_title(@items)}</:title>
+    <.problem_list
+      items={@items}
+      operations={@operations}
+      diagnoses={@diagnoses}
+      limit={problems_shown()}
+      testid="home-problems"
+    />
   </.section>
 <% end %>
 
@@ -269,7 +305,13 @@
     <.term key="quota">limits</.term>
     apply to its counters.
   </p>
-  <.grid id="quota-rows" rows={@quotas} row_testid={&"quota-#{&1.kind}"} row_tone={&quota_tone/1}>
+  <.grid
+    paging={@paging}
+    id="quota-rows"
+    rows={@quotas}
+    row_testid={&"quota-#{&1.kind}"}
+    row_tone={&quota_tone/1}
+  >
     <:col :let={row} label="Counter">{Words.humanize(row.kind)}</:col>
     <:col :let={row} label="In use" num>{row.value || "—"}</:col>
     <:col :let={row} label="Limit">
@@ -332,6 +374,7 @@
       </.empty_state>
       <.grid
         :if={@role_bindings != []}
+        paging={@paging}
         id="role-bindings-grid"
         rows={@role_bindings}
         row_testid={&"role-binding-#{&1[:principal]}"}
@@ -401,7 +444,13 @@
       <.empty_state :if={@tokens == [] and is_nil(@tokens_error)} icon="hero-identification">
         A token is how a principal proves who it is. None is issued for this namespace.
       </.empty_state>
-      <.grid :if={@tokens != []} id="tokens-grid" rows={@tokens} row_testid={&"token-#{&1.id}"}>
+      <.grid
+        :if={@tokens != []}
+        paging={@paging}
+        id="tokens-grid"
+        rows={@tokens}
+        row_testid={&"token-#{&1.id}"}
+      >
         <:col :let={row} label="Token"><.ident value={row.id} /></:col>
         <:col :let={row} label="Principal"><.ident value={row.principal} full /></:col>
         <:col :let={row} label="Role">{row.role}</:col>
@@ -484,6 +533,7 @@
         </p>
       </.notice>
       <.grid
+        paging={@paging}
         id={"group-#{group.id}-members"}
         rows={group.members}
         row_tone={&Words.tone(:health, &1.health)}
@@ -539,6 +589,7 @@
   </.empty_state>
   <.grid
     :if={@finished != []}
+    paging={@paging}
     id="finished"
     rows={@finished}
     row_testid={&"finished-row-#{&1.id}"}
@@ -562,6 +613,7 @@
 >
   <:title>Runners</:title>
   <.runner_table
+    paging={@paging}
     namespace={@ns}
     runners={@runners}
     marks={@runner_marks}

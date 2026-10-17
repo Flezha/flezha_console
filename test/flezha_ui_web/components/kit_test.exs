@@ -11,6 +11,7 @@ defmodule FlezhaUiWeb.KitTest do
   import Phoenix.LiveViewTest
   import FlezhaUiWeb.CoreComponents
 
+  alias FlezhaUi.Format
   alias Phoenix.LiveView.JS
 
   defp parse(html), do: LazyHTML.from_fragment(html)
@@ -244,6 +245,42 @@ defmodule FlezhaUiWeb.KitTest do
       assert attr_of(html, ".fui-shape", "data-shape") == "ring"
       refute html =~ ~s(data-testid="t-value")
     end
+
+    test "a large figure is compact, with its unit apart and its exact value as the title" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.tile testid="t" label="Flow" value={123_456.7} unit="msgs/s">
+          <:foot><a href="/relays">Relays</a></:foot>
+        </.tile>
+        """)
+
+      assert html |> q(~s([data-testid="t-value"])) |> LazyHTML.text() == "123.5k"
+      assert attr_of(html, ~s([data-testid="t-value"]), "title") == "123456.7 msgs/s"
+      assert html |> q(".flz-figure-unit") |> LazyHTML.text() == "msgs/s"
+      assert attr_of(html, ".fui-indicator-foot a", "href") == "/relays"
+    end
+  end
+
+  describe "compact figures" do
+    test "stay as written below 10 000 and shorten from there" do
+      assert Format.compact(9_999) == "9999"
+      assert Format.compact(12.5) == "12.5"
+      assert Format.compact(10_000) == "10.0k"
+      assert Format.compact(999_949) == "999.9k"
+      assert Format.compact(999_999) == "1.0M"
+      assert Format.compact(1_000_000) == "1.0M"
+      assert Format.compact(2_500_000_000) == "2.5G"
+      assert Format.compact("64%") == "64%"
+      # Never in exponent form, whatever the float.
+      assert Format.compact(1500.0) == "1500.0"
+    end
+
+    test "a rate past 10 000 messages a second reads compact" do
+      assert FlezhaUiWeb.Topology.rate_label(12_345.0) == "12.3k msgs/s"
+      assert FlezhaUiWeb.Topology.rate_label(4.04) == "4.0 msgs/s"
+    end
   end
 
   describe "controls" do
@@ -299,6 +336,41 @@ defmodule FlezhaUiWeb.KitTest do
       assert attr_of(html, ".fui-meter", "aria-valuenow") == "8"
       assert attr_of(html, ".fui-meter", "data-tone") == "warning"
       assert attr_of(html, ".fui-meter-fill", "style") =~ "80%"
+    end
+  end
+
+  describe "a paged grid" do
+    defp paged(paging, count) do
+      assigns = %{paging: paging, rows: Enum.to_list(1..count)}
+
+      rendered_to_string(~H"""
+      <.grid id="g" rows={@rows} paging={@paging} row_testid={&"r-#{&1}"}>
+        <:col :let={n} label="N">{n}</:col>
+      </.grid>
+      """)
+    end
+
+    defp rows_in(html), do: html |> q(~s(tr[data-testid^="r-"])) |> Enum.count()
+
+    test "shows its first page and says how many more there are" do
+      html = paged(%{}, 25)
+
+      assert rows_in(html) == 20
+      assert html |> q(~s([data-testid="g-more"])) |> LazyHTML.text() =~ "Show 5 more · 20 of 25"
+      assert attr_of(html, ~s([data-testid="g-more"]), "phx-click") == "grid_more"
+    end
+
+    test "a grown listing shows every row and no control" do
+      html = paged(%{"g" => 40}, 25)
+
+      assert rows_in(html) == 25
+      refute html =~ ~s(data-testid="g-more")
+    end
+
+    test "a short listing and an unpaged one show every row" do
+      assert rows_in(paged(%{}, 7)) == 7
+      refute paged(%{}, 7) =~ ~s(data-testid="g-more")
+      assert rows_in(paged(nil, 25)) == 25
     end
   end
 

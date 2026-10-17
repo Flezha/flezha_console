@@ -231,3 +231,36 @@ The call dialog SHALL keep the results of the sends, calls and channel calls mad
 - **WHEN** more than ten results have been made from the dialog
 - **THEN** only the most recent ten are shown
 
+### Requirement: A relay nothing can run is not sent to
+
+When no runner serves a relay's factory, the console SHALL render its Send or call
+control disabled with the reason beside it, and SHALL refuse on the server to open the
+call dialog, to answer the `?do=talk` address, and to send or call, with the same
+reason, so no message is sent that cannot run. The Listen screen's prompt to send or
+call SHALL follow the same rule. A suspended relay whose factory a runner serves SHALL
+stay sendable, because a message is what wakes it. While runner availability is
+unknown, nothing SHALL be disabled, and the controller's answer stays the authority.
+
+#### Scenario: No runner serves the factory
+
+- **WHEN** an operator opens a relay whose factory no runner serves
+- **THEN** Send or call is disabled and reads that no runner serves its factory, so a
+  message would only wait
+- **AND** no `send/6` or `call/6` is made
+
+#### Scenario: The deep link to a relay nothing can run
+
+- **WHEN** an operator opens `/relays/<id>?do=talk` for a relay whose factory no
+  runner serves
+- **THEN** the call dialog does not open and the reason is shown
+
+#### Scenario: A suspended relay a runner serves
+
+- **WHEN** a suspended relay's factory is served by a runner
+- **THEN** Send or call is enabled and sending journals the message
+
+#### Scenario: A runner connects
+
+- **WHEN** a runner serving the factory connects while the relay screen is open
+- **THEN** Send or call becomes enabled without a reload
+

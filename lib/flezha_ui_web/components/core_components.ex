@@ -19,6 +19,7 @@ defmodule FlezhaUiWeb.CoreComponents do
     router: FlezhaUiWeb.Router,
     statics: FlezhaUiWeb.static_paths()
 
+  alias FlezhaUi.Format
   alias FlezhaUi.Service.NodeManager
   alias FlezhaUiWeb.Glossary
   alias FlezhaUiWeb.Words
@@ -847,6 +848,12 @@ defmodule FlezhaUiWeb.CoreComponents do
     default: &Function.identity/1,
     doc: "the function for mapping each row before calling the :col and :menu slots"
 
+  attr :paging, :map,
+    default: nil,
+    doc: "the screen's `@paging`: the grid shows a page of rows and grows on request"
+
+  attr :page_size, :integer, default: 20
+
   slot :col, required: true do
     attr :label, :string
     attr :num, :boolean
@@ -860,6 +867,19 @@ defmodule FlezhaUiWeb.CoreComponents do
     assigns =
       with %{rows: %Phoenix.LiveView.LiveStream{}} <- assigns do
         assign(assigns, row_id: assigns.row_id || fn {id, _item} -> id end)
+      end
+
+    # A stream is never sliced: its rows are not held here to count. The page
+    # is its own assign, since a page holding every row equals `rows` and
+    # would not count as changed when the listing grows to it.
+    assigns =
+      case assigns do
+        %{paging: %{} = paging, rows: rows} when is_list(rows) ->
+          shown = FlezhaUiWeb.Live.Sections.shown(paging, assigns.id, assigns.page_size)
+          assign(assigns, page: Enum.take(rows, shown), shown: shown, total: length(rows))
+
+        _unpaged ->
+          assign(assigns, page: assigns.rows, shown: nil, total: nil)
       end
 
     ~H"""
@@ -883,7 +903,7 @@ defmodule FlezhaUiWeb.CoreComponents do
           phx-update={match?(%Phoenix.LiveView.LiveStream{}, @rows) && "stream"}
         >
           <tr
-            :for={row <- @rows}
+            :for={row <- @page}
             role="row"
             id={@row_id && @row_id.(row)}
             data-testid={@row_testid && @row_testid.(row)}
@@ -910,8 +930,61 @@ defmodule FlezhaUiWeb.CoreComponents do
           </tr>
         </tbody>
       </table>
-      <div :if={@foot != []} class="fui-grid-foot">{render_slot(@foot)}</div>
+      <div :if={@foot != [] or (@shown && @total > @shown)} class="fui-grid-foot">
+        {render_slot(@foot)}
+        <.more :if={@shown} id={@id} shown={@shown} total={@total} step={@page_size} />
+      </div>
     </div>
+    """
+  end
+
+  @doc """
+  A listing that is not a grid, paged the way a grid is: its inner block is
+  given the rows to show, and the control that grows it follows.
+
+      <.paged :let={page} id="sinks" rows={@sinks} paging={@paging}>
+        <ul><li :for={sink <- page}>…</li></ul>
+      </.paged>
+  """
+  attr :id, :string, required: true, doc: "the listing's id, the key its count is kept under"
+  attr :rows, :list, required: true
+  attr :paging, :map, required: true, doc: "the screen's `@paging`"
+  attr :page_size, :integer, default: 20
+  slot :inner_block, required: true
+
+  def paged(assigns) do
+    shown = FlezhaUiWeb.Live.Sections.shown(assigns.paging, assigns.id, assigns.page_size)
+    assigns = assign(assigns, shown: shown, page: Enum.take(assigns.rows, shown))
+
+    ~H"""
+    {render_slot(@inner_block, @page)}
+    <.more id={@id} shown={@shown} total={length(@rows)} step={@page_size} />
+    """
+  end
+
+  @doc """
+  The control that grows a listing by a page, stating how many of how many it
+  shows; nothing once every row is shown. `grid/1` and `paged/1` render it.
+  """
+  attr :id, :string, required: true, doc: "the listing's id, the key its count is kept under"
+  attr :shown, :integer, required: true
+  attr :total, :integer, required: true
+  attr :step, :integer, default: 20
+
+  def more(assigns) do
+    ~H"""
+    <button
+      :if={@total > @shown}
+      type="button"
+      class="fui-more"
+      phx-click="grid_more"
+      phx-value-id={@id}
+      phx-value-shown={@shown}
+      phx-value-step={@step}
+      data-testid={"#{@id}-more"}
+    >
+      Show {min(@step, @total - @shown)} more · {@shown} of {@total}
+    </button>
     """
   end
 
@@ -1017,6 +1090,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   attr :value, :any, required: true
   attr :testid, :string, default: nil
   attr :class, :string, default: nil
+  attr :title, :string, default: nil
   slot :inner_block
 
   def live_value(assigns) do
@@ -1028,6 +1102,7 @@ defmodule FlezhaUiWeb.CoreComponents do
       data-value={to_string(@value)}
       data-testid={@testid}
       class={@class}
+      title={@title}
       phx-no-format
     >{if @inner_block != [], do: render_slot(@inner_block), else: @value}</span>
     """
@@ -1061,6 +1136,7 @@ defmodule FlezhaUiWeb.CoreComponents do
       viewBox={"0 0 #{@width} #{@height}"}
       width={@width}
       height={@height}
+      preserveAspectRatio="none"
       role="img"
       aria-label={"#{@label}: #{length(@values)} samples, peak #{Enum.max(@values)} msgs/s"}
       data-testid={@testid}
@@ -1134,15 +1210,26 @@ defmodule FlezhaUiWeb.CoreComponents do
   """
   attr :testid, :string, required: true, doc: "also names the figure's DOM id"
   attr :label, :string, required: true
-  attr :value, :any, default: nil, doc: "the figure; nil draws none"
+
+  attr :value, :any,
+    default: nil,
+    doc: "the figure; nil draws none. A number of 10 000 or more is compact"
+
+  attr :unit, :string, default: nil, doc: "the figure's unit, set small beside it"
   attr :tone, :atom, default: :neutral, values: [:positive, :warning, :negative, :neutral]
   attr :condition, :string, default: nil, doc: "what the figure means, in words"
   attr :href, :string, default: nil
   slot :inner_block
+  slot :foot, doc: "a link or what the tile leaves out, on its bottom line"
 
   def tile(%{href: href} = assigns) when is_binary(href) do
     ~H"""
-    <.link navigate={@href} class="fui-tile fui-indicator" data-testid={@testid} data-tone={@tone}>
+    <.link
+      navigate={@href}
+      class="fui-tile fui-indicator flz-tile"
+      data-testid={@testid}
+      data-tone={@tone}
+    >
       <.tile_body {assigns} />
     </.link>
     """
@@ -1150,16 +1237,20 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   def tile(assigns) do
     ~H"""
-    <div class="fui-tile fui-indicator" data-testid={@testid} data-tone={@tone}>
+    <div class="fui-tile fui-indicator flz-tile" data-testid={@testid} data-tone={@tone}>
       <.tile_body {assigns} />
     </div>
     """
   end
 
+  # Four rows, always — label, figure, body, foot — so every tile of a row
+  # puts its parts on the same lines.
   defp tile_body(assigns) do
+    assigns = assign(assigns, :shown, assigns.value && Format.compact(assigns.value))
+
     ~H"""
     <span class="fui-indicator-label">{@label}</span>
-    <span class="fui-indicator-figure">
+    <span class="fui-indicator-figure flz-figure-fit">
       <span
         class={"fui-shape fui-tone-#{@tone}"}
         data-shape={Words.shape(@tone)}
@@ -1169,15 +1260,20 @@ defmodule FlezhaUiWeb.CoreComponents do
       <.live_value
         :if={not is_nil(@value)}
         id={"#{@testid}-value"}
-        value={@value}
-        class="fui-figure"
+        value={@shown}
+        title={"#{@value}#{@unit && " " <> @unit}"}
+        class="fui-figure flz-figure-value"
         testid={"#{@testid}-value"}
       />
+      <span :if={@unit && not is_nil(@value)} class="flz-figure-unit">{@unit}</span>
     </span>
-    <span :if={@condition} class="fui-figures" data-testid={"#{@testid}-condition"}>
-      {@condition}
+    <span class="fui-indicator-body">
+      <span :if={@condition} class="fui-figures" data-testid={"#{@testid}-condition"}>
+        {@condition}
+      </span>
+      {render_slot(@inner_block)}
     </span>
-    {render_slot(@inner_block)}
+    <span :if={@foot != []} class="fui-indicator-foot flz-tile-foot">{render_slot(@foot)}</span>
     """
   end
 
@@ -1447,14 +1543,14 @@ defmodule FlezhaUiWeb.CoreComponents do
         <.code_block testid="runtime-error-hint">{@error.hint}</.code_block>
       </div>
       <p :if={not String.starts_with?(@error.code, "ui.")} class="fui-note-meta">
-        <code data-testid="runtime-error-code">{@error.code}</code>
         <a
           href={reference_url(@error.code)}
           target="_blank"
           rel="noopener noreferrer"
+          title={"What #{@error.code} means"}
           data-testid="runtime-error-reference"
         >
-          What <code>{@error.code}</code> means
+          Reference <code data-testid="runtime-error-code">{@error.code}</code>
         </a>
       </p>
       <.link :if={@settings_link?} href={~p"/users/settings"}>

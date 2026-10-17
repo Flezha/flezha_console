@@ -19,7 +19,7 @@ test.describe('Talking to a relay', () => {
   }) => {
     await page.getByTestId('diagnose-btn').click();
     await expect(page.getByTestId('diagnose-panel')).toBeVisible();
-    await expect(page.getByTestId('diagnose-verdict')).toHaveText(/^\s*(Nothing wrong|Worth a look|A problem)\s*$/);
+    await expect(page.getByTestId('diagnose-verdict')).toHaveText(/^\s*(No fault found|Worth a look|A problem)\s*$/);
     const finding = page.locator('[data-testid^="diagnose-finding-diagnose."]').first();
     await expect(finding.getByTestId('runtime-error-reference')).toHaveAttribute(
       'href',

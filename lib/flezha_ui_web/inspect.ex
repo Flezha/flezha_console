@@ -226,7 +226,16 @@ defmodule FlezhaUiWeb.Inspect do
         <p class="fui-sentence" data-testid="inspector-sentence">
           {relay_sentence(@facts, @row)}
         </p>
-        <p :if={@row}><.state_badge value={@row.health} /></p>
+        <FlezhaUiWeb.RelayState.summary
+          state={FlezhaUiWeb.RelayState.of(@row, @facts.suspended)}
+          factory={@facts.factory_id && to_string(@facts.factory_id)}
+          runner={@facts.runner_id && to_string(@facts.runner_id)}
+          serving={@it.context[:serving]}
+          diagnosis={@it.diagnosis && @it.diagnosis.diagnosis}
+          error={@it.diagnosis && @it.diagnosis.error}
+          testid="inspector-state"
+          diagnosis_testid="inspector-diagnosis"
+        />
 
         <dl class="fui-facts">
           <.stat label="In" testid="inspector-rate-in">
@@ -237,23 +246,12 @@ defmodule FlezhaUiWeb.Inspect do
           <.stat label="Factory" mono>{@facts.factory_id || "—"}</.stat>
           <.stat label="Run">{@facts.run || "—"}</.stat>
           <.stat label="Node" mono>{(@row && @row[:node]) || "unplaced"}</.stat>
-          <.stat label="Runner">
-            <.ident :if={@facts.runner_id} value={@facts.runner_id} />
-            <span :if={!@facts.runner_id}>none — waiting for a runner</span>
-          </.stat>
           <.stat label="Uptime">{Format.duration(@facts.uptime_ms)}</.stat>
           <.stat label="Plugins bound" testid="inspector-plugins">{@plugins}</.stat>
         </dl>
         <p :if={@it.context[:factory_description]} class="fui-figures">
           {@facts.factory_id}: {@it.context.factory_description}
         </p>
-
-        <FlezhaUiWeb.Attention.diagnosis
-          :if={@it.diagnosis}
-          diagnosis={@it.diagnosis.diagnosis}
-          error={@it.diagnosis.error}
-          testid="inspector-diagnosis"
-        />
       <% else %>
         <p class="fui-sentence" data-testid="inspector-missing">
           {@it.relay} is not running in {@it.namespace || "this namespace"}: it may have stopped
@@ -397,15 +395,15 @@ defmodule FlezhaUiWeb.Inspect do
     ~H"""
     <.drawer
       id="inspector"
-      eyebrow="Parked entry"
+      eyebrow="Dead letter"
       title={short(@it.ref)}
       on_close="inspect_close"
       testid="inspector-entry"
     >
-      <.runtime_error error={@it.error} action="the parked entry" />
+      <.runtime_error error={@it.error} action="the dead letter" />
       <%= if @entry do %>
         <p class="fui-sentence" data-testid="inspector-sentence">
-          Parked by tasklet {field(@entry, :tasklet_id) || "—"} of {field(@entry, :relay_class) || "—"}, generation {field(
+          Left by tasklet {field(@entry, :tasklet_id) || "—"} of {field(@entry, :relay_class) || "—"}, generation {field(
             @entry,
             :generation
           ) || 1}.
@@ -452,7 +450,7 @@ defmodule FlezhaUiWeb.Inspect do
 
     where =
       cond do
-        is_nil(facts.runner_id) -> ", waiting for a runner"
+        is_nil(facts.runner_id) -> ", with no runner bound"
         row && row[:node] -> ", running on #{short(facts.runner_id)} at #{row.node}"
         true -> ", bound to #{short(facts.runner_id)}"
       end

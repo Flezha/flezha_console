@@ -84,8 +84,20 @@ defmodule FlezhaUiWeb.Glossary do
      "Whether a partition group's members own every key group exactly once. A gap or an overlap is a fault."},
     {"health", "Health",
      "How the Convergence Loop classified a relay: healthy, unknown, suspended, degraded, recovering, unbound, failed or parked."},
+    {"suspended", "Suspended",
+     "A relay stopped at a committed boundary on purpose, not by a fault. The next message wakes it, if a runner serves its factory."},
+    {"parked", "Parked",
+     "A relay stopped by a fault nothing in the system owns. It stays stopped until someone fixes it; the Convergence Loop does not touch it."},
+    {"unbound", "Unbound",
+     "A relay no runner is bound to. The Convergence Loop binds it once a runner serving its factory can take it."},
+    {"failed", "Failed",
+     "A relay whose runner is gone past its grace. The Convergence Loop rebinds it to another runner."},
+    {"recovering", "Recovering",
+     "A relay that is unbound or whose runner went away, still inside its grace while the Convergence Loop rebinds it."},
+    {"degraded", "Degraded",
+     "A relay that runs but not as declared; the Convergence Loop repairs it in place."},
     {"dead letter", "Dead letter",
-     "A record a tasklet could not process, parked so it can be inspected, replayed or dropped."},
+     "A record a tasklet could not process, kept in the dead-letter queue so it can be inspected, replayed or dropped."},
     {"schedule", "Schedule",
      "A cron expression that starts a relay from a factory each time it fires."},
     {"source", "Source",
@@ -111,7 +123,7 @@ defmodule FlezhaUiWeb.Glossary do
   # Per screen kind: what it shows, what it is for, and the terms it marks.
   @screens %{
     home: {
-      "Home sums up everything you can reach, then this namespace, in tiles: how many relays, runners, plugins and schedules there are, how healthy they are, what is flowing and how close each limit is. Problems sit above the tiles; the river below lists what happened while you watched.",
+      "Home sums up everything you can reach, then this namespace, in tiles: how many relays, runners, plugins and schedules there are, how healthy they are, what is flowing and how close each limit is. This namespace's problems sit below its tiles; the river below them lists what happened while you watched.",
       ["namespace", "runner", "relay", "factory", "health", "quota"]
     },
     relays: {
@@ -156,11 +168,11 @@ defmodule FlezhaUiWeb.Glossary do
       ["schedule", "factory", "relay"]
     },
     problems: {
-      "Every open problem in the namespaces you can reach, worst first: what is wrong, why, and the action that fixes it. Problems leave on their own once they clear.",
-      ["relay", "health", "quota", "dead letter", "partition group"]
+      "Every open problem in the namespaces you can reach, worst first. A relay's card states its state, why, its runner, who can run it and what happens next; Diagnose adds the controller's findings. Problems leave on their own once they clear.",
+      ["relay", "health", "suspended", "parked", "quota", "dead letter", "partition group"]
     },
     dlq: {
-      "Records parked in the dead-letter queue, grouped by tasklet. Inspect one in place, replay it into its relay, or drop it.",
+      "Dead letters: records a tasklet could not process, grouped by tasklet. Inspect one in place, replay it into its relay, or drop it.",
       ["dead letter", "tasklet", "relay"]
     },
     cluster: {
@@ -176,7 +188,7 @@ defmodule FlezhaUiWeb.Glossary do
       ["source"]
     },
     audit: {
-      "The controller's audit log: who did what, when, and with which outcome. Read it, filter it, or tail it live.",
+      "The controller's audit log: who did what, when, and with which outcome. Open a file to read its records, filter them, open one to see the whole of it, or tail the log live.",
       ["principal", "role"]
     },
     namespaces: {
