@@ -175,10 +175,17 @@ which SHALL read the next records of the same file with the filter that read use
 by their position in the file, and append them, showing no record twice and skipping
 none. Position, not time, orders them: a record's timestamp is its controller's
 monotonic clock, which does not carry on across a restart. The records of a read are
-not paged, since the read's limit bounds them.
+not paged; Read more SHALL stop once 5000 records are shown and say to narrow the
+filter instead. A rotation through this screen SHALL end a read of the file being
+written, since that file is replaced.
 
 #### Scenario: Reading on
 
 - **WHEN** a read of 100 was truncated and the operator activates Read more
 - **THEN** the next records are appended after the first 100, none repeated
+
+#### Scenario: Reading on stops at the cap
+
+- **WHEN** 5000 records are shown and more match
+- **THEN** Read more is gone and the screen says to narrow the filter
 

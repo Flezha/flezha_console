@@ -105,7 +105,7 @@
             name="filter[file]"
             label="File"
             value={@filter["file"]}
-            placeholder="all files"
+            placeholder="current file"
             data-testid="audit-filter-file"
           />
           <.input
@@ -152,7 +152,7 @@
               <span>Outcome</span>
             </div>
             <ol data-testid="audit-records" class="fui-records">
-              <%!-- Not paged: the read's limit bounds what a read holds. --%>
+              <%!-- Not paged: Read more is capped at max_records/0. --%>
               <li :for={{record, index} <- Enum.with_index(@records)} data-testid="audit-record">
                 <button
                   type="button"
@@ -183,7 +183,15 @@
               <span class="fui-figures" data-testid="audit-truncated">
                 More records match than this read took.
               </span>
+              <span
+                :if={!more_readable?(@records)}
+                class="fui-figures"
+                data-testid="audit-capped"
+              >
+                Narrow the filter to read past the first {max_records()}.
+              </span>
               <.button
+                :if={more_readable?(@records)}
                 variant="secondary"
                 size="sm"
                 phx-click="read_more"

@@ -242,6 +242,8 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
       assert html =~ "diverged"
       assert html =~ "overwatch_state/3"
+      # Nobody read the runner, so the Condition does not say none is bound.
+      refute html =~ ~s(data-testid="relay-state-runner")
     end
   end
 

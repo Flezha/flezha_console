@@ -101,6 +101,21 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
       refute has_element?(view, ~s([data-testid="relay-index-row-demo#p0"]))
     end
 
+    test "a group opened at the foot of a page shows its partitions there", %{
+      conn: conn,
+      node: node
+    } do
+      singles = for n <- 1..19, do: row("r#{String.pad_leading("#{n}", 2, "0")}")
+      with_fleet(node, rows: singles ++ [group("s_group", 3), row("t_last")])
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default/relays")
+
+      html = view |> element(~s([data-testid="relay-members-s_group"])) |> render_click()
+
+      for p <- 0..2, do: assert(html =~ ~s(data-testid="relay-index-row-s_group#p#{p}"))
+      refute html =~ ~s(data-testid="relay-index-row-t_last")
+      assert text_of(html, ~s([data-testid="relay-rows-more"])) == "Show 1 more · 20 of 21"
+    end
+
     test "a wide group counts where its partitions run and which are unwell", %{
       conn: conn,
       node: node

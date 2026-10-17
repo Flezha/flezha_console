@@ -23,6 +23,11 @@ read, which its limit bounds — SHALL keep their own bound and render no contro
 - **WHEN** the operator activates that control twice
 - **THEN** all 43 tokens are shown and the control is gone
 
+#### Scenario: An open group stays whole
+
+- **WHEN** a relay partition group is the last row of a page and the operator opens it
+- **THEN** its partitions are shown under it, and the page still counts it as one row
+
 #### Scenario: A short list
 
 - **WHEN** a listing holds 7 rows

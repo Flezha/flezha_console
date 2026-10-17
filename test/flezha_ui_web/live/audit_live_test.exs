@@ -367,6 +367,25 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       assert html =~ ~s(data-testid="audit-read-more")
     end
 
+    test "Read more stops at the cap and says to narrow the filter", %{conn: conn, node: node} do
+      FakeController.set(node, {AuditLog, :read}, {:ok, for(n <- 1..5_001, do: audited(1, n))})
+
+      {:ok, view, _html} = live(conn, ~p"/audit")
+      filter(view, %{"limit" => "1000"})
+      read(view)
+
+      for _ <- 1..4, do: view |> element(~s([data-testid="audit-read-more"])) |> render_click()
+
+      html = render(view)
+      assert html =~ ~s(data-testid="audit-record-4999")
+      refute html =~ ~s(data-testid="audit-record-5000")
+      assert text_of(html, ~s([data-testid="audit-capped"])) =~ "read past the first 5000"
+      refute has_element?(view, ~s([data-testid="audit-read-more"]))
+
+      assert [%{limit: 5_001}, _ctx] =
+               node |> FakeController.calls({AuditLog, :read}) |> List.last()
+    end
+
     test "Read more reads on past the records shown, by position, with the read's own filter",
          %{conn: conn, node: node} do
       # Timestamps are a VM's monotonic clock, so a restart makes them run
@@ -461,6 +480,27 @@ defmodule FlezhaUiWeb.AuditLiveTest do
       assert [[_ctx]] = FakeController.calls(node, {AuditLog, :rotate})
       assert html =~ "audit-20261006T120000.jsonl"
       assert html =~ "Audit log rotated"
+    end
+
+    test "a rotation ends a read of the file being written, not of a closed one", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
+      FakeController.set(node, {AuditLog, :read}, {:ok, [%{"name" => "a"}, %{"name" => "b"}]})
+      {:ok, view, _html} = live(conn, ~p"/audit")
+      filter(view, %{"limit" => "1"})
+      read(view)
+      assert has_element?(view, ~s([data-testid="audit-read-more"]))
+
+      view |> element(~s([data-testid="audit-rotate-btn"])) |> render_click()
+      refute has_element?(view, ~s([data-testid="audit-record-0"]))
+      refute has_element?(view, ~s([data-testid="audit-read-more"]))
+
+      filter(view, %{"file" => "audit-1.jsonl"})
+      read(view)
+      view |> element(~s([data-testid="audit-rotate-btn"])) |> render_click()
+      assert has_element?(view, ~s([data-testid="audit-read-more"]))
     end
 
     test "a refused rotation shows the error and leaves the catalog as it was", %{

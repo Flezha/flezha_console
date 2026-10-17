@@ -121,7 +121,8 @@
   :if={@loaded? and @rows != []}
   paging={@paging}
   id="relay-rows"
-  rows={visible_rows(@rows, @expanded)}
+  rows={@rows}
+  expand={&open_members(&1, @expanded)}
   testid="relays-index-table"
   row_id={&"relay-row-#{&1.namespace}-#{&1.id}"}
   row_testid={&"relay-index-row-#{&1.id}"}

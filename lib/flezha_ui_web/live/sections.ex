@@ -71,10 +71,13 @@ defmodule FlezhaUiWeb.Live.Sections do
   end
 
   @page_size 20
-  # A count and an id a client sends are bounded, so a forged one cannot make
-  # a screen render an unbounded listing or hold an unbounded map.
+  # A count, an id and the number of grown listings are bounded, so forged
+  # events cannot make a screen render an unbounded listing or hold an
+  # unbounded map. Ids are built from data (a relay class, a factory), so the
+  # id bound is loose.
   @max_shown 10_000
-  @max_id_bytes 96
+  @max_id_bytes 1_024
+  @max_listings 64
 
   @doc """
   Paging for every screen of a live session: `@paging` holds how many rows
@@ -100,7 +103,9 @@ defmodule FlezhaUiWeb.Live.Sections do
               is_binary(shown) and is_binary(step) do
     with {shown, ""} <- Integer.parse(shown),
          {step, ""} <- Integer.parse(step),
-         true <- shown >= 0 and step > 0 do
+         true <- shown >= 0 and step > 0,
+         paging = socket.assigns.paging,
+         true <- Map.has_key?(paging, id) or map_size(paging) < @max_listings do
       count = min(shown + step, @max_shown)
       {:halt, Phoenix.Component.update(socket, :paging, &Map.put(&1, id, count))}
     else

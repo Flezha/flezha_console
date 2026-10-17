@@ -66,9 +66,10 @@ defmodule FlezhaUiWeb.AuditLive do
   def handle_event(
         "read_more",
         _params,
-        %{assigns: %{records: [_ | _], truncated: true}} = socket
-      ),
-      do: {:noreply, read_more(socket)}
+        %{assigns: %{records: [_ | _] = records, truncated: true}} = socket
+      ) do
+    if more_readable?(records), do: {:noreply, read_more(socket)}, else: {:noreply, socket}
+  end
 
   def handle_event("read_more", _params, socket), do: {:noreply, socket}
 
@@ -104,6 +105,7 @@ defmodule FlezhaUiWeb.AuditLive do
       {:ok, _rotated} ->
         {:noreply,
          socket
+         |> end_current_read()
          |> assign(rotate_error: nil)
          |> load_catalog()
          |> put_flash(:info, "Audit log rotated: the closed file is listed below.")}
@@ -179,9 +181,18 @@ defmodule FlezhaUiWeb.AuditLive do
 
   defp read_more(%{assigns: %{records: shown}} = socket), do: read_from(socket, shown)
 
+  # Each Read more re-reads what is shown, so what one screen holds is capped.
+  @max_records 5_000
+
+  @doc "Whether Read more may add to `records`, under the cap."
+  def more_readable?(records), do: length(records) < @max_records
+
+  @doc false
+  def max_records, do: @max_records
+
   defp read_from(socket, shown) do
     filter = socket.assigns.read_filter
-    limit = parse_limit(filter["limit"])
+    limit = min(parse_limit(filter["limit"]), @max_records - length(shown))
     params = read_params(filter, length(shown) + limit + 1)
 
     case NodeManager.audit_read(params, socket.assigns.flezha_token) do
@@ -203,6 +214,17 @@ defmodule FlezhaUiWeb.AuditLive do
         assign(socket, read_error: reason)
     end
   end
+
+  # A rotation replaces the file being written, so a read of it cannot go on.
+  defp end_current_read(%{assigns: %{read_filter: %{"file" => file}}} = socket) do
+    current = Enum.find_value(socket.assigns.catalog, &(&1.current? && &1.filename))
+
+    if file in ["", current],
+      do: assign(socket, records: nil, truncated: false, expanded: MapSet.new()),
+      else: socket
+  end
+
+  defp end_current_read(socket), do: socket
 
   # The catalog as listed: the file being written first, then the rotated
   # files the controller reports.

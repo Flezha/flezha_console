@@ -879,6 +879,37 @@ defmodule FlezhaUiWeb.SharedMechanicsTest do
     end
   end
 
+  describe "a forged Show more" do
+    defp paging(view), do: :sys.get_state(view.pid).socket.assigns.paging
+
+    test "a long listing id grows; bad counts and listings past the bound do not", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/namespaces")
+      long = String.duplicate("a", 200)
+
+      render_hook(view, "grid_more", %{"id" => long, "shown" => "20", "step" => "20"})
+      assert paging(view) == %{long => 40}
+
+      for forged <- [
+            %{"id" => "x", "shown" => "ten", "step" => "20"},
+            %{"id" => "x", "shown" => "20", "step" => "0"},
+            %{"id" => "x", "shown" => "-1", "step" => "20"},
+            %{"shown" => "20", "step" => "20"},
+            %{"id" => String.duplicate("b", 2_000), "shown" => "20", "step" => "20"}
+          ],
+          do: render_hook(view, "grid_more", forged)
+
+      assert paging(view) == %{long => 40}
+
+      for n <- 1..70,
+          do: render_hook(view, "grid_more", %{"id" => "l#{n}", "shown" => "0", "step" => "1"})
+
+      assert map_size(paging(view)) == 64
+
+      render_hook(view, "grid_more", %{"id" => long, "shown" => "40", "step" => "20"})
+      assert paging(view)[long] == 60
+    end
+  end
+
   describe "a relay's verdicts on each screen that lists it" do
     # `reads` is the element that states one relay's facts on that screen.
     @screens [

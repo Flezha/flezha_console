@@ -146,7 +146,7 @@
   <FlezhaUiWeb.RelayState.summary
     state={state}
     factory={@factory_id && to_string(@factory_id)}
-    runner={@runner_id && to_string(@runner_id)}
+    runner={if @load_error, do: :unread, else: @runner_id && to_string(@runner_id)}
     serving={@serving}
     diagnosis={@diagnosis}
     error={@diagnosis_error}

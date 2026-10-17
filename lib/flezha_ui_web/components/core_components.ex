@@ -854,6 +854,10 @@ defmodule FlezhaUiWeb.CoreComponents do
 
   attr :page_size, :integer, default: 20
 
+  attr :expand, :any,
+    default: nil,
+    doc: "fn row -> the rows drawn under it; a page counts only the rows it expands"
+
   slot :col, required: true do
     attr :label, :string
     attr :num, :boolean
@@ -876,10 +880,11 @@ defmodule FlezhaUiWeb.CoreComponents do
       case assigns do
         %{paging: %{} = paging, rows: rows} when is_list(rows) ->
           shown = FlezhaUiWeb.Live.Sections.shown(paging, assigns.id, assigns.page_size)
-          assign(assigns, page: Enum.take(rows, shown), shown: shown, total: length(rows))
+          page = rows |> Enum.take(shown) |> expand_rows(assigns.expand)
+          assign(assigns, page: page, shown: shown, total: length(rows))
 
         _unpaged ->
-          assign(assigns, page: assigns.rows, shown: nil, total: nil)
+          assign(assigns, page: expand_rows(assigns.rows, assigns.expand), shown: nil, total: nil)
       end
 
     ~H"""
@@ -937,6 +942,9 @@ defmodule FlezhaUiWeb.CoreComponents do
     </div>
     """
   end
+
+  defp expand_rows(rows, nil), do: rows
+  defp expand_rows(rows, expand) when is_list(rows), do: Enum.flat_map(rows, &[&1 | expand.(&1)])
 
   @doc """
   A listing that is not a grid, paged the way a grid is: its inner block is

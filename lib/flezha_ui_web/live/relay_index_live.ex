@@ -292,13 +292,11 @@ defmodule FlezhaUiWeb.RelayIndexLive do
   defp matches?(value, _actual) when value in [nil, ""], do: true
   defp matches?(value, actual), do: value == actual
 
-  @doc "The rows drawn: each group followed by its partitions while it is open."
-  def visible_rows(rows, expanded) do
-    Enum.flat_map(rows, fn row ->
-      if row[:partitions] && MapSet.member?(expanded, group_key(row)),
-        do: [row | row.members],
-        else: [row]
-    end)
+  @doc "The rows drawn under `row`: a group's partitions while it is open."
+  def open_members(row, expanded) do
+    if row[:partitions] && MapSet.member?(expanded, group_key(row)),
+      do: row.members,
+      else: []
   end
 
   @doc "How an open group is remembered."
