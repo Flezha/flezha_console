@@ -247,3 +247,61 @@ The seed SHALL also keep `testnet_chain`. Like every seed, it SHALL be idempoten
 - **WHEN** the runner does not announce `showcase`
 - **THEN** the other seeds run, and the log states that `testnet_showcase` was skipped and why
 
+### Requirement: The console never starts under a fallback cookie
+
+The console image SHALL refuse to start its node when `ERLANG_COOKIE` is unset or empty, and SHALL say which variable is missing. The dev stack SHALL declare its cookie once. The controller, the bootstrap steps, the console and the browser suite's helper nodes SHALL all read that one value from the environment rather than repeat it as a literal.
+
+#### Scenario: The image is started without a cookie
+
+- **WHEN** the console image is started with `ERLANG_COOKIE` unset
+- **THEN** it exits before starting an Erlang node
+- **AND** its output names `ERLANG_COOKIE`
+
+#### Scenario: The dev cookie is changed in one place
+
+- **WHEN** the cookie declared in `docker-compose.dev.yml` is changed and the stack is brought up
+- **THEN** the controller, the bootstrap steps and the console all use the new value
+- **AND** the browser suite's helper nodes reach the console and the controller with it
+
+### Requirement: The dev stack can run its distribution over TLS
+
+`docker-compose.dev-tls.yml`, layered over `docker-compose.dev.yml`, SHALL run every Erlang distribution link in the dev stack over TLS, with each side checking the other's certificate against a private CA the stack makes for itself. A one-shot step SHALL make the CA, one certificate per distributed host, and one option file per host into a volume. It SHALL keep what already exists across restarts and replace only what is missing or close to expiry. Without the overlay, the stack SHALL run exactly as before.
+
+#### Scenario: The stack comes up with the overlay
+
+- **WHEN** an operator runs the stack with both compose files from a clean state
+- **THEN** the certificates are made, the bootstrap is claimed, and the console serves its screens
+- **AND** the controller reports every link to the console and the bootstrap step as `tls`
+
+#### Scenario: The stack restarts with the overlay
+
+- **WHEN** the overlay stack is restarted
+- **THEN** the CA and the certificates from the previous run are reused
+- **AND** the links come back over TLS
+
+#### Scenario: A node without TLS tries to connect
+
+- **WHEN** a node with the right cookie but no TLS connects to the overlay stack's controller
+- **THEN** the connection is refused
+
+#### Scenario: A node with a certificate from another CA tries to connect
+
+- **WHEN** a TLS node with the right cookie presents a certificate not signed by the stack's CA
+- **THEN** the TLS handshake fails and the connection is refused
+
+#### Scenario: A node with the right certificate and the wrong cookie tries to connect
+
+- **WHEN** a TLS node with a certificate from the stack's CA presents the wrong cookie
+- **THEN** the connection is refused
+
+#### Scenario: The browser suite runs against the overlay stack
+
+- **WHEN** the browser suite runs against the console of the overlay stack
+- **THEN** its helper nodes reach the console and the controller over TLS with no change to the suite
+- **AND** the suite passes
+
+#### Scenario: The overlay is not used
+
+- **WHEN** the stack runs with `docker-compose.dev.yml` alone
+- **THEN** no service sets `-proto_dist`, and the links run over plain TCP as before
+

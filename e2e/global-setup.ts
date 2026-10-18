@@ -60,10 +60,17 @@ function failed(what: string, error: unknown): Error {
  * `elixir` running `args` as a node of the dev stack, so a script can reach
  * the console and the controller. Hidden, so it joins no node's mesh: each one
  * leaving would otherwise make `global` on every other node log, and churn the
- * controller and console.
+ * controller and console. The cookie is the container's own `ERLANG_COOKIE`;
+ * the node name and `args` reach `elixir` as positional parameters, never
+ * through the shell's parsing.
  */
-export const elixirArgv = (args: string[]) =>
-  ['elixir', '--sname', uniqueId('pw_cli'), '--hidden', '--cookie', 'flezha_dev_cookie', ...args];
+export const elixirArgv = (args: string[]) => [
+  'sh',
+  '-c',
+  'exec elixir --sname "$0" --hidden --cookie "$ERLANG_COOKIE" "$@"',
+  uniqueId('pw_cli'),
+  ...args,
+];
 
 /** Runs `elixir` with `args` inside `fui_web` and answers its output. */
 export function devElixir(what: string, args: string[]): string {

@@ -1,0 +1,61 @@
+# Runs every Erlang distribution link of the dev stack over TLS, each side
+# checking the other's certificate against a private CA the stack makes itself.
+# Layered over the dev stack:
+#
+#   docker compose -f docker-compose.dev.yml -f docker-compose.dev-tls.yml up
+#
+# A node needs a certificate from that CA as well as the cookie, and a node
+# without TLS cannot connect at all. `docker exec` inherits ELIXIR_ERL_OPTIONS,
+# so a helper node started inside fui_web runs over TLS with that container's
+# certificate. Without this file the stack runs over plain TCP.
+
+x-dist-tls: &dist-tls
+  depends_on:
+    dist_tls_certs:
+      condition: service_completed_successfully
+  volumes:
+    - fui_dist_tls:/dist_tls:ro
+
+services:
+  # Makes the CA, and a key, certificate and option file per distributed host,
+  # into the volume every node reads them from. Keeps what already exists.
+  dist_tls_certs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fui_dist_tls_certs
+    user: root
+    restart: "no"
+    command:
+      - sh
+      - /flezha_ui_dev/dist_tls_certs.sh
+      - flezha_controller
+      - fui_web
+      - fui_bootstrap
+      - fui_sandbox_bootstrap
+    volumes:
+      - ./priv/dev:/flezha_ui_dev:ro
+      - fui_dist_tls:/dist_tls
+
+  controller:
+    <<: *dist-tls
+    environment:
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/flezha_controller.conf
+
+  bootstrap:
+    <<: *dist-tls
+    environment:
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fui_bootstrap.conf
+
+  sandbox_bootstrap:
+    <<: *dist-tls
+    environment:
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fui_sandbox_bootstrap.conf
+
+  web:
+    <<: *dist-tls
+    environment:
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fui_web.conf
+
+volumes:
+  fui_dist_tls:

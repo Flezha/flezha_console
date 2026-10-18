@@ -28,6 +28,8 @@ defmodule FlezhaUi.Service.NodeManager do
 
   require Logger
 
+  alias FlezhaUi.Service.NodeConnector
+
   @default_timeout 15_000
 
   # How long past a call's own deadline the console waits, so a relay that does
@@ -48,8 +50,15 @@ defmodule FlezhaUi.Service.NodeManager do
   # so it is cached. `authz.registry_unavailable` is transient and is not.
   @token_codes ~w(authz.token_malformed authz.token_unknown authz.token_revoked authz.token_expired)
 
+  @doc """
+  The configured controller node while it is connected, otherwise `nil`.
+
+  Any other connected node — a remote shell, a helper, another controller — is
+  never answered, so it never receives a call, a caller context or a token.
+  """
   def connected_node do
-    Node.list(:connected) |> List.first()
+    node = NodeConnector.target_node()
+    if node in Node.list(:connected), do: node
   end
 
   @doc """
@@ -344,10 +353,12 @@ defmodule FlezhaUi.Service.NodeManager do
     end
   end
 
-  # The node a stream goes to: the one connected, or exactly `target` while it
-  # still is, never another node that took its place.
-  defp stream_node(nil), do: connected_node()
-  defp stream_node(target), do: if(target in Node.list(:connected), do: target)
+  # The node a stream goes to: the connected controller, and when `target` is
+  # given, only while that is still it.
+  defp stream_node(target) do
+    node = connected_node()
+    if target in [nil, node], do: node
+  end
 
   @doc """
   Whether `message` is the answer of a stream `request`: `:no_response`, or

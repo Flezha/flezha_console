@@ -198,7 +198,7 @@ defmodule FlezhaUiWeb.ControllerLive do
 
     # The feed reports a refusal to open the same way as a stream that lost its
     # node, so a node already gone is refused here rather than read as stopped.
-    if stop.target in Node.list(:connected) do
+    if stop.target == NodeManager.connected_node() do
       {:ok, _feed} =
         EventFeed.start_link(
           open: &NodeManager.stop_controller(stop.target, opts, token, &1),

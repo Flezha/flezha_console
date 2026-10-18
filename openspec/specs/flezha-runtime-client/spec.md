@@ -304,3 +304,24 @@ Wherever the console shows a `%Flezha.Error{}`, it SHALL show the error's messag
 - **WHEN** a call fails because no controller is connected or the call timed out
 - **THEN** the existing transport message is shown and no reference link is rendered
 
+### Requirement: The console calls only the configured controller
+
+`NodeManager` SHALL send every remote call and open every stream only to the controller node named by `FLEZHA_NODE`, or by the `:flezha_node` application setting when that variable is unset. `NodeManager.connected_node/0` SHALL answer that node while it is connected and `nil` otherwise, whatever other nodes are connected to the console. No other connected node SHALL receive a call, a caller context or a token.
+
+#### Scenario: Another node is connected as well
+
+- **WHEN** the configured controller and another node are both connected to the console
+- **THEN** every `NodeManager` call is answered by the configured controller
+- **AND** the other node receives no call
+
+#### Scenario: Only some other node is connected
+
+- **WHEN** the configured controller is not connected but another node is
+- **THEN** `NodeManager.connected_node/0` answers `nil`
+- **AND** every `NodeManager` call answers `{:error, :node_not_connected}` without contacting the other node
+
+#### Scenario: The configured controller comes back
+
+- **WHEN** the configured controller reconnects after being away
+- **THEN** the next `NodeManager` call is answered by it
+

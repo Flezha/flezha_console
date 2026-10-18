@@ -260,6 +260,45 @@ A cold start then seeds cleanly in the current vocabulary.
 | `fui_bootstrap` | One-shot: claims the authorization bootstrap and issues the UI's token |
 | `fui_web` | This app |
 | `flezha_ui_db` | Postgres |
+
+### Distribution over TLS
+
+The console, the controller and the bootstrap steps talk over Erlang
+distribution. By default that is plain TCP, guarded only by the cookie
+(`ERLANG_COOKIE`, declared once at the top of `docker-compose.dev.yml`). To run
+every link over TLS instead, layer the overlay on:
+
+```bash
+docker compose -f docker-compose.dev.yml -f docker-compose.dev-tls.yml up
+```
+
+A one-shot `fui_dist_tls_certs` (`priv/dev/dist_tls_certs.sh`) makes a private
+CA, and a key, certificate and option file per distributed host, into the
+`fui_dist_tls` volume. Later runs keep them, and remake only what is missing,
+expires within 30 days, or was signed by an earlier CA. Each node then starts
+with `ELIXIR_ERL_OPTIONS="-proto_dist inet_tls -ssl_dist_optfile
+/dist_tls/<host>.conf"`.
+
+- **Protected:** traffic between nodes is encrypted, and both sides of a link
+  check the other's certificate. A node needs a certificate from the stack's CA
+  *and* the cookie: a plain-TCP node, a node with another CA's certificate, and
+  a node with the wrong cookie are all refused.
+- **Not protected:** EPMD, which only reports node names and ports, still runs
+  in clear. The cookie is still required.
+- **Helper nodes:** `docker exec` inherits the container's
+  `ELIXIR_ERL_OPTIONS`, so the commands above and the browser suite's helper
+  nodes run over TLS unchanged. A node started any other way needs the same
+  two flags and a certificate whose subject alternative name is its host
+  name, because `inet_tls_dist` checks a peer against the host part of its node
+  name.
+- **Outside dev:** a deployment brings its own CA and certificates and keeps
+  the CA key off the nodes. The controller's release takes
+  `FLEZHA_DIST_TLS_OPTFILE`; the console takes the same flags through
+  `ELIXIR_ERL_OPTIONS`.
+
+`docker compose … down` followed by `up` without the overlay goes back to plain
+TCP. `docker volume rm flezha_ui_fui_dist_tls` discards the CA and the
+certificates, and the next overlay `up` makes new ones.
 | `fui_kafka`, `fui_zookeeper`, `fui_kafka_ui` | Kafka, for the Kafka provider |
 
 Useful commands:
@@ -269,7 +308,7 @@ docker exec fui_web mix compile                      # after editing .ex files
 docker logs fui_web 2>&1 | grep EventFeed            # signal feed status
 docker logs fui_web 2>&1 | grep ConfigWatcher        # why the console restarted itself
 docker attach flezha_controller                      # controller iex (detach: Ctrl+P Ctrl+Q)
-docker exec fui_web elixir --sname cli1 --cookie flezha_dev_cookie \
+docker exec fui_web sh -c 'exec elixir --sname cli1 --cookie "$ERLANG_COOKIE" "$@"' _ \
   /flezha_ui/priv/dev/cli_call.exs Relay.call_channel \
   '["default","orders","place",{"pair":"BTC-EUR","amount":1},{}]'   # call as flz does
 ```
@@ -416,6 +455,11 @@ Only two reads go without a context, because a context is built from them:
 `test/flezha_ui/service/published_surface_test.exs` holds the console to that
 with core's own extractor and list (`FLEZHA_CORE_PATH`, default `../flezha`).
 
+The controller is the node `FLEZHA_NODE` names, and only that one:
+`NodeManager.connected_node/0` answers it while it is connected and `nil`
+otherwise, so another node connected to the console — a remote shell, a helper
+node, a second controller — never receives a call, a caller context or a token.
+
 A call answers the published function's own value, or its
 `{:error, %Flezha.Error{}}` — code, class, message, hint — untouched, or one of
 the transport conditions only this node sees: not connected, API missing,
@@ -478,15 +522,13 @@ and a retrying feed reports a reconnect only once its re-opened stream is held.
 ## Manual setup (no Docker)
 
 ```bash
-# UI
-iex --name flezha_ui@flezha_ui_web.flezha_network --cookie flezha_cluster_cookie --hidden -S mix phx.server
-
 # Controller, from the flezha repo
-iex --name flezha@flezha_controller.flezha_network --cookie flezha_cluster_cookie -S mix
+iex --name flezha@flezha_controller.flezha_network --cookie "$ERLANG_COOKIE" -S mix
+
+# UI: connects to the node FLEZHA_NODE names, and calls no other
+FLEZHA_NODE=flezha@flezha_controller.flezha_network \
+  iex --name flezha_ui@flezha_ui_web.flezha_network --cookie "$ERLANG_COOKIE" --hidden -S mix phx.server
 ```
 
-Connect them from either side:
-
-```elixir
-Node.connect(:"flezha@flezha_controller.flezha_network")
-```
+Both nodes take the same cookie, one you choose: nothing falls back to a
+built-in value.

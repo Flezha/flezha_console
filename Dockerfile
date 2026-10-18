@@ -40,6 +40,8 @@ RUN mix local.hex --force && \
 # Expose the port Phoenix will run on
 EXPOSE 4000
 
-# Fetch deps and compile at startup so volume-mounted code changes are picked up
-# automatically, then migrate and seed, so a fresh database can log in at once.
-CMD ["sh", "-c", "mix deps.get && mix compile && mix ecto.migrate && mix run --no-start priv/repo/seeds.exs && elixir --sname flezha_ui --hidden --cookie ${ERLANG_COOKIE:-flezha_dev_cookie} -S mix phx.server"]
+# Refuse to start without a distribution cookie, rather than run under a
+# well-known one. Then fetch deps and compile at startup so volume-mounted code
+# changes are picked up automatically, then migrate and seed, so a fresh
+# database can log in at once.
+CMD ["sh", "-c", ": \"${ERLANG_COOKIE:?ERLANG_COOKIE must be set}\" && mix deps.get && mix compile && mix ecto.migrate && mix run --no-start priv/repo/seeds.exs && elixir --sname flezha_ui --hidden --cookie \"$ERLANG_COOKIE\" -S mix phx.server"]

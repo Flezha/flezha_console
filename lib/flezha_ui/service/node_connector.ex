@@ -19,20 +19,19 @@ defmodule FlezhaUi.Service.NodeConnector do
 
   @impl true
   def init(_opts) do
-    node = target_node()
-    Logger.info("[NodeConnector] Will connect to #{node}")
-    {:ok, %{node: node}, {:continue, :connect}}
+    Logger.info("[NodeConnector] Will connect to #{target_node()}")
+    {:ok, %{}, {:continue, :connect}}
   end
 
   @impl true
   def handle_continue(:connect, state) do
-    attempt_connect(state.node)
+    attempt_connect(target_node())
     {:noreply, state}
   end
 
   @impl true
   def handle_info(:retry, state) do
-    attempt_connect(state.node)
+    attempt_connect(target_node())
     {:noreply, state}
   end
 
@@ -77,7 +76,14 @@ defmodule FlezhaUi.Service.NodeConnector do
         @default_retry_interval_ms
       )
 
-  defp target_node do
+  @doc """
+  The controller node this console talks to: `FLEZHA_NODE`, else the
+  `:flezha_node` setting.
+
+  Read on every call rather than kept from boot, so the connector and the seam
+  always aim at the node currently configured.
+  """
+  def target_node do
     case System.get_env("FLEZHA_NODE") do
       nil -> Application.get_env(:flezha_ui, :flezha_node, :flezha@flezha_agent_dev)
       val -> String.to_atom(val)

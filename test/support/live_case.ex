@@ -6,11 +6,10 @@ defmodule FlezhaUiWeb.LiveCase do
   `FakeController`) and logs a user in, so a test only has to say what the
   controller should answer and then drive the screen.
 
-  Never concurrent, and one peer per module rather than per test:
-  `NodeManager.connected_node/0` reads `Node.list(:connected)`, which is global
-  VM state, so two modules with their own peers would each be able to answer as
-  the other's controller. `PeerNode.start!/2` disconnects stale peers for the
-  same reason.
+  Never concurrent, and one peer per module rather than per test: the
+  controller `NodeManager.connected_node/0` answers is named by `FLEZHA_NODE`,
+  which is global VM state, so two modules with their own peers would each
+  repoint the other's screens.
 
   Tagged `:distributed`, so `mix test --exclude distributed` still gives a fast
   inner loop with no peer boots.

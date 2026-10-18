@@ -12,6 +12,11 @@ x-default-runner-credential: &default-runner-credential
   FLEZHA_RUNNER_NAMESPACE: ${FLEZHA_DEMO_NAMESPACE:-default}
   FLEZHA_RUNNER_TOKEN_FILE: /auth/runner.token
 
+# The Erlang distribution cookie, named once: the controller, the bootstrap
+# steps, the console and every helper node run inside fui_web read this value.
+x-dev-cookie: &dev-cookie
+  ERLANG_COOKIE: flezha_dev_cookie
+
 x-sandbox-runner-credential: &sandbox-runner-credential
   FLEZHA_RUNNER_NAMESPACE: sandbox
   FLEZHA_RUNNER_TOKEN_FILE: /auth/runner.sandbox.token
@@ -48,6 +53,7 @@ services:
       # posture refuses to boot under prod config and the difference is worth
       # being able to see here.
       FLEZHA_DURABILITY_BACKEND: ${FLEZHA_DURABILITY_BACKEND:-none}
+      <<: *dev-cookie
     depends_on:
       kafka:
         condition: service_healthy
@@ -65,7 +71,7 @@ services:
       sh -c 'while true; do
         pkill node 2>/dev/null;
         echo "==> Starting flezha iex...";
-        iex --sname flezha --cookie flezha_dev_cookie -S mix;
+        iex --sname flezha --cookie "$$ERLANG_COOKIE" -S mix;
         echo "==> iex exited, restarting in 3s...";
         sleep 3;
       done'
@@ -202,11 +208,10 @@ services:
       controller:
         condition: service_started
     environment:
-      ERLANG_COOKIE: flezha_dev_cookie
+      <<: [*dev-cookie, *default-runner-credential]
       FLEZHA_NODE: flezha@flezha_controller
       FLEZHA_TOKEN_FILE: /auth/ui.token
       FLEZHA_UI_PRINCIPAL: flezha-ui
-      <<: *default-runner-credential
     volumes:
       - .:/flezha_ui
       - fui_auth_data:/auth
@@ -262,7 +267,7 @@ services:
       - "4000:4000"
     environment:
       MIX_ENV: dev
-      ERLANG_COOKIE: flezha_dev_cookie
+      <<: *dev-cookie
       FLEZHA_NODE: flezha@flezha_controller
       # Written by the `bootstrap` service. Read as a file rather than an env
       # var because it is issued after this container starts.

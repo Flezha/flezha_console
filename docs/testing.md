@@ -182,7 +182,10 @@ reason.
 ## The fake is checked against the controller
 
 `FakeController` stands in for the published `Flezha.Service.*` modules by name,
-on a peer node with this application's code left off its path. Two checks keep
+on a peer node with this application's code left off its path.
+`PeerNode.start!/3` names the peer it starts as `FLEZHA_NODE` until the test or
+module that started it ends, and the console calls only that node, so a test
+that links a second node by hand names its controller itself. Two checks keep
 it honest:
 
 - `published_surface_test.exs` reads the core checkout beside this repository
@@ -204,10 +207,10 @@ fails naming each read whose answer moved. When core changes an answer,
 re-record and fix the fake in the same change:
 
 ```bash
-docker exec fui_web elixir --sname rs1 --cookie flezha_dev_cookie \
-  /flezha_ui/priv/dev/record_shapes.exs           # writes the file
-docker exec fui_web elixir --sname rs2 --cookie flezha_dev_cookie \
-  /flezha_ui/priv/dev/record_shapes.exs --check   # what global setup runs
+docker exec fui_web sh -c 'exec elixir --sname rs1 --cookie "$ERLANG_COOKIE" \
+  /flezha_ui/priv/dev/record_shapes.exs'          # writes the file
+docker exec fui_web sh -c 'exec elixir --sname rs2 --cookie "$ERLANG_COOKIE" \
+  /flezha_ui/priv/dev/record_shapes.exs --check'  # what global setup runs
 ```
 
 A new read the console makes is added to `FlezhaUi.ControllerShapes.reads/0`.

@@ -6,7 +6,13 @@ defmodule FlezhaUi.PeerNode do
   this application's own ebin. That exclusion is deliberate: it is what makes a
   test able to catch code that only works because it happened to be loaded
   locally.
+
+  The peer started last is the controller: `start!/3` names it as
+  `FLEZHA_NODE`, which `NodeManager.connected_node/0` answers, until the test
+  or module that started it ends.
   """
+
+  alias FlezhaUi.TestEnv
 
   @cookie :flezha_ui_test_cookie
 
@@ -18,14 +24,12 @@ defmodule FlezhaUi.PeerNode do
   over distribution, so it outlives `Node.disconnect/1`.
 
   The caller is responsible for stopping the peer; `ExUnit`'s `on_exit/1` is
-  the usual place.
+  the usual place. Called from a test or its `setup_all`, since naming the
+  peer as the controller is undone by `on_exit/1`.
   """
   def start!(prefix \\ "peer", modules \\ [], peer_opts \\ %{}) do
     ensure_distributed!()
 
-    # Anything still connected from an earlier test would compete to be the
-    # "controller": `NodeManager.connected_node/0` answers whichever node comes
-    # first, so a lingering peer silently becomes the target.
     disconnect_all()
 
     {:ok, peer, node} =
@@ -38,6 +42,8 @@ defmodule FlezhaUi.PeerNode do
         }
         |> Map.merge(peer_opts)
       )
+
+    TestEnv.put_system("FLEZHA_NODE", Atom.to_string(node))
 
     # A peer starts as a bare Erlang node. The controller it stands in for is an
     # Elixir application, so Elixir has to be running for the peer to behave
@@ -57,10 +63,10 @@ defmodule FlezhaUi.PeerNode do
 
   Ships every stand-in `FakeController` names, so each call `NodeManager` makes
   is answered on the peer rather than raising `:undef`. Returns `{peer, node}`
-  exactly as `start!/2` does.
+  exactly as `start!/3` does.
   """
-  def start_controller!(prefix \\ "controller") do
-    {peer, node} = start!(prefix, FakeController.modules())
+  def start_controller!(prefix \\ "controller", peer_opts \\ %{}) do
+    {peer, node} = start!(prefix, FakeController.modules(), peer_opts)
 
     FakeController.reset(node)
     {peer, node}
@@ -69,9 +75,9 @@ defmodule FlezhaUi.PeerNode do
   @doc """
   Boots a controller peer for the calling test and stops it when the test ends.
 
-  The `setup` form of `start_controller!/1`. Forgetting the `on_exit` leaks a
-  node that then competes to be *the* controller for whatever runs next, so the
-  pairing is written once rather than at each test that wants a peer.
+  The `setup` form of `start_controller!/2`. Forgetting the `on_exit` leaks a
+  running node into whatever runs next, so the pairing is written once rather
+  than at each test that wants a peer.
   """
   def setup_controller(prefix \\ "controller") do
     {peer, node} = start_controller!(prefix)
@@ -88,7 +94,7 @@ defmodule FlezhaUi.PeerNode do
     disconnect_all()
   end
 
-  @doc "Drops every distribution link, so no stale peer can pose as the controller."
+  @doc "Drops every distribution link, so each test starts with no peer from an earlier one."
   def disconnect_all do
     Enum.each(Node.list(:connected), &Node.disconnect/1)
     :ok
