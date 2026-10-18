@@ -74,16 +74,31 @@ test('the system and namespace tiles stand level, keep their content inside, and
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await live('/namespaces/default');
+  await expect(page.getByTestId('home-system-tiles')).toBeVisible();
   await expect(page.getByTestId('home-namespace-tiles')).toBeVisible();
 
-  const heights = await page.evaluate(() =>
-    [...document.querySelectorAll('[data-testid$="-tiles"] .fui-indicator')].map((tile) =>
-      Math.round(tile.getBoundingClientRect().height),
-    ),
-  );
-  // They share one minimum height; a tile whose words wrap further at this
-  // width may stand a line taller, never more.
-  expect(Math.max(...heights) - Math.min(...heights), `tile heights ${heights}`).toBeLessThanOrEqual(16);
+  // Each row of tiles is a grid line with one minimum height; a line grows
+  // only as far as its most wrapped tile needs, which is the stack's to
+  // decide, so tiles are compared within their line, never across lines.
+  const lines = await page.evaluate(() => {
+    const byLine = new Map<string, { minimum: number; heights: number[] }>();
+    for (const tile of document.querySelectorAll('[data-testid$="-tiles"] .fui-indicator')) {
+      const grid = tile.closest('[data-testid$="-tiles"]') as HTMLElement;
+      const box = tile.getBoundingClientRect();
+      const key = `${grid.dataset.testid} at ${Math.round(box.top)}`;
+      const minimum = parseFloat(getComputedStyle(grid).gridAutoRows.replace(/^minmax\(/, ''));
+      const line = byLine.get(key) ?? { minimum, heights: [] };
+      line.heights.push(Math.round(box.height));
+      byLine.set(key, line);
+    }
+    return [...byLine.entries()];
+  });
+
+  expect(lines.length).toBeGreaterThanOrEqual(2);
+  for (const [line, { minimum, heights }] of lines) {
+    expect(Math.min(...heights), `${line}: ${heights}`).toBeGreaterThanOrEqual(minimum);
+    expect(Math.max(...heights) - Math.min(...heights), `${line}: ${heights}`).toBeLessThanOrEqual(16);
+  }
 
   // Nothing a tile holds — a figure, a sparkline, a meter — leaves its box.
   const spilled = () =>
