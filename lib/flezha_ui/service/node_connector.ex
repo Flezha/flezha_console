@@ -1,11 +1,8 @@
 defmodule FlezhaUi.Service.NodeConnector do
   @moduledoc """
-  Automatically connects to the configured flezha Erlang node and
-  reconnects whenever the connection is lost.
-
-  Configure the target node via the FLEZHA_NODE environment variable
-  (e.g. "flezha@flezha_agent_dev"). Defaults to the value set in
-  application config (:flezha_ui, :flezha_node).
+  Connects to the controller node `target_node/0` names (for example
+  `FLEZHA_NODE=flezha@flezha_controller`) and reconnects whenever the
+  connection is lost.
   """
 
   use GenServer

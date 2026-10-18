@@ -4,7 +4,8 @@ defmodule FlezhaUi.Service.NodeManagerTargetTest do
   connected to it.
 
   On its own module because it connects and disconnects two peers. Both are
-  controlled over stdio, so each outlives its distribution link being cut.
+  controlled over stdio, so each outlives its distribution link being cut, and
+  one pair serves every test.
   """
 
   use ExUnit.Case, async: false
@@ -17,16 +18,21 @@ defmodule FlezhaUi.Service.NodeManagerTargetTest do
 
   @posture {Flezha.AuthZ, :enforcement_posture}
 
-  setup do
-    configured = start_peer("target_configured", :enforced)
-    other = start_peer("target_other", :bootstrap_pending)
+  setup_all do
+    %{configured: start_peer("target_configured"), other: start_peer("target_other")}
+  end
 
-    # Starting a peer drops every other link, and names the newest as the
-    # controller; this test names the first one and links both.
+  # Starting a peer drops every other link and names the newest as the
+  # controller; each test names the first one and links both.
+  setup %{configured: configured, other: other} do
+    for {node, posture} <- [{configured, :enforced}, {other, :bootstrap_pending}] do
+      true = Node.connect(node)
+      FakeController.reset(node)
+      FakeController.set(node, @posture, posture)
+    end
+
     TestEnv.put_system("FLEZHA_NODE", Atom.to_string(configured))
-    true = Node.connect(configured)
-
-    %{configured: configured, other: other}
+    :ok
   end
 
   test "with another node connected as well, only the configured one is called", %{
@@ -66,10 +72,9 @@ defmodule FlezhaUi.Service.NodeManagerTargetTest do
     assert FakeController.calls(configured, @posture) == [[]]
   end
 
-  defp start_peer(prefix, posture) do
+  defp start_peer(prefix) do
     {peer, node} = PeerNode.start_controller!(prefix, %{connection: :standard_io})
     on_exit(fn -> PeerNode.stop(peer) end)
-    FakeController.set(node, @posture, posture)
     node
   end
 end
