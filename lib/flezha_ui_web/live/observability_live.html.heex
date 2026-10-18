@@ -160,7 +160,13 @@
     </p>
     <.signal_meanings :if={@tail_source} source={@tail_source} />
   </div>
-  <details :if={@tail_records != [] && @tail_source[:signals] not in [nil, []]}>
+  <%!-- The open state is the reader's: a re-render on every signal must not fold it. --%>
+  <details
+    :if={@tail_records != [] && @tail_source[:signals] not in [nil, []]}
+    id={"tail-meanings-#{@tailing}"}
+    phx-mounted={JS.ignore_attributes(["open"])}
+    data-testid="tail-meanings-fold"
+  >
     <summary class="fui-figures">What this source can say</summary>
     <.signal_meanings source={@tail_source} />
   </details>

@@ -55,6 +55,21 @@ test.describe('Observability', () => {
     await expect(button).toHaveAttribute('aria-pressed', 'false');
   });
 
+  test('the list of what a source can say stays open while signals arrive', async ({ page, live }) => {
+    await live('/observability');
+    await page.getByTestId('tail-beam_vm').click();
+
+    const fold = page.getByTestId('tail-meanings-fold');
+    await fold.locator('summary').click();
+    await expect(fold).toHaveAttribute('open', '');
+
+    // The VM reports every second; wait for the count to move past what it was.
+    const count = page.getByTestId('tail-count');
+    const before = await count.textContent();
+    await expect(count).not.toHaveText(before ?? '');
+    await expect(fold).toHaveAttribute('open', '');
+  });
+
   test('at phone width an open tail does not scroll sideways', async ({ page, live }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await live('/observability');
