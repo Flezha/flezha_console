@@ -14,8 +14,8 @@ test.describe('Namespaces', () => {
     await expect(page.getByTestId('namespaces-table')).toBeVisible();
     await expect(page.getByTestId('namespace-row-default')).toBeVisible();
     await expect(page.getByTestId('namespace-relays-default')).toHaveText(/^\s*\d+ relays?\s*$/);
-    // The dev stack runs one runner.
-    await expect(page.getByTestId('namespace-runners-default')).toHaveText(/^\s*1 runner\s*$/);
+    // How many runners serve it is the stack's to say, so the count is read for its form.
+    await expect(page.getByTestId('namespace-runners-default')).toHaveText(/^\s*\d+ runners?\s*$/);
 
     await page.getByTestId('namespace-view-default').click();
 

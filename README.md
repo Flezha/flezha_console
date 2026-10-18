@@ -332,6 +332,7 @@ npx playwright install chromium  # one-time
 npm run e2e                   # browser suite, needs the dev stack running
 npm run e2e:ui                # same, in Playwright's UI mode
 npx playwright test --project=phone  # the console held as a phone (390×844, touch)
+npm run e2e:flake-check       # the suite three times; lists any test that wavered
 
 npm run tokens                # the design-token gate over assets/ and lib/
 ```
@@ -347,13 +348,18 @@ before it ships.
 parallel workers, each logged in as its own console user, so bring the stack up
 first with `docker compose -f docker-compose.dev.yml up`. When the stack is
 published on another port, set `E2E_BASE_URL`, for example
-`E2E_BASE_URL=http://localhost:4001 npm run e2e`.
+`E2E_BASE_URL=http://localhost:4001 npm run e2e`. A run waits for the
+controller to be ready and holds the stack while it runs, so a second run
+against the same stack stops at once and names the one holding it; each worker
+keeps its tokens and role bindings in a namespace of its own. A failing browser
+test is investigated as `docs/testing.md` describes, and is fixed only once
+`npm run e2e:flake-check` passes.
 
 No test waits for time to pass: a test causes what it asserts and waits only for
 that, and `mix test` fails on a sleep, a timer or a long timeout in either
 suite. Every ExUnit test is capped at 5 s and every browser test at 20 s; the
-whole of `mix test` runs in under forty seconds and the browser suite in about
-three minutes.
+whole of `mix test` runs in under a minute and the browser suite in about
+one.
 
 The ExUnit LiveView tests run against `test/support/fake_controller.ex`, which
 answers as the published `Flezha.Service.*` modules by name, on a peer BEAM node

@@ -24,6 +24,10 @@ config :flezha_ui,
   ecto_repos: [FlezhaUi.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# How long a page's websocket may take to answer before Phoenix falls back to
+# long polling, as it must behind a proxy that blocks websockets.
+config :flezha_ui, :longpoll_fallback_ms, 2_500
+
 # Where a controller error's code links to: core's errors reference, one
 # section per code family.
 config :flezha_ui, :core_docs_url, "https://docs.flezha.com"

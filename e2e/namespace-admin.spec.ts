@@ -1,4 +1,5 @@
 import {
+  growListing,
   menuAction,
   test,
   expect,
@@ -15,6 +16,9 @@ import {
  * `namespace_admin_test.exs`.
  *
  * `DevSetup` declares `default` with quota overrides, so its meters are real.
+ * Every run adds its workers' namespaces to the listing, so a row is found by
+ * growing the listing to it, and the runner row read is whichever the stack
+ * runs, since no test adds or removes a runner.
  * The created namespace is deleted in the same test, because the suite runs
  * against a shared controller and must leave it as it found it.
  */
@@ -25,6 +29,7 @@ import {
 async function deleteNamespace(page: Page, name: string): Promise<void> {
   await visitLive(page, '/namespaces');
   const row = page.getByTestId(`namespace-row-${name}`);
+  await growListing(page, 'namespaces', row);
   if ((await row.count()) === 0) return;
 
   await menuAction(page, `namespace-menu-${name}`, `namespace-delete-${name}`);
@@ -87,6 +92,7 @@ test.describe('Namespace administration', () => {
       await expect(page.getByTestId('create-namespace-modal')).toHaveCount(0);
 
       const row = page.getByTestId(`namespace-row-${name}`);
+      await growListing(page, 'namespaces', row);
       await expect(row).toBeVisible();
       // Declared, with no hub running for it.
       await expect(page.getByTestId(`namespace-state-${name}`)).toContainText('no hub');

@@ -2,7 +2,6 @@
 
 ## Purpose
 Every listing in the console shows a first page and grows by a page on request, with one shared mechanism whose shown count is held on the server so a refresh tick never shrinks it.
-
 ## Requirements
 ### Requirement: A listing shows a first page and grows on request
 
@@ -56,4 +55,20 @@ state. No screen SHALL keep its own paging state or its own "show more" control.
 - **WHEN** the web layer is searched for a listing's paging
 - **THEN** every paged listing reads its shown count from the shared mechanism and
   renders the kit's control
+
+### Requirement: An open row menu survives changes to other rows
+
+A row's action menu that an operator has opened SHALL stay open, on the same row, when the listing's refresh adds, removes or reorders other rows. The action the operator then chooses SHALL act on the row whose menu they opened.
+
+#### Scenario: Another operator adds a row while a menu is open
+
+- **WHEN** an operator has a row's menu open and another session adds a row to the same listing
+- **THEN** the menu stays open on the operator's row
+- **AND** it stays placed against that row's menu control
+- **AND** choosing an item acts on that row
+
+#### Scenario: The refresh ticks while a menu is open
+
+- **WHEN** the screen refreshes while a row's menu is open and no row changed
+- **THEN** the menu stays open
 

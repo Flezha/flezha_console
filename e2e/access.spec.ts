@@ -6,13 +6,21 @@ import {
   openSection,
   openSettings,
   growListing,
+  liveViewFrame,
   uniqueId,
+  visitLive,
+  workerPage,
   type Page,
 } from './fixtures';
 
 /**
  * Tokens and role bindings from the namespace screen, and the controls that
  * follow the bound role.
+ *
+ * Tokens and bindings are made in the worker's own namespace, so no other
+ * worker's rows redraw a listing a test acts on. The viewer token is the
+ * exception: it is issued in `default`, because the relay screen it is tried
+ * on needs a relay, and only `default` has a runner to serve one.
  *
  * The worker's user presents the service token, which is `admin@_system`, so
  * every write here is allowed. Each test leaves what it made behind it undone: a
@@ -22,7 +30,7 @@ import {
  * are asserted in `test/flezha_ui_web/live/namespace_admin_test.exs` and
  * `shared_mechanics_test.exs`.
  */
-const NS_URL = '/namespaces/default';
+const nsUrl = (namespace: string) => `/namespaces/${namespace}`;
 
 /** Opens the issue dialog, fills it and submits it, without judging the answer. */
 async function submitIssue(page: Page, principal: string, role: string) {
@@ -51,9 +59,33 @@ async function issueToken(page: Page, principal: string, role: string) {
   return { id, token };
 }
 
-/** Revokes `id` when it is still active. Safe from `finally`. */
-async function revokeToken(page: Page, live: (path: string) => Promise<void>, id: string) {
-  await live(NS_URL);
+/**
+ * How far, in pixels, the open menu `id` sits from where it hangs off its
+ * trigger: 4 px below it, or 4 px above it when it opened upward.
+ */
+function menuOffset(page: Page, id: string): Promise<number> {
+  return page.evaluate((id) => {
+    const pop = document.getElementById(id)!;
+    const trigger = pop.querySelector(':scope > [data-fui-pop-trigger]')!.getBoundingClientRect();
+    const panel = pop.querySelector(':scope > [data-fui-pop-panel]')!.getBoundingClientRect();
+    return Math.min(Math.abs(panel.top - trigger.bottom - 4), Math.abs(trigger.top - panel.bottom - 4));
+  }, id);
+}
+
+/** Binds `principal` to the viewer role from the namespace screen that is open. */
+async function bindViewer(page: Page, principal: string) {
+  await openSection(page, 'access');
+  await page.getByTestId('bind-role-btn').click();
+  await page.getByTestId('bind-role-principal').fill(principal);
+  await page.getByTestId('bind-role-role-viewer').check();
+  await page.getByTestId('bind-role-submit').click();
+  await growListing(page, 'role-bindings-grid', page.getByTestId(`role-binding-${principal}`));
+  await expect(page.getByTestId(`role-${principal}-viewer`)).toBeVisible();
+}
+
+/** Revokes `id` in `namespace` when it is still active. Safe from `finally`. */
+async function revokeToken(page: Page, live: (path: string) => Promise<void>, namespace: string, id: string) {
+  await live(nsUrl(namespace));
   await openSection(page, 'access');
   await growListing(page, 'tokens-grid', page.getByTestId(`token-${id}`));
   // The listing shows active tokens, so a revoked one is not offered at all.
@@ -64,9 +96,14 @@ async function revokeToken(page: Page, live: (path: string) => Promise<void>, id
   await expect(page.getByTestId(`token-${id}`)).toHaveCount(0);
 }
 
-/** Removes `principal`'s whole binding when it has one. Safe from `finally`. */
-async function removeBinding(page: Page, live: (path: string) => Promise<void>, principal: string) {
-  await live(NS_URL);
+/** Removes `principal`'s whole binding in `namespace` when it has one. Safe from `finally`. */
+async function removeBinding(
+  page: Page,
+  live: (path: string) => Promise<void>,
+  namespace: string,
+  principal: string,
+) {
+  await live(nsUrl(namespace));
   await openSection(page, 'access');
   await growListing(page, 'role-bindings-grid', page.getByTestId(`role-binding-${principal}`));
   if ((await page.getByTestId(`unbind-binding-${principal}`).count()) === 0) return;
@@ -77,8 +114,8 @@ async function removeBinding(page: Page, live: (path: string) => Promise<void>, 
 }
 
 test.describe('Tokens', () => {
-  test('a token is issued once, listed without its value, and revoked', async ({ page, live }) => {
-    await live(NS_URL);
+  test('a token is issued once, listed without its value, and revoked', async ({ page, live, workerNamespace }) => {
+    await live(nsUrl(workerNamespace));
     await openSection(page, 'access');
     const principal = uniqueId('pw_ci');
     let id = '';
@@ -124,25 +161,18 @@ test.describe('Tokens', () => {
       await expect(page.getByTestId(`token-status-${id}`)).toHaveText('Revoked');
       await expect(page.getByTestId(`token-revoked-${id}`)).toContainText(/now|s ago/);
     } finally {
-      if (id) await revokeToken(page, live, id);
+      if (id) await revokeToken(page, live, workerNamespace, id);
     }
   });
 });
 
 test.describe('Role bindings', () => {
-  test('a principal is bound to a role and unbound again', async ({ page, live }) => {
-    await live(NS_URL);
+  test('a principal is bound to a role and unbound again', async ({ page, live, workerNamespace }) => {
+    await live(nsUrl(workerNamespace));
     const principal = uniqueId('pw_bound');
 
     try {
-      await openSection(page, 'access');
-      await page.getByTestId('bind-role-btn').click();
-      await page.getByTestId('bind-role-principal').fill(principal);
-      await page.getByTestId('bind-role-role-viewer').check();
-      await page.getByTestId('bind-role-submit').click();
-
-      await growListing(page, 'role-bindings-grid', page.getByTestId(`role-binding-${principal}`));
-      await expect(page.getByTestId(`role-${principal}-viewer`)).toBeVisible();
+      await bindViewer(page, principal);
       await expect(page.getByTestId(`binding-bound-${principal}`)).toContainText(/now|s ago/);
       await expect(page.getByTestId(`binding-by-${principal}`)).not.toHaveText('—');
 
@@ -151,7 +181,59 @@ test.describe('Role bindings', () => {
       await page.getByTestId('unbind-role-confirm').click();
       await expect(page.getByTestId(`role-${principal}-viewer`)).toHaveCount(0);
     } finally {
-      await removeBinding(page, live, principal);
+      await removeBinding(page, live, workerNamespace, principal);
+    }
+  });
+
+  test('an open binding menu stays open while the screen refreshes and another session binds, and acts on its own row', async ({
+    page,
+    live,
+    browser,
+    workerNamespace,
+  }, testInfo) => {
+    const mine = uniqueId('pw_mine');
+    const theirs = uniqueId('pw_theirs');
+    const other = await workerPage(browser, testInfo);
+
+    // Every LiveView diff page A receives, so the test can wait for the
+    // screen's own refresh to patch it rather than for time to pass.
+    let diffs = 0;
+    page.on('websocket', (socket) =>
+      socket.on('framereceived', ({ payload }) => {
+        if (liveViewFrame(payload)?.event === 'diff') diffs++;
+      }),
+    );
+
+    try {
+      await live(nsUrl(workerNamespace));
+      await bindViewer(page, mine);
+
+      const item = page.getByTestId(`unbind-role-${mine}-viewer`);
+      await page.getByTestId(`binding-menu-${mine}`).click();
+      await expect(item).toBeVisible();
+
+      // Two refreshes patch the screen, each redrawing the "bound" times.
+      const before = diffs;
+      await expect.poll(() => diffs).toBeGreaterThanOrEqual(before + 2);
+      await expect(item).toBeVisible();
+
+      // Another session binds into the same listing while the menu is open.
+      await visitLive(other, nsUrl(workerNamespace));
+      await bindViewer(other, theirs);
+      await expect(page.getByTestId(`role-binding-${theirs}`)).toBeVisible();
+      await expect(item).toBeVisible();
+      // It still hangs from its own row's trigger, wherever the new row landed.
+      await expect.poll(() => menuOffset(page, `binding-menu-${mine}`)).toBeLessThanOrEqual(1);
+
+      await item.click();
+      await expect(page.getByTestId('unbind-role-modal')).toContainText(mine);
+      await page.getByTestId('unbind-role-confirm').click();
+      await expect(page.getByTestId(`role-binding-${mine}`)).toHaveCount(0);
+      await expect(page.getByTestId(`role-${theirs}-viewer`)).toBeVisible();
+    } finally {
+      await other.context().close();
+      await removeBinding(page, live, workerNamespace, mine);
+      await removeBinding(page, live, workerNamespace, theirs);
     }
   });
 });
@@ -168,7 +250,7 @@ test.describe('Controls follow the role', () => {
     let id = '';
 
     try {
-      await live(NS_URL);
+      await live(nsUrl('default'));
       const issued = await issueToken(page, principal, 'viewer');
       id = issued.id;
 
@@ -184,7 +266,7 @@ test.describe('Controls follow the role', () => {
       }
     } finally {
       await clearStoredToken(page);
-      if (id) await revokeToken(page, live, id);
+      if (id) await revokeToken(page, live, 'default', id);
     }
   });
 });

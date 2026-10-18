@@ -7,13 +7,13 @@ time to pass, and both are trusted because the gates below fail a run that
 would only look green.
 
 ```bash
-mix test                          # ExUnit, under forty seconds
+mix test                          # ExUnit, under a minute
 mix test --exclude distributed    # the fast loop: no peer node booted
 mix test --slowest 25             # what dominates a run
 
 docker compose -f docker-compose.dev.yml up   # the browser suite needs this up
 npx playwright install chromium               # one-time
-npm run e2e                                   # headless, 4 workers, about three minutes
+npm run e2e                                   # headless, 4 workers, about a minute
 E2E_WORKERS=1 npm run e2e                     # one worker, to read a failure in order
 npm run e2e:ui                                # Playwright UI mode
 npx playwright test plugin-attach             # one spec
@@ -21,6 +21,8 @@ npx playwright test --project=phone           # the phone spec alone
 E2E_BASE_URL=http://localhost:4001 npm run e2e  # a stack on another port
 npx playwright show-report                    # durations per test, slowest first
 E2E_TRACE=1 npx playwright test topology     # record a trace for each failure
+npm run e2e:flake-check                       # the whole suite 3 times; lists any test that wavered
+npm run e2e:flake-check -- 5 access           # 5 runs of the files matching `access`
 ```
 
 ## Which layer an assertion belongs to
@@ -104,7 +106,11 @@ runner share one machine, and a starved machine slows every test at once. So
 nothing pays per test what it need not. The dev endpoint runs Phoenix's
 whole-project reload check only after the file monitor has seen code change
 (`ConfigWatcher.code_changed?/0`), and never on a socket connect: run on every
-request, it cost the console more than the page itself. No trace is recorded
+request, it cost the console more than the page itself. The dev stack never falls back
+from a page's websocket to long polling (`:longpoll_fallback_ms` is unset in
+`config/dev.exs`): on a busy machine Phoenix's client would otherwise switch a
+slow page to long polling, whose LiveView outlives a dropped connection by
+seconds and whose frames the page-health guard cannot see. No trace is recorded
 unless `E2E_TRACE=1`: recording one costs every test, and a failure keeps its
 screenshot and `error-context.md`, with the page snapshot, without it. The
 phone project paints at one device pixel, and every test runs under reduced
@@ -133,12 +139,37 @@ Global setup makes one console user per worker, afresh each run
 in through the real form and stores the
 session in `e2e/.auth/worker-<n>.json`; the `test` fixture picks the worker's
 own. A stored flezha token, the namespace last worked in and other per-user
-state therefore never cross workers. Because the users are made afresh, two
-runs against one stack at the same time log each other out: run one at a time.
+state therefore never cross workers.
+
+Before it changes anything on the stack, global setup:
+
+- **waits for the controller**: it reads `Controller.boot_status` until the
+  controller is ready and every namespace's hub is `normal`, and fails after
+  30 s naming what is not, so no test meets a controller still recovering;
+- **takes the stack's lock**: it creates the namespace `e2e-run-lock`, which
+  the controller refuses to create twice. A second run against a held stack
+  stops there, naming the run that holds it and how long ago it started, and
+  leaves that run's users logged in. A run is known to be going by its nodes
+  in `fui_web`, which are named after it (`pw_<run>_…`): a lock whose run has
+  no node left was left by a run that died, and is taken over with a warning.
+  `E2E_TAKE_LOCK=1` takes a lock over regardless. A run in UI mode holds the
+  stack until it is closed. Playwright clears `test-results/` before global
+  setup runs, so a refused run has already cleared the holder's failure
+  screenshots;
+- **makes each worker a namespace**, `e2e-w<n>-<run>`, where the run id is the
+  run's start time in base 36, and deletes the worker namespaces of runs that
+  have gone. The worker fixture `workerNamespace` names it.
+
+The teardown global setup answers deletes the run's worker namespaces and its
+lock, whether the tests passed or not. A lock left behind by hand is removed
+with `flz namespace delete e2e-run-lock`.
 
 A test asserts only on what it made or caused — a relay it started, a plugin
 bound to that relay, a schedule, a namespace, a token, records it sent — named
-by `uniqueId()`, and removes it in `finally`. It asserts its own ids are or are
+by `uniqueId()`, and removes it in `finally`. Tokens and role bindings are made
+in the worker's namespace, so no other worker's rows redraw a listing a test
+acts on. Relays stay in `default`, under run-unique ids, because only `default`
+has a runner. A test asserts its own ids are or are
 not listed, never that a global count equals an earlier read: another worker may
 have started a relay in between. Every listing shows 20 rows and grows by a page,
 so other workers' rows — revoked tokens, finished relays, rotated audit files —
@@ -148,9 +179,47 @@ relay. Actions that reach every session on the stack — stopping the controller
 dropping a runner — are driven to their confirmation and cancelled in the
 browser; the confirmed path is asserted in ExUnit.
 
+No browser test asserts a value the stack decides rather than the test: how
+many runners, nodes, namespaces or late runners there are, how many relays are
+in each health, the first row of a listing other workers write to, or a layout
+that depends on how long live text is. It may assert such a value's form — a
+number followed by "late" — and the value itself is asserted in ExUnit, where
+the fake controller fixes it. Tiles are compared within one row, never across
+rows whose text is live.
+
+A row's action goes through `menuAction(page, menu, item)`: it opens the row's
+menu, opens it again if a redraw closed it, and clicks the item once it shows,
+within the action timeout. It is the one sanctioned retry, of a gesture and
+never of a test. An open menu itself stays open, and placed against its row,
+while other rows of its listing change, which `access.spec.ts` drives with two
+sessions.
+
 An ExUnit test that changes the VM's environment — an application setting or
 an OS variable such as `FLEZHA_TOKEN` — does it through `FlezhaUi.TestEnv`,
 which restores what it found when the test ends, and runs serially.
+
+## When a browser test fails
+
+A red run means a bug, in the code or in the test; nothing about the suite is
+random once the stack is ready and held by one run.
+
+1. Read the failure once: the error, its screenshot and `error-context.md`
+   under `test-results/`.
+2. Reproduce it under the load that failed it, never alone:
+   `npx playwright test --repeat-each=3` runs every file three times in one
+   run, so the failing test runs beside all the others on four workers. A
+   second run beside it is refused by the stack's lock. A test that passes
+   alone after failing in a full run is not fixed.
+3. Fix the cause: state the test does not own, a value the stack decides, a
+   menu acted on outside `menuAction`.
+4. Confirm with `npm run e2e:flake-check`, which runs the whole suite three
+   times with its normal workers and lists every test that failed in any run
+   or changed outcome between runs. It exits non-zero while it lists one. No
+   test is skipped or retried to pass it.
+
+Restart the controller with `flz controller stop`, and let compose start it
+again, rather than killing it: a killed controller can leave its DETS files to
+repair, and its next boot spends that time recovering.
 
 ## Shared mechanics are tested once
 
@@ -253,6 +322,8 @@ fixture itself:
 - `orders`, the dev runner's relay API: `place` is a JSON channel whose schema
   asks for `pair` and `amount` and answers the placed order; `audit` takes a
   line of text and answers nothing. Calls are told apart by a run-unique pair.
+  `relay-call-activity.spec.ts` starts a relay of its own from the `orders`
+  factory instead, because its Calls panel would hear every other spec's calls.
 - `lifecycle_webhook`, a controller plugin bound to no relay.
 - `testnet_chain`, whose websocket source names no channel and is bound only
   to tear down: the graph draws it as a source on the relay's first entry.

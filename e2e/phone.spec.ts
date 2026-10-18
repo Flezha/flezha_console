@@ -160,7 +160,8 @@ test.describe('The console on a phone', () => {
   }) => {
     await live('/namespaces/default/relays');
 
-    const row = page.locator('[data-testid^="relay-index-row-"]').first();
+    // A seeded relay, which no worker stops while this test reads its row.
+    const row = page.getByTestId('relay-index-row-testnet_store_1');
     const health = row.locator('td[data-label="Health"]');
     await health.scrollIntoViewIfNeeded();
     await expect(health).toBeInViewport();

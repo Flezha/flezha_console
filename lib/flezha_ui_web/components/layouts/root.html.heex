@@ -7,6 +7,7 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <meta name="csrf-token" content={get_csrf_token()} />
+    <.longpoll_fallback ms={Application.get_env(:flezha_ui, :longpoll_fallback_ms)} />
     <.live_title default="Flezha UI" suffix=" · Flezha">
       {assigns[:page_title]}
     </.live_title>

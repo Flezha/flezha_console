@@ -33,6 +33,17 @@ defmodule FlezhaUiWeb.LayoutsTest do
     "/namespaces/default/relays/relay_a/state"
   ]
 
+  describe "longpoll_fallback/1" do
+    import Phoenix.LiveViewTest
+
+    test "hands app.js the threshold, or nothing, and the page keeps its websocket" do
+      assert render_component(&Layouts.longpoll_fallback/1, ms: 2_500) =~
+               ~s(<meta name="longpoll-fallback-ms" content="2500">)
+
+      assert render_component(&Layouts.longpoll_fallback/1, ms: nil) == ""
+    end
+  end
+
   describe "breadcrumbs/1" do
     test "a rail destination carries no trail" do
       for path <- [

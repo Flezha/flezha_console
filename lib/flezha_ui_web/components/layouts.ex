@@ -39,6 +39,19 @@ defmodule FlezhaUiWeb.Layouts do
 
   embed_templates "layouts/*"
 
+  @doc """
+  How long a page's websocket may take to answer before Phoenix falls back to
+  long polling, for `app.js` to read; nothing when `ms` is nil, and the page
+  keeps its websocket however slowly it answers.
+  """
+  attr :ms, :integer, required: true
+
+  def longpoll_fallback(assigns) do
+    ~H"""
+    <meta :if={@ms} name="longpoll-fallback-ms" content={@ms} />
+    """
+  end
+
   # ---- Where the operator is ----
 
   @doc """

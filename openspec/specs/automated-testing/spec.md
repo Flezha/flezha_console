@@ -552,6 +552,13 @@ ExUnit SHALL cap every test at 5 s. The browser suite SHALL cap every test at 20
 
 The browser suite SHALL run spec files in parallel across workers. The default worker count SHALL be 4, overridable by an environment variable. Tests within one file SHALL run in order in one worker. A test SHALL NOT depend on another file's tests having run, or on their absence.
 
+The suite SHALL be deterministic: on unchanged code, a full run SHALL pass or fail the same way every time. To that end:
+
+- Global setup SHALL hold a lock on the stack for the length of the run, kept in the controller. A second run against a held stack SHALL refuse to start, naming the holder. A lock whose run is no longer running SHALL count as stale and MAY be taken over; a run that is still going SHALL keep the stack however long it lasts.
+- Global setup SHALL wait until the controller reports itself ready and every namespace's hub is serving before any test starts, and SHALL fail the run naming what is not ready past a fixed bound.
+- A flake check SHALL run the whole suite several times with its normal workers and report every test whose outcome differed between runs or that failed in any run. A browser test that failed in a full run SHALL count as fixed only when the flake check passes; passing alone SHALL NOT count.
+- The flake check SHALL be a separate command and SHALL NOT run as part of the normal suite. The measures that keep the suite deterministic SHALL NOT make a normal run slower than its measured baseline by more than 10%.
+
 #### Scenario: Two specs run at once
 
 - **WHEN** two spec files run in different workers against the same stack
@@ -563,9 +570,40 @@ The browser suite SHALL run spec files in parallel across workers. The default w
 - **THEN** it parks all of them in one setup step before its tests
 - **AND** its tests run in order in one worker
 
+#### Scenario: A second run against a held stack
+
+- **WHEN** a run is in progress on a stack and another run starts against it
+- **THEN** the second run stops in global setup, naming the run holding the stack
+- **AND** the first run's users stay logged in
+
+#### Scenario: A run right after a controller restart
+
+- **WHEN** the suite starts while the controller is still booting or a hub is recovering
+- **THEN** global setup waits until the controller is ready before the first test
+- **AND** fails naming what is not ready if that takes longer than its bound
+
+#### Scenario: A test that passes alone but failed in the full run
+
+- **WHEN** a browser test failed in a full run and then passes when run alone
+- **THEN** it is not counted as fixed
+- **AND** the flake check is run, and the test counts as fixed only when every run passes
+
+#### Scenario: Determinism costs no run time
+
+- **WHEN** the suite's wall time is measured as the median of three runs before and after the deterministic measures
+- **THEN** the after median is within 10% of the before median
+- **AND** `npm run e2e` does not run the flake check
+
+#### Scenario: Unchanged code, repeated runs
+
+- **WHEN** the flake check runs the suite three times on unchanged code
+- **THEN** every test has the same outcome in every run
+
 ### Requirement: Browser tests own the state they assert on
 
 A browser test SHALL assert only on state it created or caused: relays it started, plugins bound to its own relay, schedules, namespaces, tokens, records it sent. It SHALL identify that state by run-unique ids, a key, or a pair. It SHALL NOT mutate the dev stack's seeded relays. It SHALL NOT assert a global count equals a value it read earlier. Actions that affect every session on the stack, such as stopping the controller or dropping a runner, SHALL be driven to their confirmation and cancelled in the browser, with the confirmed path asserted in ExUnit.
+
+Each worker SHALL have a namespace of its own, made in global setup and removed when the run ends, and a test that creates namespace-scoped records (tokens, role bindings) SHALL create them there. A test SHALL NOT assert on a value the stack decides rather than the test: a count of runners, nodes, late runners or relays by health; the first row of a listing other workers write to; or a layout that depends on live text. It MAY assert the form of such a value. A test that acts on a row SHALL act on its own row, and SHALL open its menu through the shared row-action helper.
 
 #### Scenario: Another worker starts a relay mid-test
 
@@ -582,6 +620,23 @@ A browser test SHALL assert only on state it created or caused: relays it starte
 - **WHEN** a browser test opens a runner's drop dialog
 - **THEN** it asserts the dialog's warning and cancels
 - **AND** the confirmed drop, the refused process and the readmit are asserted in ExUnit
+
+#### Scenario: Another worker binds a role while a test unbinds one
+
+- **WHEN** a test binds and unbinds a principal while another worker binds principals
+- **THEN** the test's bindings live in its worker's namespace, and the other worker's never appear in its listing
+
+#### Scenario: A live figure on a screen
+
+- **WHEN** a test checks the runner summary or a health breakdown on the live stack
+- **THEN** it asserts that the figures are shown in their form, such as a number followed by "late"
+- **AND** never that they equal a particular number
+
+#### Scenario: Tiles whose text is live
+
+- **WHEN** a test checks that indicator tiles stand level
+- **THEN** it compares tiles within one row
+- **AND** does not compare rows whose height depends on live text
 
 ### Requirement: Test doubles are checked against the real controller
 

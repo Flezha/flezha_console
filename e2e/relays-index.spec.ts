@@ -52,6 +52,9 @@ test.describe('Relays index', () => {
     await page.getByTestId('relay-index-row-testnet_store_1').click();
     await expect(page.getByTestId('inspector-relay')).toBeVisible();
     await page.getByTestId('inspector-close').click();
+    // The drawer leaving widens the table and moves its rows, so the next
+    // click waits for it rather than landing on whichever row slid under it.
+    await expect(page.getByTestId('inspector-relay')).toHaveCount(0);
 
     await page.getByTestId('relay-link-testnet_store_1').click();
     await expect(page).toHaveURL(relayUrl);

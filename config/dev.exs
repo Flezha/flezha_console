@@ -91,6 +91,11 @@ config :swoosh, :api_client, false
 config :flezha_ui,
   restart_on_config_change: System.get_env("FLEZHA_UI_RESTART_ON_CONFIG_CHANGE") == "true"
 
+# The dev stack serves localhost, where a slow answer means a busy machine
+# rather than a blocking proxy. A page that fell back to long polling would
+# outlive a dropped connection by seconds, so the dev stack never falls back.
+config :flezha_ui, :longpoll_fallback_ms, nil
+
 # One refresh cadence for every screen, when set: the dev stack runs them fast,
 # so a browser test sees a tick land within a second of what it caused.
 if interval = System.get_env("FLEZHA_UI_REFRESH_INTERVAL_MS") do

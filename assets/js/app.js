@@ -34,6 +34,7 @@ const popPanel = pop => pop.querySelector(":scope > [data-fui-pop-panel]")
 const popTrigger = pop => pop.querySelector(":scope > [data-fui-pop-trigger]")
 const popItems = pop => [...popPanel(pop).querySelectorAll("[data-fui-pop-item]")].filter(i => !i.hidden)
 const popOpen = pop => !popPanel(pop).hidden
+const openPops = () => [...document.querySelectorAll("[data-fui-pop]")].filter(popOpen)
 
 // Placed against the viewport, so no scrolling ancestor — a grid, the canvas —
 // clips it; it opens upward when there is no room below, and aligns to the
@@ -117,8 +118,8 @@ document.addEventListener("click", event => {
 // A placed panel follows its trigger when what holds the trigger scrolls, and
 // closes once the trigger has scrolled out of sight.
 function followPops(scrolled) {
-  for (const pop of document.querySelectorAll("[data-fui-pop]")) {
-    if (!popOpen(pop) || !scrolled.contains?.(pop)) { continue }
+  for (const pop of openPops()) {
+    if (!scrolled.contains?.(pop)) { continue }
     const rect = popTrigger(pop).getBoundingClientRect()
     rect.bottom < 0 || rect.top > window.innerHeight ? closePop(pop) : placePop(pop)
   }
@@ -1222,10 +1223,15 @@ Hooks.ScrollBottom = {
 }
 
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
+let longPollFallback = document.querySelector("meta[name='longpoll-fallback-ms']")
 let liveSocket = new LiveSocket("/live", Socket, {
-  longPollFallbackMs: 2500,
+  // Without a threshold from the server the page keeps its websocket.
+  longPollFallbackMs: longPollFallback && Number(longPollFallback.content),
   params: {_csrf_token: csrfToken},
-  hooks: Hooks
+  hooks: Hooks,
+  // An open menu follows its trigger when a patch moves it: rows added or
+  // removed above an open row menu.
+  dom: {onPatchEnd: () => openPops().forEach(placePop)}
 })
 
 // Progress bar on live navigation and form submits. Its colour is read from

@@ -6,7 +6,8 @@ import { test, expect } from './fixtures';
  *
  * Toggling a source is controller-wide and asks for no confirmation, so it is
  * covered in `test/flezha_ui_web/live/observability_live_test.exs` alone, as is
- * how the tail renders what it receives.
+ * how the tail renders what it receives. A tail's records are this page's
+ * own, so its first record is read without regard to other workers.
  */
 test.describe('Observability', () => {
   test('every source says what it is and what it said recently; none that cannot speak is listed', async ({

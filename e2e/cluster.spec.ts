@@ -32,26 +32,29 @@ test.describe('Cluster and fleet', () => {
     // A connected runner registers the test factories; an empty factory list
     // would mean the handshake completed but registration did not. The filter
     // keeps the runners serving one, and the summary still counts them all.
+    // How many runners, nodes and late runners there are is the stack's to
+    // say, so the summary is read for its form.
     const runners = page.getByTestId('runners-default');
     const summary = page.getByTestId('runners-summary-default');
-    await expect(summary).toContainText(/\d+ connected · 1 node · \d+ factories served ·\s*0 late/);
+    await expect(summary).toContainText(/\d+ connected · \d+ nodes? · \d+ factories served ·\s*\d+ late/);
     await page.getByTestId('runner-filter-default').fill('store_input');
     await expect(runners.locator('tbody tr').first()).toContainText('store_input');
     await expect(page.locator('[data-testid^="node-count-"]').first()).toHaveText(/^\s*\d+\s*$/);
 
+    // One runner serving the flow factory, named by its id from here on.
+    const runnerId = (await runners.locator('tbody tr').first().getAttribute('data-testid'))!.replace('runner-', '');
+
     // Each runner says where it is held, since when, and when it was last heard from.
-    const first = runners.locator('tbody tr').first();
-    const firstId = (await first.getAttribute('data-testid'))!.replace('runner-', '');
-    await expect(page.getByTestId(`runner-node-of-${firstId}`)).toContainText('flezha@');
-    await expect(page.getByTestId(`runner-connected-${firstId}`)).toContainText(/ago|now/);
-    await expect(page.getByTestId(`runner-contact-${firstId}`)).toContainText(/ago|now/);
-    await expect(page.getByTestId(`runner-relays-${firstId}`)).toHaveAttribute(
+    await expect(page.getByTestId(`runner-node-of-${runnerId}`)).toContainText('flezha@');
+    await expect(page.getByTestId(`runner-connected-${runnerId}`)).toContainText(/ago|now/);
+    await expect(page.getByTestId(`runner-contact-${runnerId}`)).toContainText(/ago|now/);
+    await expect(page.getByTestId(`runner-relays-${runnerId}`)).toHaveAttribute(
       'href',
-      `/namespaces/default/relays?runner=${firstId}`,
+      `/namespaces/default/relays?runner=${runnerId}`,
     );
 
     // A runner serving more than two factories shows two, and the rest on request.
-    const more = page.locator('[data-testid^="serves-more-"]').first();
+    const more = runners.locator('[data-testid^="serves-more-"]').first();
     const moreId = (await more.getAttribute('data-testid'))!.replace('serves-more-', '');
     const rest = page.locator(`#serves-rest-default-${moreId}`);
     await expect(rest).toBeHidden();
@@ -59,14 +62,11 @@ test.describe('Cluster and fleet', () => {
     await expect(rest).toBeVisible();
     await expect(more).toHaveAttribute('aria-expanded', 'true');
 
-    // No runner is late on a healthy stack, so "Late only" lists none; the
-    // sort keeps every runner.
+    // Whether a runner is late is the fleet's to say, so "Late only" is
+    // asserted in ExUnit; the sort keeps every runner.
     await page.getByTestId('runner-filter-default').fill('');
-    await page.getByTestId('runner-late-default').check();
-    await expect(page.getByTestId('runners-none-match-default')).toBeVisible();
-    await page.getByTestId('runner-late-default').uncheck();
     await choose(page, 'runner-sort-default', 'newest');
-    await expect(runners.locator('tbody tr')).not.toHaveCount(0);
+    await expect(page.getByTestId(`runner-${runnerId}`)).toBeVisible();
 
     await expect(page.getByTestId('factory-store_input')).toContainText('flow');
     await page.getByTestId('factory-store_input').click();
@@ -75,9 +75,6 @@ test.describe('Cluster and fleet', () => {
     await expect(result).toContainText('is served by');
     await page.getByRole('button', { name: 'Clear' }).click();
     await expect(result).toHaveCount(0);
-
-    const row = page.getByTestId('runners-default').locator('tbody tr').first();
-    const runnerId = (await row.getAttribute('data-testid'))!.replace('runner-', '');
 
     await menuAction(page, `runner-menu-${runnerId}`, `drop-runner-${runnerId}`);
     await expect(page.getByTestId('drop-runner-modal')).toContainText('refuses this same');

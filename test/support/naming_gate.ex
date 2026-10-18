@@ -100,6 +100,8 @@ defmodule FlezhaUi.NamingGate do
     {"openspec/specs/automated-testing/spec.md",
      ~r/operatives?|max_entities_per_operative|on_operative_init|procedure(_id)?|ProcJournal|ProcInbox|proc_journal|proc_inbox|entit(y|ies)|entity_key|:stream|:workflow|:bounded|:unbounded|workflow|:operator|"operator"|EventRelay|compute_engine|processor|response\(\)|io_listen|StreamLive|stream_live|StreamBridge|stream_bridge|flezha-stylebook/,
      "the naming gate's own requirement lists every name it bans"},
+    {"e2e/global-setup.ts", ~r/setTimeout\(resolve, 500\)/,
+     "global setup paces its reads of a controller that is still booting; no test has started"},
     {"test/support/peer_node.ex", ~r/Process\.sleep\(20\)/,
      "eventually/2 is the one sanctioned poll: short steps toward a condition the test caused"},
     {"test/support/fake_controller.ex", ~r/Process\.sleep\(:infinity\)/,

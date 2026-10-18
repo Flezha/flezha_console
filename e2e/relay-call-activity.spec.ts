@@ -1,8 +1,10 @@
-import { test, expect, openSection, closeSection, cliCall, uniqueId, type Page } from './fixtures';
+import { test, expect, openSection, closeSection, cliCall, ownRelay, uniqueId, type Page } from './fixtures';
 
 /**
- * The relay screen's Calls panel on the seeded `orders` relay, whose `place`
- * channel answers an order and whose `audit` channel answers nothing.
+ * The relay screen's Calls panel on a relay of this file's own, started from
+ * the dev runner's `orders` factory, whose `place` channel answers an order
+ * and whose `audit` channel answers nothing. Other specs call the seeded
+ * `orders` relay, so only an own relay keeps their calls out of the panel.
  *
  * Calls from outside the console go through `cliCall()`, the request `flz`
  * sends, so the controller names them `cli`. Every row is found by a pair or
@@ -10,10 +12,11 @@ import { test, expect, openSection, closeSection, cliCall, uniqueId, type Page }
  * behind: a call is an input the relay consumes.
  */
 
-const ORDERS = ['default', 'orders'];
+const { id } = ownRelay('pw_calls', { factory: 'orders' });
+const RELAY = ['default', id];
 
 function placeFromCli(pair: string): Promise<unknown> {
-  return cliCall('Relay.call_channel', [...ORDERS, 'place', { pair, amount: 1 }, { deadline_ms: 20000 }]);
+  return cliCall('Relay.call_channel', [...RELAY, 'place', { pair, amount: 1 }, { deadline_ms: 20000 }]);
 }
 
 function callRow(page: Page, text: string) {
@@ -28,7 +31,7 @@ async function openCalls(page: Page): Promise<void> {
 
 test.describe('Calls to a relay', () => {
   test.beforeEach(async ({ live }) => {
-    await live('/namespaces/default/relays/orders');
+    await live(`/namespaces/default/relays/${id}`);
   });
 
   test('each call is listed with its source, channel, outcome, answer and duration', async ({

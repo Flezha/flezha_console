@@ -1,70 +1,18 @@
-import { spawn } from 'node:child_process';
-import { createInterface } from 'node:readline';
 import { test as base, expect, type Browser, type Locator, type Page, type TestInfo } from '@playwright/test';
-import { devElixir, elixirArgv, inConsole, submitLogin, uniqueId, workerState, workerUser } from './global-setup';
+import {
+  cliCall,
+  devElixir,
+  inConsole,
+  refusedWith,
+  submitLogin,
+  uniqueId,
+  viaCliNode,
+  workerNamespace,
+  workerState,
+  workerUser,
+} from './global-setup';
 
-export { uniqueId };
-
-type Waiting = { what: string; resolve: (out: string) => void; reject: (error: Error) => void };
-let cliNode: ((what: string, door: string, requests: unknown[][]) => Promise<string>) | undefined;
-
-/**
- * Sends `requests` to `door` through this worker's CLI node: one
- * `priv/dev/cli_call.exs --serve` inside `fui_web`, booted on the first call
- * and kept for the worker's life, since a node boot costs over a CPU-second.
- * Answers what the door printed; rejects with the door's error.
- */
-function viaCliNode(what: string, door: string, requests: unknown[][]): Promise<string> {
-  if (!cliNode) {
-    // `docker exec -i`: the node serves until its stdin closes with the worker.
-    const argv = elixirArgv(['/flezha_ui/priv/dev/cli_call.exs', '--serve']);
-    const child = spawn('docker', ['exec', '-i', 'fui_web', ...argv], { stdio: 'pipe' });
-    const waiting: Waiting[] = [];
-    let stderr = '';
-
-    child.stderr.on('data', (chunk) => (stderr += chunk));
-    createInterface({ input: child.stdout }).on('line', (line) => {
-      // A log line the node prints is not an answer; it is kept for a failure.
-      const answer = parseAnswer(line);
-      if (!answer) return void (stderr += `${line}\n`);
-
-      const next = waiting.shift()!;
-      if (answer.ok) next.resolve(answer.out);
-      else next.reject(new Error(`${next.what} failed:\n${answer.out}${answer.error}`));
-    });
-    child.on('exit', (code) => {
-      cliNode = undefined;
-      for (const { what: failed, reject } of waiting.splice(0)) {
-        reject(new Error(`${failed} failed: the CLI node exited with ${code}:\n${stderr}`));
-      }
-    });
-
-    cliNode = (what, name, args) =>
-      new Promise((resolve, reject) => {
-        waiting.push({ what, resolve, reject });
-        child.stdin.write(`${JSON.stringify({ door: name, args })}\n`);
-      });
-  }
-
-  return cliNode(what, door, requests);
-}
-
-function parseAnswer(line: string): { ok: boolean; out: string; error?: string } | null {
-  try {
-    const answer = JSON.parse(line);
-    return typeof answer?.ok === 'boolean' ? answer : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Runs the published operation `door` on the dev controller as `flz` sends it,
- * so the controller sees a CLI call, and answers its parsed JSON.
- */
-export async function cliCall(door: string, args: unknown[]): Promise<unknown> {
-  return JSON.parse(await viaCliNode(`cliCall ${door}`, door, [args]));
-}
+export { cliCall, uniqueId };
 
 /**
  * Sends each of `payloads` to `relay`'s `channel` as `flz relay send` does, in
@@ -323,12 +271,21 @@ async function preferredFactory(page: Page, run: Run): Promise<string> {
 
 /**
  * Runs one of a row's actions: opens the row's menu, named by its test id,
- * and clicks the item. A row keeps its actions in a menu, so an item is
- * hidden until its menu opens.
+ * and clicks the item, a test id or a locator. A row keeps its actions in a
+ * menu, so an item is hidden until its menu opens.
+ *
+ * A listing redrawn while the menu opens can close it, so the menu is opened
+ * again whenever it is found shut, and the item clicked once it shows; this
+ * retries the gesture, never the test, within the action timeout.
  */
-export async function menuAction(page: Page, menu: string, item: string): Promise<void> {
-  await page.getByTestId(menu).click();
-  await page.getByTestId(item).click();
+export async function menuAction(page: Page, menu: string, item: string | Locator): Promise<void> {
+  const trigger = page.getByTestId(menu);
+  const target = typeof item === 'string' ? page.getByTestId(item) : item;
+
+  await expect(async () => {
+    if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+    await target.click({ timeout: 1_000 });
+  }).toPass({ timeout: base.info().project.use.actionTimeout });
 }
 
 /**
@@ -662,7 +619,7 @@ export async function stopRelayCli(id: string, namespace = 'default'): Promise<v
   try {
     await cliCall('Relay.stop', [namespace, id]);
   } catch (error) {
-    if (!/relay\.(not_found|not_running)/.test(String(error))) throw error;
+    if (!refusedWith(error, 'relay.not_found', 'relay.not_running')) throw error;
   }
 }
 
@@ -686,8 +643,7 @@ export async function confirmEach(
 ): Promise<void> {
   while ((await controls.count()) > 0) {
     const before = await controls.count();
-    if (menu) await page.getByTestId(menu).click();
-    await controls.first().click();
+    await (menu ? menuAction(page, menu, controls.first()) : controls.first().click());
     await page.getByTestId(confirm).click();
     await expect(controls).toHaveCount(before - 1);
   }
@@ -773,11 +729,8 @@ function watchLiveViewClasses(classes: string[]): void {
   }).observe(document, { subtree: true, attributes: true, attributeFilter: ['class'] });
 }
 
-/**
- * A LiveView frame that reports a crash or a refused join. A join answered
- * with a redirect is LiveView navigating, not an error.
- */
-function liveViewFrameProblem(payload: string | Buffer): string | null {
+/** A websocket frame's LiveView topic, event and body, or null for any other frame. */
+export function liveViewFrame(payload: string | Buffer): { topic: string; event: string; body: any } | null {
   let frame: unknown;
   try {
     frame = JSON.parse(payload.toString());
@@ -786,8 +739,18 @@ function liveViewFrameProblem(payload: string | Buffer): string | null {
   }
   if (!Array.isArray(frame)) return null;
 
-  const [, , topic, event, body] = frame as [unknown, unknown, string, string, any];
-  if (typeof topic !== 'string' || !topic.startsWith('lv:')) return null;
+  const [, , topic, event, body] = frame as [unknown, unknown, unknown, string, any];
+  return typeof topic === 'string' && topic.startsWith('lv:') ? { topic, event, body } : null;
+}
+
+/**
+ * A LiveView frame that reports a crash or a refused join. A join answered
+ * with a redirect is LiveView navigating, not an error.
+ */
+function liveViewFrameProblem(payload: string | Buffer): string | null {
+  const frame = liveViewFrame(payload);
+  if (!frame) return null;
+  const { topic, event, body } = frame;
 
   if (event === 'phx_error') return `LiveView ${topic} crashed`;
 
@@ -809,12 +772,18 @@ function liveViewFrameProblem(payload: string | Buffer): string | null {
  * socket, and a request answered 400 or above or never answered each fail the
  * test at teardown, whatever it asserted.
  */
-export const test = base.extend<{ live: (path: string) => Promise<void>; pageHealth: PageHealth }>({
+export const test = base.extend<
+  { live: (path: string) => Promise<void>; pageHealth: PageHealth },
+  { workerNamespace: string }
+>({
   // A project naming its own session keeps it; every other test runs as its
   // worker's user, so per-user state never crosses workers.
   storageState: async ({ storageState }, use, testInfo) => {
     await use(storageState ?? workerState(testInfo.parallelIndex));
   },
+
+  // Global setup makes it for this run and the teardown removes it.
+  workerNamespace: [async ({}, use, workerInfo) => use(workerNamespace(workerInfo.parallelIndex)), { scope: 'worker' }],
 
   live: async ({ page }, use) => {
     await use((path: string) => visitLive(page, path));
