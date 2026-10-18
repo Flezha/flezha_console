@@ -735,10 +735,12 @@ defmodule FlezhaUiWeb.SharedMechanicsTest do
         row = @row
         arrange(row[:arrange] || :none, node, user)
 
-        {:ok, view, html} = live(conn, row.route)
+        {:ok, view, _html} = live(conn, row.route)
 
         html =
-          Enum.reduce(row[:before] || [], html, fn testid, _html -> click(view, testid) end)
+          Enum.reduce(row[:before] || [], render_async(view), fn testid, _html ->
+            click(view, testid)
+          end)
 
         assert text_of(html, row.in) =~ row.says
       end
@@ -874,7 +876,7 @@ defmodule FlezhaUiWeb.SharedMechanicsTest do
         refute has_element?(view, ~s([data-testid="#{row.more}"]))
 
         send(view.pid, :refresh)
-        assert view |> render() |> shown(row.rows) == 25
+        assert view |> render_async() |> shown(row.rows) == 25
       end
     end
   end

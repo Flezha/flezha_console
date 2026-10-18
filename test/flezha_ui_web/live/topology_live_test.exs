@@ -1346,7 +1346,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       stack(node, relays: ["relay_a", "relay_b"])
       snapshot(node, [{"relay_a", 100, 100}, {"relay_b", 10, 10}])
 
-      {:ok, view, html} = live(conn, ~p"/namespaces/default")
+      {view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       # The first snapshot has nothing to divide by, so no rate is stated.
       assert headline(html) == {"healthy", "Every relay in default is healthy."}
@@ -1365,7 +1365,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       stack(node)
       snapshot(node, [{"relay_a", 1, 1}])
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert {"quiet", _text} = view |> tick() |> headline()
     end
@@ -1374,7 +1374,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       stack(node)
       snapshot(node, [{"relay_a", 1, 1}])
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       snapshot(node, [{"relay_a", 5_000, 5_000}])
       assert {"flowing", _text} = view |> tick() |> headline()
@@ -1386,7 +1386,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       stack(node)
       snapshot(node, [{"relay_a", 1, 1}, {"elsewhere", 0, 0}])
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       snapshot(node, [{"relay_a", 1, 1}, {"elsewhere", 5_000, 5_000}])
       html = tick(view)
@@ -1399,7 +1399,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       stack(node, relays: [])
       snapshot(node, [{"elsewhere", 0, 0}])
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       snapshot(node, [{"elsewhere", 5_000, 5_000}])
       html = tick(view)
@@ -1417,7 +1417,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       stack(node, rows: rows)
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert headline(html) == {"attention", "1 relay needs attention."}
       assert figures(html) =~ "7 of 8 relays healthy"
@@ -1432,7 +1432,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
         {:ok, [%{relay_class: "relay_a", tasklet_id: "sh", entries: 7, bytes: 0}]}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert figures(html) =~ "7 dead letters"
       refute figures(html) =~ "parked"
@@ -1441,7 +1441,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     test "an empty namespace teaches what runners and relays are", %{conn: conn, node: node} do
       stack(node, relays: [], runners: [])
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert {"empty", "Nothing runs in default yet."} = headline(html)
       assert html =~ ~s(data-testid="topology-empty")
@@ -1460,7 +1460,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
          } do
       stack(node, rows: [summary_row("idle_but_sick", %{health: :degraded}), summary_row("fine")])
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert html =~ ~s(data-testid="problem-relay:default:idle_but_sick")
       assert html =~ "idle_but_sick is degraded"
@@ -1476,7 +1476,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     test "Diagnose answers inline beneath its problem", %{conn: conn, node: node} do
       stack(node, rows: [summary_row("sick", %{health: :failed})])
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       html =
         view
@@ -1512,7 +1512,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
          ]}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert html =~ "stranded is unplaced"
       assert html =~ "orders_p0 owns a broken key range"
@@ -1525,7 +1525,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     } do
       stack(node, rows: Enum.map(1..5, &summary_row("sick_#{&1}", %{health: :failed})))
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert html |> String.split(~s(data-testid="problem-relay:)) |> length() == 4
       assert html =~ "2 more problems on the Open problems screen"
@@ -1546,7 +1546,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
         {:per_arg, 1, %{"orders" => {:ok, ["runner-a"]}}, {:ok, []}}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       next = &text_of(html, ~s([data-testid="problem-state-relay:default:#{&1}-next"] dd))
       assert next.("served") == "The next message wakes it on a runner."
@@ -1568,8 +1568,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       rows = for i <- 1..6, do: summary_row("sus_#{i}", %{health: :suspended, factory: "f#{i}"})
       stack(node, rows: rows)
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-      render(view)
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       before = length(FakeController.calls(node, {Fleet, :runners_for_factory}))
       tick(view)
 
@@ -1600,7 +1599,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
         FakeController.error("controller.timeout")
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert html =~ ~s(data-testid="problem-state-relay:default:sus")
       refute html =~ ~s(data-testid="problem-state-relay:default:sus-serving")
@@ -1610,7 +1609,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     test "a healthy namespace lists none", %{conn: conn, node: node} do
       stack(node)
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       refute html =~ ~s(data-testid="home-problems")
     end
@@ -1628,7 +1627,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       stack(node, rows: rows)
 
-      {:ok, view, html} = live(conn, ~p"/namespaces/default")
+      {view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert text_of(html, ~s([data-testid="ns-relays-value"])) == "8"
       assert text_of(html, ~s([data-testid="ns-relays-condition"])) == "7 healthy · 1 suspended"
@@ -1650,7 +1649,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
         rows: Enum.map(verdicts, fn {h, i} -> summary_row("relay_#{i}", %{health: h}) end)
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       # The row with no health and the one the loop calls unknown are both unknown.
       assert text_of(html, ~s([data-testid="ns-relays-unknown"])) == "2 unknown"
@@ -1669,7 +1668,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     } do
       stack(node, relays: ["relay_a", "relay_b"])
 
-      {:ok, view, html} = live(conn, ~p"/namespaces/default")
+      {view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert text_of(html, ~s([data-testid="ns-relays-condition"])) == "All healthy"
       assert attrs(html, ~s([data-testid="ns-relays"]), "data-tone") == ["positive"]
@@ -1683,7 +1682,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       stack(node, relays: ["relay_a", "relay_b"])
       snapshot(node, [{"relay_a", 0, 0}, {"relay_b", 0, 0}])
 
-      {:ok, view, html} = live(conn, ~p"/namespaces/default")
+      {view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert text_of(html, ~s([data-testid="ns-flow-condition"])) =~ "Measuring"
       refute html =~ ~s(data-testid="ns-flow-value")
@@ -1728,7 +1727,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
          ]}
       )
 
-      {:ok, view, html} = live(conn, ~p"/namespaces/default")
+      {view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert text_of(html, ~s([data-testid="ns-parked-value"])) == "7"
       assert text_of(html, ~s([data-testid="ns-parked"] .fui-indicator-label)) == "Dead letters"
@@ -1751,7 +1750,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
          ]}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert text_of(html, ~s([data-testid="ns-plugins-value"])) == "2"
       assert text_of(html, ~s([data-testid="ns-plugins-condition"])) == "Bound to 2 relays"
@@ -1796,7 +1795,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
          ]}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert text_of(html, ~s([data-testid="ns-schedules-value"])) == "2"
 
@@ -1819,7 +1818,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
         {:per_arg, 1, %{relays: {:ok, 5}, runners: {:ok, 9}}, {:ok, 0}}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert attrs(html, ~s([data-testid="ns-limits"]), "data-tone") == ["negative"]
       assert text_of(html, ~s([data-testid="ns-limits-value"])) == "100%"
@@ -1859,7 +1858,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
         {:per_arg, 1, %{relays: {:ok, 4}, runners: {:ok, 1}}, {:ok, 0}}
       )
 
-      {:ok, view, html} = live(conn, ~p"/namespaces/default")
+      {view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert attrs(html, ~s([data-testid="ns-limits"] [data-testid^="ns-limit-"]), "data-testid") ==
                ["ns-limit-relays", "ns-limit-runners"]
@@ -1882,7 +1881,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
         {:ok, [{"relay_a", [{"ws_in", %{}}, {"kafka_out", %{}}, {"tap", %{}}]}]}
       )
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       foot = &text_of(html, ~s([data-testid="#{&1}"] .fui-indicator-foot))
       assert foot.("ns-runners") == "Running 2 relays"
@@ -1894,7 +1893,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     test "the namespace's tiles are headed by its kind and its name", %{conn: conn, node: node} do
       stack(node)
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert text_of(html, ~s([data-testid="home-namespace"] .fui-section-title .fui-eyebrow)) ==
                "Namespace"
@@ -1906,8 +1905,9 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       stack(node, relays: Enum.map(1..50, &"relay_#{&1}"))
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
       # The shell's first pulse reads too; let it land before counting.
-      render(view)
+      render_async(view)
       runners = length(FakeController.calls(node, {Fleet, :runners}))
       tick(view)
 
@@ -1922,13 +1922,13 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     } do
       stack(node)
 
-      {:ok, view, html} = live(conn, ~p"/namespaces/default")
+      {view, html} = live_loaded(conn, ~p"/namespaces/default")
       assert text_of(html, ~s([data-testid="ns-runners-value"])) == "1"
 
       FakeController.set(node, {Fleet, :runners}, {:ok, []})
       send(view.pid, {:flezha_event, :runner_disconnected, {"default", "runner-a"}})
 
-      html = render(view)
+      html = render_async(view)
       assert text_of(html, ~s([data-testid="ns-runners-value"])) == "0"
       assert attrs(html, ~s([data-testid="ns-runners"]), "data-tone") == ["warning"]
       assert text_of(html, ~s([data-testid="ns-runners-verdict"])) == "Needed"
@@ -1937,12 +1937,12 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     test "a runner event of another namespace does not reload the page", %{conn: conn, node: node} do
       stack(node)
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       FakeController.set(node, {Fleet, :runners}, {:ok, []})
       send(view.pid, {:flezha_event, :runner_disconnected, {"other", "runner-z"}})
 
-      assert text_of(render(view), ~s([data-testid="ns-runners-value"])) == "1"
+      assert text_of(render_async(view), ~s([data-testid="ns-runners-value"])) == "1"
     end
   end
 
@@ -1950,7 +1950,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     test "count every reachable namespace, node, runner and relay", %{conn: conn, node: node} do
       stack(node, relays: ["relay_a", "relay_b"], runners: ["runner-a"])
 
-      {_view, html} = home(conn)
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert text_of(html, ~s([data-testid="sys-namespaces-value"])) == "2"
       # Two namespaces of two relays each.
@@ -1985,7 +1985,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
         {:ok, [%{ref: "r1", age_ms: 90_000, rpo_ms: 60_000}]}
       )
 
-      {_view, html} = home(conn)
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert attrs(html, ~s([data-testid="sys-controller"]), "data-tone") == ["negative"]
       assert text_of(html, ~s([data-testid="sys-controller-condition"])) =~ "1 durability breach"
@@ -1994,7 +1994,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     test "open problems are counted in the worst one's tone", %{conn: conn, node: node} do
       stack(node, rows: [summary_row("sick", %{health: :failed}), summary_row("fine")])
 
-      {view, html} = home(conn)
+      {view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       # One failed relay in each of the two namespaces.
       assert text_of(html, ~s([data-testid="sys-problems-value"])) == "2"
@@ -2006,8 +2006,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     test "only Home asks the pulse for fleet figures", %{conn: conn, node: node} do
       stack(node)
 
-      {:ok, view, _html} = live(conn, ~p"/problems")
-      render(view)
+      {_view, _html} = live_loaded(conn, ~p"/problems")
 
       assert FakeController.calls(node, {Controller, :cluster_status}) == []
       assert FakeController.calls(node, {Controller, :status}) == []
@@ -2021,7 +2020,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       reach = fn relays ->
         FakeController.reset(node)
         stack(node, relays: relays)
-        home(conn)
+        live_loaded(conn, ~p"/namespaces/default")
 
         for key <- [{Controller, :cluster_status}, {Controller, :status}],
             do: length(FakeController.calls(node, key))
@@ -2036,7 +2035,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     } do
       stack(node)
 
-      {view, _html} = home(conn)
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       assert length(FakeController.calls(node, {Controller, :cluster_status})) == 2
 
       view
@@ -2044,7 +2043,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       |> render_hook("refresh_visibility", %{"hidden" => true})
 
       send(view.pid, :shell_pulse)
-      html = render(view)
+      html = render_async(view)
 
       assert length(FakeController.calls(node, {Controller, :cluster_status})) == 2
       assert text_of(html, ~s([data-testid="sys-nodes-value"])) == "1"
@@ -2058,7 +2057,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     } do
       stack(node)
 
-      {view, _html} = home(conn)
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       before = length(FakeController.calls(node, {Relay, :relay_plugins}))
 
       view
@@ -2080,7 +2079,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       TestEnv.put_app(:refresh_coalesce_ms, :timer.hours(1))
       stack(node)
 
-      {view, _html} = home(conn)
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       before = length(FakeController.calls(node, {Relay, :relay_plugins}))
 
       for i <- 1..10 do
@@ -2088,13 +2087,13 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       end
 
       send(view.pid, {:flezha_event, :relay_stopped, {"staging", stopped("theirs")}})
-      html = render(view)
+      html = render_async(view)
 
       assert length(FakeController.calls(node, {Relay, :relay_plugins})) == before
       assert html |> String.split("stopped: ") |> length() == 11
 
       send(view.pid, :refresh_requested)
-      render(view)
+      render_async(view)
       assert length(FakeController.calls(node, {Relay, :relay_plugins})) == before + 1
     end
   end
@@ -2106,7 +2105,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     } do
       stack(node, rows: [summary_row("relay_a"), summary_row("relay_b")])
 
-      {:ok, view, html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
+      {view, html} = live_loaded(conn, "/namespaces/default?inspect=relay:relay_a")
 
       assert html =~ ~s(data-testid="inspector-relay")
       assert html =~ ~s(data-testid="inspector-sentence")
@@ -2123,7 +2122,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
          %{conn: conn, node: node} do
       stack(node)
       snapshot(node, [{"relay_a", 0, 0}])
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       snapshot(node, [{"relay_a", 1_000, 0}])
       tick(view)
@@ -2161,7 +2160,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
         {:ok, [%{id: "store_input", run: :flow, runners: ["runner-a"]}]}
       )
 
-      {:ok, view, html} = live(conn, "/namespaces/default?inspect=runner:runner-a")
+      {view, html} = live_loaded(conn, "/namespaces/default?inspect=runner:runner-a")
 
       assert html =~ ~s(data-testid="inspector-runner")
       assert text_of(html, ~s([data-testid="inspector-node"])) == "flezha@node-a"
@@ -2174,7 +2173,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     test "closing the inspector clears the address", %{conn: conn, node: node} do
       stack(node)
 
-      {:ok, view, _html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
+      {view, _html} = live_loaded(conn, "/namespaces/default?inspect=relay:relay_a")
 
       view
       |> element(~s([data-testid="inspector-close"][phx-click="inspect_close"]))
@@ -2188,7 +2187,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
          %{conn: conn, node: node} do
       stack(node)
 
-      {:ok, view, _html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
+      {view, _html} = live_loaded(conn, "/namespaces/default?inspect=relay:relay_a")
 
       html = view |> element(~s([data-testid="inspector-diagnose"])) |> render_click()
       assert html =~ ~s(data-testid="inspector-diagnosis")
@@ -2206,7 +2205,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       enforce_operations(node, user, identity)
       grant_operations(node, identity, ["Relay.diagnose"])
 
-      {:ok, _view, html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
+      {_view, html} = live_loaded(conn, "/namespaces/default?inspect=relay:relay_a")
 
       assert html =~ ~s(data-testid="inspector-diagnose")
       refute html =~ ~s(data-testid="inspector-stop")
@@ -2216,7 +2215,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       stack(node)
       FakeController.set(node, {Relay, :overwatch_state}, FakeController.error("relay.not_found"))
 
-      {:ok, _view, html} = live(conn, "/namespaces/default?inspect=relay:gone")
+      {_view, html} = live_loaded(conn, "/namespaces/default?inspect=relay:gone")
 
       assert html =~ ~s(data-testid="inspector-missing")
       assert html =~ "gone is not running"
@@ -2281,10 +2280,6 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
   end
 
   # Home once the shell's first pulse, which its system tiles read, has landed.
-  defp home(conn) do
-    {:ok, view, _html} = live(conn, ~p"/namespaces/default")
-    {view, render(view)}
-  end
 
   defp stopped(relay) do
     %{

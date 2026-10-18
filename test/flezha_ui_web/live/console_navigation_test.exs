@@ -117,14 +117,14 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
 
       # The bar on a phone, the menu control on a tablet.
       for testid <- ~w(tabbar-problems-count nav-toggle-problems-count) do
-        count = view |> render() |> within(~s([data-testid="#{testid}"]))
+        count = view |> render_async() |> within(~s([data-testid="#{testid}"]))
         assert LazyHTML.text(count) =~ "1", testid
         assert attr(count, "data-tone") == "warning"
       end
 
       with_fleet(node, ["default"], %{"default" => ["relay_a"]})
       send(view.pid, :shell_pulse)
-      refute render(view) =~ ~s(data-testid="tabbar-problems-count")
+      refute render_async(view) =~ ~s(data-testid="tabbar-problems-count")
       refute render(view) =~ ~s(data-testid="nav-toggle-problems-count")
     end
 
@@ -210,7 +210,7 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     end
 
     test "the namespace is remembered across sessions", %{conn: conn, user: user} do
-      {:ok, _view, _html} = live(conn, ~p"/namespaces/billing")
+      {_view, _html} = live_loaded(conn, ~p"/namespaces/billing")
 
       assert FlezhaUi.Repo.reload!(user).last_namespace == "billing"
     end
@@ -219,7 +219,7 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
       conn: conn,
       user: user
     } do
-      {:ok, _view, _html} = live(conn, ~p"/namespaces/billing")
+      {_view, _html} = live_loaded(conn, ~p"/namespaces/billing")
       {:ok, _view, _html} = live(conn, ~p"/namespaces/#{String.duplicate("x", 300)}")
 
       assert FlezhaUi.Repo.reload!(user).last_namespace == "billing"
@@ -251,7 +251,7 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/cluster")
-      count = view |> render() |> within(~s([data-testid="problems-count"]))
+      count = view |> render_async() |> within(~s([data-testid="problems-count"]))
 
       assert LazyHTML.text(count) =~ "2"
       assert attr(count, "data-tone") == "negative"
@@ -262,7 +262,7 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
 
       {:ok, view, _html} = live(conn, ~p"/cluster")
 
-      refute render(view) =~ ~s(data-testid="problems-count")
+      refute render_async(view) =~ ~s(data-testid="problems-count")
     end
 
     test "makes no call on the dead render", %{conn: conn, node: node} do
@@ -492,7 +492,7 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     end
 
     test "it offers any rail destination by name", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       open_palette(view)
 

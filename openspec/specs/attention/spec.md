@@ -77,6 +77,12 @@ make a fixed number of controller calls per namespace and none per relay. The
 pulse SHALL NOT run on the disconnected first render. No item SHALL be gathered
 with any principal but the operator's.
 
+The pulse SHALL read off the screen's LiveView process, so a slow controller
+never delays a click, a dialog or the screen's own read. At most one pulse read
+SHALL be in flight per screen. A pulse that comes due while one is in flight
+SHALL be skipped. A pulse read that fails or exits SHALL keep the previous items,
+fleet figures and last-read time.
+
 Beside its items, the pulse SHALL keep the fleet totals its reads already answer:
 the number of reachable namespaces and the relay health counts summed across them.
 A screen that asks for fleet figures SHALL also get the runner count across those
@@ -108,6 +114,17 @@ does not ask SHALL cost the pulse no extra call.
 
 - **WHEN** the pulse runs while Home's tab is hidden
 - **THEN** it makes no `runners`, `cluster_status` or `controller_status` call
+
+#### Scenario: A slow pulse does not hold the screen
+
+- **WHEN** the pulse's calls take five seconds to answer
+- **THEN** the screen answers clicks during those five seconds
+- **AND** no second pulse read starts until the first has answered
+
+#### Scenario: A failed pulse keeps the last reading
+
+- **WHEN** the system tiles show two namespaces and the next pulse read exits
+- **THEN** the tiles keep showing two namespaces with the earlier last-read time
 
 ### Requirement: The shell shows how much needs attention
 

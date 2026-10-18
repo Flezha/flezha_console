@@ -41,7 +41,7 @@ defmodule FlezhaUiWeb.RunnerDropTest do
   defp grant(node, operations), do: grant_operations(node, @identity, operations)
 
   defp namespace_screen(conn) do
-    {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+    {view, _html} = live_loaded(conn, ~p"/namespaces/default")
     open_section(view, "runners")
     view
   end
@@ -92,6 +92,8 @@ defmodule FlezhaUiWeb.RunnerDropTest do
 
         view |> element(~s([data-testid="drop-runner-confirm"])) |> render_click()
 
+        render_async(view)
+
         assert [["default", "runner-a", _ctx]] = FakeController.calls(node, {Fleet, :drop_runner})
         refute has_element?(view, ~s([data-testid="drop-runner-modal"]))
         refute has_element?(view, ~s([data-testid="runner-runner-a"]))
@@ -103,6 +105,7 @@ defmodule FlezhaUiWeb.RunnerDropTest do
 
         # The dropped process keeps retrying and keeps being refused.
         send(view.pid, :refresh)
+        render_async(view)
         refute has_element?(view, ~s([data-testid="runner-runner-a"]))
         assert has_element?(view, ~s([data-testid="runner-mark-stable-a"]))
       end
@@ -121,6 +124,7 @@ defmodule FlezhaUiWeb.RunnerDropTest do
 
         FakeController.set(node, {Fleet, :dropped_runners}, {:ok, []})
         view |> element(~s([data-testid="readmit-runner-confirm"])) |> render_click()
+        render_async(view)
 
         assert [["default", "stable-b", _ctx]] =
                  FakeController.calls(node, {Fleet, :readmit_runner})
@@ -130,6 +134,7 @@ defmodule FlezhaUiWeb.RunnerDropTest do
         # Readmitted, the same process is admitted on its next retry.
         FakeController.set(node, {Fleet, :runners}, {:ok, [%{@runner | id: "runner-b"}]})
         send(view.pid, :refresh)
+        render_async(view)
         assert has_element?(view, ~s([data-testid="runner-runner-b"]))
       end
 
@@ -166,6 +171,7 @@ defmodule FlezhaUiWeb.RunnerDropTest do
         FakeController.set(node, {Fleet, :runners}, {:ok, []})
         FakeController.set(node, {Fleet, :dropped_runners}, {:ok, [@mark]})
         send(view.pid, {:flezha_event, :runner_dropped, {"default", "stable-b"}})
+        render_async(view)
 
         refute has_element?(view, ~s([data-testid="runner-runner-a"]))
         assert has_element?(view, ~s([data-testid="runner-mark-stable-b"]))

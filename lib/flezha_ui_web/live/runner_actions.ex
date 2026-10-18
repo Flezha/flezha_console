@@ -99,7 +99,7 @@ defmodule FlezhaUiWeb.Live.RunnerActions do
 
   defp settle(_ok, module, _ns, done, socket) do
     module
-    |> FlezhaUiWeb.Live.Refresh.tick(assign(socket, runner_error: nil))
+    |> FlezhaUiWeb.Live.Refresh.tick(assign(socket, runner_error: nil), :action)
     |> put_flash(:info, done)
   end
 end

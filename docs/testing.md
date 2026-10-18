@@ -65,9 +65,18 @@ A test waits only for a condition it caused, and stops as soon as it holds:
   window that coalesces an event's read to zero, so a forwarded event reads at
   once. A test of the coalescing itself sets a window longer than the test
   (`TestEnv.put_app(:refresh_coalesce_ms, …)`) and sends `:refresh_requested`
-  itself, as it sends `:refresh`. A rate needs
+  itself, as it sends `:refresh`. A screen that reads in the background
+  (Home) and the shell's pulse answer in a task, so a test awaits them with
+  `render_async/1` before it reads the screen or counts calls; a plain
+  `render/1` races the task. `LiveCase.live_loaded/2` opens a screen and
+  answers `{view, html}` once those first reads have answered. A controller
+  that is slow for as long as the test says is a gated answer:
+  `FakeController.close_gate/2`, an answer set as `{:gated, gate, value}`,
+  `assert_receive {:gate_reached, gate}` once a read gets that far, then
+  `FakeController.open_gate/2`. A rate needs
   time between two readings, so `LiveCase.tick/1` moves the last reading a
-  second into the past and ticks, rather than waiting a second. A message
+  second into the past and ticks, awaiting the reads in flight before and
+  after, rather than waiting a second. A message
   that must not arrive is refuted after a synchronous barrier — `:sys.get_state/1`
   on the process, or a call it must answer first — never after a timeout.
   `PeerNode.eventually/2` is the one sanctioned poll, for remote state that

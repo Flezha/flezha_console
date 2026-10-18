@@ -102,7 +102,13 @@ namespace and some are not, and it says which is which.
   fixed number of calls per namespace, and the Problems entry shows how many
   are open in the tone of the worst. Home's system tiles read the same pulse,
   which counts runners, nodes and the controller's status only for Home and
-  only while its tab is shown.
+  only while its tab is shown. The pulse reads in a task, one at a time, so a
+  slow controller delays the count but never a click.
+- **Home answers before it has read.** Home's reads run off its LiveView
+  process: the screen connects with its frame and a skeleton, and its figures
+  arrive when the read answers. One read is in flight at a time; a tick due
+  meanwhile is skipped, and an operator's action is always followed by a read
+  that started after it. A read that fails keeps the last figures and says why.
 - **Scope lives in the URL, never in the session.** `FlezhaUiWeb.Layouts`
   reads it back out of the path on every navigation, so the rail, the picker
   and the screen cannot disagree, and a pasted link opens the scope it names.
@@ -490,8 +496,9 @@ call is never made unbound.
 
 Behaviour shared across screens is a `use`-able module rather than a copied
 block: `FlezhaUiWeb.Live.Refresh` (the tick, the forwarded runner events —
-ignored by a screen scoped to another namespace — and what a screen says
-about its own currency), `FlezhaUiWeb.Live.Tail` (a live
+ignored by a screen scoped to another namespace — what a screen says about
+its own currency and, for a screen declaring `background: true`, reading off
+the LiveView process), `FlezhaUiWeb.Live.Tail` (a live
 tail), `FlezhaUiWeb.Topology` (the pipeline graph and fleet summary),
 `FlezhaUiWeb.Live.Launcher` (starting a relay, rendered by both
 `/namespaces/:ns` and `/relays`), `FlezhaUiWeb.Live.PluginForm` (enabling,

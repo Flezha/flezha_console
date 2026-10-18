@@ -20,7 +20,8 @@ defmodule FlezhaUiWeb.Topology do
   Three parts, in the order a host uses them:
 
     * the host seam — `use FlezhaUiWeb.Topology`, then `init/1` in mount and
-      `load_pipeline/1` or `load_summary/2` inside the host's own `refresh/1`.
+      `load_pipeline/1` inside the host's own `refresh/1`, or `read_summary/2`
+      in a background read and `apply_summary/4` with its answer.
       Everything kept between ticks (the previous readings, rate history, the
       selection, the viewer's direction, the open Cell sheet, the tally and the
       placed layouts) lives in the `:topology_state` assign.
@@ -489,61 +490,62 @@ defmodule FlezhaUiWeb.Topology do
   defp per_second(count, seconds), do: Float.round(count / seconds, 1)
 
   @doc """
-  Reloads a namespace's fleet summary.
+  Reads a namespace's fleet summary, off the host's process: `:disconnected`,
+  or the liveness snapshot, stall verdicts and dead-letter stats for `rows`
+  (as `NodeManager.relay_rows/2` answers them), with when they were read.
 
   Deliberately issues no per-relay call: the liveness snapshot already
   carries every relay's counters, so the cost is flat in the size of the
-  fleet. `prefetched` lets a host that has already read `relay_rows/2`, the
-  partition groups or the runner ids this tick avoid a second identical read.
+  fleet.
   """
-  def load_summary(socket, namespace, prefetched \\ nil) do
-    state = socket.assigns.topology_state
-    token = socket.assigns[:flezha_token]
+  def read_summary(token, rows) do
+    if NodeManager.connected_node() do
+      {snapshot, skew} = snapshot(token)
+      read_at = System.monotonic_time(:millisecond)
+      {verdicts, stall_notice} = stall(token)
 
-    cond do
-      is_nil(NodeManager.connected_node()) ->
-        disconnected(socket, state)
-
-      is_nil(namespace) ->
-        assign_topology(socket, state, summary_view(%{state: :empty, namespace: nil}))
-
-      true ->
-        {snapshot, skew} = snapshot(token)
-
-        # Health comes from the same registry dump the listings read, so the
-        # summary can break its counts down rather than reporting liveness
-        # alone — still one call for the namespace, whatever its size.
-        # A host that already read the namespace's rows and groups hands them
-        # over rather than paying for the same registry dump — and the same
-        # per-group coverage check — twice on one tick.
-        rows =
-          (prefetched && prefetched.rows) ||
-            namespace |> NodeManager.relay_rows(token) |> NodeManager.ok_or([])
-
-        groups = (prefetched && prefetched.groups) || NodeManager.partition_groups(rows, token)
-
-        ids = Enum.map(rows, &to_string(&1.id))
-        {rates, state} = advance(state, snapshot, ids)
-        {verdicts, stall_notice} = stall(token)
-
-        assign_topology(
-          socket,
-          state,
-          summary(%{
-            namespace: namespace,
-            rows: rows,
-            relay_ids: ids,
-            faulted_groups: NodeManager.faulted_group_ids(groups),
-            runners: (prefetched && prefetched[:runners]) || runner_ids(namespace, token),
-            snapshot: snapshot,
-            rates: rates,
-            dlq: parked_in(ids, token),
-            verdicts: verdicts,
-            stall_notice: stall_notice,
-            skew: skew
-          })
-        )
+      %{
+        snapshot: snapshot,
+        skew: skew,
+        verdicts: verdicts,
+        stall_notice: stall_notice,
+        dlq: rows |> Enum.map(&to_string(&1.id)) |> parked_in(token),
+        read_at: read_at
+      }
+    else
+      :disconnected
     end
+  end
+
+  @doc """
+  Shows what `read_summary/2` answered for `namespace`, advancing the rates.
+  `given` holds the `rows`, partition `groups` and runner ids the host read on
+  the same tick.
+  """
+  def apply_summary(socket, _namespace, :disconnected, _given),
+    do: disconnected(socket, socket.assigns.topology_state)
+
+  def apply_summary(socket, namespace, read, given) do
+    ids = Enum.map(given.rows, &to_string(&1.id))
+    {rates, state} = advance(socket.assigns.topology_state, read.snapshot, ids, read.read_at)
+
+    assign_topology(
+      socket,
+      state,
+      summary(%{
+        namespace: namespace,
+        rows: given.rows,
+        relay_ids: ids,
+        faulted_groups: NodeManager.faulted_group_ids(given.groups),
+        runners: given.runners,
+        snapshot: read.snapshot,
+        rates: rates,
+        dlq: read.dlq,
+        verdicts: read.verdicts,
+        stall_notice: read.stall_notice,
+        skew: read.skew
+      })
+    )
   end
 
   @doc """
@@ -693,9 +695,9 @@ defmodule FlezhaUiWeb.Topology do
   end
 
   # One tick of the shared arithmetic: rates of `ids` alone, since the snapshot
-  # covers the whole cluster, and history advanced and pruned to them.
-  defp advance(state, snapshot, ids) do
-    now = System.monotonic_time(:millisecond)
+  # covers the whole cluster, and history advanced and pruned to them. `now`
+  # is when the snapshot was read, which a background read applies later.
+  defp advance(state, snapshot, ids, now \\ System.monotonic_time(:millisecond)) do
     rates = snapshot |> rates(state.prev, now - (state.prev_at || now)) |> Map.take(ids)
     history = state.history |> push_history(rates) |> Map.take(ids)
 
@@ -719,13 +721,6 @@ defmodule FlezhaUiWeb.Topology do
       {:error, {:api_missing, _module, _function, _arity} = reason} -> {nil, reason}
       _other -> {nil, nil}
     end
-  end
-
-  defp runner_ids(namespace, token) do
-    namespace
-    |> NodeManager.runners(token)
-    |> NodeManager.ok_or([])
-    |> Enum.map(&NodeManager.identifier_id/1)
   end
 
   # The dead-letter statistics are kept per relay class across the cluster; a

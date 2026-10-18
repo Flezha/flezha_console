@@ -41,17 +41,24 @@ defmodule FlezhaUiWeb.LauncherTest do
   end
 
   # Whether the host shows the one relay `id` the controller now holds: Home
-  # counts it, the index lists it.
-  defp shows?(view, %{lists: :count}, _id),
+  # counts it, the index lists it. Home reads in the background, so the reads
+  # in flight answer first.
+  defp shows?(view, host, id) do
+    render_async(view)
+    listed?(view, host, id)
+  end
+
+  defp listed?(view, %{lists: :count}, _id),
     do: has_element?(view, ~s([data-testid="ns-relays-value"]), "1")
 
-  defp shows?(view, %{lists: prefix}, id),
+  defp listed?(view, %{lists: prefix}, id),
     do: has_element?(view, ~s([data-testid="#{prefix}-#{id}"]))
 
   defp click(view, testid), do: view |> element(~s([data-testid="#{testid}"])) |> render_click()
 
   defp open(conn, route \\ @home) do
     {:ok, view, _html} = live(conn, route)
+    render_async(view)
     click(view, "start-relay-btn")
     view
   end
@@ -113,8 +120,9 @@ defmodule FlezhaUiWeb.LauncherTest do
       test "#{host.screen}: holds still while the form is open, and a tick looks up no factory",
            %{conn: conn, node: node} do
         {:ok, view, _html} = live(conn, @host.route)
+        render_async(view)
         send(view.pid, :refresh)
-        _rendered = render(view)
+        _rendered = render_async(view)
         assert FakeController.calls(node, {Fleet, :runners_for_factory}) == []
 
         click(view, "start-relay-btn")

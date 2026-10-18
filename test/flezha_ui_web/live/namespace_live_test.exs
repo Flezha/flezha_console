@@ -10,7 +10,9 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
 
   use FlezhaUiWeb.LiveCase
 
+  alias Flezha.Service.Controller
   alias Flezha.Service.Fleet
+  alias Flezha.Service.Namespace
   alias Flezha.Service.Relay
 
   # A namespace's relays, as every listing reads them. An id alone is the
@@ -72,7 +74,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "counts the relays running in the namespace", %{conn: conn, node: node} do
       with_relays(node, ["relay_a", "relay_b"])
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert text_of(html, ~s([data-testid="ns-relays-value"])) == "2"
     end
@@ -82,7 +84,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "the inspector places the relay on the node its row names", %{conn: conn, node: node} do
       with_relays(node, [%{id: "relay_a", node: :"flezha@node-b"}])
 
-      {:ok, _view, html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
+      {_view, html} = live_loaded(conn, "/namespaces/default?inspect=relay:relay_a")
 
       assert text_of(html, ~s([data-testid="inspector-relay"])) =~ "flezha@node-b"
     end
@@ -92,12 +94,12 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       node: node
     } do
       with_relays(node, ["relay_a", "relay_b"])
-      {:ok, _view, _html} = live(conn, ~p"/namespaces/default")
+      {_view, _html} = live_loaded(conn, ~p"/namespaces/default")
       small = length(FakeController.calls(node, {Relay, :list}))
 
       FakeController.reset(node)
       with_relays(node, Enum.map(1..50, &"relay_#{&1}"))
-      {:ok, _view, _html} = live(conn, ~p"/namespaces/default")
+      {_view, _html} = live_loaded(conn, ~p"/namespaces/default")
       large = length(FakeController.calls(node, {Relay, :list}))
 
       assert small == large
@@ -132,7 +134,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "a complete group shows its member count and is not faulted", %{conn: conn, node: node} do
       with_group(node)
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       html = open_section(view, "partition-groups")
 
@@ -145,7 +147,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "the group reports its sickest member's health", %{conn: conn, node: node} do
       with_group(node)
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert open_section(view, "partition-groups") =~ ~s(data-health="degraded")
     end
@@ -156,7 +158,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     } do
       with_group(node)
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       html = open_section(view, "partition-groups")
 
@@ -170,7 +172,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "a coverage gap is a fault, and the uncovered range is named", %{conn: conn, node: node} do
       with_group(node, {:error, %{gaps: [{128, 255}], overlaps: []}})
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       html = open_section(view, "partition-groups")
 
@@ -182,7 +184,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "overlapping owners are a fault, and both are named", %{conn: conn, node: node} do
       with_group(node, {:error, %{gaps: [], overlaps: [{7, ["orders_p0", "orders_p1"]}]}})
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       html = open_section(view, "partition-groups")
 
@@ -196,7 +198,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     } do
       with_group(node)
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_section(view, "partition-groups")
 
       view |> element(~s([data-testid="rescale-orders"])) |> render_click()
@@ -220,7 +222,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "a namespace with no groups renders no group panel", %{conn: conn, node: node} do
       with_relays(node, ["relay_a"])
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       refute html =~ ~s(data-testid="partition-groups")
     end
@@ -244,7 +246,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
          }}
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       html = open_section(view, "finished-relays")
 
       assert html =~ ~s(data-testid="finished-row-echo_1")
@@ -255,7 +257,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       with_relays(node, [])
       FakeController.set(node, {Relay, :info}, FakeController.error("authz.role_insufficient"))
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert open_section(view, "finished-relays") =~ "authz.role_insufficient"
     end
@@ -274,7 +276,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     end
 
     test "confirming reaches the controller", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
+      {view, _html} = live_loaded(conn, "/namespaces/default?inspect=relay:relay_a")
 
       stop(view)
 
@@ -284,7 +286,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "a cooperative stop says the relay finishes its work first", %{conn: conn, node: node} do
       FakeController.set(node, {Relay, :stop}, {:ok, %{id: "relay_a", stopped: :cooperative}})
 
-      {:ok, view, _html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
+      {view, _html} = live_loaded(conn, "/namespaces/default?inspect=relay:relay_a")
 
       assert stop(view) =~ "finishes its in-flight work"
     end
@@ -292,9 +294,239 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
     test "surfaces a refused stop", %{conn: conn, node: node} do
       FakeController.set(node, {Relay, :stop}, FakeController.error("relay.not_found"))
 
-      {:ok, view, _html} = live(conn, "/namespaces/default?inspect=relay:relay_a")
+      {view, _html} = live_loaded(conn, "/namespaces/default?inspect=relay:relay_a")
 
       assert stop(view) =~ "relay.not_found (test)"
+    end
+  end
+
+  # Home reads in a task. A gated tokens read, which only Home makes, holds
+  # that task for as long as a test says; the relay count tells reads apart.
+  describe "background reads" do
+    defp hold_reads(node) do
+      FakeController.close_gate(node, :home)
+      FakeController.set(node, {Namespace, :tokens}, {:gated, :home, {:ok, []}})
+    end
+
+    defp reads(node), do: length(FakeController.calls(node, {Namespace, :tokens}))
+
+    defp relays_shown(view),
+      do: text_of(render(view), ~s([data-testid="ns-relays-value"]))
+
+    test "the screen answers before its first read does", %{conn: conn, node: node} do
+      with_relays(node, ["relay_a", "relay_b"])
+      hold_reads(node)
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+
+      assert text_of(render(view), ~s([data-testid="home-headline"])) == "Reading default…"
+      html = open_section(view, "quotas")
+      assert html =~ ~s(data-testid="section-body-quotas")
+      assert html =~ ~s(data-testid="home-namespace-loading")
+
+      FakeController.open_gate(node, :home)
+      render_async(view)
+
+      assert relays_shown(view) == "2"
+    end
+
+    test "ticks during a read start no second read", %{conn: conn, node: node} do
+      with_relays(node, ["relay_a"])
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      before = reads(node)
+      hold_reads(node)
+
+      for _tick <- 1..3, do: send(view.pid, :refresh)
+      assert_receive {:gate_reached, :home}
+      render(view)
+      assert reads(node) == before + 1
+
+      FakeController.open_gate(node, :home)
+      render_async(view)
+      render_async(view)
+      assert reads(node) == before + 1
+    end
+
+    test "events during a read cost one read after it", %{conn: conn, node: node} do
+      with_relays(node, ["relay_a"])
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      before = reads(node)
+      hold_reads(node)
+      send(view.pid, :refresh)
+
+      for runner <- ~w(runner-a runner-b runner-c),
+          do: send(view.pid, {:flezha_event, :runner_connected, {"default", runner}})
+
+      assert_receive {:gate_reached, :home}
+      render(view)
+      assert reads(node) == before + 1
+
+      FakeController.open_gate(node, :home)
+      render_async(view)
+      render_async(view)
+      assert reads(node) == before + 2
+    end
+
+    test "an action during a read is followed by a read that sees it", %{conn: conn, node: node} do
+      with_relays(node, ["relay_a", "relay_b"])
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      before = reads(node)
+      hold_reads(node)
+      send(view.pid, :refresh)
+      assert_receive {:gate_reached, :home}
+
+      with_relays(node, ["relay_a"])
+      html = render_click(view, "stop_relay", %{"relay_id" => "relay_b"})
+
+      assert html =~ "relay_b"
+      assert reads(node) == before + 1
+
+      FakeController.open_gate(node, :home)
+      render_async(view)
+      render_async(view)
+
+      assert reads(node) == before + 2
+      assert relays_shown(view) == "1"
+    end
+
+    test "an action on a paused screen still reads", %{conn: conn, node: node} do
+      with_relays(node, ["relay_a", "relay_b"])
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      render_click(view, "refresh_toggle", %{})
+
+      with_relays(node, ["relay_a"])
+      send(view.pid, :refresh)
+      render_async(view)
+      assert relays_shown(view) == "2"
+
+      render_click(view, "stop_relay", %{"relay_id" => "relay_b"})
+      render_async(view)
+      assert relays_shown(view) == "1"
+    end
+
+    test "an answer landing on an open dialog is dropped", %{conn: conn, node: node} do
+      with_relays(node, ["relay_a", "relay_b"])
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      hold_reads(node)
+      with_relays(node, ["relay_a", "relay_b", "relay_c"])
+      send(view.pid, :refresh)
+
+      open_section(view, "access")
+      view |> element(~s([data-testid="issue-token-btn"])) |> render_click()
+      FakeController.open_gate(node, :home)
+      render_async(view)
+      assert relays_shown(view) == "2"
+
+      view |> element(~s([data-testid="issue-token-cancel"])) |> render_click()
+      render_async(view)
+      assert relays_shown(view) == "3"
+    end
+
+    test "a failed read keeps the figures and says why", %{conn: conn, node: node} do
+      with_relays(node, ["relay_a", "relay_b"])
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+
+      FakeController.set(node, {Relay, :relay_rows}, FakeController.error("controller.timeout"))
+      send(view.pid, :refresh)
+      html = render_async(view)
+
+      assert text_of(html, ~s([data-testid="ns-relays-value"])) == "2"
+      assert html =~ ~s(data-testid="runtime-error")
+      assert html =~ "controller.timeout"
+    end
+
+    test "a first read whose relays failed still shows the rest", %{conn: conn, node: node} do
+      FakeController.set(node, {Relay, :relay_rows}, FakeController.error("controller.timeout"))
+
+      {_view, html} = live_loaded(conn, "/namespaces/default?inspect=runner:runner-a")
+
+      refute html =~ ~s(data-testid="home-namespace-loading")
+      refute text_of(html, ~s([data-testid="home-headline"])) =~ "Reading"
+      assert html =~ "controller.timeout"
+      assert html =~ ~s(data-testid="inspector-runner")
+    end
+
+    test "a later read whose relays failed stops there", %{conn: conn, node: node} do
+      with_relays(node, ["relay_a"])
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      before = reads(node)
+
+      FakeController.set(node, {Relay, :relay_rows}, FakeController.error("controller.timeout"))
+      send(view.pid, :refresh)
+      render_async(view)
+
+      assert reads(node) == before
+    end
+
+    test "a read that dies keeps the figures and says why", %{conn: conn, node: node} do
+      with_relays(node, ["relay_a", "relay_b"])
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+
+      FakeController.set(node, {Relay, :relay_rows}, {:ok, [:not_a_row]})
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        send(view.pid, :refresh)
+        html = render_async(view)
+
+        assert text_of(html, ~s([data-testid="ns-relays-value"])) == "2"
+        assert html =~ "This console could not finish the read."
+        refute html =~ "not_a_row"
+      end)
+    end
+  end
+
+  test "a finished-relays read that dies says so without its stack", %{conn: conn, node: node} do
+    with_relays(node, ["relay_a"])
+    FakeController.set(node, {Relay, :info}, {:ok, %{relays: [:not_a_relay]}})
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      html = open_section(view, "finished-relays")
+
+      assert html =~ "This console could not finish the read."
+      refute html =~ "not_a_relay"
+    end)
+  end
+
+  describe "the pulse in the background" do
+    defp checked_at(view), do: :sys.get_state(view.pid).socket.assigns.shell_pulse.checked_at
+
+    test "a held pulse leaves the screen answering, and starts no second", %{
+      conn: conn,
+      node: node
+    } do
+      with_relays(node, ["relay_a"])
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      before = length(FakeController.calls(node, {Controller, :durability_breaches}))
+
+      FakeController.close_gate(node, :pulse)
+      FakeController.set(node, {Controller, :durability_breaches}, {:gated, :pulse, {:ok, []}})
+      send(view.pid, :shell_pulse)
+      send(view.pid, :shell_pulse)
+      assert_receive {:gate_reached, :pulse}
+
+      assert open_section(view, "quotas") =~ ~s(data-testid="section-body-quotas")
+      assert length(FakeController.calls(node, {Controller, :durability_breaches})) == before + 1
+
+      FakeController.open_gate(node, :pulse)
+      render_async(view)
+      assert length(FakeController.calls(node, {Controller, :durability_breaches})) == before + 1
+    end
+
+    test "a pulse that dies keeps the last reading", %{conn: conn, node: node} do
+      with_relays(node, ["relay_a"])
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      read_at = checked_at(view)
+
+      FakeController.set(node, {Relay, :list_namespaces}, {:ok, [%{running: true}]})
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        send(view.pid, :shell_pulse)
+        html = render_async(view)
+
+        assert text_of(html, ~s([data-testid="sys-namespaces-value"])) == "1"
+        assert checked_at(view) == read_at
+      end)
     end
   end
 end

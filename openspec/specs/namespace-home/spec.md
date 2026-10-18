@@ -1,7 +1,7 @@
 # namespace-home Specification
 
 ## Purpose
-A namespace's Home: the screen the root address lands on, its headline sentence, the system and namespace indicator tiles, how it reads its controller (paused while hidden, one read per burst of events), and the teaching state of an empty namespace.
+A namespace's Home: the screen the root address lands on, its headline sentence, the system and namespace indicator tiles, how it reads its controller (in the background and one read at a time, paused while hidden, one read per burst of events), and the teaching state of an empty namespace.
 ## Requirements
 ### Requirement: Home is the namespace's own screen
 
@@ -264,4 +264,111 @@ stands alone as a heading.
 - **WHEN** Home renders for `default`
 - **THEN** the namespace section heading reads "Namespace" then "default", in two
   faces
+
+### Requirement: Home is usable before its first read answers
+
+Home's connected mount SHALL NOT wait on Home's own read. The only controller
+calls a mount makes are the ones the shell makes on every screen: the namespace
+picker's list and the token's granted operations. The screen frame,
+the shell, the rail and every control that needs no read SHALL be live as soon
+as the socket connects. Until the first read answers, the namespace's figures
+SHALL show the existing loading skeleton and the headline SHALL read that the
+namespace is being read. When the first read answers, the figures SHALL replace
+the skeleton without a reload.
+
+#### Scenario: A slow controller delays the figures, not the screen
+
+- **WHEN** every controller call takes five seconds to answer
+- **AND** the operator opens Home
+- **THEN** the socket connects without waiting for those calls
+- **AND** the operator can open the help overlay and the command palette while
+  the headline still reads that the namespace is being read
+
+#### Scenario: The first read fills the skeleton
+
+- **WHEN** Home's first read answers with three healthy relays
+- **THEN** the skeleton is replaced by the headline, its figures and the
+  namespace tiles
+
+### Requirement: Home reads in the background, one read at a time
+
+Every Home read SHALL run off the screen's LiveView process. That includes the
+first read, the periodic tick, an event-requested read and the read after an
+operator action. Clicks, dialogs and the inspector SHALL be answered while a
+read is in flight. Home SHALL have at most one read in flight. A tick that comes
+due while a read is in flight SHALL be skipped. A read requested while one is in
+flight SHALL run once that read has answered. Any number of such requests SHALL
+cost one follow-up read. While a read is in flight, Home SHALL keep showing the
+figures it last read.
+
+#### Scenario: A click during a slow read
+
+- **WHEN** a read is in flight and has not answered for several seconds
+- **AND** the operator opens the confirmation to stop a relay
+- **THEN** the confirmation opens at once
+
+#### Scenario: Ticks do not pile up
+
+- **WHEN** one read takes longer than three tick intervals
+- **THEN** no second read starts while it is in flight
+
+#### Scenario: Events during a read cost one follow-up
+
+- **WHEN** three runner events for the namespace arrive while a read is in flight
+- **THEN** exactly one more read starts after the in-flight read answers
+
+#### Scenario: Figures stay up between reads
+
+- **WHEN** a tick's read is in flight
+- **THEN** the headline and tiles keep the figures of the previous read and no
+  skeleton is shown
+
+### Requirement: An operator's action is followed by a read that started after it
+
+After an operator's action on Home succeeds, Home SHALL show the action's flash
+at once. It SHALL then show figures from a read that started after the action.
+That includes stopping a relay, rescaling a partition group, saving quotas,
+issuing or revoking a token, and binding or unbinding a role. Such a read SHALL
+be made even while the operator has paused the screen. If a read is in flight
+when the action succeeds, the follow-up read SHALL run after it, and the
+in-flight answer SHALL NOT be the last thing shown.
+
+#### Scenario: Stopping a relay during a read
+
+- **WHEN** a read is in flight
+- **AND** the operator stops relay `orders` and the controller confirms it
+- **THEN** the flash says the relay was stopped
+- **AND** after the in-flight read answers, a second read runs and its answer no
+  longer lists `orders` as running
+
+#### Scenario: An action on a paused screen
+
+- **WHEN** the operator has paused Home and revokes a token
+- **THEN** a read runs and the token's row shows it revoked
+
+### Requirement: A late or failed read never disturbs the operator
+
+Home SHALL drop a read's answer that arrives in any of these cases:
+
+- a dialog that pauses Home is open;
+- the operator has paused the screen;
+- the tab is hidden.
+
+The first read, and a read started by an operator's action, SHALL always be
+applied. A read that fails or exits SHALL leave the last figures on screen. Home
+SHALL show the existing load-error state, and the next tick SHALL try again.
+
+#### Scenario: An answer lands on an open confirmation
+
+- **WHEN** a tick's read is in flight
+- **AND** the operator opens the rescale dialog before it answers
+- **THEN** its answer is dropped and the rows behind the dialog do not change
+- **AND** closing the dialog lets the next tick read again
+
+#### Scenario: The read times out
+
+- **WHEN** Home shows five relays and the next read exits on a controller timeout
+- **THEN** the five relays stay on screen
+- **AND** the load error is shown
+- **AND** the following tick reads again
 

@@ -253,7 +253,7 @@ defmodule FlezhaUiWeb.Layouts do
   Server-side rather than in JavaScript: a client-set `aria-current` loses the
   race with LiveView's first DOM patch on a hard page load, and is dropped.
 
-  On a connected socket it also starts the shell's pulse (`pulse/1`). The
+  On a connected socket it also starts the shell's pulse (`pulse_read/1`). The
   chip's namespaces are resolved once per mount: they change rarely, and a
   screen ticking every two seconds would otherwise pay a controller round-trip
   per tick for a control it is not using.
@@ -555,46 +555,60 @@ defmodule FlezhaUiWeb.Layouts do
   #
   # Every 10 s on a connected screen, the shell gathers the open problems of
   # every namespace the operator's own token reaches: a fixed number of calls
-  # per namespace and none per relay. It ends with the process.
+  # per namespace and none per relay. The calls run in a task, one pulse at a
+  # time, so a slow controller never holds the screen. It ends with the process.
 
   defp start_pulse(socket) do
     if Phoenix.LiveView.connected?(socket) do
       send(self(), :shell_pulse)
 
-      Phoenix.LiveView.attach_hook(socket, :shell_pulse, :handle_info, fn
+      socket
+      |> Phoenix.LiveView.attach_hook(:shell_pulse, :handle_info, fn
         :shell_pulse, socket ->
           Process.send_after(self(), :shell_pulse, @pulse_every)
-          {:halt, pulse(socket)}
+
+          {:halt,
+           FlezhaUiWeb.Live.Refresh.start_once(
+             socket,
+             :pulse_reading,
+             :shell_pulse,
+             pulse_read(socket)
+           )}
 
         _message, socket ->
           {:cont, socket}
       end)
+      |> FlezhaUiWeb.Live.Refresh.on_answer(:shell_pulse, :pulse_reading, &pulse_apply/2)
     else
       socket
     end
   end
 
   @doc """
-  One pulse: the open problems of every reachable namespace, read with the
-  socket's own token, assigned as `:shell_pulse`:
+  One pulse's reads, as a function to run off the screen's process: the
+  namespaces the socket's token reaches, each one's relay rows, partition
+  groups and quotas, and the fleet-wide stall verdicts, durability breaches,
+  dead-letter stats and authorization posture. `pulse_apply/2` takes its answer.
 
-      %{items:, checked_at:, error:, fleet:}
-
-  Items keep the time they were first seen across pulses. `error` is why the
-  namespaces could not be listed, so no problem list stands for an all-clear.
-
-  `fleet` counts what the pulse's reads already answer: `namespaces`, the
-  relays' `health` as `NodeManager.health_counts/1` pairs, and the durability
-  `breaches`. A screen that assigns `pulse_fleet: true` also gets `runners`,
-  `nodes` (`NodeManager.cluster_nodes/2`) and the controller's `status`, at two
-  calls per namespace and one more; while its tab is hidden those are kept
-  from the last pulse rather than read.
+  A screen that assigns `pulse_fleet: true` also gets `runners`, `nodes`
+  (`NodeManager.cluster_nodes/2`) and the controller's `status`, at two calls
+  per namespace and one more; while its tab is hidden those are not read.
   """
-  def pulse(socket) do
+  def pulse_read(socket) do
     token = FlezhaUi.Accounts.Scope.flezha_token(socket.assigns[:current_scope])
-    previous = socket.assigns[:shell_pulse]
-    now = DateTime.utc_now()
 
+    reach =
+      cond do
+        socket.assigns[:pulse_fleet] != true -> :none
+        socket.assigns[:refresh_hidden] -> :kept
+        true -> :read
+      end
+
+    fn -> pulse_calls(token, reach) end
+  end
+
+  defp pulse_calls(token, reach) do
+    read_at = DateTime.utc_now()
     {catalog, catalog_error} = NodeManager.ok_or_error(NodeManager.list_namespaces(token), [])
     names = catalog |> Enum.map(&to_string(&1.namespace)) |> Enum.sort()
 
@@ -615,62 +629,93 @@ defmodule FlezhaUiWeb.Layouts do
       end
 
     {verdicts, _notice} = Topology.stall(token)
-    breaches = NodeManager.ok_or(NodeManager.durability_breaches(token), [])
 
-    items =
-      Attention.derive(%{
-        namespaces: reads,
-        dlq: NodeManager.ok_or(NodeManager.dlq_stats(token), []),
-        breaches: breaches,
-        verdicts: verdicts,
-        authz: NodeManager.authz_status(token),
-        skew: skew([catalog_error | Enum.map(reads, & &1.error)])
-      })
-
-    {items, _appeared, _cleared} =
-      Attention.track(Attention.by_id((previous && previous.items) || []), items, now)
-
-    fleet = %{
-      namespaces: length(names),
-      health: reads |> Enum.flat_map(& &1.rows) |> NodeManager.health_counts(),
-      breaches: length(breaches)
+    %{
+      read_at: read_at,
+      names: names,
+      catalog_error: catalog_error,
+      reads: reads,
+      verdicts: verdicts,
+      breaches: NodeManager.ok_or(NodeManager.durability_breaches(token), []),
+      dlq: NodeManager.ok_or(NodeManager.dlq_stats(token), []),
+      authz: NodeManager.authz_status(token),
+      reach: fleet_reach(reach, names, token)
     }
-
-    Phoenix.Component.assign(socket, :shell_pulse, %{
-      items: items,
-      checked_at: now,
-      error: catalog_error,
-      fleet: Map.merge(fleet, fleet_reach(socket, names, previous, token))
-    })
   end
 
   @reach_keys [:runners, :nodes, :status]
 
-  defp fleet_reach(%{assigns: %{pulse_fleet: true}} = socket, names, previous, token) do
-    if socket.assigns[:refresh_hidden] do
-      ((previous && previous[:fleet]) || %{}) |> Map.take(@reach_keys)
-    else
-      runners =
-        Enum.flat_map(names, &(&1 |> NodeManager.runners(token) |> NodeManager.ok_or([])))
+  @doc """
+  Assigns one pulse's answer as `:shell_pulse`:
 
-      hub_nodes =
-        Enum.flat_map(names, fn name ->
-          name
-          |> NodeManager.cluster_status(token)
-          |> NodeManager.ok_or(%{})
-          |> Map.get(:nodes, [])
-          |> Enum.map(& &1.node)
-        end)
+      %{items:, checked_at:, error:, fleet:}
 
-      %{
-        runners: runners |> Enum.uniq_by(&NodeManager.identifier_id/1) |> length(),
-        nodes: NodeManager.cluster_nodes(hub_nodes, NodeManager.connected_node()),
-        status: NodeManager.ok_or(NodeManager.controller_status(token), nil)
-      }
-    end
+  Items keep the time they were first seen across pulses. `error` is why the
+  namespaces could not be listed, so no problem list stands for an all-clear.
+
+  `fleet` counts what the pulse's reads already answer: `namespaces`, the
+  relays' `health` as `NodeManager.health_counts/1` pairs, and the durability
+  `breaches`, plus the reach figures `pulse_read/1` describes, kept from the
+  last pulse while the tab is hidden. A pulse that died keeps the last one.
+  """
+  def pulse_apply(socket, {:exit, _reason}), do: socket
+
+  def pulse_apply(socket, {:ok, pulse}) do
+    previous = socket.assigns[:shell_pulse]
+
+    items =
+      Attention.derive(%{
+        namespaces: pulse.reads,
+        dlq: pulse.dlq,
+        breaches: pulse.breaches,
+        verdicts: pulse.verdicts,
+        authz: pulse.authz,
+        skew: skew([pulse.catalog_error | Enum.map(pulse.reads, & &1.error)])
+      })
+
+    {items, _appeared, _cleared} =
+      Attention.track(Attention.by_id((previous && previous.items) || []), items, pulse.read_at)
+
+    reach =
+      if pulse.reach == :kept,
+        do: ((previous && previous[:fleet]) || %{}) |> Map.take(@reach_keys),
+        else: pulse.reach
+
+    fleet = %{
+      namespaces: length(pulse.names),
+      health: pulse.reads |> Enum.flat_map(& &1.rows) |> NodeManager.health_counts(),
+      breaches: length(pulse.breaches)
+    }
+
+    Phoenix.Component.assign(socket, :shell_pulse, %{
+      items: items,
+      checked_at: pulse.read_at,
+      error: pulse.catalog_error,
+      fleet: Map.merge(fleet, reach)
+    })
   end
 
-  defp fleet_reach(_socket, _names, _previous, _token), do: %{}
+  defp fleet_reach(:none, _names, _token), do: %{}
+  defp fleet_reach(:kept, _names, _token), do: :kept
+
+  defp fleet_reach(:read, names, token) do
+    runners = Enum.flat_map(names, &(&1 |> NodeManager.runners(token) |> NodeManager.ok_or([])))
+
+    hub_nodes =
+      Enum.flat_map(names, fn name ->
+        name
+        |> NodeManager.cluster_status(token)
+        |> NodeManager.ok_or(%{})
+        |> Map.get(:nodes, [])
+        |> Enum.map(& &1.node)
+      end)
+
+    %{
+      runners: runners |> Enum.uniq_by(&NodeManager.identifier_id/1) |> length(),
+      nodes: NodeManager.cluster_nodes(hub_nodes, NodeManager.connected_node()),
+      status: NodeManager.ok_or(NodeManager.controller_status(token), nil)
+    }
+  end
 
   defp skew(errors) do
     Enum.find(errors, &match?({:api_missing, _module, _function, _arity}, &1))

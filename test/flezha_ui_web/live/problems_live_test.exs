@@ -33,8 +33,7 @@ defmodule FlezhaUiWeb.ProblemsLiveTest do
   test "lists every problem worst first, each with why and its fix", %{conn: conn, node: node} do
     fleet(node, [row("relay_s", :suspended), row("relay_f", :failed)])
 
-    {:ok, view, _html} = live(conn, ~p"/problems")
-    html = render(view)
+    {view, html} = live_loaded(conn, ~p"/problems")
 
     assert item_ids(html) == ["problem-relay:default:relay_f", "problem-relay:default:relay_s"]
 
@@ -54,8 +53,7 @@ defmodule FlezhaUiWeb.ProblemsLiveTest do
   test "diagnosis answers beneath its problem", %{conn: conn, node: node} do
     fleet(node, [row("relay_s", :suspended)])
 
-    {:ok, view, _html} = live(conn, ~p"/problems")
-    render(view)
+    {view, _html} = live_loaded(conn, ~p"/problems")
 
     assert view
            |> element(~s([data-testid="problem-diagnose-relay:default:relay_s"]))
@@ -68,12 +66,12 @@ defmodule FlezhaUiWeb.ProblemsLiveTest do
     fleet(node, [row("relay_s", :suspended)])
 
     {:ok, view, _html} = live(conn, ~p"/problems")
-    assert render(view) =~ ~s(data-testid="problem-relay:default:relay_s")
+    assert render_async(view) =~ ~s(data-testid="problem-relay:default:relay_s")
 
     fleet(node, [row("relay_s", :healthy)])
     send(view.pid, :shell_pulse)
 
-    html = render(view)
+    html = render_async(view)
     refute html =~ ~s(data-testid="problem-relay:default:relay_s")
     assert html =~ ~s(data-testid="problems-clear")
     assert html =~ "All clear"

@@ -33,6 +33,7 @@ defmodule FlezhaUiWeb.LiveCase do
 
       import FlezhaUiWeb.LiveCase,
         only: [
+          live_loaded: 2,
           open_section: 2,
           partition_group: 3,
           text_of: 2,
@@ -64,6 +65,18 @@ defmodule FlezhaUiWeb.LiveCase do
   end
 
   @doc """
+  Opens `path` and answers `{view, html}` once the reads it started in the
+  background have answered: Home's own and the shell's pulse. A macro, as
+  `live/2` is, so it reaches the test module's endpoint.
+  """
+  defmacro live_loaded(conn, path) do
+    quote do
+      {:ok, view, _html} = live(unquote(conn), unquote(path))
+      {view, render_async(view)}
+    end
+  end
+
+  @doc """
   Unfolds one of a long screen's sections and answers the screen with it open.
 
   The lower panels of the relay and namespace screens start folded, so a
@@ -79,15 +92,19 @@ defmodule FlezhaUiWeb.LiveCase do
   One refresh tick of a screen that shows rates, answered with the render.
 
   A rate divides a delta by the time since the last reading, so the last
-  reading is moved a second into the past rather than waited for.
+  reading is moved a second into the past rather than waited for. A screen
+  that reads in the background skips a tick while a read is in flight, so the
+  reads in flight are awaited first, and the tick's own read after.
   """
   def tick(view) do
+    Phoenix.LiveViewTest.render_async(view)
+
     :sys.replace_state(view.pid, fn %{socket: socket} = state ->
       %{state | socket: update_in(socket.assigns.topology_state.prev_at, &(&1 && &1 - 1_000))}
     end)
 
     send(view.pid, :refresh)
-    Phoenix.LiveViewTest.render(view)
+    Phoenix.LiveViewTest.render_async(view)
   end
 
   @doc """

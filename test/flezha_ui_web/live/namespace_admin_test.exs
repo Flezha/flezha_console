@@ -141,7 +141,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
       FakeController.set(node, {Namespace, :quota}, {:ok, 7})
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       html = open_section(view, "quotas")
 
@@ -158,7 +158,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         get: {:ok, %{record("default") | quotas: %{max_relays: 100}}}
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       html = open_section(view, "quotas")
 
@@ -173,7 +173,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       with_catalog(node, running: ["default"], get: {:ok, record("default", %{max_relays: 5})})
       FakeController.set(node, {Namespace, :quota}, {:per_arg, 1, %{relays: {:ok, 5}}, {:ok, 0}})
 
-      {:ok, _view, html} = live(conn, ~p"/namespaces/default")
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert html =~ ~s(data-testid="quota-breached-relays")
       refute html =~ ~s(data-testid="quota-breached-runners")
@@ -182,7 +182,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
     test "an undeclared namespace states that no limits apply", %{conn: conn, node: node} do
       with_catalog(node, running: ["default"])
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert open_section(view, "quotas") =~ ~s(data-testid="namespace-undeclared")
     end
@@ -279,7 +279,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
     test "saving quotas sends every limit, the edited one changed", %{conn: conn, node: node} do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       edit_quotas(view, %{max_relays: "250"})
       save_quotas(view)
 
@@ -295,7 +295,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
     } do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       edit_quotas(view, %{max_relays: "lots"})
       html = save_quotas(view)
 
@@ -314,7 +314,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         FakeController.error("authz.role_insufficient")
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       edit_quotas(view, %{})
       html = save_quotas(view)
 
@@ -334,7 +334,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         {:ok, [%{principal: "alice", namespace: "default", roles: [:ops, :viewer]}]}
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       html = open_section(view, "access")
 
@@ -366,7 +366,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
          ]}
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       html = open_section(view, "access")
 
       assert text_of(html, ~s([data-testid="binding-bound-alice"])) =~ "2h 0m ago"
@@ -378,7 +378,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
     test "an empty binding list offers the bind control", %{conn: conn, node: node} do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       html = open_section(view, "access")
 
@@ -388,7 +388,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
 
     test "binds a principal to a role in this namespace", %{conn: conn, node: node} do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_section(view, "access")
 
       view |> element(~s([data-testid="bind-role-btn"])) |> render_click()
@@ -413,7 +413,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       node: node
     } do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_section(view, "access")
 
       html = view |> element(~s([data-testid="bind-role-btn"])) |> render_click()
@@ -441,7 +441,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         )
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_section(view, "access")
       view |> element(~s([data-testid="bind-role-btn"])) |> render_click()
 
@@ -460,7 +460,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         {:ok, [%{principal: "alice", namespace: "default", roles: [:ops, :viewer]}]}
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_section(view, "access")
 
       html = view |> element(~s([data-testid="unbind-role-alice-ops"])) |> render_click()
@@ -472,7 +472,8 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         {:ok, [%{principal: "alice", namespace: "default", roles: [:viewer]}]}
       )
 
-      html = view |> element(~s([data-testid="unbind-role-confirm"])) |> render_click()
+      view |> element(~s([data-testid="unbind-role-confirm"])) |> render_click()
+      html = render_async(view)
 
       assert [["alice", "ops", _ctx]] = FakeController.calls(node, {Namespace, :unbind_role})
       assert html =~ ~s(data-testid="role-alice-viewer")
@@ -488,7 +489,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         {:ok, [%{principal: "alice", namespace: "default", roles: [:ops]}]}
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_section(view, "access")
 
       html = view |> element(~s([data-testid="unbind-binding-alice"])) |> render_click()
@@ -497,7 +498,8 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       refute html =~ ~s(data-testid="unbind-cluster-wide")
 
       FakeController.set(node, {Namespace, :roles}, {:ok, []})
-      html = view |> element(~s([data-testid="unbind-role-confirm"])) |> render_click()
+      view |> element(~s([data-testid="unbind-role-confirm"])) |> render_click()
+      html = render_async(view)
 
       assert [["alice", nil, _ctx]] = FakeController.calls(node, {Namespace, :unbind_role})
       refute html =~ ~s(data-testid="role-binding-alice")
@@ -512,7 +514,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         {:ok, [%{principal: "root", namespace: "_system", roles: [:admin]}]}
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_section(view, "access")
 
       html = view |> element(~s([data-testid="unbind-binding-root"])) |> render_click()
@@ -534,7 +536,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         {:ok, [token_row("tok-1"), token_row("tok-2", %{namespace: "staging"})]}
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       html = open_section(view, "access")
 
       assert html =~ ~s(data-testid="token-tok-1")
@@ -550,7 +552,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       node: node
     } do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_issue(view)
 
       html = issue(view, %{principal: "ci", role: "app", ttl: "3600", label: "deploys"})
@@ -573,7 +575,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
 
     test "never is a lifetime", %{conn: conn, node: node} do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_issue(view)
 
       issue(view, %{principal: "ci", role: "viewer", ttl: "never", label: ""})
@@ -584,7 +586,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
 
     test "an invalid lifetime is named and nothing is issued", %{conn: conn, node: node} do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_issue(view)
 
       for ttl <- ["0", "-5", "soon", ""] do
@@ -604,7 +606,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
 
       log =
         ExUnit.CaptureLog.capture_log([level: :debug], fn ->
-          {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+          {view, _html} = live_loaded(conn, ~p"/namespaces/default")
           open_issue(view)
 
           html = issue(view, %{principal: "ci", role: "app", ttl: "60"})
@@ -621,7 +623,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
       FakeController.set(node, {Namespace, :tokens}, {:ok, [token_row("tok-1")]})
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_section(view, "access")
 
       html = view |> element(~s([data-testid="revoke-token-tok-1"])) |> render_click()
@@ -634,7 +636,8 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
          [token_row("tok-1", %{status: :revoked, revoked_at: System.system_time(:second) - 5})]}
       )
 
-      html = view |> element(~s([data-testid="revoke-token-confirm"])) |> render_click()
+      view |> element(~s([data-testid="revoke-token-confirm"])) |> render_click()
+      html = render_async(view)
 
       assert [["tok-1", _ctx]] = FakeController.calls(node, {Namespace, :revoke_token})
       # It leaves the Active listing and is counted, and listed, under Revoked.
@@ -667,7 +670,7 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
          ]}
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       html = open_section(view, "access")
 
       assert text_of(html, ~s([data-testid="token-issued-tok-late"])) =~ "3d 0h ago"
@@ -735,13 +738,18 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
     view |> form(~s(form[phx-change="quota_change"]), quota: limits) |> render_change()
   end
 
-  defp save_quotas(view),
-    do: view |> element(~s([data-testid="quota-save"])) |> render_click()
+  defp save_quotas(view) do
+    view |> element(~s([data-testid="quota-save"])) |> render_click()
+    render_async(view)
+  end
 
+  # A bound role lists once the read it asks for has answered.
   defp bind(view, principal, role) do
     view
     |> form(~s(form[phx-submit="bind_role"]), binding: %{principal: principal, role: role})
     |> render_submit()
+
+    render_async(view)
   end
 
   defp issue(view, fields),

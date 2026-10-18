@@ -26,27 +26,122 @@ defmodule FlezhaUiWeb.Live.Refresh do
   screens with an open modal do, so a row cannot move under the operator
   between reading it and confirming.
 
+  A screen declaring `background: true` reads off its LiveView process instead,
+  so a slow controller delays its figures but never a click. It implements
+  `refresh_read/1`, which answers a function that makes the screen's calls from
+  plain values (never the socket), and `refresh_apply/2`, which takes that
+  function's `{:ok, answer}` or `{:exit, reason}` on the process. `refresh/1`
+  is then generated: it starts a read the screen always shows, which is what an
+  operator's action asks for. One read is in flight at a time; a tick due
+  meanwhile is skipped and any request holds one read to follow it. An answer
+  arriving while a tick would be held is dropped, unless it is the screen's
+  first or one `refresh/1` asked for.
+
   Arming also states the screen's liveness: `:refresh_interval`, `:refresh_at`
   and `:refresh_paused` are what the shell renders `liveness/1` from, so a
   screen says it refreshes by refreshing rather than by remembering to say so.
   """
 
+  require Phoenix.LiveView
+
   @callback refresh(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  @callback refresh_read(Phoenix.LiveView.Socket.t()) :: (-> term())
+  @callback refresh_apply(Phoenix.LiveView.Socket.t(), {:ok, term()} | {:exit, term()}) ::
+              Phoenix.LiveView.Socket.t()
   @callback refresh_paused?(Phoenix.LiveView.Socket.t()) :: boolean()
   @callback refresh_hidden(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  @optional_callbacks refresh_read: 1, refresh_apply: 2
 
   @doc false
   # The operator's pause is read here rather than in the default
   # `refresh_paused?/1`, so a screen that overrides that callback to hold still
   # for its own modal cannot drop the operator's pause by forgetting to call
   # back into it.
-  def tick(module, socket) do
-    if socket.assigns[:refresh_paused] || socket.assigns[:refresh_hidden] ||
-         module.refresh_paused?(socket) do
-      socket
-    else
-      socket |> module.refresh() |> mark_refreshed()
+  # `cause` is `:timer` for the periodic tick, `:action` for the read an
+  # operator's action asks for, and `:request` for everything else. Only a
+  # background screen tells them apart: there an action reads even when held.
+  def tick(module, socket, cause \\ :request) do
+    background? = module.__refresh_background__()
+
+    cond do
+      background? and cause == :action -> read(module, socket, cause)
+      held?(module, socket) -> socket
+      background? -> read(module, socket, cause)
+      true -> socket |> module.refresh() |> mark_refreshed()
     end
+  end
+
+  defp held?(module, socket) do
+    socket.assigns[:refresh_paused] || socket.assigns[:refresh_hidden] ||
+      module.refresh_paused?(socket)
+  end
+
+  # A background screen's read. An `:action` read's answer is shown even on a
+  # held screen.
+  defp read(module, socket, cause) do
+    cond do
+      !socket.assigns[:refresh_reading] ->
+        socket
+        |> Phoenix.Component.assign(:refresh_forced, cause == :action)
+        |> start_once(:refresh_reading, :refresh, module.refresh_read(socket))
+
+      cause == :timer ->
+        socket
+
+      true ->
+        again = if socket.assigns[:refresh_again] == :action, do: :action, else: cause
+        Phoenix.Component.assign(socket, :refresh_again, again)
+    end
+  end
+
+  @doc false
+  # A background screen's answer: shown or dropped, then the read it held, if
+  # any, starts.
+  def answered(module, socket, result) do
+    %{refresh_forced: forced, refresh_again: again} = socket.assigns
+    socket = Phoenix.Component.assign(socket, :refresh_again, nil)
+
+    socket =
+      if forced or not socket.assigns.refresh_loaded or not held?(module, socket),
+        do:
+          socket
+          |> module.refresh_apply(result)
+          |> Phoenix.Component.assign(
+            :refresh_loaded,
+            socket.assigns.refresh_loaded or match?({:ok, _answer}, result)
+          )
+          |> mark_refreshed(),
+        else: socket
+
+    if again, do: tick(module, socket, again), else: socket
+  end
+
+  @doc """
+  Starts `fun` as the async task `name` unless the one before it is still in
+  flight, as the boolean assign `flag` says; `on_answer/4` clears `flag`.
+  A read left to finish is never cancelled by a second, so an operator asking
+  twice still sees an answer.
+  """
+  def start_once(socket, flag, name, fun) do
+    if socket.assigns[flag],
+      do: socket,
+      else:
+        socket |> Phoenix.Component.assign(flag, true) |> Phoenix.LiveView.start_async(name, fun)
+  end
+
+  @doc """
+  Hands the answer of the task `start_once/4` started as `name` to
+  `fun.(socket, result)`, with `flag` cleared, and passes every other task's
+  answer on to the screen.
+  """
+  def on_answer(socket, name, flag, fun) do
+    Phoenix.LiveView.attach_hook(socket, {:answer, name}, :handle_async, fn
+      ^name, result, socket ->
+        {:halt, socket |> Phoenix.Component.assign(flag, false) |> fun.(result)}
+
+      _other, _result, socket ->
+        {:cont, socket}
+    end)
   end
 
   @doc """
@@ -154,6 +249,15 @@ defmodule FlezhaUiWeb.Live.Refresh do
   defmacro __using__(opts) do
     interval = Keyword.fetch!(opts, :every)
     events = Keyword.get(opts, :on_events, [])
+    background = Keyword.get(opts, :background, false)
+
+    background_read =
+      if background do
+        quote do
+          @impl FlezhaUiWeb.Live.Refresh
+          def refresh(socket), do: FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket, :action)
+        end
+      end
 
     forwarded =
       if events != [] do
@@ -181,6 +285,9 @@ defmodule FlezhaUiWeb.Live.Refresh do
       @refresh_events unquote(events)
 
       @doc false
+      def __refresh_background__, do: unquote(background)
+
+      @doc false
       def schedule_refresh,
         do:
           Process.send_after(
@@ -202,9 +309,13 @@ defmodule FlezhaUiWeb.Live.Refresh do
             refresh_interval: FlezhaUiWeb.Live.Refresh.interval(@refresh_interval),
             refresh_paused: false
           )
-          # Arming is immediately followed by the screen's own first load, so
-          # this is when what is on screen was read.
-          |> FlezhaUiWeb.Live.Refresh.mark_refreshed()
+
+        # A plain screen's first load follows arming at once, so this is when
+        # what is on screen was read; a background screen's is when it answers.
+        socket =
+          if unquote(background),
+            do: socket,
+            else: FlezhaUiWeb.Live.Refresh.mark_refreshed(socket)
 
         if Phoenix.LiveView.connected?(socket) do
           if @refresh_events != [] do
@@ -214,7 +325,21 @@ defmodule FlezhaUiWeb.Live.Refresh do
           schedule_refresh()
         end
 
-        socket
+        if unquote(background) and Phoenix.LiveView.connected?(socket) do
+          socket
+          |> Phoenix.Component.assign(
+            refresh_forced: false,
+            refresh_again: nil,
+            refresh_loaded: false
+          )
+          |> FlezhaUiWeb.Live.Refresh.on_answer(
+            :refresh,
+            :refresh_reading,
+            &FlezhaUiWeb.Live.Refresh.answered(__MODULE__, &1, &2)
+          )
+        else
+          socket
+        end
       end
 
       @doc """
@@ -231,7 +356,7 @@ defmodule FlezhaUiWeb.Live.Refresh do
         # Rescheduled unconditionally, so a paused screen resumes on its own
         # rather than needing whatever unpaused it to restart the timer.
         schedule_refresh()
-        {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket)}
+        {:noreply, FlezhaUiWeb.Live.Refresh.tick(__MODULE__, socket, :timer)}
       end
 
       def handle_info(:refresh_requested, socket) do
@@ -240,6 +365,8 @@ defmodule FlezhaUiWeb.Live.Refresh do
       end
 
       unquote(forwarded)
+
+      unquote(background_read)
 
       @impl Phoenix.LiveView
       def handle_event("refresh_toggle", _params, socket) do

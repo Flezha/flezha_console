@@ -122,6 +122,21 @@ defmodule FakeController do
   def set(node, key, value), do: :erpc.call(node, __MODULE__, :put, [key, value])
 
   @doc """
+  Holds every answer set as `{:gated, gate, value}` on `node` until
+  `open_gate/2`: a controller that is slow for as long as the test says. Each
+  call the gate holds tells the caller of `close_gate/2`
+  `{:gate_reached, gate}`, so a test can wait for a read to get that far.
+
+      FakeController.close_gate(node, :slow)
+      FakeController.set(node, {Relay, :relay_rows}, {:gated, :slow, {:ok, rows}})
+      assert_receive {:gate_reached, :slow}
+  """
+  def close_gate(node, gate), do: set(node, {:gate, gate}, {:closed, self()})
+
+  @doc "Lets every answer held by `gate` on `node` through, and every later one."
+  def open_gate(node, gate), do: :erpc.call(node, __MODULE__, :open_here, [gate])
+
+  @doc """
   Clears every answer and call record on `node`, and the identities and posture
   this VM cached from earlier answers, so one test cannot leak into the next.
   """
@@ -379,9 +394,41 @@ defmodule FakeController do
   end
 
   @doc false
+  # A reset lets held answers through, so no call outlives its test.
   def clear do
+    for [gate] <- :ets.match(store(), {{:gate, :"$1"}, {:closed, :_}}), do: open_here(gate)
     :ets.delete_all_objects(store())
     :ok
+  end
+
+  @doc false
+  # The gate opens before its waiters are read, and a waiter registers before
+  # it reads the gate, so no waiter misses its release.
+  def open_here(gate) do
+    :ets.insert(store(), {{:gate, gate}, :open})
+
+    for [waiter] <- :ets.match(store(), {{:gate_waiter, gate, :"$1"}, true}) do
+      :ets.delete(store(), {:gate_waiter, gate, waiter})
+      send(waiter, {:gate_open, gate})
+    end
+
+    :ok
+  end
+
+  defp await_gate(gate) do
+    :ets.insert(store(), {{:gate_waiter, gate, self()}, true})
+
+    case lookup({:gate, gate}, :open) do
+      {:closed, test} ->
+        send(test, {:gate_reached, gate})
+
+        receive do
+          {:gate_open, ^gate} -> :ok
+        end
+
+      :open ->
+        :ets.delete(store(), {:gate_waiter, gate, self()})
+    end
   end
 
   @doc false
@@ -397,6 +444,10 @@ defmodule FakeController do
     record_call(key, args)
 
     case :ets.lookup(store(), key) do
+      [{^key, {:gated, gate, value}}] ->
+        await_gate(gate)
+        value
+
       [{^key, {:per_arg, index, by_arg, fallback}}] ->
         Map.get(by_arg, Enum.at(args, index), fallback)
 

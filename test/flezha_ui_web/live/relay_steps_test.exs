@@ -346,7 +346,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
          }}
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
       html = open_section(view, "finished-relays")
 
@@ -388,7 +388,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
          }}
       )
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       html = open_section(view, "finished-relays")
 
       failed = text_of(html, ~s([data-testid="finished-row-relay_failed"]))
@@ -406,14 +406,15 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       conn: conn,
       node: node
     } do
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       before = length(FakeController.calls(node, {Relay, :info}))
 
       send(view.pid, :refresh)
-      _rendered = render(view)
+      render_async(view)
       assert length(FakeController.calls(node, {Relay, :info})) == before
 
       view |> element(~s([data-testid="reload-finished"])) |> render_click()
+      render_async(view)
       assert length(FakeController.calls(node, {Relay, :info})) == before + 1
     end
 
@@ -536,7 +537,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
     test "confirming requests the new target", %{conn: conn, node: node} do
       with_group(node)
 
-      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_section(view, "partition-groups")
       view |> element(~s([data-testid="rescale-orders"])) |> render_click()
 

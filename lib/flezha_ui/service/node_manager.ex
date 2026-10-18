@@ -151,6 +151,11 @@ defmodule FlezhaUi.Service.NodeManager do
   def error(:timeout),
     do: ui_error("timeout", :unavailable, "The flezha controller did not answer in time.")
 
+  # A read that died in this console. Its reason stays in the server log: a
+  # stack carries call arguments, which can include the operator's token.
+  def error(:read_failed),
+    do: ui_error("read_failed", :internal, "This console could not finish the read.")
+
   def error({:api_missing, module, function, arity}) do
     ui_error(
       "api_missing",

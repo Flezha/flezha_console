@@ -67,7 +67,8 @@ defmodule FlezhaUiWeb.DisconnectedScreensTest do
       %{route: route, says: says} = @screen
       selector = ~s([data-testid="#{says}"])
 
-      assert {:ok, view, html} = live(conn, route)
+      assert {:ok, view, _html} = live(conn, route)
+      html = render_async(view)
 
       html =
         if section = @screen[:section],

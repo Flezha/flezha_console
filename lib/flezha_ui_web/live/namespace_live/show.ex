@@ -18,7 +18,8 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   # change worth showing before the next tick.
   use FlezhaUiWeb.Live.Refresh,
     every: 2_000,
-    on_events: [:runner_connected, :runner_disconnected, :runner_dropped, :runner_readmitted]
+    on_events: [:runner_connected, :runner_disconnected, :runner_dropped, :runner_readmitted],
+    background: true
 
   use FlezhaUiWeb.Topology
   use FlezhaUiWeb.Live.Launcher
@@ -59,6 +60,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         ns: ns,
         page_title: ns,
         loaded?: false,
+        params: %{},
         confirm_stop: nil,
         load_error: nil,
         pulse_fleet: true,
@@ -89,14 +91,21 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         factory_descriptions: nil
       )
       |> refresh_when_connected()
+      |> on_finished_answer()
       |> load_finished()
 
     {:ok, socket}
   end
 
+  # The inspector answers from the rows the screen holds, so an address naming
+  # a selection is applied once the first read has landed.
   @impl true
   def handle_params(params, _uri, socket) do
-    {:noreply, inspect_params(socket, params)}
+    socket = assign(socket, :params, params)
+
+    if socket.assigns.loaded?,
+      do: {:noreply, inspect_params(socket, params)},
+      else: {:noreply, inspect_params(socket, Map.delete(params, "inspect"))}
   end
 
   # The dialogs and the launcher, any of which a row could move underneath.
@@ -416,13 +425,30 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   end
 
   @impl FlezhaUiWeb.Live.Refresh
-  def refresh(socket) do
-    %{ns: ns, flezha_token: token} = socket.assigns
+  def refresh_read(socket) do
+    %{ns: ns, flezha_token: token, items: previous, loaded?: loaded?} = socket.assigns
+    fn -> read(ns, token, previous, loaded?) end
+  end
 
+  # Every call one Home read makes, run off the screen's process. Once the
+  # screen shows figures, a read whose relay rows failed stops there: its
+  # answer keeps them, so the rest would only delay the error.
+  defp read(ns, token, previous, loaded?) do
     # One registry dump answers every relay's health, node, factory, runner and
     # partition group; the summary and the tiles are built from it, not from a
     # read per relay.
-    {rows, load_error} = NodeManager.ok_or_error(NodeManager.relay_rows(ns, token), [])
+    case NodeManager.ok_or_error(NodeManager.relay_rows(ns, token), []) do
+      {_rows, error} when error != nil and loaded? ->
+        if NodeManager.connected_node(),
+          do: %{load_error: error},
+          else: read_with_rows(ns, token, previous, [], error)
+
+      {rows, load_error} ->
+        read_with_rows(ns, token, previous, rows, load_error)
+    end
+  end
+
+  defp read_with_rows(ns, token, previous, rows, load_error) do
     groups = rows |> NodeManager.partition_groups(token) |> with_group_health(rows)
     declared = NodeManager.ok_or(NodeManager.namespace_record(ns, token), nil)
     quotas = NodeManager.quota_usage(ns, declared && declared.quotas, token)
@@ -430,59 +456,88 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     {connected_runners, runners_error} =
       ns |> NodeManager.runners(token) |> NodeManager.ok_or_error([])
 
-    socket
-    |> assign(
-      loaded?: true,
-      rows: rows,
-      plugin_pairs: ns |> NodeManager.relay_plugins(token) |> NodeManager.ok_or([]),
-      schedules:
-        token
-        |> NodeManager.schedule_list()
+    runners =
+      FlezhaUiWeb.Runners.rows(
+        connected_runners,
+        ns
+        |> NodeManager.factory_catalog(token)
         |> NodeManager.ok_or([])
-        |> FlezhaUiWeb.ScheduleLive.rows(ns),
-      groups: groups,
-      runners:
-        FlezhaUiWeb.Runners.rows(
-          connected_runners,
-          ns
-          |> NodeManager.factory_catalog(token)
+        |> NodeManager.factories_by_runner(),
+        rows
+      )
+
+    {tokens, tokens_error} = tokens(ns, token)
+
+    %{
+      assigns: [
+        rows: rows,
+        plugin_pairs: ns |> NodeManager.relay_plugins(token) |> NodeManager.ok_or([]),
+        schedules:
+          token
+          |> NodeManager.schedule_list()
           |> NodeManager.ok_or([])
-          |> NodeManager.factories_by_runner(),
-          rows
-        ),
-      runners_read?: is_nil(runners_error),
-      runner_marks: ns |> NodeManager.dropped_runners(token) |> NodeManager.ok_or([]),
-      declared: declared,
-      quotas: quotas,
-      # A breach is never hidden behind a click, so it outranks the screen's
-      # own collapse default and whatever the viewer last chose.
-      quota_breached: Enum.any?(quotas, & &1.breached?),
-      role_bindings: ns |> NodeManager.roles(token) |> NodeManager.ok_or([]),
-      load_error: load_error
-    )
-    |> Topology.load_summary(ns, %{
-      rows: rows,
-      groups: groups,
-      runners: Enum.map(connected_runners, &NodeManager.identifier_id/1)
-    })
-    |> track_attention()
-    |> load_tokens()
+          |> FlezhaUiWeb.ScheduleLive.rows(ns),
+        groups: groups,
+        runners: runners,
+        runners_read?: is_nil(runners_error),
+        runner_marks: ns |> NodeManager.dropped_runners(token) |> NodeManager.ok_or([]),
+        declared: declared,
+        quotas: quotas,
+        # A breach is never hidden behind a click, so it outranks the screen's
+        # own collapse default and whatever the viewer last chose.
+        quota_breached: Enum.any?(quotas, & &1.breached?),
+        role_bindings: ns |> NodeManager.roles(token) |> NodeManager.ok_or([]),
+        tokens: tokens,
+        tokens_error: tokens_error
+      ],
+      load_error: load_error,
+      summary: Topology.read_summary(token, rows),
+      runner_ids: Enum.map(connected_runners, &NodeManager.identifier_id/1),
+      attention:
+        attention(ns, token, previous, %{
+          rows: rows,
+          groups: groups,
+          quotas: quotas,
+          runners: runners,
+          runners_read?: is_nil(runners_error)
+        })
+    }
   end
 
-  # The namespace's problems, from the same derivation the shell and the Open
-  # problems screen read; what came and went since the last tick goes on the
-  # river.
-  defp track_attention(socket) do
-    %{ns: ns, rows: rows, groups: groups, quotas: quotas, items: previous} = socket.assigns
+  # A whole read is shown whole: the first, one with the controller gone, and
+  # every one whose relay rows answered. A later read whose rows failed, or one
+  # that died, leaves the figures read before on screen and says why.
+  @impl FlezhaUiWeb.Live.Refresh
+  def refresh_apply(socket, {:ok, %{assigns: assigns} = read}) do
+    first? = not socket.assigns.loaded?
 
+    socket
+    |> assign(assigns)
+    |> assign(loaded?: true, load_error: read.load_error)
+    |> Topology.apply_summary(socket.assigns.ns, read.summary, %{
+      rows: assigns[:rows],
+      groups: assigns[:groups],
+      runners: read.runner_ids
+    })
+    |> track_attention(read.attention)
+    |> then(&if(first?, do: inspect_params(&1, &1.assigns.params), else: &1))
+  end
+
+  def refresh_apply(socket, {:ok, %{load_error: error}}), do: assign(socket, load_error: error)
+
+  def refresh_apply(socket, {:exit, _reason}), do: assign(socket, load_error: :read_failed)
+
+  # The namespace's problems, from the same derivation the shell and the Open
+  # problems screen read, tracked against what the screen showed before.
+  defp attention(ns, token, previous, read) do
     items =
       Attention.derive(%{
         namespaces: [
           %{
             namespace: ns,
-            rows: rows,
-            faulted_groups: NodeManager.faulted_group_ids(groups),
-            quotas: quotas
+            rows: read.rows,
+            faulted_groups: NodeManager.faulted_group_ids(read.groups),
+            quotas: read.quotas
           }
         ]
       })
@@ -490,15 +545,24 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     {items, appeared, cleared} =
       Attention.track(Attention.by_id(previous), items, DateTime.utc_now())
 
-    serving = serving(Enum.take(items, problems_shown()), socket)
-    items = Attention.put_serving(items, serving)
+    serving = serving(ns, token, Enum.take(items, problems_shown()), read)
 
-    # The first read is the baseline, not news.
-    appeared = if socket.assigns[:attention_tracked?], do: appeared, else: []
+    %{
+      items: Attention.put_serving(items, serving),
+      serving: serving,
+      appeared: appeared,
+      cleared: cleared
+    }
+  end
+
+  # What came and went since the last read goes on the river; the first read
+  # is the baseline, not news.
+  defp track_attention(socket, attention) do
+    appeared = if socket.assigns[:attention_tracked?], do: attention.appeared, else: []
 
     socket
-    |> assign(items: items, serving: serving, attention_tracked?: true)
-    |> FlezhaUiWeb.River.attention(appeared, cleared)
+    |> assign(items: attention.items, serving: attention.serving, attention_tracked?: true)
+    |> FlezhaUiWeb.River.attention(appeared, attention.cleared)
   end
 
   @doc "How many of its problems Home lists before linking to the rest."
@@ -508,10 +572,10 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   # a suspended relay can wake depends on it. At most one read per shown
   # problem, and none when no runner is connected at all. A read that fails
   # leaves its factory unknown rather than unserved.
-  defp serving(shown, %{assigns: %{ns: ns, runners: runners, flezha_token: token} = assigns}) do
+  defp serving(ns, token, shown, %{runners: runners, runners_read?: runners_read?}) do
     factories = Attention.waiting_factories(shown)
 
-    if runners == [] and assigns.runners_read? do
+    if runners == [] and runners_read? do
       Map.new(factories, &{&1, 0})
     else
       factories
@@ -803,18 +867,10 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
   # The controller answers every token the caller may see; this screen shows
   # its own namespace's.
-  defp load_tokens(socket) do
-    %{ns: ns, flezha_token: token} = socket.assigns
-
+  defp tokens(ns, token) do
     case NodeManager.list_tokens(token) do
-      {:ok, rows} ->
-        assign(socket,
-          tokens: Enum.filter(rows, &(to_string(&1.namespace) == ns)),
-          tokens_error: nil
-        )
-
-      {:error, reason} ->
-        assign(socket, tokens: [], tokens_error: reason)
+      {:ok, rows} -> {Enum.filter(rows, &(to_string(&1.namespace) == ns)), nil}
+      {:error, reason} -> {[], reason}
     end
   end
 
@@ -849,37 +905,38 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   # Off the refresh tick and off the mount: the controller reads an overwatch
   # per live relay to answer it, which is seconds on a busy namespace. Loaded
   # once the screen is connected, and again when an operator asks for it.
-  # A read already in flight is left to finish: starting another would cancel
-  # it, and an operator clicking Reload twice would then never see an answer.
-  defp load_finished(%{assigns: %{finished_loading?: true}} = socket), do: socket
+  defp on_finished_answer(socket) do
+    if connected?(socket),
+      do:
+        FlezhaUiWeb.Live.Refresh.on_answer(
+          socket,
+          :finished,
+          :finished_loading?,
+          &finished_answered/2
+        ),
+      else: socket
+  end
 
   defp load_finished(socket) do
     if connected?(socket) do
       %{ns: ns, flezha_token: token} = socket.assigns
 
-      socket
-      |> assign(finished_loading?: true)
-      |> start_async(:finished, fn -> NodeManager.finished_relays(ns, token) end)
+      FlezhaUiWeb.Live.Refresh.start_once(socket, :finished_loading?, :finished, fn ->
+        NodeManager.finished_relays(ns, token)
+      end)
     else
       socket
     end
   end
 
-  @impl true
-  def handle_async(:finished, result, socket) do
-    socket = assign(socket, finished_loading?: false)
+  defp finished_answered(socket, {:ok, {:ok, finished}}),
+    do: assign(socket, finished: finished, finished_error: nil)
 
-    case result do
-      {:ok, {:ok, finished}} ->
-        {:noreply, assign(socket, finished: finished, finished_error: nil)}
+  defp finished_answered(socket, {:ok, {:error, reason}}),
+    do: assign(socket, finished: [], finished_error: reason)
 
-      {:ok, {:error, reason}} ->
-        {:noreply, assign(socket, finished: [], finished_error: reason)}
-
-      {:exit, reason} ->
-        {:noreply, assign(socket, finished: [], finished_error: {:remote_error, reason})}
-    end
-  end
+  defp finished_answered(socket, {:exit, _reason}),
+    do: assign(socket, finished: [], finished_error: :read_failed)
 
   # ---- Section digests: what a folded section holds, in a few words ----
 
