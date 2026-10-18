@@ -13,7 +13,7 @@ defmodule FlezhaUiWeb.RunnerDropTest do
   alias Flezha.Service.Fleet
   alias Flezha.Service.Relay
 
-  @runner %{id: "runner-a", pid: 4242}
+  @runner FakeController.runner_row("runner-a")
   @mark %{
     stable_id: "stable-b",
     incarnation: "inc-1",
@@ -77,7 +77,9 @@ defmodule FlezhaUiWeb.RunnerDropTest do
         view |> element(~s([data-testid="drop-runner-runner-a"])) |> render_click()
         dialog = view |> element(~s([data-testid="drop-runner-modal"])) |> render()
         assert dialog =~ "runner-a"
-        assert dialog =~ "pid 4242"
+        # Named by where it is held and for how long, not by an OS pid.
+        assert dialog =~ "on flezha@node-a"
+        assert dialog =~ ~r/connected 2h \d+m ago/
         assert dialog =~ "refuses this same"
 
         FakeController.set(node, {Fleet, :runners}, {:ok, []})

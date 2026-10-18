@@ -1102,6 +1102,42 @@ defmodule FlezhaUiWeb.CoreComponents do
   end
 
   @doc """
+  A time in a table cell: how long ago or until, over the absolute time in
+  muted ink, with the full timestamp as its title. `at` is a `DateTime` or
+  unix time in `unit`; `now`, in the same unit, defaults to the clock. A missing time reads
+  "—".
+  """
+  attr :at, :any, required: true
+  attr :unit, :atom, default: :second, values: [:second, :millisecond]
+  attr :now, :integer, default: nil
+  attr :tone, :atom, default: nil, values: [nil, :positive, :warning, :negative, :neutral]
+  attr :testid, :string, default: nil
+
+  def moment(%{at: %DateTime{} = at} = assigns),
+    do: moment(%{assigns | at: DateTime.to_unix(at, assigns.unit)})
+
+  def moment(%{at: at} = assigns) when not is_integer(at) do
+    ~H"""
+    <span data-testid={@testid}>—</span>
+    """
+  end
+
+  def moment(assigns) do
+    assigns =
+      assign(assigns,
+        relative: Format.relative(assigns.at, assigns.unit, assigns.now),
+        absolute: Format.unix_time(assigns.at, assigns.unit)
+      )
+
+    ~H"""
+    <span data-testid={@testid} title={@absolute} class="fui-moment">
+      <span class={@tone && "fui-tone-#{@tone}"}>{@relative}</span>
+      <span class="fui-muted block text-xs">{@absolute}</span>
+    </span>
+    """
+  end
+
+  @doc """
   A figure that is marked for a moment when it changes between refreshes.
 
   The mark is the client's (`FlzChange`): it compares `value` with the last

@@ -159,6 +159,7 @@
         runners={ns.runners}
         marks={ns.marks}
         factories?={true}
+        view={@runner_views[ns.name]}
         can_drop={NodeManager.granted?(@operations, "Fleet.drop_runner")}
         can_readmit={NodeManager.granted?(@operations, "Fleet.readmit_runner")}
         error={FlezhaUiWeb.Live.RunnerActions.error_for(@runner_error, ns.name)}

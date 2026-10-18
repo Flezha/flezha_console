@@ -1,6 +1,7 @@
 defmodule FlezhaUiWeb.Live.RunnerActions do
   @moduledoc """
-  Dropping and readmitting a runner, for every screen with a runner table.
+  Dropping and readmitting a runner, and the filter and order of each runner
+  table, for every screen with one.
 
       use FlezhaUiWeb.Live.Refresh, every: 5_000
       use FlezhaUiWeb.Live.RunnerActions
@@ -13,7 +14,8 @@ defmodule FlezhaUiWeb.Live.RunnerActions do
   `runner_dialogs/1` once, and loads each namespace's marks in its own refresh;
   the events are injected. A completed drop or readmit says so and reloads the
   screen, so the runner leaves the list and its mark appears without waiting
-  for the tick.
+  for the tick. Each table's view is kept per namespace in `@runner_views`,
+  which the host passes back as the table's `view`.
   """
 
   import Phoenix.Component, only: [assign: 2]
@@ -23,7 +25,7 @@ defmodule FlezhaUiWeb.Live.RunnerActions do
 
   # Named exactly, so a host's own events cannot be swallowed.
   @events ~w(drop_runner cancel_drop_runner confirm_drop_runner
-             readmit_runner cancel_readmit_runner confirm_readmit_runner)
+             readmit_runner cancel_readmit_runner confirm_readmit_runner runner_view)
 
   @doc false
   defmacro __using__(_opts) do
@@ -42,7 +44,8 @@ defmodule FlezhaUiWeb.Live.RunnerActions do
 
   @doc "Initial assigns for a host. Call before the first load."
   def runner_actions_init(socket),
-    do: assign(socket, runner_drop: nil, runner_readmit: nil, runner_error: nil)
+    do:
+      assign(socket, runner_drop: nil, runner_readmit: nil, runner_error: nil, runner_views: %{})
 
   @doc """
   The refusal to show on `namespace`'s table, from the host's `@runner_error`,
@@ -52,8 +55,13 @@ defmodule FlezhaUiWeb.Live.RunnerActions do
   def error_for(_runner_error, _namespace), do: nil
 
   @doc false
+  def handle_event(_module, "runner_view", %{"namespace" => ns, "view" => view}, socket) do
+    view = Map.take(view, Map.keys(FlezhaUiWeb.Runners.default_view()))
+    assign(socket, runner_views: Map.put(socket.assigns.runner_views, ns, view))
+  end
+
   def handle_event(_module, "drop_runner", %{"namespace" => ns, "runner" => id} = params, socket),
-    do: assign(socket, runner_drop: %{namespace: ns, runner: id, pid: params["pid"]})
+    do: assign(socket, runner_drop: %{namespace: ns, runner: id, where: params["where"] || ""})
 
   def handle_event(_module, "cancel_drop_runner", _params, socket),
     do: assign(socket, runner_drop: nil)

@@ -95,12 +95,24 @@ An operator SHALL be able to create a namespace with quota overrides, change an 
 
 ### Requirement: Role bindings for a namespace are visible
 
-The namespace screen SHALL list the principals bound to the namespace, from `Flezha.Service.Namespace.roles/2`, with every role each principal holds there. An operator SHALL be able to bind a principal to a role in the screen's namespace through `Flezha.Service.Namespace.bind_role/4`, and to unbind one role, or a principal's whole binding, through `Flezha.Service.Namespace.unbind_role/3` after an explicit confirmation that states what will be taken away. Role bindings SHALL be rendered as a section that collapses, whose header states how many principals are bound so the count is readable while the section is shut.
+The namespace screen SHALL list the principals bound to the namespace, from `Flezha.Service.Namespace.roles/2`. Each principal SHALL be listed with every role it holds there, when its binding was last changed by a bind, and which principal made that bind.
+
+An operator SHALL be able to:
+
+- bind a principal to a role in the screen's namespace through `Flezha.Service.Namespace.bind_role/4`;
+- unbind one role, or a principal's whole binding, through `Flezha.Service.Namespace.unbind_role/3`, after an explicit confirmation that states what will be taken away.
+
+Role bindings SHALL be rendered as a section that collapses. The section header SHALL state how many principals are bound, so the count is readable while the section is shut.
 
 #### Scenario: A namespace has bound principals
 
 - **WHEN** an operator opens a namespace with role bindings
-- **THEN** each bound principal is listed with its roles
+- **THEN** each bound principal is listed with its roles, when it was last bound and by whom
+
+#### Scenario: The binding time is unknown
+
+- **WHEN** a binding carries no `bound_at` or `bound_by`
+- **THEN** those cells show a placeholder
 
 #### Scenario: A principal holds several roles
 

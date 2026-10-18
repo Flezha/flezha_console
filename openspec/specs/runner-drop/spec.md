@@ -119,7 +119,7 @@ when the operations whoami answers for the operator include `Fleet.drop_runner`.
 
 Drop SHALL open a confirmation that:
 
-- names the runner id and OS pid;
+- names the runner id, the node holding its session, and how long it has been connected;
 - says that the same process will be refused until a different one connects;
 - carries the solid danger fill on its confirm button.
 
@@ -134,6 +134,11 @@ NOT offer Drop. Errors SHALL be shown through the console's coded-error display.
 - **THEN** the console calls `drop_runner/3` and the runner leaves the list
 - **AND** a dropped mark with the runner's stable id, pid and time appears under the
   list with a negative badge
+
+#### Scenario: The confirmation names the runner's node
+
+- **WHEN** an operator opens Drop on a runner row
+- **THEN** the confirmation names the runner id, its node and how long it has been connected
 
 #### Scenario: Cancelling a drop
 

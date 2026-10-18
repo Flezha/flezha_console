@@ -279,6 +279,24 @@ defmodule FakeController do
   end
 
   @doc """
+  A runner row shaped as `Flezha.Service.Fleet.runners/2` answers one, with
+  `overrides` applied: connected two hours ago, heard from three seconds ago.
+  """
+  def runner_row(id, overrides \\ %{}) do
+    Map.merge(
+      %{
+        id: to_string(id),
+        node: :"flezha@node-a",
+        connected_at: System.system_time(:second) - 7_200,
+        pid: nil,
+        silent_ms: 3_000,
+        late?: false
+      },
+      overrides
+    )
+  end
+
+  @doc """
   One option row as `Flezha.Service.Fleet.provider/2` answers it in `options`,
   with `overrides` applied.
 

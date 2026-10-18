@@ -104,7 +104,9 @@
   <:title>Finished relay</:title>
   <dl class="fui-facts">
     <.stat label="Status"><.said kind={:completion} value={@completion[:status]} /></.stat>
-    <.stat label="Finished at">{Format.token_expiry(@completion[:finished_at])}</.stat>
+    <.stat label="Finished">
+      <.moment at={@completion[:finished_at]} testid="completion-finished" />
+    </.stat>
     <.stat :if={@completion[:error] not in [nil, ""]} label="Error" tone={:negative} mono>
       {@completion[:error]}
     </.stat>

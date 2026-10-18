@@ -74,12 +74,18 @@ The controller screen SHALL state the authorization posture, and when the postur
 
 ### Requirement: Memory hot spots are operator-triggered
 
-The controller screen SHALL offer a memory snapshot — top processes, ETS tables, DETS files, and the allocator breakdown — read from `Flezha.Service.Controller.mem_top/1`, and SHALL take it only when an operator asks for it, never on the refresh tick.
+The controller screen SHALL offer a memory snapshot — top processes, ETS tables, DETS files, and the allocator breakdown — read from `Flezha.Service.Controller.mem_top/1`, and SHALL take it only when an operator asks for it, never on the refresh tick. Each top process SHALL be shown by its registered name, falling back to its pid, with its memory, its message queue length and its initial call.
 
 #### Scenario: An operator requests a snapshot
 
 - **WHEN** an operator triggers the memory snapshot
 - **THEN** the hot spots are rendered with the time the snapshot was taken
+
+#### Scenario: A named process
+
+- **WHEN** a top process carries a `registered_name`
+- **THEN** its row shows that name rather than its pid
+- **AND** shows its queue length and initial call
 
 #### Scenario: The screen ticks without a request
 
@@ -161,14 +167,27 @@ error. The rest of the console SHALL then show its existing disconnected state.
 The controller screen's durability panel SHALL show the shipper's own status from
 `Flezha.Service.Controller.durability_status/1`, alongside the posture and the
 breaches it already shows. Every field the answer carries SHALL be presented with a
-readable label. A missing or refused answer SHALL be stated without blanking the
-panel.
+readable label. The panel SHALL show a pending retry as the time remaining, from the
+`retry_in_ms` the controller computes, and SHALL NOT format a controller timer value
+as a calendar date. A last error SHALL be shown as the text the controller answers,
+without quoting it again. A missing or refused answer SHALL be stated without blanking
+the panel.
 
 #### Scenario: The remote tier is shipping
 
 - **WHEN** the posture is `:remote_tier` and `durability_status/1` answers
 - **THEN** the panel shows the shipper's status fields, such as its lag and its last
   shipment, beside the breach count
+
+#### Scenario: A shipment is waiting to retry
+
+- **WHEN** a shipper row carries `retry_in_ms: 12000`
+- **THEN** its retry reads "in 12 s"
+
+#### Scenario: A shipment failed
+
+- **WHEN** a shipper row carries `last_error: "{:error, :econnrefused}"`
+- **THEN** the panel shows `{:error, :econnrefused}` with no surrounding quotes
 
 #### Scenario: The controller is local-only
 

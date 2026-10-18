@@ -36,6 +36,7 @@ defmodule FlezhaUiWeb.LiveCase do
           open_section: 2,
           partition_group: 3,
           text_of: 2,
+          testids: 2,
           submit_plugin_form: 2,
           tick: 1,
           enforce_operations: 3,
@@ -163,6 +164,14 @@ defmodule FlezhaUiWeb.LiveCase do
     |> LazyHTML.text()
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
+  end
+
+  @doc "The `data-testid` of each element `selector` matches in `html`, in page order."
+  def testids(html, selector) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(selector)
+    |> LazyHTML.attribute("data-testid")
   end
 
   @doc """

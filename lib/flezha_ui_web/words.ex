@@ -76,8 +76,9 @@ defmodule FlezhaUiWeb.Words do
       unknown: {"Unknown", :neutral}
     },
     schedule: %{
-      true => {"Active", :positive},
-      false => {"Inactive", :neutral}
+      active: {"Active", :positive},
+      dormant: {"Dormant", :warning},
+      inactive: {"Inactive", :neutral}
     },
     namespace_state: %{
       {true, true} => {"Declared and running", :positive},

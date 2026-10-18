@@ -63,6 +63,23 @@ test.describe('Schedules', () => {
     await expect(page.getByTestId(`schedule-row-${name}`)).toHaveCount(0);
   });
 
+  test('a schedule whose cron has no slot left is dormant, with no next fire', async ({ page }) => {
+    const name = uniqueScheduleName('pwd');
+
+    try {
+      await openScheduleForm(page);
+      // 30 February never comes, so the job finds no slot to arm.
+      await fillScheduleForm(page, name, '0 0 30 2 *', 'echo_steps');
+      await page.getByTestId('schedule-form-submit').click();
+      await expect(page.getByTestId('schedule-form-modal')).toHaveCount(0);
+
+      await expect(page.getByTestId(`schedule-status-${name}`)).toHaveText('Dormant');
+      await expect(page.getByTestId(`schedule-next-fire-${name}`)).toHaveText('—');
+    } finally {
+      await removeSchedule(page, name);
+    }
+  });
+
   test('a schedule is armed with init values, runs now, and is removed', async ({
     page,
     live,
@@ -80,8 +97,10 @@ test.describe('Schedules', () => {
       // Persisted *and* active: an entry the hub never accepted would read
       // "Inactive", which is the state this screen exists to distinguish.
       await expect(page.getByTestId(`schedule-status-${name}`)).toHaveText('Active');
-      // Next fire is computed from the cron, not reported by the hub.
-      await expect(page.getByTestId(`schedule-next-fire-${name}`)).toHaveText(/\d{4}-\d{2}-\d{2}/);
+      // Next fire is the slot the job is armed for, ahead of now with its date.
+      await expect(page.getByTestId(`schedule-next-fire-${name}`)).toContainText(/\bin \d/);
+      await expect(page.getByTestId(`schedule-next-fire-${name}`)).toContainText(/\d{4}-\d{2}-\d{2}/);
+      await expect(page.getByTestId(`schedule-created-${name}`)).toContainText(/now|s ago/);
 
       const lastFire = page.getByTestId(`schedule-last-fire-${name}`);
       const firedBefore = (await lastFire.innerText()).trim();

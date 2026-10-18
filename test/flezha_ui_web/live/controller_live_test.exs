@@ -178,7 +178,22 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
         {:ok,
          snapshot(%{
            erlang_memory: %{total: 2048},
-           top_processes: [%{name: :busy_worker, memory: 1024}]
+           top_processes: [
+             %{
+               pid: "<0.410.0>",
+               registered_name: "busy_worker",
+               initial_call: "{:gen_server, :init_it, 6}",
+               memory: 1024,
+               message_queue_len: 17
+             },
+             %{
+               pid: "<0.977.0>",
+               registered_name: nil,
+               initial_call: "{:proc_lib, :init_p, 5}",
+               memory: 512,
+               message_queue_len: 0
+             }
+           ]
          })}
       )
 
@@ -197,6 +212,13 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       assert html =~ "2026-08-24T02:00:00Z"
       assert html =~ ~s(data-testid="memory-top-processes")
       assert html =~ "busy_worker"
+
+      # A named process reads by its name, an unnamed one by its pid, each with
+      # its queue and how it was started.
+      table = view |> element(~s([data-testid="memory-top-processes"])) |> render()
+      assert table =~ ~r/busy_worker.*17.*:gen_server, :init_it, 6/s
+      assert table =~ "&lt;0.977.0&gt;"
+      refute table =~ "&lt;0.410.0&gt;"
     end
 
     test "a snapshot stays labelled with its capture time across later ticks", %{
@@ -245,9 +267,10 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
              last_shipped_ms: 1_760_000_000_000,
              pending_since_ms: nil,
              failures: 3,
-             retry_after_ms: nil,
+             retry_after_ms: -576_460_748_123,
+             retry_in_ms: 12_000,
              superseded_by: nil,
-             last_error: :timeout
+             last_error: "{:error, :timeout}"
            }
          ]}
       )
@@ -259,7 +282,13 @@ defmodule FlezhaUiWeb.ControllerLiveTest do
       assert row =~ "orders"
       assert row =~ "2025-10-09"
       assert row =~ "3"
-      assert row =~ ":timeout"
+
+      # A retry is the time left, never a timer value read as a date, and the
+      # error is the controller's text, not quoted again.
+      assert row =~ "in 12 s"
+      refute row =~ "1951"
+      assert row =~ "{:error, :timeout}"
+      refute row =~ "&quot;{:error"
     end
 
     test "a remote tier with nothing shipped yet says so", %{conn: conn, node: node} do

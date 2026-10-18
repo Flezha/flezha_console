@@ -27,7 +27,8 @@ defmodule FlezhaUi.ControllerShapesTest do
     {"Fleet.providers", [1, "providers", :each],
      {:provider_entry, ["relay_websocket", "Flezha.Plugin.Provider.Websocket", true]}},
     {"Fleet.provider", [1, "options", :each], {:option_row, ["url"]}},
-    {"Relay.registry", [1, :each], {:registry_entry, [:flow]}}
+    {"Relay.registry", [1, :each], {:registry_entry, [:flow]}},
+    {"Fleet.runners", [1, :each], {:runner_row, ["runner-a"]}}
   ]
 
   setup_all do

@@ -425,6 +425,16 @@
         <:col :let={binding} label="Scope">
           {if binding[:namespace] == "_system", do: "Cluster-wide", else: binding[:namespace]}
         </:col>
+        <:col :let={binding} label="Last bound">
+          <.moment at={binding[:bound_at]} testid={"binding-bound-#{binding[:principal]}"} />
+        </:col>
+        <:col :let={binding} label="Bound by">
+          <.ident
+            value={binding[:bound_by] || "—"}
+            full
+            testid={"binding-by-#{binding[:principal]}"}
+          />
+        </:col>
         <:menu :let={binding}>
           <.row_menu
             :if={NodeManager.granted?(@operations, "Namespace.unbind_role")}
@@ -475,19 +485,60 @@
       <.empty_state :if={@tokens == [] and is_nil(@tokens_error)} icon="hero-identification">
         A token is how a principal proves who it is. None is issued for this namespace.
       </.empty_state>
+      <% listed_tokens = tokens_with_status(@tokens, @token_status) %>
+      <.segmented :if={@tokens != []} label="Token status" testid="token-status-filter">
+        <:option
+          :for={{value, label, count} <- token_choices(@tokens)}
+          click="token_status"
+          value={value}
+          current={@token_status == value}
+          testid={"token-filter-#{value}"}
+        >
+          {label} <span class="fui-figures">{count}</span>
+        </:option>
+      </.segmented>
+      <p
+        :if={@tokens != [] and listed_tokens == []}
+        class="fui-figures"
+        data-testid="tokens-none-match"
+      >
+        No token has this status.
+      </p>
       <.grid
-        :if={@tokens != []}
+        :if={listed_tokens != []}
         paging={@paging}
         id="tokens-grid"
-        rows={@tokens}
+        rows={listed_tokens}
         row_testid={&"token-#{&1.id}"}
       >
         <:col :let={row} label="Token"><.ident value={row.id} /></:col>
         <:col :let={row} label="Principal"><.ident value={row.principal} full /></:col>
         <:col :let={row} label="Role">{row.role}</:col>
         <:col :let={row} label="Label">{row[:label] || "—"}</:col>
+        <:col :let={row} label="Issued">
+          <.moment at={row[:created_at]} testid={"token-issued-#{row.id}"} />
+        </:col>
+        <:col :let={row} label="Issued by">
+          <.ident value={row[:created_by] || "—"} full testid={"token-issuer-#{row.id}"} />
+        </:col>
+        <:col :let={row} label="Expires">
+          <span :if={row[:expires_at] == :never} data-testid={"token-expires-#{row.id}"}>
+            never
+          </span>
+          <.moment
+            :if={row[:expires_at] != :never}
+            at={row[:expires_at]}
+            tone={expiry_tone(row)}
+            testid={"token-expires-#{row.id}"}
+          />
+        </:col>
         <:col :let={row} label="Status">
           <.state_badge kind={:token_status} value={row.status} testid={"token-status-#{row.id}"} />
+          <.moment
+            :if={is_integer(row[:revoked_at])}
+            at={row.revoked_at}
+            testid={"token-revoked-#{row.id}"}
+          />
         </:col>
         <:menu :let={row}>
           <.row_menu
@@ -628,8 +679,23 @@
     <:col :let={relay} label="Relay">
       <.link navigate={~p"/namespaces/#{@ns}/relays/#{relay.id}"}>{relay.id}</.link>
     </:col>
-    <:col :let={relay} label="Status"><.said kind={:completion} value={relay[:status]} /></:col>
-    <:col :let={relay} label="Finished at" num>{Format.token_expiry(relay[:finished_at])}</:col>
+    <:col :let={relay} label="Run">{relay[:run] || "—"}</:col>
+    <:col :let={relay} label="Status">
+      <.said kind={:completion} value={relay[:status]} />
+      <p
+        :if={relay[:error] not in [nil, ""]}
+        class="fui-tone-negative fui-ident text-xs"
+        data-testid={"finished-error-#{relay.id}"}
+      >
+        {relay.error}
+      </p>
+    </:col>
+    <:col :let={relay} label="Finished">
+      <.moment at={relay[:finished_at]} testid={"finished-at-#{relay.id}"} />
+    </:col>
+    <:col :let={relay} label="Kept until">
+      <.moment at={relay[:expires_at]} testid={"finished-kept-#{relay.id}"} />
+    </:col>
   </.grid>
 </.section>
 
@@ -648,6 +714,8 @@
     namespace={@ns}
     runners={@runners}
     marks={@runner_marks}
+    factories?={true}
+    view={@runner_views[@ns]}
     can_drop={NodeManager.granted?(@operations, "Fleet.drop_runner")}
     can_readmit={NodeManager.granted?(@operations, "Fleet.readmit_runner")}
     error={FlezhaUiWeb.Live.RunnerActions.error_for(@runner_error, @ns)}

@@ -2148,14 +2148,24 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       node: node
     } do
       stack(node, rows: [summary_row("relay_a"), summary_row("relay_b")])
-      FakeController.set(node, {Fleet, :runners}, {:ok, [%{id: "runner-a", pid: 4242}]})
-      FakeController.set(node, {Fleet, :factories}, {:ok, [%{id: "store_input", run: :flow}]})
-      FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
+
+      FakeController.set(
+        node,
+        {Fleet, :runners},
+        {:ok, [FakeController.runner_row("runner-a", %{connected_at: 1_791_590_400})]}
+      )
+
+      FakeController.set(
+        node,
+        {Fleet, :factories},
+        {:ok, [%{id: "store_input", run: :flow, runners: ["runner-a"]}]}
+      )
 
       {:ok, view, html} = live(conn, "/namespaces/default?inspect=runner:runner-a")
 
       assert html =~ ~s(data-testid="inspector-runner")
-      assert html =~ "4242"
+      assert text_of(html, ~s([data-testid="inspector-node"])) == "flezha@node-a"
+      assert text_of(html, ~s([data-testid="inspector-connected"])) =~ "2026-10-10 00:00:00 UTC"
       assert html =~ ~s(data-testid="inspector-principal")
       assert view |> element(~s([data-testid="inspector-factories"])) |> render() =~ "store_input"
       assert html =~ ~s(href="/namespaces/default/relays/relay_b")

@@ -29,27 +29,23 @@ defmodule FlezhaUi.Service.NodeManagerCatalogTest do
     FakeController.set(node, {Flezha.Service.Fleet, :factories}, {:ok, factories})
   end
 
-  defp with_runners(node, by_factory) do
-    FakeController.set(
-      node,
-      {Flezha.Service.Fleet, :runners_for_factory},
-      {:per_arg, 1, by_factory, {:ok, []}}
-    )
-  end
-
   describe "factory_catalog/2" do
     test "pairs each factory with its run and the runners serving it", %{node: node} do
       with_factories(node, [
-        %{id: "store_input", description: "stores its input", run: :flow},
-        %{id: "chat_loop_steps", description: "loops", run: :steps}
+        %{
+          id: "store_input",
+          description: "stores its input",
+          run: :flow,
+          runners: ["runner-b", "runner-a"]
+        },
+        %{id: "chat_loop_steps", description: "loops", run: :steps, runners: ["runner-a"]}
       ])
 
-      with_runners(node, %{
-        "store_input" => {:ok, ["runner-b", "runner-a"]},
-        "chat_loop_steps" => {:ok, ["runner-a"]}
-      })
-
       assert {:ok, catalog} = NodeManager.factory_catalog("default", nil)
+
+      # One listing carries the runners; no factory is looked up on its own.
+      assert [_one] = FakeController.calls(node, {Flezha.Service.Fleet, :factories})
+      assert FakeController.calls(node, {Flezha.Service.Fleet, :runners_for_factory}) == []
 
       assert [
                %{
@@ -70,8 +66,7 @@ defmodule FlezhaUi.Service.NodeManagerCatalogTest do
     end
 
     test "a registered factory no runner serves is present and not servable", %{node: node} do
-      with_factories(node, [%{id: "store_input", description: nil, run: :flow}])
-      with_runners(node, %{})
+      with_factories(node, [%{id: "store_input", description: nil, run: :flow, runners: []}])
 
       assert {:ok, [%{id: "store_input", runners: [], servable?: false}]} =
                NodeManager.factory_catalog("default", nil)
@@ -94,16 +89,10 @@ defmodule FlezhaUi.Service.NodeManagerCatalogTest do
                NodeManager.factory_catalog("default", nil)
     end
 
-    test "a refused runner lookup leaves its factory offered but unserved", %{node: node} do
+    test "a row that names no runners leaves its factory offered but unserved", %{node: node} do
       # The distinction the picker draws: the namespace's factories are known,
       # only which runners serve one is not.
       with_factories(node, [%{id: "store_input", description: nil, run: :flow}])
-
-      FakeController.set(
-        node,
-        {Flezha.Service.Fleet, :runners_for_factory},
-        FakeController.error("controller.timeout")
-      )
 
       assert {:ok, [%{id: "store_input", runners: [], servable?: false}]} =
                NodeManager.factory_catalog("default", nil)

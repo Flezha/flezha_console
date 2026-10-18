@@ -16,7 +16,8 @@ defmodule FlezhaUiWeb.WordsTest do
       {:shutdown_phase, :drain, "Draining", :warning},
       {:signal_handler, :ok, "Installed", :positive},
       {:hub_recovery, :not_hosted, "No hub on this node", :neutral},
-      {:schedule, true, "Active", :positive},
+      {:schedule, :active, "Active", :positive},
+      {:schedule, :dormant, "Dormant", :warning},
       {:namespace_state, {true, false}, "Declared, no hub running", :warning},
       {:quota, :breached, "At its limit", :negative},
       {:boolean, false, "No", :neutral}

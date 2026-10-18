@@ -165,7 +165,7 @@ defmodule FlezhaUiWeb.DlqLive do
         relay_class: class,
         tasklet_id: tasklet,
         # Oldest first within a group, as the flat listing was.
-        entries: Enum.sort_by(group_entries, &(&1.age_s || 0), :desc),
+        entries: Enum.sort_by(group_entries, &(&1.ts_ms || 0)),
         parked: length(group_entries)
       }
     end)
@@ -182,11 +182,11 @@ defmodule FlezhaUiWeb.DlqLive do
       cell_key: entry["cell_key"],
       channel: entry["channel"],
       generation: entry["generation"] || 1,
-      age_s: age_seconds(entry["ts_ms"]),
+      ts_ms: entry["ts_ms"],
+      attempts: entry["attempts"],
+      payload_bytes: entry["payload_bytes"],
+      replaying?: entry["status"] == "replaying",
       error: entry["error"]
     }
   end
-
-  defp age_seconds(nil), do: nil
-  defp age_seconds(ts_ms), do: div(System.system_time(:millisecond) - ts_ms, 1000)
 end

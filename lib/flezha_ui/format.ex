@@ -72,6 +72,30 @@ defmodule FlezhaUi.Format do
   def duration(_other), do: "—"
 
   @doc """
+  How long ago something happened, from the milliseconds since: "now", "12 s
+  ago", then `duration/1` with "ago". `nil` is a thing that never happened.
+  """
+  def ago(nil), do: "never"
+  def ago(ms) when is_integer(ms), do: span(ms, &"#{&1} ago")
+
+  @doc "How long until something happens, from the milliseconds left: the mirror of `ago/1`."
+  def until(nil), do: "—"
+  def until(ms) when is_integer(ms), do: span(ms, &"in #{&1}")
+
+  @doc """
+  A unix time `at` in `unit` read against `now` in the same unit, the clock by
+  default: `ago/1` when it has passed, `until/1` when it is ahead.
+  """
+  def relative(at, unit, now \\ nil) do
+    ms = System.convert_time_unit((now || System.system_time(unit)) - at, unit, :millisecond)
+    if ms >= 0, do: ago(ms), else: until(-ms)
+  end
+
+  defp span(ms, _say) when ms < 1_000, do: "now"
+  defp span(ms, say) when ms < 60_000, do: say.("#{div(ms, 1_000)} s")
+  defp span(ms, say), do: say.(duration(ms))
+
+  @doc """
   A duration in seconds, to its largest unit alone.
 
   For a table column, where a compact cell reads better down a list than a

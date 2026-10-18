@@ -86,6 +86,11 @@ test.describe('Dead-letter queue', () => {
     const row = page.getByTestId(`dlq-row-${ref}`);
     await expect(row).toContainText('input');
     await expect(row).toContainText('poison payload');
+    // When it was dead-lettered, its size and whether it waits or is replaying.
+    await expect(page.getByTestId(`dlq-at-${ref}`)).toContainText(/now|ago/);
+    await expect(row).toContainText(/\d+ B/);
+    await expect(page.getByTestId(`dlq-state-${ref}`)).toHaveText('Waiting');
+    await expect(page.getByTestId('dlq-total-bytes')).toContainText(/\d+(\.\d)? [KM]?B/);
     await expect(statTerm(page)).toHaveCSS('text-transform', 'none');
     await expect(statTerm(page)).toHaveCSS('overflow-wrap', 'anywhere');
 

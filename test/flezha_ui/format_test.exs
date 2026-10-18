@@ -65,6 +65,21 @@ defmodule FlezhaUi.FormatTest do
     end
   end
 
+  describe "ago/1 and until/1" do
+    test "a past time reads back from now, a future one forward" do
+      assert Format.ago(400) == "now"
+      assert Format.ago(12_000) == "12 s ago"
+      assert Format.ago(3 * 86_400_000) == "3d 0h ago"
+      assert Format.until(12_000) == "in 12 s"
+      assert Format.until(27 * 86_400_000) == "in 27d 0h"
+    end
+
+    test "a thing that never happened, or has no time, says so" do
+      assert Format.ago(nil) == "never"
+      assert Format.until(nil) == "—"
+    end
+  end
+
   describe "age/1" do
     test "carries only the largest unit, for a table column" do
       assert "45s" = Format.age(45)

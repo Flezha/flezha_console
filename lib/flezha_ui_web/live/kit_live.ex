@@ -175,6 +175,18 @@ defmodule FlezhaUiWeb.KitLive do
         <.stat label="Identifier"><.ident value="default_58efe7505741" /></.stat>
         <.stat label="Changing"><.live_value id="kit-live" value={length(@samples)} /></.stat>
         <.stat label="Sparkline"><.sparkline samples={@samples} /></.stat>
+        <.stat label="Past">
+          <.moment at={1_791_590_400} now={1_791_590_400 + 3 * 86_400} testid="kit-moment-past" />
+        </.stat>
+        <.stat label="Future">
+          <.moment
+            at={1_791_590_400 + 27 * 86_400}
+            now={1_791_590_400}
+            tone={:warning}
+            testid="kit-moment-future"
+          />
+        </.stat>
+        <.stat label="Missing"><.moment at={nil} testid="kit-moment-missing" /></.stat>
       </dl>
       <div class="mt-4 grid gap-3 max-w-md">
         <.meter value={3} max={10} label="3 of 10" />

@@ -148,14 +148,14 @@
           {row[:failures] || 0}
         </span>
       </:col>
-      <:col :let={row} label="Retry after" num>
-        {Format.unix_time(row[:retry_after_ms], :millisecond)}
+      <:col :let={row} label="Retry" num>
+        {Format.until(row[:retry_in_ms])}
       </:col>
       <:col :let={row} label="Superseded by">
         <code>{(row[:superseded_by] && inspect(row[:superseded_by])) || "—"}</code>
       </:col>
       <:col :let={row} label="Last error">
-        <code>{(row[:last_error] && inspect(row[:last_error])) || "—"}</code>
+        <code>{row[:last_error] || "—"}</code>
       </:col>
     </.grid>
   </div>
@@ -231,9 +231,13 @@
       testid="memory-top-processes"
     >
       <:col :let={proc} label="Process">
-        <code>{Format.printable(proc[:name] || proc[:pid])}</code>
+        <code>{Format.printable(proc[:registered_name] || proc[:pid])}</code>
       </:col>
       <:col :let={proc} label="Memory" num>{Format.bytes(proc[:memory])}</:col>
+      <:col :let={proc} label="Queue" num>{proc[:message_queue_len] || "—"}</:col>
+      <:col :let={proc} label="Started as">
+        <code>{proc[:initial_call] || "—"}</code>
+      </:col>
     </.grid>
   </div>
 </.section>

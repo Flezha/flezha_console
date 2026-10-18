@@ -78,12 +78,31 @@ The UI SHALL display dead-letter statistics as reported by the controller, one f
 
 ### Requirement: Dead-letter entry listing
 
-The UI SHALL list dead-letter entries from `Flezha.Service.Dlq.list/2` oldest first, showing each entry's reference, cell key, channel, generation, age, and error, and SHALL allow filtering by relay class. Entries SHALL be grouped by tasklet, matching how the controller stores and ships them, with each tasklet's dead-letter count shown on its group. Visible text SHALL call the entries dead letters and SHALL NOT call them parked.
+The UI SHALL list dead-letter entries from `Flezha.Service.Dlq.list/2`, oldest first, and SHALL allow filtering by relay class. Each entry SHALL be shown with:
+
+- its reference, cell key, channel, generation and error;
+- when it was dead-lettered, relative to now and as an absolute time;
+- how many attempts it has had;
+- its payload size;
+- whether it is waiting or being replayed.
+
+Entries SHALL be grouped by tasklet, matching how the controller stores and ships them, with each tasklet's dead-letter count shown on its group. The listing SHALL show the total bytes the queue holds, from `Flezha.Service.Dlq.stats/2`. Visible text SHALL call the entries dead letters and SHALL NOT call them parked.
 
 #### Scenario: Entries are waiting
 
 - **WHEN** an operator opens the dead-letter queue
-- **THEN** dead letters are listed oldest first with reference, cell key, channel, generation, age, and error
+- **THEN** dead letters are listed oldest first with reference, cell key, channel, generation, dead-letter time, attempts, size, state and error
+
+#### Scenario: An entry is being replayed
+
+- **WHEN** an entry's status is `replaying`
+- **THEN** its state reads "Replaying"
+- **AND** an entry with no status reads "Waiting"
+
+#### Scenario: The queue's size is shown
+
+- **WHEN** the stats answer carries `bytes`
+- **THEN** the listing shows the total size held
 
 #### Scenario: Entries span tasklets
 

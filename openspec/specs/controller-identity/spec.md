@@ -162,13 +162,45 @@ The namespace switcher SHALL offer only namespaces the bound token can reach. A 
 
 ### Requirement: Tokens are administered from the namespace screen
 
-The namespace screen SHALL list the tokens of that namespace from `Flezha.Service.Namespace.tokens/1`, each with its id, principal, role, label and status (active, revoked or expired), and never the token itself. An operator SHALL be able to issue a token for a principal and role in that namespace through `Flezha.Service.Namespace.issue_token/5`, with an optional label and a lifetime in seconds or `never`, and to revoke a listed token through `Flezha.Service.Namespace.revoke_token/2` after an explicit confirmation.
+The namespace screen SHALL list the tokens of that namespace from `Flezha.Service.Namespace.tokens/1`. Each token SHALL be shown with:
+
+- its id, principal, role, label and status (active, revoked or expired);
+- when it was issued and which principal issued it;
+- when it expires, or that it never expires;
+- for a revoked token, when it was revoked.
+
+The token itself SHALL never be shown. Times SHALL be shown relative to now, with the absolute time beside them.
+
+The listing SHALL offer a status filter of Active, Revoked, Expired and All, each with its count. The filter SHALL default to Active. Rows SHALL be ordered by soonest expiry first, and tokens that never expire SHALL come last.
+
+An operator SHALL be able to issue a token for a principal and role in that namespace through `Flezha.Service.Namespace.issue_token/5`, with an optional label and a lifetime in seconds or `never`. An operator SHALL be able to revoke a listed token through `Flezha.Service.Namespace.revoke_token/2` after an explicit confirmation.
 
 #### Scenario: Tokens are listed
 
 - **WHEN** an operator opens a namespace screen
-- **THEN** each token of that namespace is listed with its id, principal, role, label and status
+- **THEN** each active token of that namespace is listed with its id, principal, role, label, status, issue time, issuer and expiry
 - **AND** no token value appears in the rendered page
+
+#### Scenario: A token expires soon
+
+- **WHEN** an active token expires within three days
+- **THEN** its expiry is shown with the warning tone
+
+#### Scenario: A token never expires
+
+- **WHEN** a token's `expires_at` is `never`
+- **THEN** its expiry reads "never" and it is listed after every token that expires
+
+#### Scenario: Filtering by status
+
+- **WHEN** an operator chooses Revoked in the status filter
+- **THEN** only revoked tokens are listed, each with the time it was revoked
+- **AND** each filter choice shows how many tokens it holds
+
+#### Scenario: The controller answers no times
+
+- **WHEN** a token row carries no `created_at`, `expires_at` or `created_by`
+- **THEN** those cells show a placeholder and the row is still listed
 
 #### Scenario: Issuing a token
 

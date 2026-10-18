@@ -56,7 +56,7 @@ A namespace holding partition group members SHALL present them as one group row 
 
 ### Requirement: The registered factory catalog
 
-The UI SHALL read a namespace's registered factories together with the runners serving each, through one `FlezhaUi.Service.NodeManager` function used by every screen that names a factory, backed by `Flezha.Service.Fleet.factories/2` and `Flezha.Service.Fleet.runners_for_factory/3`. A factory SHALL be presented with its description, its run (`flow` or `steps`), and whether any runner currently serves it. The catalog SHALL be read when a form that needs it is opened and when its namespace changes, and SHALL NOT be read on a screen's refresh tick.
+The UI SHALL read a namespace's registered factories together with the runners serving each, through one `FlezhaUi.Service.NodeManager` function used by every screen that names a factory, backed by one `Flezha.Service.Fleet.factories/2` call whose rows carry the runners serving each factory. A factory SHALL be presented with its description, its run (`flow` or `steps`), and whether any runner currently serves it. A form SHALL read the catalog when it is opened and when its namespace changes. Because the catalog is one read, a runner listing MAY read it on its refresh tick to show what each runner serves; it SHALL NOT be read once per factory.
 
 #### Scenario: Factories are registered and served
 
@@ -85,6 +85,12 @@ The UI SHALL read a namespace's registered factories together with the runners s
 
 - **WHEN** the cluster screen, the namespace screen, and the schedule form each need a namespace's factories
 - **THEN** all three obtain them from the same `NodeManager` function
+
+#### Scenario: A refresh reads the catalog once
+
+- **WHEN** a screen with a runner listing refreshes
+- **THEN** it reads the catalog with at most one `factories/2` call per namespace
+- **AND** makes no `runners_for_factory/3` call
 
 ### Requirement: Relay listing within a namespace
 

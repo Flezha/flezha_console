@@ -44,17 +44,68 @@ The UI SHALL show, per namespace, which nodes host that namespace's hub, read fr
 
 ### Requirement: Runner fleet view
 
-The UI SHALL list the runners serving a namespace anywhere in the controller cluster, read from the cluster-wide `Flezha.Service.Fleet.runners/2`, with the factories each runner serves. The node-local `Flezha.Service.Fleet.runners_on_this_node/2` SHALL NOT be used for any listing that presents itself as the namespace's fleet.
+The UI SHALL list the runners serving a namespace anywhere in the controller cluster, read from the cluster-wide `Flezha.Service.Fleet.runners/2`. The node-local `Flezha.Service.Fleet.runners_on_this_node/2` SHALL NOT be used for any listing that presents itself as the namespace's fleet.
+
+Each runner SHALL be listed with:
+
+- the controller node that holds its session;
+- how long it has been connected, with the absolute connect time;
+- how long ago the controller last heard from it, in the warning tone when the controller answers `late?`;
+- the number of relays on it, linking to the relays index filtered to that runner;
+- the factories it serves, from the `runners` of each `Flezha.Service.Fleet.factories/2` row.
+
+The Serves cell SHALL show at most two factories, plus a control that reveals the rest and states how many there are. When other runners serve exactly the same set of factories, the cell SHALL say how many.
+
+Above the table, the listing SHALL state how many runners are connected, on how many nodes, how many factories they serve, and how many are late. An operator SHALL be able to:
+
+- filter the runners by runner id or factory;
+- limit them to one node;
+- show only late runners;
+- sort them, with late runners first by default.
 
 #### Scenario: Runners are connected
 
 - **WHEN** a namespace has active runners
-- **THEN** each runner id is listed with its factory ids
+- **THEN** each runner id is listed with its node, connection time, last contact, relay count and factories
 
 #### Scenario: Runners on another node are listed
 
 - **WHEN** a runner of the namespace is connected to a peer controller node rather than the node the UI is connected to
-- **THEN** that runner is listed too
+- **THEN** that runner is listed too, with that peer as its node
+
+#### Scenario: A runner is late
+
+- **WHEN** `runners/2` answers `late?: true` for a runner
+- **THEN** its last-contact cell has the warning tone
+- **AND** the summary counts it as late
+- **AND** it is listed before runners that are not late under the default sort
+
+#### Scenario: A runner serves many factories
+
+- **WHEN** a runner serves more than two factories
+- **THEN** its Serves cell shows two of them and a control stating how many more there are
+- **AND** using that control shows every factory it serves
+
+#### Scenario: Runners share a factory set
+
+- **WHEN** other runners serve exactly the same factories as a runner
+- **THEN** that runner's Serves cell says how many other runners serve the same set
+
+#### Scenario: Filtering runners
+
+- **WHEN** an operator enters a factory id in the runner filter
+- **THEN** only runners serving a factory matching it are listed
+- **AND** the summary still counts the whole fleet
+
+#### Scenario: Only late runners
+
+- **WHEN** an operator ticks "Late only"
+- **THEN** only runners answered `late?: true` are listed
+
+#### Scenario: The controller answers no connection facts
+
+- **WHEN** a runner row carries no `node`, `connected_at` or `silent_ms`
+- **THEN** those cells show a placeholder and the runner is still listed
 
 #### Scenario: No runners are connected
 
@@ -73,7 +124,7 @@ The UI SHALL list the runners serving a namespace anywhere in the controller clu
 
 ### Requirement: Factory placement lookup
 
-An operator SHALL be able to select a factory and see which runners can serve it. The factories SHALL come from `Flezha.Service.Fleet.factories/2`, each shown with its id, its description and its run (`flow` or `steps`) as the controller reports it, and the runners serving one factory from `Flezha.Service.Fleet.runners_for_factory/3`.
+An operator SHALL be able to select a factory and see which runners can serve it. The factories SHALL come from `Flezha.Service.Fleet.factories/2`, each shown with its id, its description and its run (`flow` or `steps`) as the controller reports it. The runners serving each factory SHALL come from the `runners` that the same `factories/2` row carries. The console SHALL NOT call `Flezha.Service.Fleet.runners_for_factory/3` once per factory to build a listing.
 
 #### Scenario: A factory has runners
 
@@ -89,6 +140,12 @@ An operator SHALL be able to select a factory and see which runners can serve it
 
 - **WHEN** a factory has no runner currently serving it
 - **THEN** the screen states that no runner serves this factory
+
+#### Scenario: One read per refresh
+
+- **WHEN** the cluster screen refreshes a namespace with many factories
+- **THEN** it reads the factories and their runners with one `factories/2` call
+- **AND** makes no `runners_for_factory/3` call
 
 ### Requirement: Per-node health rollup
 
@@ -156,20 +213,6 @@ The runner fleet view SHALL show, for each active runner, the namespace-derived 
 
 - **WHEN** the controller's answer carries no principal, or the read fails
 - **THEN** the column is absent rather than showing a guess
-
-### Requirement: Runner rows show the runner's OS process id
-
-Every runner listing SHALL show each runner's operating-system process id, from the `pid` that `Flezha.Service.Fleet.runners/2` answers. When the controller cannot say, the row SHALL show a placeholder rather than an empty cell. The pid SHALL be presented as information about the runner host and SHALL NOT be used by the console for any action.
-
-#### Scenario: A connected runner
-
-- **WHEN** a runner is connected and its control channel reports its process id
-- **THEN** its row shows that process id
-
-#### Scenario: The pid is unknown
-
-- **WHEN** `runners/2` answers `pid: nil` for a runner
-- **THEN** the row shows a placeholder in the pid column
 
 ### Requirement: Recovery can be inspected per hub and per namespace
 

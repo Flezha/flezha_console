@@ -194,8 +194,8 @@ it honest:
   the fake answers carries the class core's `flz_transport/errors.json` gives
   it.
 - `controller_shapes_test.exs` checks every stub's default answer and every
-  fixture builder (`relay_row/2`, `graph_channel/5`, `activity_row/2`,
-  `option_row/2`, `registry_entry/2`) against
+  fixture builder (`relay_row/2`, `runner_row/2`, `graph_channel/5`,
+  `activity_row/2`, `option_row/2`, `registry_entry/2`) against
   `test/support/fixtures/controller_shapes.json`: tuple tags, map keys and value
   types recorded from the dev controller, never values. A map keyed by data
   rather than by fields — a provider's `opts`, a relay's hook `chains`, one

@@ -25,12 +25,11 @@ defmodule FlezhaUiWeb.LauncherTest do
       {Fleet, :factories},
       {:ok,
        [
-         %{id: "store_input", description: "stores its input", run: :flow},
-         %{id: "chat_loop_steps", description: nil, run: :steps}
+         %{id: "store_input", description: "stores its input", run: :flow, runners: ["runner-a"]},
+         %{id: "chat_loop_steps", description: nil, run: :steps, runners: ["runner-a"]}
        ]}
     )
 
-    FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
     :ok
   end
 
@@ -111,12 +110,12 @@ defmodule FlezhaUiWeb.LauncherTest do
         assert shows?(view, @host, "relay_new")
       end
 
-      test "#{host.screen}: holds still while the form is open, and a tick reads no factories",
+      test "#{host.screen}: holds still while the form is open, and a tick looks up no factory",
            %{conn: conn, node: node} do
         {:ok, view, _html} = live(conn, @host.route)
         send(view.pid, :refresh)
         _rendered = render(view)
-        assert FakeController.calls(node, {Fleet, :factories}) == []
+        assert FakeController.calls(node, {Fleet, :runners_for_factory}) == []
 
         click(view, "start-relay-btn")
         with_relays(node, ["relay_late"])
@@ -135,8 +134,17 @@ defmodule FlezhaUiWeb.LauncherTest do
          %{conn: conn, node: node} do
       FakeController.set(
         node,
-        {Fleet, :runners_for_factory},
-        {:per_arg, 1, %{"store_input" => {:ok, ["runner-a"]}}, {:ok, []}}
+        {Fleet, :factories},
+        {:ok,
+         [
+           %{
+             id: "store_input",
+             description: "stores its input",
+             run: :flow,
+             runners: ["runner-a"]
+           },
+           %{id: "chat_loop_steps", description: nil, run: :steps, runners: []}
+         ]}
       )
 
       html = conn |> open() |> render()

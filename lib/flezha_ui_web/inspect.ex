@@ -311,7 +311,10 @@ defmodule FlezhaUiWeb.Inspect do
       </p>
       <dl class="fui-facts">
         <.stat label="Runner"><.ident value={@it.runner} copy /></.stat>
-        <.stat label="OS pid" mono testid="inspector-pid">{@ctx[:pid] || "—"}</.stat>
+        <.stat label="Node" mono testid="inspector-node">{@ctx[:node] || "—"}</.stat>
+        <.stat label="Connected">
+          <.moment at={@ctx[:connected_at]} testid="inspector-connected" />
+        </.stat>
         <.stat label="Principal" mono testid="inspector-principal">{@it.principal || "—"}</.stat>
       </dl>
       <div :if={(@ctx[:factories] || []) != []} data-fui-filterable class="space-y-2">

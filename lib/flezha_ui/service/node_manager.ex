@@ -835,7 +835,7 @@ defmodule FlezhaUi.Service.NodeManager do
 
   @doc """
   Every runner serving `namespace` anywhere in the cluster, as
-  `[%{id:, pid:}]`. Never the node-local read: a fleet listing that missed the
+  `[%{id:, node:, connected_at:, silent_ms:, late?:}]`. Never the node-local read: a fleet listing that missed the
   runners on a peer controller would present itself as the whole fleet.
   """
   def runners(namespace, token) do
@@ -884,26 +884,22 @@ defmodule FlezhaUi.Service.NodeManager do
   `[%{id:, description:, run:, runners: [runner_id], servable?: boolean}]`
   sorted by id.
 
-  Every screen that names a factory reads it from here. Costs the listing plus
-  one lookup per factory, so it is read when a form that needs it opens, never
-  on a refresh tick. A runner that disconnects while the form is open leaves
-  `servable?` stale — the controller's refusal is still the authority.
+  Every screen that names a factory reads it from here. One `factories/2` call,
+  whose rows carry their runners, so a refresh tick may read it. A runner that
+  disconnects while a form is open leaves `servable?` stale — the controller's
+  refusal is still the authority.
   """
   def factory_catalog(namespace, token) do
     with {:ok, factories} <- factories(namespace, token) do
-      {:ok, factories |> Enum.map(&factory_entry(namespace, &1, token)) |> Enum.sort_by(& &1.id)}
+      {:ok, factories |> Enum.map(&factory_entry/1) |> Enum.sort_by(& &1.id)}
     end
   end
 
-  defp factory_entry(namespace, factory, token) do
+  defp factory_entry(factory) do
     id = identifier_id(factory)
 
     runners =
-      namespace
-      |> runners_for_factory(id, token)
-      |> ok_or([])
-      |> Enum.map(&identifier_id/1)
-      |> Enum.sort()
+      factory |> field(:runners) |> List.wrap() |> Enum.map(&identifier_id/1) |> Enum.sort()
 
     %{
       id: id,

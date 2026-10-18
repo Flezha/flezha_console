@@ -213,8 +213,9 @@ defmodule FlezhaUiWeb.ScheduleLive do
   end
 
   # The controller joins each stored entry with what the schedule hub holds
-  # for it. A stored entry no node fires is not armed; saying so is more useful
-  # than a blank cell that reads as "unknown".
+  # for it. A stored entry no node fires is inactive, and a job with no slot
+  # left to arm is dormant; saying so is more useful than a blank cell that
+  # reads as "unknown".
   defp decorate(entry) do
     %{
       name: to_string(entry.name),
@@ -224,20 +225,36 @@ defmodule FlezhaUiWeb.ScheduleLive do
       # namespace and factory it will start into.
       namespace: Map.get(entry, :namespace) || "—",
       factory_id: Map.get(entry, :factory_id) || "—",
-      armed: Map.get(entry, :node) != nil,
+      status: status(entry),
       node: Map.get(entry, :node),
+      created_at: created_at(Map.get(entry, :created_at)),
       last_fire: last_fire(Map.get(entry, :last_fire)),
       next_fire: next_fire(Map.get(entry, :next_fire))
     }
   end
 
+  defp status(%{dormant?: true}), do: :dormant
+  defp status(%{node: node}) when not is_nil(node), do: :active
+  defp status(_entry), do: :inactive
+
   @doc "What a schedule's status means, for its badge's tooltip."
-  def status_title(true),
+  def status_title(:active),
     do: "A node holds this schedule and fires it on time; the last fire shows how that went."
 
-  def status_title(false),
+  def status_title(:dormant),
+    do:
+      "A node holds this schedule but its cron has no slot left to fire, so it will not fire again."
+
+  def status_title(:inactive),
     do:
       "No node holds this schedule right now, so it does not fire: the schedule hub may be down or still taking it."
+
+  @doc "A last fire's outcome as words and a tone."
+  def fire_outcome(:ok), do: {"started", :positive}
+  def fire_outcome(:duplicate), do: {"already running", :neutral}
+  def fire_outcome({:retrying, reason}), do: {"retrying: #{Format.printable(reason)}", :warning}
+  def fire_outcome(nil), do: {nil, nil}
+  def fire_outcome(other), do: {Format.printable(other), :negative}
 
   @doc "How far the create form has got, for its steps."
   def form_step(form) do
@@ -250,12 +267,24 @@ defmodule FlezhaUiWeb.ScheduleLive do
 
   defp blank?(value), do: String.trim(value || "") == ""
 
+  # The store keeps the creation time as ISO 8601 text.
+  defp created_at(%DateTime{} = dt), do: dt
+
+  defp created_at(text) when is_binary(text) do
+    case DateTime.from_iso8601(text) do
+      {:ok, dt, _offset} -> dt
+      _ -> nil
+    end
+  end
+
+  defp created_at(_none), do: nil
+
   defp next_fire(%DateTime{} = dt), do: dt
   defp next_fire({:ok, %DateTime{} = dt}), do: dt
   defp next_fire(_none), do: nil
 
   # The hub reports a fire as the started instance, its outcome and when it ran.
-  defp last_fire(%{at: %DateTime{} = at}), do: at
+  defp last_fire(%{at: %DateTime{}} = fire), do: Map.take(fire, [:at, :outcome, :instance_id])
   defp last_fire(_none), do: nil
 
   defp aim(socket, namespace) do

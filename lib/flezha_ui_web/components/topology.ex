@@ -4140,7 +4140,7 @@ defmodule FlezhaUiWeb.Topology do
               <td class={figure_class(row.queued)}>{row.queued}</td>
               <td class={figure_class(row.blocked)}>{row.blocked}</td>
               <td class={figure_class(row.dropped)}>{row.dropped}</td>
-              <td>{cell_ago(row.ago_ms)}</td>
+              <td>{Format.ago(row.ago_ms)}</td>
             </tr>
           </tbody>
         </table>
@@ -4180,11 +4180,6 @@ defmodule FlezhaUiWeb.Topology do
 
   defp figure_class(0), do: "is-zero"
   defp figure_class(_n), do: "is-hot"
-
-  defp cell_ago(nil), do: "never"
-  defp cell_ago(ms) when ms < 1_000, do: "now"
-  defp cell_ago(ms) when ms < 60_000, do: "#{div(ms, 1_000)} s ago"
-  defp cell_ago(ms), do: "#{Format.duration(ms)} ago"
 
   attr :inside, :any, required: true
   attr :drawn?, :boolean, required: true

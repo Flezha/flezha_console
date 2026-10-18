@@ -90,13 +90,52 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
                "2031-06-01"
     end
 
-    test "an entry that has fired shows when", %{conn: conn, node: node} do
+    test "an entry that has fired shows when, how it went and the relay it started", %{
+      conn: conn,
+      node: node
+    } do
       last_fire = %{at: ~U[2031-05-31 03:00:00.057538Z], outcome: :ok, instance_id: "nightly@1"}
-      with_entries(node, [entry(%{last_fire: last_fire})])
+
+      with_entries(node, [
+        entry(%{last_fire: last_fire, created_at: "2026-10-01T09:00:00.123456Z"})
+      ])
 
       {:ok, _view, html} = live(conn, ~p"/schedules")
 
       assert html =~ "2031-05-31 03:00:00"
+      assert text_of(html, ~s([data-testid="schedule-created-nightly"])) =~ "2026-10-01 09:00:00"
+
+      assert html =~
+               ~r{href="/namespaces/default/relays/nightly%401"[^>]*data-testid="schedule-last-relay-nightly"[^>]*>\s*started}
+    end
+
+    test "a fire being retried says so, with the reason, in the warning tone", %{
+      conn: conn,
+      node: node
+    } do
+      last_fire = %{
+        at: ~U[2031-05-31 03:00:00Z],
+        outcome: {:retrying, "no runner serves echo_steps"},
+        instance_id: "nightly@2031-05-31T03:00:00Z"
+      }
+
+      with_entries(node, [entry(%{last_fire: last_fire})])
+
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+
+      cell = view |> element(~s([data-testid="schedule-last-fire-nightly"])) |> render()
+      assert cell =~ "retrying: no runner serves echo_steps"
+      assert cell =~ "fui-tone-warning"
+    end
+
+    test "a dormant entry reads as dormant, with no next fire", %{conn: conn, node: node} do
+      with_entries(node, [entry(%{next_fire: nil, dormant?: true})])
+
+      {:ok, view, html} = live(conn, ~p"/schedules")
+
+      status = view |> element(~s([data-testid="schedule-status-nightly"])) |> render()
+      assert status =~ ~r/>\s*Dormant\s*</
+      assert text_of(html, ~s([data-testid="schedule-next-fire-nightly"])) == "—"
     end
 
     test "an entry no node fires is distinguished, not left blank", %{conn: conn, node: node} do
@@ -212,14 +251,31 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
            "default" =>
              {:ok,
               [
-                %{id: "default_steps", description: "spawns things", run: :steps},
-                %{id: "default_flow", description: "forwards things", run: :flow}
+                %{
+                  id: "default_steps",
+                  description: "spawns things",
+                  run: :steps,
+                  runners: ["runner-a"]
+                },
+                %{
+                  id: "default_flow",
+                  description: "forwards things",
+                  run: :flow,
+                  runners: ["runner-a"]
+                }
               ]},
-           "staging" => {:ok, [%{id: "staging_steps", description: "spawns things", run: :steps}]}
+           "staging" =>
+             {:ok,
+              [
+                %{
+                  id: "staging_steps",
+                  description: "spawns things",
+                  run: :steps,
+                  runners: ["runner-a"]
+                }
+              ]}
          }, {:ok, []}}
       )
-
-      FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
 
       :ok
     end
@@ -240,7 +296,14 @@ defmodule FlezhaUiWeb.ScheduleLiveTest do
     end
 
     test "a factory no runner serves is marked as such", %{conn: conn, node: node} do
-      FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, []})
+      html = conn |> open_form() |> render()
+      refute html =~ "(no runner)"
+
+      FakeController.set(
+        node,
+        {Fleet, :factories},
+        {:ok, [%{id: "default_steps", description: "spawns things", run: :steps, runners: []}]}
+      )
 
       assert conn |> open_form() |> render() =~ "(no runner)"
     end

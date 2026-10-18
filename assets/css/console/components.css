@@ -663,10 +663,15 @@
 @media (pointer: coarse) {
   .fui-switch,
   .fui-section-toggle,
-  .fui-help-tip {
+  .fui-help-tip,
+  button.fui-chip {
     justify-content: center;
     min-height: var(--fui-control-h);
     min-width: var(--fui-control-h);
+  }
+
+  .fui-check > input[type="checkbox"] {
+    height: var(--fui-control-h);
   }
 }
 

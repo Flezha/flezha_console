@@ -72,7 +72,7 @@
   rows={@schedules}
   testid="schedule-table"
   row_testid={&"schedule-row-#{&1.name}"}
-  row_tone={&(&1.armed && "positive")}
+  row_tone={&(&1.status == :active && "positive")}
 >
   <:col :let={schedule} label="Name"><span class="fui-num">{schedule.name}</span></:col>
   <:col :let={schedule} label="Cron"><code>{schedule.cron}</code></:col>
@@ -82,24 +82,38 @@
   </:col>
   <:col :let={schedule} label="Factory"><span class="fui-num">{schedule.factory_id}</span></:col>
   <:col :let={schedule} label="Status">
-    <span title={status_title(schedule.armed)}>
+    <span title={status_title(schedule.status)}>
       <.state_badge
         kind={:schedule}
-        value={schedule.armed}
-        title={status_title(schedule.armed)}
+        value={schedule.status}
+        title={status_title(schedule.status)}
         testid={"schedule-status-#{schedule.name}"}
       />
     </span>
   </:col>
-  <:col :let={schedule} label="Last fire" num>
-    <span data-testid={"schedule-last-fire-#{schedule.name}"}>
-      {Format.timestamp(schedule.last_fire)}
-    </span>
+  <:col :let={schedule} label="Created">
+    <.moment at={schedule.created_at} testid={"schedule-created-#{schedule.name}"} />
   </:col>
-  <:col :let={schedule} label="Next fire" num>
-    <span data-testid={"schedule-next-fire-#{schedule.name}"}>
-      {Format.timestamp(schedule.next_fire)}
-    </span>
+  <:col :let={schedule} label="Last fire">
+    <div data-testid={"schedule-last-fire-#{schedule.name}"}>
+      <.moment at={schedule.last_fire && schedule.last_fire.at} />
+      <% {outcome, tone} = fire_outcome(schedule.last_fire && schedule.last_fire[:outcome]) %>
+      <p :if={outcome} class={["text-xs", "fui-tone-#{tone}"]}>
+        <.link
+          :if={schedule.last_fire[:instance_id]}
+          navigate={
+            ~p"/namespaces/#{schedule.namespace}/relays/#{schedule.last_fire.instance_id}"
+          }
+          data-testid={"schedule-last-relay-#{schedule.name}"}
+        >
+          {outcome}
+        </.link>
+        <span :if={!schedule.last_fire[:instance_id]}>{outcome}</span>
+      </p>
+    </div>
+  </:col>
+  <:col :let={schedule} label="Next fire">
+    <.moment at={schedule.next_fire} testid={"schedule-next-fire-#{schedule.name}"} />
   </:col>
   <:menu :let={schedule}>
     <.row_menu

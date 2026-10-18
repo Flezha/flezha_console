@@ -56,6 +56,9 @@
       do: "dead letter",
       else: "dead letters"}
   </.stat>
+  <.stat label="Total size" testid="dlq-total-bytes">
+    {@stats |> Enum.map(&(&1[:bytes] || 0)) |> Enum.sum() |> Format.bytes()}
+  </.stat>
 </dl>
 
 <.empty_state :if={@entries == []} icon="hero-check-circle" testid="dlq-empty">
@@ -101,7 +104,16 @@
         <span class="fui-num">{entry.channel || "—"}</span>
       </:col>
       <:col :let={entry} label="Generation" num>{entry.generation}</:col>
-      <:col :let={entry} label="Age" num>{Format.age(entry.age_s)}</:col>
+      <:col :let={entry} label="Dead-lettered">
+        <.moment at={entry.ts_ms} unit={:millisecond} testid={"dlq-at-#{entry.ref}"} />
+      </:col>
+      <:col :let={entry} label="Attempts" num>{entry.attempts || "—"}</:col>
+      <:col :let={entry} label="Size" num>{Format.bytes(entry.payload_bytes)}</:col>
+      <:col :let={entry} label="State">
+        <span data-testid={"dlq-state-#{entry.ref}"}>
+          {if entry.replaying?, do: "Replaying", else: "Waiting"}
+        </span>
+      </:col>
       <:col :let={entry} label="Error">
         <code class="block max-w-xs truncate" title={entry.error}>{entry.error || "—"}</code>
       </:col>

@@ -81,6 +81,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         quota_error: nil,
         tokens: [],
         tokens_error: nil,
+        token_status: "active",
         token_issue: nil,
         confirm_revoke: nil,
         role_bind: nil,
@@ -142,6 +143,11 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   end
 
   def handle_event("issue_token", _params, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("token_status", %{"value" => status}, socket)
+      when status in ~w(active revoked expired all),
+      do: {:noreply, assign(socket, token_status: status)}
 
   @impl true
   def handle_event("confirm_revoke", %{"id" => id}, socket) do
@@ -435,7 +441,15 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         |> NodeManager.ok_or([])
         |> FlezhaUiWeb.ScheduleLive.rows(ns),
       groups: groups,
-      runners: FlezhaUiWeb.Runners.rows(connected_runners),
+      runners:
+        FlezhaUiWeb.Runners.rows(
+          connected_runners,
+          ns
+          |> NodeManager.factory_catalog(token)
+          |> NodeManager.ok_or([])
+          |> NodeManager.factories_by_runner(),
+          rows
+        ),
       runners_read?: is_nil(runners_error),
       runner_marks: ns |> NodeManager.dropped_runners(token) |> NodeManager.ok_or([]),
       declared: declared,
@@ -524,19 +538,13 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   end
 
   def inspect_context(socket, {"runner", id}) do
-    %{rows: rows, runners: runners, ns: ns, flezha_token: token} = socket.assigns
+    %{rows: rows, runners: runners} = socket.assigns
     runner = Enum.find(runners, &(&1.id == id)) || %{}
 
-    factories =
-      ns
-      |> NodeManager.factory_catalog(token)
-      |> NodeManager.ok_or([])
-      |> NodeManager.factories_by_runner()
-      |> Map.get(id, [])
-
     %{
-      pid: runner[:pid],
-      factories: factories,
+      node: runner[:node],
+      connected_at: runner[:connected_at],
+      factories: runner[:factories] || [],
       relays:
         for(row <- rows, to_string(row[:runner]) == id, do: to_string(row.id)) |> Enum.sort()
     }
@@ -884,6 +892,38 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     end
   end
 
+  @token_statuses [
+    {"active", "Active"},
+    {"revoked", "Revoked"},
+    {"expired", "Expired"},
+    {"all", "All"}
+  ]
+
+  @doc "The token status filter's choices, each with how many tokens it holds."
+  def token_choices(tokens) do
+    for {value, label} <- @token_statuses do
+      {value, label, length(tokens_with_status(tokens, value))}
+    end
+  end
+
+  @doc "The tokens `status` lists, soonest expiry first and those that never expire last."
+  def tokens_with_status(tokens, status) do
+    tokens
+    |> Enum.filter(&(status == "all" or to_string(&1.status) == status))
+    |> Enum.sort_by(&expiry_order(&1[:expires_at]))
+  end
+
+  defp expiry_order(at) when is_integer(at), do: {0, at}
+  defp expiry_order(:never), do: {1, 0}
+  defp expiry_order(_unknown), do: {2, 0}
+
+  # Three days: long enough to reissue before a weekend.
+  defp expiry_tone(%{status: :active, expires_at: at}) when is_integer(at) do
+    if at - System.system_time(:second) < 3 * 86_400, do: :warning
+  end
+
+  defp expiry_tone(_row), do: nil
+
   defp access_digest(bindings, tokens) do
     active = Enum.count(tokens, &(&1.status == :active))
     "#{Words.count(length(bindings), "principal")} bound · #{Words.count(active, "active token")}"
@@ -901,7 +941,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
   defp finished_digest(finished, false) do
     latest = finished |> Enum.map(&(&1[:finished_at] || 0)) |> Enum.max()
-    "#{Words.count(length(finished), "relay")}, latest #{Format.token_expiry(latest)}"
+    "#{Words.count(length(finished), "relay")}, latest #{Format.unix_time(latest, :second)}"
   end
 
   defp runners_digest(runners, marks) do

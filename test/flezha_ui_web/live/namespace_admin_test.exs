@@ -344,6 +344,37 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       assert html =~ ~s(data-testid="role-alice-viewer")
     end
 
+    test "a binding states when it was last bound and by whom, a dash when unknown", %{
+      conn: conn,
+      node: node
+    } do
+      with_catalog(node, running: ["default"], get: {:ok, record("default")})
+
+      FakeController.set(
+        node,
+        {Namespace, :roles},
+        {:ok,
+         [
+           %{
+             principal: "alice",
+             namespace: "default",
+             roles: [:ops],
+             bound_at: System.system_time(:second) - 2 * 3_600,
+             bound_by: "admin"
+           },
+           %{principal: "bob", namespace: "default", roles: [:viewer]}
+         ]}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      html = open_section(view, "access")
+
+      assert text_of(html, ~s([data-testid="binding-bound-alice"])) =~ "2h 0m ago"
+      assert text_of(html, ~s([data-testid="binding-by-alice"])) == "admin"
+      assert text_of(html, ~s([data-testid="binding-bound-bob"])) == "—"
+      assert text_of(html, ~s([data-testid="binding-by-bob"])) == "—"
+    end
+
     test "an empty binding list offers the bind control", %{conn: conn, node: node} do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
 
@@ -599,14 +630,71 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
       FakeController.set(
         node,
         {Namespace, :tokens},
-        {:ok, [token_row("tok-1", %{status: :revoked})]}
+        {:ok,
+         [token_row("tok-1", %{status: :revoked, revoked_at: System.system_time(:second) - 5})]}
       )
 
       html = view |> element(~s([data-testid="revoke-token-confirm"])) |> render_click()
 
       assert [["tok-1", _ctx]] = FakeController.calls(node, {Namespace, :revoke_token})
+      # It leaves the Active listing and is counted, and listed, under Revoked.
+      refute html =~ ~s(data-testid="token-tok-1")
+      assert text_of(html, ~s([data-testid="token-filter-revoked"])) =~ "1"
+
+      html = view |> element(~s([data-testid="token-filter-revoked"])) |> render_click()
       assert html =~ ~r/data-testid="token-status-tok-1"[^>]*>\s*Revoked/
+      assert text_of(html, ~s([data-testid="token-revoked-tok-1"])) =~ "5 s ago"
       refute html =~ ~s(data-testid="revoke-token-tok-1")
+    end
+
+    test "a token row states when and by whom it was issued, and when it expires", %{
+      conn: conn,
+      node: node
+    } do
+      with_catalog(node, running: ["default"], get: {:ok, record("default")})
+      now = System.system_time(:second)
+
+      FakeController.set(
+        node,
+        {Namespace, :tokens},
+        {:ok,
+         [
+           token_row("tok-never", %{expires_at: :never}),
+           token_row("tok-late", %{expires_at: now + 20 * 86_400}),
+           token_row("tok-soon", %{expires_at: now + 86_400}),
+           token_row("tok-bare", %{created_at: nil, expires_at: nil, created_by: nil}),
+           token_row("tok-gone", %{status: :expired, expires_at: now - 60})
+         ]}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      html = open_section(view, "access")
+
+      assert text_of(html, ~s([data-testid="token-issued-tok-late"])) =~ "3d 0h ago"
+      assert text_of(html, ~s([data-testid="token-issuer-tok-late"])) == "admin"
+      assert text_of(html, ~s([data-testid="token-expires-tok-late"])) =~ ~r/in (19|20)d/
+      assert text_of(html, ~s([data-testid="token-expires-tok-never"])) == "never"
+
+      # Under three days left is a warning; a long way off is not.
+      assert html =~ ~r/data-testid="token-expires-tok-soon".*?fui-tone-warning/s
+      refute html =~ ~r/data-testid="token-expires-tok-late"[^<]*<span class="fui-tone-warning"/
+
+      # Soonest expiry first, never after every token that expires, the
+      # unknown last; only active tokens by default, with each status counted.
+      assert testids(html, ~s([data-testid="tokens-panel"] tbody tr)) ==
+               ["token-tok-soon", "token-tok-late", "token-tok-never", "token-tok-bare"]
+
+      assert text_of(html, ~s([data-testid="token-filter-active"])) =~ "4"
+      assert text_of(html, ~s([data-testid="token-filter-expired"])) =~ "1"
+      assert text_of(html, ~s([data-testid="token-filter-all"])) =~ "5"
+
+      # A row the controller answered without times still lists, with dashes.
+      assert text_of(html, ~s([data-testid="token-issued-tok-bare"])) == "—"
+      assert text_of(html, ~s([data-testid="token-issuer-tok-bare"])) == "—"
+
+      html = view |> element(~s([data-testid="token-filter-expired"])) |> render_click()
+
+      assert testids(html, ~s([data-testid="tokens-panel"] tbody tr)) == ["token-tok-gone"]
     end
   end
 
@@ -618,7 +706,11 @@ defmodule FlezhaUiWeb.NamespaceAdminTest do
         namespace: "default",
         role: :app,
         label: "deploys",
-        status: :active
+        status: :active,
+        created_at: System.system_time(:second) - 3 * 86_400,
+        expires_at: System.system_time(:second) + 27 * 86_400,
+        revoked_at: nil,
+        created_by: "admin"
       },
       overrides
     )

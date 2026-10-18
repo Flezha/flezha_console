@@ -5,12 +5,31 @@ TBD - created by archiving change resync-with-flezha-runtime. Update Purpose aft
 ## Requirements
 ### Requirement: Schedule listing with live status
 
-The UI SHALL list schedule entries from `Flezha.Service.Schedule.list/1`, which answers each stored entry with its name, cron expression, timezone, and target joined with what the schedule hub holds for it: the node that fires it, its last fire, and its next fire. The same LiveView SHALL additionally serve a namespace-scoped listing at `/namespaces/:ns/schedules`, filtering on the namespace each entry already carries. Because the controller keeps one schedule registry for the whole cluster and answers it whole, the scoped screen SHALL state that its scope is a view filter over the full listing rather than a controller-side scope.
+The UI SHALL list schedule entries from `Flezha.Service.Schedule.list/1`. That call answers each stored entry with its name, cron expression, timezone, creation time and target, joined with what the schedule hub holds for it:
+
+- the node that fires it;
+- its last fire, with that fire's outcome and the relay it started;
+- its next fire;
+- whether its job is dormant.
+
+The UI SHALL show the last fire's outcome, and SHALL link a started relay to its screen. Times SHALL be shown relative to now, with the absolute time beside them.
+
+The same LiveView SHALL additionally serve a namespace-scoped listing at `/namespaces/:ns/schedules`, filtering on the namespace each entry already carries. The controller keeps one schedule registry for the whole cluster and answers it whole. The scoped screen SHALL therefore state that its scope is a view filter over the full listing rather than a controller-side scope.
 
 #### Scenario: Schedules exist
 
 - **WHEN** an operator opens the schedules screen
-- **THEN** each entry is listed with its cron expression, timezone, target, the node that fires it, its last fire, and its next fire
+- **THEN** each entry is listed with its cron expression, timezone, target, creation time, the node that fires it, its last fire and its next fire
+
+#### Scenario: The last fire started a relay
+
+- **WHEN** an entry's last fire carries an `instance_id`
+- **THEN** the last fire links to that relay's screen and states its outcome
+
+#### Scenario: The last fire is being retried
+
+- **WHEN** an entry's last fire outcome is `{:retrying, reason}`
+- **THEN** the last fire states that it is retrying, with the reason, in the warning tone
 
 #### Scenario: A namespace's own schedules
 
@@ -41,6 +60,12 @@ The UI SHALL list schedule entries from `Flezha.Service.Schedule.list/1`, which 
 
 - **WHEN** the hub holds a live job for a stored entry
 - **THEN** the entry is listed with the status "Active"
+
+#### Scenario: An entry whose job is dormant
+
+- **WHEN** the hub holds a job for an entry and answers `dormant?: true`
+- **THEN** the entry is listed with the status "Dormant"
+- **AND** its next fire shows a placeholder rather than a time computed from the cron
 
 #### Scenario: No schedules exist
 

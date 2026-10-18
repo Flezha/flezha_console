@@ -56,12 +56,12 @@ async function revokeToken(page: Page, live: (path: string) => Promise<void>, id
   await live(NS_URL);
   await openSection(page, 'access');
   await growListing(page, 'tokens-grid', page.getByTestId(`token-${id}`));
-  // A revoked token keeps its row but offers no revoke.
+  // The listing shows active tokens, so a revoked one is not offered at all.
   if ((await page.getByTestId(`revoke-token-${id}`).count()) === 0) return;
 
   await menuAction(page, `token-menu-${id}`, `revoke-token-${id}`);
   await page.getByTestId('revoke-token-confirm').click();
-  await expect(page.getByTestId(`token-status-${id}`)).toHaveText('Revoked');
+  await expect(page.getByTestId(`token-${id}`)).toHaveCount(0);
 }
 
 /** Removes `principal`'s whole binding when it has one. Safe from `finally`. */
@@ -98,16 +98,31 @@ test.describe('Tokens', () => {
       await expect(page.getByTestId('issued-token')).toHaveCount(0);
       await page.getByTestId('issue-token-cancel').click();
 
-      // Revoked tokens stay listed, so this one may sit past the first page.
+      // Active tokens are listed soonest expiry first, so an hour's token
+      // leads unless others expire sooner; it may still sit past the first page.
       await growListing(page, 'tokens-grid', page.getByTestId(`token-${id}`));
       await expect(page.getByTestId(`token-${id}`)).toContainText(principal);
       await expect(page.getByTestId(`token-status-${id}`)).toHaveText('Active');
       await expect(page.locator('body')).not.toContainText('flzt_');
 
+      // When and by whom it was issued, and an expiry inside three days in
+      // the warning tone.
+      await expect(page.getByTestId(`token-issued-${id}`)).toContainText(/now|s ago/);
+      await expect(page.getByTestId(`token-issuer-${id}`)).not.toHaveText('—');
+      await expect(page.getByTestId(`token-expires-${id}`)).toContainText(/in \d+[hm]/);
+      await expect(page.getByTestId(`token-expires-${id}`).locator('.fui-tone-warning')).toHaveCount(1);
+
       await menuAction(page, `token-menu-${id}`, `revoke-token-${id}`);
       await expect(page.getByTestId('revoke-token-modal')).toContainText(principal);
       await page.getByTestId('revoke-token-confirm').click();
+
+      // It leaves the Active listing and is found under Revoked, with when.
+      await expect(page.getByTestId(`token-${id}`)).toHaveCount(0);
+      await page.getByTestId('token-filter-revoked').click();
+      await expect(page.getByTestId('token-filter-revoked')).toHaveAttribute('aria-pressed', 'true');
+      await growListing(page, 'tokens-grid', page.getByTestId(`token-${id}`));
       await expect(page.getByTestId(`token-status-${id}`)).toHaveText('Revoked');
+      await expect(page.getByTestId(`token-revoked-${id}`)).toContainText(/now|s ago/);
     } finally {
       if (id) await revokeToken(page, live, id);
     }
@@ -128,6 +143,8 @@ test.describe('Role bindings', () => {
 
       await growListing(page, 'role-bindings-grid', page.getByTestId(`role-binding-${principal}`));
       await expect(page.getByTestId(`role-${principal}-viewer`)).toBeVisible();
+      await expect(page.getByTestId(`binding-bound-${principal}`)).toContainText(/now|s ago/);
+      await expect(page.getByTestId(`binding-by-${principal}`)).not.toHaveText('—');
 
       await menuAction(page, `binding-menu-${principal}`, `unbind-role-${principal}-viewer`);
       await expect(page.getByTestId('unbind-role-modal')).toContainText(principal);

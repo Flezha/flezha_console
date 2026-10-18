@@ -28,6 +28,8 @@ defmodule FlezhaUiWeb.DlqLiveTest do
         "generation" => 2,
         "status" => "parked",
         "ts_ms" => System.system_time(:millisecond) - 30_000,
+        "attempts" => 3,
+        "payload_bytes" => 2_048,
         "error" => "upstream refused"
       },
       overrides
@@ -64,6 +66,41 @@ defmodule FlezhaUiWeb.DlqLiveTest do
       assert html =~ "upstream refused"
       assert html =~ "cust-9"
       assert html =~ ~r/data-testid="dlq-group-count-orders-charge"[^>]*>\s*2 dead letters/
+    end
+
+    test "each dead letter states when, how often it was tried, its size and its state", %{
+      conn: conn,
+      node: node
+    } do
+      with_entries(node, [entry(), entry(%{"id" => "18", "status" => "replaying"})])
+
+      {:ok, view, html} = live(conn, ~p"/dlq")
+
+      row = view |> element(~s([data-testid="dlq-row-#{@ref}"])) |> render()
+      assert text_of(html, ~s([data-testid="dlq-at-#{@ref}"])) =~ "30 s ago"
+      assert row =~ "3"
+      assert row =~ "2.0 KB"
+      assert text_of(html, ~s([data-testid="dlq-state-#{@ref}"])) == "Waiting"
+      assert text_of(html, ~s([data-testid="dlq-state-orders/charge/18"])) == "Replaying"
+      refute html =~ ~r/>[^<]*\bParked\b/
+    end
+
+    test "the queue's total size is shown from the stats", %{conn: conn, node: node} do
+      with_entries(node, [entry()])
+
+      FakeController.set(
+        node,
+        {Dlq, :stats},
+        {:ok,
+         [
+           %{relay_class: "orders", tasklet_id: "charge", entries: 3, bytes: 1_024},
+           %{relay_class: "refunds", tasklet_id: "settle", entries: 1, bytes: 1_024}
+         ]}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/dlq")
+
+      assert text_of(html, ~s([data-testid="dlq-total-bytes"])) =~ "2.0 KB"
     end
 
     test "renders the statistics per parked tasklet", %{conn: conn, node: node} do

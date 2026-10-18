@@ -61,6 +61,41 @@ defmodule FlezhaUiWeb.CoreComponentsTest do
     end
   end
 
+  describe "moment/1" do
+    test "a past time reads relative over its absolute time, which is also its title" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.moment at={1_791_590_400} now={1_791_590_400 + 3 * 86_400} />
+        """)
+
+      assert html =~ "3d 0h ago"
+      assert html =~ "2026-10-10 00:00:00 UTC"
+      assert html =~ ~s(title="2026-10-10 00:00:00 UTC")
+    end
+
+    test "a future time in milliseconds reads forward, in its tone" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.moment at={1_791_590_412_000} now={1_791_590_400_000} unit={:millisecond} tone={:warning} />
+        """)
+
+      assert html =~ "in 12 s"
+      assert html =~ "fui-tone-warning"
+    end
+
+    test "a missing time is a dash" do
+      assigns = %{}
+      html = rendered_to_string(~H"<.moment at={nil} />")
+
+      assert html =~ "—"
+      refute html =~ "ago"
+    end
+  end
+
   describe "button/1" do
     test "a button with its own click handler does not submit its form" do
       assigns = %{}

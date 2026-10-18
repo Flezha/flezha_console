@@ -27,12 +27,6 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
 
     FakeController.set(
       node,
-      {Fleet, :runners_for_factory},
-      opts[:runners_for_factory] || {:ok, []}
-    )
-
-    FakeController.set(
-      node,
       {Controller, :cluster_status},
       opts[:status] || {:ok, status(opts[:hub_nodes] || [])}
     )
@@ -53,7 +47,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
     }
   end
 
-  defp factory(id), do: %{id: id, description: nil, run: :flow}
+  defp factory(id, runners \\ []), do: %{id: id, description: nil, run: :flow, runners: runners}
 
   describe "cluster membership" do
     test "marks the node this UI is connected to", %{conn: conn, node: node} do
@@ -84,10 +78,9 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
   describe "namespaces and their fleets" do
     test "renders hub placement and the runners serving a namespace", %{conn: conn, node: node} do
       one_namespace(node,
-        factories: [factory("store_input")],
+        factories: [factory("store_input", ["runner-a"])],
         hub_nodes: [:"flezha@hub-1"],
-        runners: [%{id: "runner-a", pid: nil}],
-        runners_for_factory: {:ok, ["runner-a"]}
+        runners: [%{id: "runner-a"}]
       )
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
@@ -101,7 +94,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       conn: conn,
       node: node
     } do
-      one_namespace(node, runners: [%{id: "runner-on-peer", pid: nil}])
+      one_namespace(node, runners: [%{id: "runner-on-peer"}])
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -111,14 +104,11 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
 
     test "each runner is credited with the factories it serves", %{conn: conn, node: node} do
       one_namespace(node,
-        factories: [factory("store_input"), factory("compare_filter")],
-        runners: [%{id: "runner-a", pid: nil}, %{id: "runner-b", pid: nil}],
-        runners_for_factory:
-          {:per_arg, 1,
-           %{
-             "store_input" => {:ok, ["runner-a", "runner-b"]},
-             "compare_filter" => {:ok, ["runner-b"]}
-           }, {:ok, []}}
+        factories: [
+          factory("store_input", ["runner-a", "runner-b"]),
+          factory("compare_filter", ["runner-b"])
+        ],
+        runners: [%{id: "runner-a"}, %{id: "runner-b"}]
       )
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
@@ -151,7 +141,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
 
     test "a refused hub read is stated and the rest still renders", %{conn: conn, node: node} do
       one_namespace(node,
-        runners: [%{id: "runner-a", pid: nil}],
+        runners: [%{id: "runner-a"}],
         status: FakeController.error("authz.role_insufficient")
       )
 
@@ -168,14 +158,18 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
     setup %{node: node} do
       one_namespace(node,
         factories: [factory("store_input")],
-        runners: [%{id: "runner-a", pid: nil}]
+        runners: [%{id: "runner-a"}]
       )
 
       :ok
     end
 
     test "names the runners serving the factory", %{conn: conn, node: node} do
-      FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, ["runner-a", "runner-b"]})
+      FakeController.set(
+        node,
+        {Fleet, :factories},
+        {:ok, [factory("store_input", ["runner-a", "runner-b"])]}
+      )
 
       {:ok, view, _html} = live(conn, ~p"/cluster")
 
@@ -198,11 +192,29 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
 
     test "selecting a factory is a lookup, not another controller read", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, ~p"/cluster")
-      before = length(FakeController.calls(node, {Fleet, :runners_for_factory}))
+      before = length(FakeController.calls(node, {Fleet, :factories}))
 
       view |> element(~s([data-testid="factory-store_input"])) |> render_click()
 
-      assert length(FakeController.calls(node, {Fleet, :runners_for_factory})) == before
+      assert length(FakeController.calls(node, {Fleet, :factories})) == before
+    end
+
+    test "a refresh reads the factories and their runners once, never per factory",
+         %{conn: conn, node: node} do
+      FakeController.set(
+        node,
+        {Fleet, :factories},
+        {:ok, [factory("store_input", ["runner-a"]), factory("compare_filter", ["runner-a"])]}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/cluster")
+      before = length(FakeController.calls(node, {Fleet, :factories}))
+
+      send(view.pid, :refresh)
+      _ = render(view)
+
+      assert length(FakeController.calls(node, {Fleet, :factories})) == before + 1
+      assert FakeController.calls(node, {Fleet, :runners_for_factory}) == []
     end
 
     test "clearing the selection removes the result", %{conn: conn} do
@@ -226,7 +238,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       {:ok, view, html} = live(conn, ~p"/cluster")
       refute html =~ "runner-late"
 
-      FakeController.set(node, {Fleet, :runners}, {:ok, [%{id: "runner-late", pid: nil}]})
+      FakeController.set(node, {Fleet, :runners}, {:ok, [%{id: "runner-late"}]})
       send(view.pid, {:flezha_event, :runner_connected, {"default", "runner-late"}})
 
       assert render(view) =~ "runner-late"
@@ -308,7 +320,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
     end
 
     test "each namespace's runner principal is shown", %{conn: conn, node: node} do
-      one_namespace(node, rows: [row("a")], runners: [%{id: "runner-a", pid: nil}])
+      one_namespace(node, rows: [row("a")], runners: [%{id: "runner-a"}])
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -317,7 +329,7 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
     end
 
     test "the column is absent when the controller does not say", %{conn: conn, node: node} do
-      one_namespace(node, rows: [row("a")], runners: [%{id: "runner-a", pid: nil}])
+      one_namespace(node, rows: [row("a")], runners: [%{id: "runner-a"}])
 
       FakeController.set(
         node,
@@ -332,17 +344,114 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
     end
   end
 
-  describe "runner pids" do
-    test "a runner's OS pid is on its row, a placeholder when unknown", %{conn: conn, node: node} do
+  describe "the runner table" do
+    defp runner(id, overrides \\ %{}), do: FakeController.runner_row(id, overrides)
+    defp now, do: System.system_time(:second)
+    defp listed(html), do: testids(html, ~s([data-testid="runners-default"] tbody tr))
+
+    test "each runner states its node, connection, last contact and relays",
+         %{conn: conn, node: node} do
       one_namespace(node,
-        runners: [%{id: "runner-a", pid: 4242}, %{id: "runner-b", pid: nil}],
-        runners_for_factory: {:ok, []}
+        runners: [runner("runner-a"), runner("runner-b", %{silent_ms: 40_000, late?: true})],
+        rows: [row("a", %{runner: "runner-a"}), row("b", %{runner: "runner-a"})]
       )
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
-      assert html =~ ~r/data-testid="os-pid-runner-a"[^>]*>\s*4242/
-      assert html =~ ~r/data-testid="os-pid-runner-b"[^>]*>\s*—/
+      assert text_of(html, ~s([data-testid="runner-node-of-runner-a"])) =~ "flezha@node-a"
+      assert text_of(html, ~s([data-testid="runner-connected-runner-a"])) =~ "2h 0m ago"
+      assert text_of(html, ~s([data-testid="runner-contact-runner-a"])) =~ "3 s ago"
+      assert html =~ ~r/data-testid="runner-contact-runner-b"[^>]*data-late="true"/
+
+      assert html =~
+               ~r{href="/namespaces/default/relays\?runner=runner-a"[^>]*data-testid="runner-relays-runner-a"[^>]*>\s*2}
+
+      # Late first, and counted in the summary.
+      assert ["runner-runner-b" | _] = listed(html)
+      assert text_of(html, ~s([data-testid="runners-summary-default"])) =~ "2 connected"
+      assert text_of(html, ~s([data-testid="runners-summary-default"])) =~ "1 late"
+    end
+
+    test "a row the controller answers without connection facts shows placeholders",
+         %{conn: conn, node: node} do
+      one_namespace(node, runners: [%{id: "runner-old"}])
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert text_of(html, ~s([data-testid="runner-node-of-runner-old"])) == "—"
+      assert text_of(html, ~s([data-testid="runner-connected-runner-old"])) == "—"
+      assert text_of(html, ~s([data-testid="runner-contact-runner-old"])) == "—"
+      refute html =~ "os-pid-"
+    end
+
+    test "Serves shows two factories, the rest behind a count, and who shares the set",
+         %{conn: conn, node: node} do
+      shared = ~w(alpha beta gamma delta)
+
+      one_namespace(node,
+        factories: Enum.map(shared, &factory(&1, ["runner-a", "runner-b"])),
+        runners: [runner("runner-a"), runner("runner-b")]
+      )
+
+      {:ok, view, html} = live(conn, ~p"/cluster")
+
+      assert text_of(html, ~s([data-testid="serves-more-runner-a"])) =~ "+2 more"
+      assert text_of(html, ~s([data-testid="same-set-runner-a"])) =~ "same 4 as 1 other runner"
+
+      # The rest is in the page, shown by the control without a server round trip.
+      assert view |> element(~s([data-testid="serves-more-runner-a"])) |> render() =~
+               "serves-rest-default-runner-a"
+    end
+
+    test "the filter, node, late-only and sort narrow and order the table",
+         %{conn: conn, node: node} do
+      one_namespace(node,
+        factories: [factory("orders", ["runner-a"]), factory("prices", ["runner-b"])],
+        runners: [
+          runner("runner-a", %{connected_at: now() - 60}),
+          runner("runner-b", %{node: :"flezha@node-b", connected_at: now() - 3_600}),
+          runner("runner-c", %{node: :"flezha@node-b", silent_ms: 50_000, late?: true})
+        ]
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/cluster")
+
+      html =
+        view
+        |> element(~s([data-testid="runner-view-default"]))
+        |> render_change(%{namespace: "default", view: %{q: "orders"}})
+
+      assert listed(html) == ["runner-runner-a"]
+      # The summary still counts the whole fleet.
+      assert text_of(html, ~s([data-testid="runners-summary-default"])) =~ "3 connected"
+
+      html =
+        view
+        |> element(~s([data-testid="runner-view-default"]))
+        |> render_change(%{namespace: "default", view: %{q: "", node: "flezha@node-b"}})
+
+      assert Enum.sort(listed(html)) == ["runner-runner-b", "runner-runner-c"]
+
+      html =
+        view
+        |> element(~s([data-testid="runner-view-default"]))
+        |> render_change(%{namespace: "default", view: %{q: "", node: "", late: "true"}})
+
+      assert listed(html) == ["runner-runner-c"]
+
+      html =
+        view
+        |> element(~s([data-testid="runner-view-default"]))
+        |> render_change(%{namespace: "default", view: %{late: "false", sort: "newest"}})
+
+      assert listed(html) == ["runner-runner-a", "runner-runner-b", "runner-runner-c"]
+
+      html =
+        view
+        |> element(~s([data-testid="runner-view-default"]))
+        |> render_change(%{namespace: "default", view: %{q: "nothing-like-it"}})
+
+      assert html =~ ~s(data-testid="runners-none-match-default")
     end
   end
 

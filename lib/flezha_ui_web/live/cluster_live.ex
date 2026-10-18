@@ -112,7 +112,7 @@ defmodule FlezhaUiWeb.ClusterLive do
       ns
       |> NodeManager.runners(token)
       |> NodeManager.ok_or([])
-      |> FlezhaUiWeb.Runners.rows(factories_by_runner)
+      |> FlezhaUiWeb.Runners.rows(factories_by_runner, rows)
 
     %{
       name: ns,

@@ -356,6 +356,52 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       refute html =~ ~s(data-testid="finished-row-relay_live")
     end
 
+    test "a finished row states its run, its error, when it finished and until when it is kept",
+         %{conn: conn, node: node} do
+      now = System.system_time(:second)
+
+      FakeController.set(
+        node,
+        {Relay, :info},
+        {:ok,
+         %{
+           namespace: "default",
+           groups: [],
+           relays: [
+             %{
+               id: "relay_failed",
+               phase: "finished",
+               run: :steps,
+               status: :failed,
+               error: "tasklet crashed: :badarg",
+               finished_at: now - 90,
+               expires_at: now + 6 * 86_400
+             },
+             %{
+               id: "relay_kept",
+               phase: "finished",
+               run: :steps,
+               status: :completed,
+               finished_at: now
+             }
+           ]
+         }}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/namespaces/default")
+      html = open_section(view, "finished-relays")
+
+      failed = text_of(html, ~s([data-testid="finished-row-relay_failed"]))
+      assert failed =~ "steps"
+      assert text_of(html, ~s([data-testid="finished-error-relay_failed"])) =~ "tasklet crashed"
+      assert text_of(html, ~s([data-testid="finished-at-relay_failed"])) =~ "1m 30s ago"
+      assert text_of(html, ~s([data-testid="finished-kept-relay_failed"])) =~ ~r/in (5|6)d/
+
+      # A row without a keep time shows a dash rather than a guess.
+      assert text_of(html, ~s([data-testid="finished-kept-relay_kept"])) == "—"
+      refute html =~ ~s(data-testid="finished-error-relay_kept")
+    end
+
     test "the listing is read on open and on request, never on a tick", %{
       conn: conn,
       node: node
@@ -394,6 +440,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       assert html =~ ~s(data-testid="completion-record")
       assert html =~ "Failed"
       assert html =~ "boom"
+      assert text_of(html, ~s([data-testid="completion-finished"])) =~ "30 s ago"
       refute html =~ ~s(data-testid="runtime-error")
     end
   end

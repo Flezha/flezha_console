@@ -86,6 +86,10 @@ test.describe('Steps relays', () => {
     // sit past the first page.
     await growListing(page, 'finished', row);
     await expect(row).toContainText('Cancelled');
+    await expect(row).toContainText('steps');
+    await expect(page.getByTestId(`finished-at-${id}`)).toContainText(/now|s ago/);
+    // Kept until the end of the retention window the controller computed.
+    await expect(page.getByTestId(`finished-kept-${id}`)).toContainText(/\bin \d/);
 
     await row.getByRole('link').click();
     await expect(page).toHaveURL(new RegExp(`/relays/${id}$`));

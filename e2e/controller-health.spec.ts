@@ -8,7 +8,8 @@ import { test, expect } from './fixtures';
  * breached RPO and a shutdown in progress cannot be arranged against a
  * controller that is meant to keep serving, and stopping it would stop every
  * session on the stack; all three are covered in
- * `test/flezha_ui_web/live/controller_live_test.exs`.
+ * `test/flezha_ui_web/live/controller_live_test.exs`, as is a shipper retry,
+ * which only a remote tier has.
  */
 test.describe('Controller health', () => {
   test('states the posture, shutdown, boot, authz and shipper; stopping asks for the node name and cancelling stops nothing; memory is snapshotted only when asked', async ({
@@ -81,5 +82,10 @@ test.describe('Controller health', () => {
     await expect(page.locator('.fui-toast').filter({ hasText: 'Memory snapshot taken.' })).toBeVisible();
     await expect(captured).toContainText('Captured at');
     await expect(page.getByTestId('memory-top-processes')).toBeVisible();
+    // Each process reads with its queue and how it was started, named when it
+    // is registered: a controller's busiest processes include named servers.
+    const table = page.getByTestId('memory-top-processes');
+    await expect(table.locator('th')).toContainText(['Process', 'Memory', 'Queue', 'Started as']);
+    await expect(table.locator('tbody td[data-label="Process"]').filter({ hasNotText: '<0.' })).not.toHaveCount(0);
   });
 });
