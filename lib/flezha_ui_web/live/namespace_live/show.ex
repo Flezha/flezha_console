@@ -585,15 +585,13 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   end
 
   def inspect_context(socket, {"runner", id}) do
-    %{rows: rows, runners: runners} = socket.assigns
-    runner = Enum.find(runners, &(&1.id == id)) || %{}
+    runner = Enum.find(socket.assigns.runners, &(&1.id == id)) || %{}
 
     %{
       node: runner[:node],
       connected_at: runner[:connected_at],
       factories: runner[:factories] || [],
-      relays:
-        for(row <- rows, to_string(row[:runner]) == id, do: to_string(row.id)) |> Enum.sort()
+      relays: runner[:relays] || []
     }
   end
 

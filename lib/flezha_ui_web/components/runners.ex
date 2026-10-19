@@ -18,7 +18,7 @@ defmodule FlezhaUiWeb.Runners do
   @doc """
   The rows `runner_table/1` lists, from the runners `NodeManager.runners/2`
   answers: each credited with the factories `factories_by_runner` names, the
-  relays of `relay_rows` it holds, and `same_set`, how many other runners
+  ids of the `relay_rows` bound to it, sorted, and `same_set`, how many other runners
   serve exactly its factories. A fact the controller did not answer is `nil`.
   """
   def rows(runners, factories_by_runner \\ %{}, relay_rows \\ []) do
@@ -35,7 +35,7 @@ defmodule FlezhaUiWeb.Runners do
           connected_at: facts[:connected_at],
           silent_ms: facts[:silent_ms],
           late?: facts[:late?] == true,
-          relays: Map.get(relays, id, 0),
+          relays: Map.get(relays, id, []),
           factories: Map.get(factories_by_runner, id, [])
         }
       end)
@@ -44,12 +44,12 @@ defmodule FlezhaUiWeb.Runners do
     Enum.map(rows, &Map.put(&1, :same_set, Map.get(sets, &1.factories, 1) - 1))
   end
 
-  # Counted on the field the relays index's runner filter matches, partitions
-  # one by one, so a count and the listing it links to agree.
+  # Read from the field the relays index's runner filter matches, so a count
+  # and the listing it links to agree.
   defp relays_by_runner(relay_rows) do
     relay_rows
-    |> Enum.flat_map(fn row -> row[:members] || [row] end)
-    |> Enum.frequencies_by(&to_string(&1[:runner]))
+    |> Enum.group_by(&to_string(&1[:runner]), &to_string(&1.id))
+    |> Map.new(fn {runner, ids} -> {runner, Enum.sort(ids)} end)
   end
 
   @doc """
@@ -75,7 +75,7 @@ defmodule FlezhaUiWeb.Runners do
     do: Enum.any?([row.id | row.factories], &String.contains?(String.downcase(&1), query))
 
   defp sort_key(row, "newest"), do: {-(row.connected_at || 0), row.id}
-  defp sort_key(row, "relays"), do: {-row.relays, row.id}
+  defp sort_key(row, "relays"), do: {-length(row.relays), row.id}
 
   defp sort_key(row, _late_first),
     do: {if(row.late?, do: 0, else: 1), -(row.silent_ms || 0), row.id}
@@ -213,7 +213,7 @@ defmodule FlezhaUiWeb.Runners do
               navigate={~p"/namespaces/#{@namespace}/relays?#{[runner: runner.id]}"}
               data-testid={"runner-relays-#{runner.id}"}
             >
-              {runner.relays}
+              {length(runner.relays)}
             </.link>
           </:col>
           <:col :let={runner} :if={@factories?} label="Serves">
