@@ -278,6 +278,20 @@ defmodule FlezhaUiWeb.Words do
     end
   end
 
+  @doc """
+  A label as it reads inside a sentence: its first letter lowered, unless it
+  opens with an acronym.
+
+      iex> FlezhaUiWeb.Words.in_sentence("Saved")
+      "saved"
+      iex> FlezhaUiWeb.Words.in_sentence("HTTP request")
+      "HTTP request"
+  """
+  def in_sentence(<<first::utf8, second::utf8, _::binary>> = label) when second in ?a..?z,
+    do: String.downcase(<<first::utf8>>) <> String.slice(label, 1..-1//1)
+
+  def in_sentence(label), do: label
+
   @doc "Items joined as a sentence: \"a\", \"a and b\", \"a, b and c\"."
   def join([]), do: ""
   def join([one]), do: one

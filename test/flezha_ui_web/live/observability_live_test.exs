@@ -99,10 +99,11 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
   end
 
   defp source_order(view, group) do
-    html = view |> element(~s([data-testid="source-group-#{group}"])) |> render()
-
-    for [name] <- Regex.scan(~r/data-testid="source-([a-z_]+)"/, html, capture: :all_but_first),
-        do: name
+    view
+    |> element(~s([data-testid="source-group-#{group}"]))
+    |> render()
+    |> testids("tr[role=row]")
+    |> Enum.map(&String.replace_prefix(&1, "source-", ""))
   end
 
   defp toggle(view, source),

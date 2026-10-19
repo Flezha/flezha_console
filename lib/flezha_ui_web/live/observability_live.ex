@@ -201,11 +201,11 @@ defmodule FlezhaUiWeb.ObservabilityLive do
     case source[:recent] do
       %{signals: signals, window_ms: window} when is_map(signals) ->
         {failed, normal} =
-          Enum.split_with(signals, fn {name, _} -> outcome(source, name) == :failure end)
+          Enum.split_with(signals, fn {name, _} -> failure?(declared(source, name)) end)
 
         %{
           window: window,
-          failure_signals?: Enum.any?(source[:signals] || [], &(&1[:outcome] == :failure)),
+          failure_signals?: Enum.any?(source[:signals] || [], &failure?/1),
           failures: failed |> Enum.map(fn {_, seen} -> seen.count end) |> Enum.sum(),
           failure_age: newest(failed),
           normal:
@@ -253,7 +253,7 @@ defmodule FlezhaUiWeb.ObservabilityLive do
       </span>
       <span :if={@activity.normal != []}>
         {Enum.map_join(Enum.take(@activity.normal, 3), " · ", fn {label, count} ->
-          "#{Format.compact(count)} #{lower(label)}"
+          "#{Format.compact(count)} #{Words.in_sentence(label)}"
         end)}{if length(@activity.normal) > 3,
           do: " · #{length(@activity.normal) - 3} more"} · last {ago(@activity.normal_age)} ago
       </span>
@@ -266,13 +266,6 @@ defmodule FlezhaUiWeb.ObservabilityLive do
     """
   end
 
-  # "Saved" reads "142 saved"; a label opening with an acronym keeps it.
-  defp lower(<<first::utf8, second::utf8, _::binary>> = label)
-       when second in ?a..?z,
-       do: String.downcase(<<first::utf8>>) <> String.slice(label, 1..-1//1)
-
-  defp lower(label), do: label
-
   @doc """
   Every signal a source declares, failures first, each with its label, an
   outcome badge, its meaning and its full technical name.
@@ -281,7 +274,7 @@ defmodule FlezhaUiWeb.ObservabilityLive do
 
   def signal_meanings(assigns) do
     {failures, normal} =
-      Enum.split_with(assigns.source[:signals] || [], &(&1[:outcome] == :failure))
+      Enum.split_with(assigns.source[:signals] || [], &failure?/1)
 
     assigns =
       assign(assigns,
@@ -333,7 +326,7 @@ defmodule FlezhaUiWeb.ObservabilityLive do
     assigns =
       assign(assigns,
         id: "tail-line-#{assigns.signal[:line_id]}",
-        failure?: outcome(assigns.source, assigns.signal[:name]) == :failure
+        failure?: failure?(declared(assigns.source, assigns.signal[:name]))
       )
 
     ~H"""
@@ -440,12 +433,9 @@ defmodule FlezhaUiWeb.ObservabilityLive do
     end
   end
 
-  defp outcome(source, name) do
-    case declared(source, name) do
-      %{outcome: :failure} -> :failure
-      _other -> :normal
-    end
-  end
+  # A signal the source declares as reporting something that went wrong.
+  defp failure?(%{outcome: :failure}), do: true
+  defp failure?(_declared), do: false
 
   @doc "When a signal was emitted, placed on this node's clock through `offset_us`."
   def emitted_at(%{ts: ts}, offset_us) when is_integer(ts) and is_integer(offset_us) do

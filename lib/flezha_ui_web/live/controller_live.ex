@@ -388,12 +388,10 @@ defmodule FlezhaUiWeb.ControllerLive do
 
     [
       readiness && "It is #{String.downcase(readiness)}.",
-      posture && "Authorization is #{lower_first(posture)}.",
+      posture && "Authorization is #{Words.in_sentence(posture)}.",
       durability && "#{durability}."
     ]
     |> Enum.filter(& &1)
     |> Enum.join(" ")
   end
-
-  defp lower_first(<<first::utf8, rest::binary>>), do: String.downcase(<<first::utf8>>) <> rest
 end
