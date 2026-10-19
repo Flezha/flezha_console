@@ -426,7 +426,8 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
   @impl FlezhaUiWeb.Live.Refresh
   def refresh_read(socket) do
-    %{ns: ns, flezha_token: token, items: previous, loaded?: loaded?} = socket.assigns
+    %{ns: ns, flezha_token: token, items: items, loaded?: loaded?} = socket.assigns
+    previous = {items, socket.assigns[:serving]}
     fn -> read(ns, token, previous, loaded?) end
   end
 
@@ -529,11 +530,13 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
   # The namespace's problems, from the same derivation the shell and the Open
   # problems screen read, tracked against what the screen showed before.
-  defp attention(ns, token, previous, read) do
+  defp attention(ns, token, {previous, known}, read) do
     runners = if read.runners_read?, do: read.runners, else: :unread
 
     serving =
-      NodeManager.serving_counts(ns, Attention.waiting_factories(read.rows), token, runners)
+      ns
+      |> NodeManager.serving_counts(Attention.waiting_factories(read.rows), token, runners)
+      |> Attention.keep_serving(known, read.rows)
 
     items =
       Attention.derive(%{

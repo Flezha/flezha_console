@@ -33,6 +33,14 @@ defmodule FlezhaUiWeb.AttentionTest do
     assert Attention.derive(%{namespaces: [%{namespace: "default", rows: rows}]}) == []
   end
 
+  test "a failed serving read keeps the last known count of a factory that still waits" do
+    rows = [row("a", %{health: :unbound}), row("b", %{health: :healthy, factory: "g"})]
+
+    assert Attention.keep_serving(%{}, %{"f" => 0, "g" => 1, "gone" => 2}, rows) == %{"f" => 0}
+    assert Attention.keep_serving(%{"f" => 3}, %{"f" => 0}, rows) == %{"f" => 3}
+    assert Attention.keep_serving(%{}, nil, rows) == %{}
+  end
+
   test "a failed relay Flezha is rebinding is a warning that offers Diagnose and Open relay" do
     [item] =
       Attention.derive(%{

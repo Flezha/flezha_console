@@ -662,7 +662,7 @@ defmodule FlezhaUiWeb.Layouts do
   @doc """
   Assigns one pulse's answer as `:shell_pulse`:
 
-      %{items:, checked_at:, error:, fleet:}
+      %{items:, checked_at:, error:, fleet:, serving:}
 
   Items keep the time they were first seen across pulses. `error` is why the
   namespaces could not be listed, so no problem list stands for an all-clear.
@@ -670,16 +670,24 @@ defmodule FlezhaUiWeb.Layouts do
   `fleet` counts what the pulse's reads already answer: `namespaces`, the
   relays' `health` as `NodeManager.health_counts/1` pairs, and the durability
   `breaches`, plus the reach figures `pulse_read/1` describes, kept from the
-  last pulse while the tab is hidden. A pulse that died keeps the last one.
+  last pulse while the tab is hidden. `serving` is each namespace's runner
+  counts per waiting factory. A pulse that died keeps the last one.
   """
   def pulse_apply(socket, {:exit, _reason}), do: socket
 
   def pulse_apply(socket, {:ok, pulse}) do
     previous = socket.assigns[:shell_pulse]
 
+    known = (previous && previous[:serving]) || %{}
+
+    reads =
+      Enum.map(pulse.reads, fn read ->
+        %{read | serving: Attention.keep_serving(read.serving, known[read.namespace], read.rows)}
+      end)
+
     items =
       Attention.derive(%{
-        namespaces: pulse.reads,
+        namespaces: reads,
         dlq: pulse.dlq,
         breaches: pulse.breaches,
         verdicts: pulse.verdicts,
@@ -705,7 +713,8 @@ defmodule FlezhaUiWeb.Layouts do
       items: items,
       checked_at: pulse.read_at,
       error: pulse.catalog_error,
-      fleet: Map.merge(fleet, reach)
+      fleet: Map.merge(fleet, reach),
+      serving: Map.new(reads, &{&1.namespace, &1.serving})
     })
   end
 

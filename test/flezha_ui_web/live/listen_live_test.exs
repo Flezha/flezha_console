@@ -86,6 +86,18 @@ defmodule FlezhaUiWeb.ListenLiveTest do
                "Call is off. Nobody can answer a call until a runner serves factory store_input"
     end
 
+    test "reads the relay's own suspended flag, which the registry can lag", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
+      FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{suspended: true}})
+      FakeController.set(node, {Flezha.Service.Fleet, :runners_for_factory}, {:ok, []})
+
+      note = text_of(render(listening(conn)), ~s([data-testid="listen-unservable"]))
+      assert note =~ "No runner serves store_input yet; the message is kept until one connects."
+    end
+
     test "states a listen the controller refused, with its code", %{conn: conn, node: node} do
       FakeController.set(
         node,

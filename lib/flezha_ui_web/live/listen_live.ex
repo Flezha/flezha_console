@@ -12,6 +12,7 @@ defmodule FlezhaUiWeb.ListenLive do
   alias FlezhaUi.Format
   alias FlezhaUi.Service.EventFeed
   alias FlezhaUi.Service.NodeManager
+  alias FlezhaUiWeb.RelayState
 
   @max_messages 200
 
@@ -57,8 +58,16 @@ defmodule FlezhaUiWeb.ListenLive do
       partitions: NodeManager.partition_members(rows, relay_id),
       serving: factory && NodeManager.serving_count(ns, factory, token),
       factory_id: factory,
-      relay_state: row && NodeManager.row_health(row)
+      relay_state: row && RelayState.of(row, suspended?(ns, relay_id, token))
     )
+  end
+
+  # The relay's own suspended flag, which the registry's verdict can lag.
+  defp suspended?(ns, relay_id, token) do
+    case NodeManager.overwatch_state(ns, relay_id, token) do
+      {:ok, %{} = state} -> Map.get(state, :suspended, false)
+      _unread -> nil
+    end
   end
 
   @impl true

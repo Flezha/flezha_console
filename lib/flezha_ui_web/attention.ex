@@ -138,6 +138,13 @@ defmodule FlezhaUiWeb.Attention do
         do: to_string(factory)
   end
 
+  @doc """
+  `fresh` serving counts, keeping the last `known` count of a waiting factory
+  whose read failed, so one failed read does not regroup its relays.
+  """
+  def keep_serving(fresh, known, rows),
+    do: (known || %{}) |> Map.take(waiting_factories(rows)) |> Map.merge(fresh)
+
   defp relay_item(namespace, row, faulted, serving) do
     id = to_string(row.id)
     factory = row[:factory] && to_string(row.factory)
