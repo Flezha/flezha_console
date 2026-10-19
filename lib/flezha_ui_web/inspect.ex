@@ -1,6 +1,6 @@
 defmodule FlezhaUiWeb.Inspect do
   @moduledoc """
-  Inspecting a relay, a runner, a plugin or a parked entry in a drawer on the
+  Inspecting a relay, a runner, a plugin or a dead letter in a drawer on the
   current screen, without navigating away.
 
   The selection lives in the address bar as `?inspect=<kind>:<id>`, applied
@@ -18,10 +18,10 @@ defmodule FlezhaUiWeb.Inspect do
   `inspect_context/2` with what it already knows about the selection — the
   relay's row and measured rates — so opening it costs only its one on-demand
   read: a relay's overwatch state, a runner's principal, a plugin's provider,
-  a parked entry's payload. A host names the kinds it inspects, and an address
+  a dead letter's payload. A host names the kinds it inspects, and an address
   naming any other is ignored: each kind's actions are events only its hosts
   handle — the relay inspector's Stop is a host's `confirm_stop` with a
-  `relay_id`, the parked entry's Replay and Drop a host's `confirm`.
+  `relay_id`, the dead letter's Replay and Drop a host's `confirm`.
   """
 
   use FlezhaUiWeb, :html

@@ -2409,8 +2409,8 @@ button.fui-step-text:hover .fui-step-label {
    Problems and the event river
    ====================================================================== */
 
-/* A relay's condition as labelled rows: the term on the left, the fact on
-   the right, one line each; a phone stacks them. */
+/* A condition as labelled rows: the label on the left, the fact on the
+   right, one line each; a phone stacks them. */
 .fui-state-summary {
   display: grid;
   font-size: var(--fui-text-sm);
@@ -2433,11 +2433,14 @@ button.fui-step-text:hover .fui-step-label {
   overflow-wrap: anywhere;
 }
 
-.fui-state-summary > div:first-child dd {
+.fui-state-summary dd.fui-condition-said {
   align-items: center;
   display: flex;
-  font-weight: 600;
   gap: var(--fui-space-2);
+}
+
+.fui-state-summary > div:first-child dd {
+  font-weight: 600;
 }
 
 @media (width <= 599px) {
@@ -2474,9 +2477,7 @@ button.fui-step-text:hover .fui-step-label {
   gap: var(--fui-space-2);
 }
 
-.fui-problem-why {
-  color: var(--fui-ink-2);
-  font-size: var(--fui-text-sm);
+.fui-problem > .fui-state-summary {
   grid-column: 1;
 }
 

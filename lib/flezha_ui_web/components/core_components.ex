@@ -1525,6 +1525,67 @@ defmodule FlezhaUiWeb.CoreComponents do
     """
   end
 
+  # Every condition's rows, in the one order each surface shows them.
+  @condition_rows [
+    state: "State",
+    cause: "Cause",
+    impact: "Impact",
+    runner: "Runner",
+    handled: "Handled by",
+    next: "Next step"
+  ]
+
+  @doc """
+  A condition as labelled rows in one fixed order: State, Cause, Impact,
+  Runner, Handled by, Next step. `facts` holds a value per row key; a row
+  whose value is nil or absent is left out. A value is a phrase, or a said
+  map (`%{text:, tone:}` with an optional `:shape` and glossary `:term`)
+  drawn with its shape. A `:row` slot adds a row whose value is markup, after
+  the others.
+  """
+  attr :facts, :map, required: true
+  attr :testid, :string, required: true
+  attr :state, :atom, default: nil, doc: "the condition's state, as `data-state`"
+
+  slot :row do
+    attr :key, :string, required: true
+    attr :label, :string, required: true
+  end
+
+  def condition(assigns) do
+    rows =
+      for {key, label} <- @condition_rows,
+          value = assigns.facts[key],
+          do: %{key: key, label: label, value: value}
+
+    assigns = assign(assigns, :rows, rows)
+
+    ~H"""
+    <dl class="fui-state-summary" data-testid={@testid} data-state={@state}>
+      <div :for={row <- @rows} data-testid={"#{@testid}-#{row.key}"}>
+        <dt>{row.label}</dt>
+        <dd :if={is_map(row.value)} class="fui-condition-said">
+          <span
+            class={"fui-shape fui-tone-#{row.value.tone}"}
+            data-shape={row.value[:shape] || Words.shape(row.value.tone)}
+            aria-hidden="true"
+          >
+          </span>
+          <.term :if={row.value[:term]} key={row.value.term} id={"#{@testid}-#{row.key}-term"}>
+            {row.value.text}
+          </.term>
+          <span :if={!row.value[:term]}>{row.value.text}</span>
+        </dd>
+        <dd :if={!is_map(row.value)}>{row.value}</dd>
+      </div>
+      <div :for={row <- @row} data-testid={"#{@testid}-#{row.key}"}>
+        <dt>{row.label}</dt>
+        <dd>{render_slot(row)}</dd>
+      </div>
+    </dl>
+    """
+  end
+
   @doc """
   A hint for a control, shown on hover and focus. The control inside should
   carry `aria-describedby` naming `id`.

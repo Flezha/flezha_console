@@ -30,7 +30,7 @@ defmodule FlezhaUiWeb.Words do
     recovering: {"Recovering", :warning, "half"},
     unbound: {"Unbound", :warning, "diamond"},
     failed: {"Failed", :negative, "cross"},
-    parked: {"Parked", :negative, "square"}
+    halted: {"Halted", :negative, "square"}
   }
 
   # What a relay's state summary names beyond its health: a relay the
@@ -95,6 +95,21 @@ defmodule FlezhaUiWeb.Words do
       active: {"Active", :positive},
       revoked: {"Revoked", :neutral},
       expired: {"Expired", :neutral}
+    },
+    handled_by: %{
+      nobody: {"Nobody", :neutral},
+      flezha: {"Flezha", :warning},
+      you: {"You", :negative}
+    },
+    problem: %{
+      factory: {"No runner", :negative},
+      partition_group: {"Coverage broken", :negative},
+      quota: {"Limit reached", :negative},
+      dead_letters: {"Dead letters", :negative},
+      rpo: {"Behind target", :warning},
+      stall: {"Stalled", :warning},
+      bootstrap: {"Unclaimed", :negative},
+      skew: {"Version skew", :negative}
     },
     diagnosis: %{
       ok: {"No fault found", :positive},

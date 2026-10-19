@@ -5,7 +5,7 @@ defmodule FlezhaUi.Service.PublishedSurfaceTest do
 
   Read from a core checkout rather than copied: core's own extractor
   (`scripts/consumer_surface.py`) finds the calls this checkout makes, and
-  core's `docs/api/consumers/published.txt` says which functions a consumer may
+  core's `docs/internal/api/consumers/published.txt` says which functions a consumer may
   call. The reverse — every recorded call resolving in core — is core's own
   `consumer_surface_test.exs`.
   """
@@ -18,7 +18,7 @@ defmodule FlezhaUi.Service.PublishedSurfaceTest do
 
   setup_all do
     core = System.get_env("FLEZHA_CORE_PATH") || Path.expand("../flezha", File.cwd!())
-    published_path = Path.join(core, "docs/api/consumers/published.txt")
+    published_path = Path.join(core, "docs/internal/api/consumers/published.txt")
     extractor = Path.join(core, "scripts/consumer_surface.py")
 
     unless File.regular?(published_path) and File.regular?(extractor) do

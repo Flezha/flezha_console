@@ -266,14 +266,14 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
       node: node
     } do
       one_namespace(node,
-        rows: [row("a", %{health: :recovering}), row("b", %{health: :parked})],
+        rows: [row("a", %{health: :recovering}), row("b", %{health: :halted})],
         hub_nodes: [:"flezha@node-a"]
       )
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
       assert html =~ ~s(data-health="recovering")
-      assert html =~ ~s(data-health="parked")
+      assert html =~ ~s(data-health="halted")
       refute html =~ ~s(data-health="unknown")
     end
 

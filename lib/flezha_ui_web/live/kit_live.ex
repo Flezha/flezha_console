@@ -46,6 +46,33 @@ defmodule FlezhaUiWeb.KitLive do
   def handle_event("kit_flash", %{"kind" => kind}, socket) when kind in ~w(info error),
     do: {:noreply, put_flash(socket, String.to_existing_atom(kind), "An #{kind} toast.")}
 
+  # One problem card of every kind, from the derivation the screens use.
+  defp problems do
+    row = &Map.merge(%{id: &1, health: :healthy, factory: "echo_steps", node: :flezha@a}, &2)
+
+    FlezhaUiWeb.Attention.derive(%{
+      namespaces: [
+        %{
+          namespace: "default",
+          rows: [
+            row.("orders", %{health: :halted}),
+            row.("ingest", %{health: :degraded}),
+            row.("sleeper_1", %{health: :suspended}),
+            row.("sleeper_2", %{health: :unbound})
+          ],
+          faulted_groups: ["prices"],
+          quotas: [%{kind: :relays, value: 20, limit: 20, breached?: true}],
+          serving: %{"echo_steps" => 0}
+        }
+      ],
+      dlq: [%{relay_class: "orders", tasklet_id: "parse", entries: 3}],
+      breaches: [%{ref: :a}],
+      verdicts: [%{layer: :runner_channel, subject: "ingest"}],
+      authz: %{posture: :bootstrap_pending},
+      skew: {:api_missing, Flezha.Service.Relay, :activity, 4}
+    })
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -265,6 +292,20 @@ defmodule FlezhaUiWeb.KitLive do
           <.kbd>?</.kbd>
           for help.
         </p>
+      </div>
+    </.section>
+
+    <.section testid="kit-problems">
+      <:title>Conditions and problem cards</:title>
+      <div class="grid gap-4">
+        <FlezhaUiWeb.RelayState.summary
+          state={:suspended}
+          factory="echo_steps"
+          runner={nil}
+          serving={1}
+          testid="kit-condition"
+        />
+        <FlezhaUiWeb.Attention.problem_list items={problems()} operations={[]} />
       </div>
     </.section>
 

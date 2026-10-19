@@ -6,7 +6,9 @@ defmodule FlezhaUiWeb.GlossaryTest do
   @required ~w(namespace relay run runner factory tasklet cell output) ++
               ["task journal", "input log"] ++
               ~w(plugin provider hook hub posture principal role quota) ++
-              ["partition group", "coverage", "health"]
+              ["partition group", "coverage", "health"] ++
+              ~w(suspended halted unbound failed recovering degraded) ++
+              ["handled by", "dead letter"]
 
   test "every term the spec requires has a short definition" do
     for key <- @required do
@@ -45,6 +47,21 @@ defmodule FlezhaUiWeb.GlossaryTest do
     end
 
     assert Glossary.screen(:nowhere) == nil
+  end
+
+  test "no glossary entry or relay-state word says parked or asleep" do
+    copy =
+      Enum.flat_map(Glossary.terms(), &[&1.name, &1.definition]) ++
+        Enum.map(
+          FlezhaUi.Service.NodeManager.health_verdicts(),
+          &FlezhaUiWeb.Words.text(:health, &1)
+        )
+
+    for text <- copy, word <- ~w(parked asleep) do
+      refute String.downcase(text) =~ word, "#{inspect(text)} says #{word}"
+    end
+
+    refute Glossary.term("parked")
   end
 
   test "the shortcuts list the keys the console binds" do

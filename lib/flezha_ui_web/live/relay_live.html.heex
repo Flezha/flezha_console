@@ -20,7 +20,7 @@
         It failed to initialise; its State view says why.
       </span>
       <span :if={@row && !assigns[:init_error]} data-testid="relay-health">
-        It is <.said kind={:health} value={FlezhaUiWeb.RelayState.of(@row, @suspended)} lower />.
+        It is <.said kind={:health} value={@relay_state} lower />.
       </span>
       <span :if={is_nil(@row) and @suspended} data-testid="relay-health">
         It is <.said kind={:health} value={:suspended} lower />.
@@ -62,7 +62,6 @@
       :if={is_nil(@completion) and NodeManager.granted?(@operations, "Relay.send")}
       icon="hero-paper-airplane"
       phx-click="talk_open"
-      disabled={FlezhaUiWeb.RelayState.unservable(@serving, @factory_id) != nil}
       aria-describedby={
         FlezhaUiWeb.RelayState.unservable(@serving, @factory_id) && "talk-unavailable"
       }
@@ -91,7 +90,7 @@
   id="talk-unavailable"
 >
   <.notice testid="talk-unavailable">
-    Send or call is off: {FlezhaUiWeb.RelayState.unservable(@serving, @factory_id)}
+    {FlezhaUiWeb.RelayState.no_runner_note(@relay_state, @serving, @factory_id)}
   </.notice>
 </div>
 
@@ -117,12 +116,11 @@
 </.section>
 
 <%!-- Its condition, and the controller's diagnosis on request --%>
-<% state = FlezhaUiWeb.RelayState.of(@row, @suspended) %>
 <.section
   :if={is_nil(@completion)}
   fold="diagnosis"
-  open={@sections["diagnosis"] or state != :healthy}
-  forced={@diagnosis != nil or @diagnosis_error != nil or state != :healthy}
+  open={@sections["diagnosis"] or @relay_state != :healthy}
+  forced={@diagnosis != nil or @diagnosis_error != nil or @relay_state != :healthy}
   testid="diagnose-panel"
   digest={
     cond do
@@ -146,7 +144,7 @@
     </.button>
   </:actions>
   <FlezhaUiWeb.RelayState.summary
-    state={state}
+    state={@relay_state}
     factory={@factory_id && to_string(@factory_id)}
     runner={if @load_error, do: :unread, else: @runner_id && to_string(@runner_id)}
     serving={@serving}
@@ -421,6 +419,14 @@
 
   <.form_error error={@talk.error} action="the call" testid="talk-error" />
 
+  <.notice
+    :if={FlezhaUiWeb.RelayState.unservable(@serving, @factory_id)}
+    testid="talk-send-note"
+    class="mb-4"
+  >
+    {FlezhaUiWeb.RelayState.no_runner_note(@relay_state, @serving, @factory_id)}
+  </.notice>
+
   <.notice :if={@talk.waiting} testid="talk-waiting" icon="hero-clock" class="mb-4">
     Waiting for {@relay_id} to answer. Closing this dialog stops waiting; the relay may still
     act on what was sent.
@@ -489,7 +495,9 @@
       <.button
         :if={NodeManager.granted?(@operations, "Relay.call_channel")}
         type="submit"
-        disabled={@talk.waiting != nil}
+        disabled={
+          @talk.waiting != nil or FlezhaUiWeb.RelayState.unservable(@serving, @factory_id) != nil
+        }
         data-testid="talk-channel-submit"
       >
         {if @talk.channel[:answer_codec], do: "Call", else: "Send"}
@@ -566,7 +574,9 @@
         type="submit"
         name="talk[action]"
         value="call"
-        disabled={@talk.waiting != nil}
+        disabled={
+          @talk.waiting != nil or FlezhaUiWeb.RelayState.unservable(@serving, @factory_id) != nil
+        }
         data-testid="talk-call-btn"
       >
         Call
@@ -591,13 +601,13 @@
             </.notice>
           <% %{kind: :send, answer: %{verdict: :absorbed} = sent} -> %>
             <.notice>
-              <span class="fui-ident">{sent.to}</span>
-              absorbed it as a duplicate: its input log already holds that message id.
+              Already received: <span class="fui-ident">{sent.to}</span>'s
+              input log holds that message id.
             </.notice>
           <% %{kind: :send, answer: %{verdict: :suspended} = sent} -> %>
             <.notice>
-              <span class="fui-ident">{sent.to}</span>
-              is suspended; the message is journaled until the instance wakes.
+              Kept until it wakes: <span class="fui-ident">{sent.to}</span>
+              is suspended, and its input log holds the message.
             </.notice>
           <% %{kind: :call, answer: answer} -> %>
             <p class="text-xs fui-muted">

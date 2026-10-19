@@ -14,8 +14,11 @@ have a one- or two-sentence definition. The terms SHALL include at least:
 - hub, posture, principal, role and quota;
 - partition group and coverage;
 - health;
-- each relay state: suspended, parked, unbound, failed, recovering and degraded;
+- each relay state: suspended, halted, unbound, failed, recovering and degraded;
+- handled by, with its three values: Nobody, Flezha and You;
 - dead letter.
+
+The glossary SHALL NOT define "parked" or "asleep".
 
 Where a term first occurs in a page header, a sentence or a section title on a
 screen, it SHALL be rendered with a term marker. That marker SHALL show the
@@ -39,9 +42,17 @@ accessible description.
 
 #### Scenario: A state explains itself
 
-- **WHEN** an operator hovers "Suspended" in a relay state summary
-- **THEN** a popover says the relay stopped at a committed boundary on purpose and
-  wakes on the next message when a runner serves its factory
+- **WHEN** an operator hovers "Suspended" in a relay's condition
+- **THEN** a popover says the relay stopped at a committed boundary on purpose, holds
+  no runner, and wakes on the next message or its timer on a runner that serves its
+  factory
+
+#### Scenario: Halted explains itself
+
+- **WHEN** an operator hovers "Halted" in a relay's condition
+- **THEN** a popover says a fault stopped it that the system cannot fix by itself,
+  that Flezha retries its bind, and that it stays stopped until a person fixes the
+  cause
 
 ### Requirement: The README vocabulary and the glossary agree
 

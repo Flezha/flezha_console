@@ -156,15 +156,16 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       assert text_of(html, ~s([data-testid="relay-health"])) == "It is suspended."
       # Its condition opens by itself, as rows that agree with each other.
       assert has_element?(view, ~s([data-testid="relay-state"][data-state="suspended"]))
-      assert text_of(html, ~s([data-testid="relay-state-runner"])) =~ "None bound"
 
-      assert text_of(html, ~s([data-testid="relay-state-serving"])) =~
-               "No runner serves factory store_input"
+      assert condition_value(html, "relay-state", "runner") ==
+               "None bound · 0 can run it (store_input)"
 
-      assert text_of(html, ~s([data-testid="relay-state-next"])) =~
-               "cannot run until a runner for store_input connects"
+      assert condition_value(html, "relay-state", "handled") == "You"
 
-      refute text_of(html, ~s([data-testid="relay-state-next"] dd)) =~ "wakes it"
+      assert condition_value(html, "relay-state", "next") ==
+               "Start a runner that serves store_input"
+
+      refute condition_value(html, "relay-state", "next") =~ "Wakes"
     end
 
     test "runners that cannot take the relay wake nothing, whatever their count", %{
@@ -197,8 +198,26 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       {:ok, view, _html} = live(conn, @url)
       html = view |> element(~s([data-testid="diagnose-btn"])) |> render_click()
 
-      assert text_of(html, ~s([data-testid="relay-state-next"] dd)) ==
-               "It cannot run until a runner that can take it connects."
+      assert condition_value(html, "relay-state", "handled") == "You"
+
+      assert condition_value(html, "relay-state", "next") ==
+               "Start a runner that can take it"
+    end
+
+    test "a failed relay still naming the runner that left reads that you must start one", %{
+      conn: conn,
+      node: node
+    } do
+      registry_row(node, %{health: :failed})
+      overwatch(node, %{factory_id: "store_input", runner_id: "gone"})
+
+      {:ok, view, html} = live(conn, @url)
+
+      assert condition_value(html, "relay-state", "runner") ==
+               "gone bound · 0 can run it (store_input)"
+
+      assert condition_value(html, "relay-state", "handled") == "You"
+      assert has_element?(view, ~s([data-testid="talk-unavailable"]))
     end
 
     test "a relay bound to a runner is not asked about runners on each tick", %{
@@ -220,11 +239,13 @@ defmodule FlezhaUiWeb.RelayLiveTest do
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert text_of(html, ~s([data-testid="relay-state-serving"])) =~
-               "1 runner serves factory store_input"
+      assert condition_value(html, "relay-state", "runner") ==
+               "None bound · 1 can run it (store_input)"
 
-      assert text_of(html, ~s([data-testid="relay-state-next"] dd)) ==
-               "The next message wakes it on a runner."
+      assert condition_value(html, "relay-state", "handled") == "Nobody"
+
+      assert condition_value(html, "relay-state", "next") ==
+               "Wakes on the next message or its timer"
     end
 
     test "reports version skew by naming the missing call", %{conn: conn, node: node} do

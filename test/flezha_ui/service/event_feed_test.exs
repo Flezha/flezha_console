@@ -249,7 +249,7 @@ defmodule FlezhaUi.Service.EventFeedTest do
                       {"default",
                        %{event: :relay_exited, relay: "r1", runner: "runner-a", reason: "lost"}}}
 
-      FakeController.emit(node, @tail, %{name: :relay_parked_total, metadata: %{}})
+      FakeController.emit(node, @tail, %{name: :relay_halted_total, metadata: %{}})
       :sys.get_state(feed)
       refute_received {:flezha_event, _, _}
     end

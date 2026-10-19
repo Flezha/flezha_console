@@ -4,22 +4,23 @@ defmodule FlezhaUiWeb.Attention do
   makes.
 
   Pure: `derive/1` takes what the controller answered and answers attention
-  items, each saying what is wrong, why — built from the read that found it —
-  and the actions that address it. Home lists its namespace's items, the
-  shell's pulse counts them for every reachable namespace, and `/problems`
-  lists them all; `FlezhaUiWeb.Topology.summary/1` takes its attention list
-  from here too.
+  items: only a condition Flezha or the operator handles is one. Home lists
+  its namespace's items, the shell's pulse counts them for every reachable
+  namespace, and `/problems` lists them all.
 
   An item is
 
       %{id:, kind:, severity: :warning | :negative, namespace:, object: %{kind:, id:},
-        what:, why:, actions: [action], first_seen:}
+        what:, condition:, actions: [action], first_seen:}
 
-  and a relay item also carries `relay: %{state:, factory:, serving:}`, what
-  its state summary shows; `serving` is how many runners serve its factory,
-  nil until a caller that read them sets it with `put_serving/2`. It names no
-  runner: a registry row names the one that last hosted the relay, not the
-  one bound to it now, which only the relay's own Overwatch reads.
+  where `condition` is its facts, as `condition/1` renders them, and the
+  severity follows who handles it: negative for the operator, warning for
+  Flezha. A relay item carries `relay: %{state:, factory:, serving:}` in place
+  of `condition`, which `FlezhaUiWeb.RelayState.summary/1` renders with the
+  diagnosis once asked; `serving` is how many runners serve its factory, nil
+  when unread. It names no runner: a registry row names the one that last
+  hosted the relay, not the one bound to it now, which only the relay's own
+  Overwatch reads.
 
   and an action is `%{label:, navigate:}` or `%{label:, do: :diagnose,
   operation:, namespace:, relay:}`; `operation` names the controller verb that
@@ -75,7 +76,9 @@ defmodule FlezhaUiWeb.Attention do
   @doc """
   Every item the reads in `input` reveal. Each key is optional:
 
-    * `:namespaces` — `[%{namespace:, rows:, faulted_groups:, quotas:}]`;
+    * `:namespaces` — `[%{namespace:, rows:, faulted_groups:, quotas:, serving:}]`,
+      `serving` mapping each factory `waiting_factories/1` names to how many
+      runners serve it;
     * `:dlq` — the dead-letter statistics;
     * `:breaches` — references past their RPO target;
     * `:verdicts` — recent stall verdicts, as `FlezhaUiWeb.Topology.stall/1` answers;
@@ -85,13 +88,15 @@ defmodule FlezhaUiWeb.Attention do
   def derive(input) do
     namespaced =
       Enum.flat_map(Map.get(input, :namespaces, []), fn ns ->
-        relay_items(ns.namespace, Map.get(ns, :rows, []), Map.get(ns, :faulted_groups, [])) ++
-          group_items(ns.namespace, Map.get(ns, :faulted_groups, [])) ++
+        faulted = Map.get(ns, :faulted_groups, [])
+
+        relay_items(ns.namespace, Map.get(ns, :rows, []), faulted, Map.get(ns, :serving, %{})) ++
+          group_items(ns.namespace, faulted) ++
           quota_items(ns.namespace, Map.get(ns, :quotas, []))
       end)
 
     namespaced ++
-      parked_items(Map.get(input, :dlq, [])) ++
+      dead_letter_items(Map.get(input, :dlq, [])) ++
       rpo_items(Map.get(input, :breaches, [])) ++
       stall_items(Map.get(input, :verdicts, [])) ++
       bootstrap_items(Map.get(input, :authz)) ++
@@ -99,92 +104,82 @@ defmodule FlezhaUiWeb.Attention do
   end
 
   @doc """
-  The items for a namespace's relays: each relay that is not healthy, has no
-  live node, or belongs to a partition group whose coverage is faulted —
-  surfaced whatever its throughput, since a stuck relay is exactly the one
-  whose counters stopped moving.
+  The items for a namespace's relays: each relay whose condition Flezha or
+  the operator handles — surfaced whatever its throughput, since a stuck
+  relay is exactly the one whose counters stopped moving — and one item per
+  factory no runner serves, holding every relay that waits only on it.
+
+  `serving` maps a factory to how many runners serve it; a factory it does
+  not hold is unread, and a suspended relay of an unread factory is no item.
   """
-  def relay_items(namespace, rows, faulted_groups \\ []) do
-    rows
-    |> Enum.flat_map(&relay_item(namespace, &1, faulted_groups))
-    |> Enum.sort_by(& &1.object.id)
+  def relay_items(namespace, rows, faulted_groups \\ [], serving \\ %{}) do
+    {items, waiting} =
+      rows
+      |> Enum.map(&relay_item(namespace, &1, faulted_groups, serving))
+      |> Enum.reduce({[], []}, fn
+        {:item, item}, {items, waiting} -> {[item | items], waiting}
+        {:waits, wait}, {items, waiting} -> {items, [wait | waiting]}
+        :none, acc -> acc
+      end)
+
+    Enum.sort_by(items, & &1.object.id) ++ factory_items(namespace, waiting)
   end
 
   @doc """
-  The factories whose runners `items` wait on: those of relay items in a
-  runner-bound state. What a caller reads before `put_serving/2`.
+  The factories whose runners decide what `rows` need: those of relays in a
+  runner-bound state. What a caller reads before `derive/1`.
   """
-  def waiting_factories(items) do
-    for %{relay: %{state: state, factory: factory}} <- items,
-        state in RelayState.runner_bound_states(),
-        is_binary(factory),
+  def waiting_factories(rows) do
+    for row <- rows,
+        NodeManager.row_health(row) in RelayState.runner_bound_states(),
+        factory = row[:factory],
+        factory != nil,
         uniq: true,
-        do: factory
+        do: to_string(factory)
   end
 
-  @doc """
-  Sets on each relay item how many runners serve its factory, from `serving`
-  (factory id to count); a factory it does not hold stays unread.
-  """
-  def put_serving(items, serving) do
-    Enum.map(items, fn
-      %{relay: %{factory: factory} = relay} = item when is_map_key(serving, factory) ->
-        %{item | relay: %{relay | serving: Map.fetch!(serving, factory)}}
-
-      item ->
-        item
-    end)
-  end
-
-  defp relay_item(namespace, row, faulted) do
+  defp relay_item(namespace, row, faulted, serving) do
     id = to_string(row.id)
-    health = NodeManager.row_health(row)
-    group = row[:partition] && row.partition.group
     factory = row[:factory] && to_string(row.factory)
+    count = factory && Map.get(serving, factory)
+    state = relay_state(row, faulted)
 
-    facts = %{factory: factory, serving: nil}
+    waits_on_runner? = count == 0 and state in RelayState.runner_bound_states()
 
-    cond do
-      health != :healthy ->
-        [
-          relay(
-            namespace,
-            id,
-            health,
-            severity(health),
-            "#{id} is #{RelayState.word(health)}",
-            facts
-          )
-        ]
+    case RelayState.handled_by(state, count) do
+      _you when waits_on_runner? ->
+        {:waits, %{factory: factory, state: state}}
 
-      is_nil(row[:node]) ->
-        [relay(namespace, id, :unplaced, :warning, "#{id} is unplaced", facts)]
+      handler when handler in [:flezha, :you] ->
+        {:item, relay(namespace, id, state, handler, row, factory, count)}
 
-      group && group in faulted ->
-        why = "Its partition group #{group} does not cover every key group exactly once."
-
-        [
-          namespace
-          |> relay(id, :coverage, :negative, "#{id} owns a broken key range", facts)
-          |> Map.put(:why, why)
-        ]
-
-      true ->
-        []
+      _nobody ->
+        :none
     end
   end
 
-  defp relay(namespace, id, state, severity, what, facts) do
+  defp relay_state(row, faulted) do
+    health = NodeManager.row_health(row)
+    group = row[:partition] && row.partition.group
+
+    cond do
+      health != :healthy -> health
+      is_nil(row[:node]) -> :unplaced
+      group && group in faulted -> :coverage
+      true -> :healthy
+    end
+  end
+
+  defp relay(namespace, id, state, handler, row, factory, serving) do
     %{
       id: "relay:#{namespace}:#{id}",
       kind: :relay,
       reason: state,
-      severity: severity,
+      severity: Words.tone(:handled_by, handler),
       namespace: namespace,
       object: %{kind: :relay, id: id},
-      what: what,
-      why: RelayState.why(state),
-      relay: Map.put(facts, :state, state),
+      what: relay_what(id, state, row),
+      relay: %{state: state, factory: factory, serving: serving},
       actions: [
         %{
           label: "Diagnose",
@@ -199,24 +194,89 @@ defmodule FlezhaUiWeb.Attention do
     }
   end
 
-  defp severity(health) when health in [:failed, :parked], do: :negative
-  defp severity(_health), do: :warning
+  defp relay_what(id, :unplaced, _row), do: "#{id} is unplaced"
+
+  defp relay_what(id, :coverage, row),
+    do: "#{id} owns a broken key range in partition group #{row.partition.group}"
+
+  defp relay_what(id, state, _row), do: "#{id} is #{RelayState.word(state)}"
+
+  defp factory_items(namespace, waiting) do
+    waiting
+    |> Enum.group_by(& &1.factory, & &1.state)
+    |> Enum.sort()
+    |> Enum.map(fn {factory, states} ->
+      problem(
+        :factory,
+        %{
+          id: "factory:#{namespace}:#{factory}",
+          reason: :no_runner,
+          namespace: namespace,
+          object: %{kind: :factory, id: factory},
+          what: "No runner serves factory #{factory}",
+          actions: [%{label: "Open cluster", navigate: ~p"/cluster"}]
+        },
+        cause: "0 runners serve #{factory}",
+        impact: waiting_words(states),
+        handled_by: :you,
+        next: "Start a runner that serves #{factory}"
+      )
+    end)
+  end
+
+  # "3 relays wait: 2 suspended, 1 unbound", states in rank order.
+  defp waiting_words(states) do
+    counts = Enum.frequencies(states)
+
+    by_state =
+      for state <- NodeManager.health_verdicts(),
+          count = Map.get(counts, state),
+          do: "#{count} #{RelayState.word(state)}"
+
+    verb = if length(states) == 1, do: "waits", else: "wait"
+    "#{Words.count(length(states), "relay")} #{verb}: #{Enum.join(by_state, ", ")}"
+  end
+
+  # An item that is not a relay: its State is its kind's word, and its tone
+  # follows who handles it, red for the operator and amber for Flezha.
+  defp problem(kind, fields, condition) do
+    handler = Keyword.fetch!(condition, :handled_by)
+
+    Map.merge(
+      %{
+        kind: kind,
+        severity: Words.tone(:handled_by, handler),
+        namespace: nil,
+        condition: %{
+          state: Words.say(:problem, kind),
+          cause: Keyword.fetch!(condition, :cause),
+          impact: Keyword.fetch!(condition, :impact),
+          handled: RelayState.handler_said(handler),
+          next: Keyword.fetch!(condition, :next)
+        },
+        first_seen: nil
+      },
+      fields
+    )
+  end
 
   defp group_items(namespace, groups) do
     for group <- groups do
-      %{
-        id: "group:#{namespace}:#{group}",
-        kind: :partition_group,
-        reason: :coverage,
-        severity: :negative,
-        namespace: namespace,
-        object: %{kind: :partition_group, id: to_string(group)},
-        what: "Partition group #{group} has broken coverage",
-        why:
-          "Its members do not own every key group exactly once, so traffic for the uncovered key groups is lost.",
-        actions: [%{label: "Open namespace", navigate: ~p"/namespaces/#{namespace}"}],
-        first_seen: nil
-      }
+      problem(
+        :partition_group,
+        %{
+          id: "group:#{namespace}:#{group}",
+          reason: :coverage,
+          namespace: namespace,
+          object: %{kind: :partition_group, id: to_string(group)},
+          what: "Partition group #{group} has broken coverage",
+          actions: [%{label: "Open namespace", navigate: ~p"/namespaces/#{namespace}"}]
+        },
+        cause: "Members leave key groups uncovered or overlapping",
+        impact: "Traffic for those key groups is lost",
+        handled_by: :you,
+        next: "Fix the members' key ranges"
+      )
     end
   end
 
@@ -224,23 +284,25 @@ defmodule FlezhaUiWeb.Attention do
     for %{breached?: true} = row <- quotas do
       kind = Words.humanize(row.kind) |> String.downcase()
 
-      %{
-        id: "quota:#{namespace}:#{row.kind}",
-        kind: :quota,
-        reason: :breached,
-        severity: :negative,
-        namespace: namespace,
-        object: %{kind: :quota, id: to_string(row.kind)},
-        what: "#{namespace} reached its #{kind} limit",
-        why:
-          "#{row.value} of #{row.limit} are in use, so the controller refuses another until one is freed or the limit is raised.",
-        actions: [%{label: "Open limits", navigate: ~p"/namespaces/#{namespace}" <> "#quotas"}],
-        first_seen: nil
-      }
+      problem(
+        :quota,
+        %{
+          id: "quota:#{namespace}:#{row.kind}",
+          reason: :breached,
+          namespace: namespace,
+          object: %{kind: :quota, id: to_string(row.kind)},
+          what: "#{namespace} reached its #{kind} limit",
+          actions: [%{label: "Open limits", navigate: ~p"/namespaces/#{namespace}" <> "#quotas"}]
+        },
+        cause: "#{row.value} of #{row.limit} #{kind} in use",
+        impact: "Another is refused",
+        handled_by: :you,
+        next: "Free one or raise the limit"
+      )
     end
   end
 
-  defp parked_items(stats) do
+  defp dead_letter_items(stats) do
     stats
     |> Enum.group_by(&to_string(Map.get(&1, :relay_class)))
     |> Enum.flat_map(fn {class, rows} ->
@@ -249,19 +311,21 @@ defmodule FlezhaUiWeb.Attention do
 
       if entries > 0 do
         [
-          %{
-            id: "parked:#{class}",
-            kind: :parked,
-            reason: :entries,
-            severity: :warning,
-            namespace: nil,
-            object: %{kind: :relay_class, id: class},
-            what: "#{Words.count(entries, "dead letter")} for #{class}",
-            why:
-              "#{tasklet_phrase(tasklets)} could not process them, so they wait in the dead-letter queue to be replayed or dropped.",
-            actions: [%{label: "Open dead-letter", navigate: ~p"/dlq?#{[class: class]}"}],
-            first_seen: nil
-          }
+          problem(
+            :dead_letters,
+            %{
+              id: "dead_letters:#{class}",
+              reason: :entries,
+              object: %{kind: :relay_class, id: class},
+              what: "#{Words.count(entries, "dead letter")} for #{class}",
+              actions: [%{label: "Open dead-letter", navigate: ~p"/dlq?#{[class: class]}"}]
+            },
+            cause:
+              "#{tasklet_phrase(tasklets)} could not process #{Words.count(entries, "record")}",
+            impact: "They wait in the dead-letter queue",
+            handled_by: :you,
+            next: "Replay or drop them"
+          )
         ]
       else
         []
@@ -276,20 +340,23 @@ defmodule FlezhaUiWeb.Attention do
   defp rpo_items([]), do: []
 
   defp rpo_items(breaches) do
+    count = Words.count(length(breaches), "reference")
+
     [
-      %{
-        id: "rpo",
-        kind: :rpo,
-        reason: :breached,
-        severity: :negative,
-        namespace: nil,
-        object: %{kind: :controller, id: "durability"},
-        what: "#{Words.count(length(breaches), "reference")} past their RPO target",
-        why:
-          "The remote tier has not shipped them within the target, so the state behind them has one copy.",
-        actions: [%{label: "Open controller", navigate: ~p"/controller"}],
-        first_seen: nil
-      }
+      problem(
+        :rpo,
+        %{
+          id: "rpo",
+          reason: :breached,
+          object: %{kind: :controller, id: "durability"},
+          what: "#{count} past their RPO target",
+          actions: [%{label: "Open controller", navigate: ~p"/controller"}]
+        },
+        cause: "#{count} not shipped within the RPO target",
+        impact: "Their state has one copy",
+        handled_by: :flezha,
+        next: "Shipped by the remote tier"
+      )
     ]
   end
 
@@ -298,39 +365,42 @@ defmodule FlezhaUiWeb.Attention do
   defp stall_items([verdict | _older]) do
     subject = verdict[:subject]
     layer = Words.humanize(verdict[:layer]) |> String.downcase()
+    on = if(subject, do: " on #{subject}", else: "")
 
     [
-      %{
-        id: "stall:#{verdict[:layer]}:#{subject}",
-        kind: :stall,
-        reason: :stalled,
-        severity: :warning,
-        namespace: nil,
-        object: %{kind: :stall, id: subject || to_string(verdict[:layer])},
-        what:
-          "A stall was localized at the #{layer}" <> if(subject, do: " on #{subject}", else: ""),
-        why: "The health classifier flagged it within the last minute.",
-        actions: [%{label: "Open cluster", navigate: ~p"/cluster"}],
-        first_seen: nil
-      }
+      problem(
+        :stall,
+        %{
+          id: "stall:#{verdict[:layer]}:#{subject}",
+          reason: :stalled,
+          object: %{kind: :stall, id: subject || to_string(verdict[:layer])},
+          what: "A stall was localized at the #{layer}" <> on,
+          actions: [%{label: "Open cluster", navigate: ~p"/cluster"}]
+        },
+        cause: "Localized at the #{layer}" <> on,
+        impact: "Records stop moving there",
+        handled_by: :flezha,
+        next: "Cleared when records move again"
+      )
     ]
   end
 
   defp bootstrap_items(%{posture: :bootstrap_pending}) do
     [
-      %{
-        id: "bootstrap",
-        kind: :bootstrap,
-        reason: :unclaimed,
-        severity: :negative,
-        namespace: nil,
-        object: %{kind: :controller, id: "authorization"},
-        what: "Authorization is enforced but not claimed",
-        why:
-          "No admin has claimed it with flz auth bootstrap, so the controller refuses every operator verb.",
-        actions: [%{label: "Open controller", navigate: ~p"/controller"}],
-        first_seen: nil
-      }
+      problem(
+        :bootstrap,
+        %{
+          id: "bootstrap",
+          reason: :unclaimed,
+          object: %{kind: :controller, id: "authorization"},
+          what: "Authorization is enforced but not claimed",
+          actions: [%{label: "Open controller", navigate: ~p"/controller"}]
+        },
+        cause: "No admin claimed authorization",
+        impact: "Every operator verb is refused",
+        handled_by: :you,
+        next: "Run flz auth bootstrap"
+      )
     ]
   end
 
@@ -340,18 +410,20 @@ defmodule FlezhaUiWeb.Attention do
     call = "#{inspect(module)}.#{function}/#{arity}"
 
     [
-      %{
-        id: "skew",
-        kind: :skew,
-        reason: :api_missing,
-        severity: :warning,
-        namespace: nil,
-        object: %{kind: :controller, id: "version"},
-        what: "The console and the controller disagree on versions",
-        why: "The controller does not export #{call}, which this console calls.",
-        actions: [%{label: "Open cluster", navigate: ~p"/cluster"}],
-        first_seen: nil
-      }
+      problem(
+        :skew,
+        %{
+          id: "skew",
+          reason: :api_missing,
+          object: %{kind: :controller, id: "version"},
+          what: "The console and the controller disagree on versions",
+          actions: [%{label: "Open cluster", navigate: ~p"/cluster"}]
+        },
+        cause: "The controller lacks #{call}",
+        impact: "Screens that need it fail",
+        handled_by: :you,
+        next: "Run matching console and controller versions"
+      )
     ]
   end
 
@@ -393,8 +465,8 @@ defmodule FlezhaUiWeb.Attention do
   # ---- Rendering ----
 
   @doc """
-  Attention items, each with what is wrong, why, where, how long it has been
-  seen, and its actions as buttons — only those the operator's operations
+  Attention items, each with what is wrong, its condition rows, where, how
+  long it has been seen, and its actions as buttons — only those the operator's operations
   allow. A relay item reads as its `FlezhaUiWeb.RelayState.summary/1`, where
   Diagnose answers inline.
 
@@ -439,18 +511,14 @@ defmodule FlezhaUiWeb.Attention do
           <RelayState.summary
             :if={item[:relay]}
             state={item.relay.state}
-            why={item.why}
             factory={item.relay.factory}
             serving={item.relay.serving}
             diagnosis={@diagnoses[item.id] && @diagnoses[item.id].diagnosis}
             error={@diagnoses[item.id] && @diagnoses[item.id].error}
             testid={"problem-state-#{item.id}"}
-            why_testid={"problem-why-#{item.id}"}
             diagnosis_testid={"problem-diagnosis-#{item.id}"}
           />
-          <p :if={!item[:relay]} class="fui-problem-why" data-testid={"problem-why-#{item.id}"}>
-            {item.why}
-          </p>
+          <.condition :if={!item[:relay]} facts={item.condition} testid={"problem-state-#{item.id}"} />
           <p class="fui-problem-meta">
             {[item.namespace, object_words(item.object), seen(item.first_seen, @now)]
             |> Enum.reject(&is_nil/1)
@@ -499,6 +567,7 @@ defmodule FlezhaUiWeb.Attention do
   defp object_words(%{kind: :partition_group, id: id}), do: "partition group #{id}"
   defp object_words(%{kind: :quota, id: id}), do: "quota #{id}"
   defp object_words(%{kind: :relay_class, id: id}), do: "relay class #{id}"
+  defp object_words(%{kind: :factory, id: id}), do: "factory #{id}"
   defp object_words(%{kind: :stall}), do: nil
   defp object_words(%{kind: :controller}), do: "the controller"
   defp object_words(_object), do: nil

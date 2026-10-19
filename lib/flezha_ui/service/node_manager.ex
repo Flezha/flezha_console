@@ -4,7 +4,7 @@ defmodule FlezhaUi.Service.NodeManager do
 
   Every remote call is a function on core's published consumer surface — a
   `Flezha.Service.*` function listed in core's
-  `docs/api/consumers/published.txt`, called with the caller context last — or
+  `docs/internal/api/consumers/published.txt`, called with the caller context last — or
   one of the two context-free reads a context is built from,
   `Flezha.AuthZ.TokenStore.verify/1` and `Flezha.AuthZ.enforcement_posture/0`.
   Each module is spelled in full at its call site, because core records this
@@ -639,6 +639,22 @@ defmodule FlezhaUi.Service.NodeManager do
     end
   end
 
+  @doc """
+  `serving_count/3` of each of `factories`, as `%{factory => count}`, leaving
+  out a factory whose count could not be read. `runners` is the namespace's
+  connected runners when the caller already read them: none connected means
+  none serves, at no cost.
+  """
+  def serving_counts(namespace, factories, token, runners \\ :unread)
+
+  def serving_counts(_namespace, factories, _token, []), do: Map.new(factories, &{&1, 0})
+
+  def serving_counts(namespace, factories, token, _runners) do
+    factories
+    |> Map.new(&{&1, serving_count(namespace, &1, token)})
+    |> Map.reject(fn {_factory, count} -> is_nil(count) end)
+  end
+
   @doc "`partition_members/2` of a namespace's relays, read for one screen."
   def relay_partitions(namespace, relay_id, token) do
     namespace |> relay_rows(token) |> ok_or([]) |> partition_members(relay_id)
@@ -726,7 +742,7 @@ defmodule FlezhaUi.Service.NodeManager do
     :recovering,
     :unbound,
     :failed,
-    :parked
+    :halted
   ]
 
   @doc "The health verdicts a relay row can carry, in the controller's rank order."

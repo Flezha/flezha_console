@@ -126,17 +126,25 @@ operations allow that action.
 The console SHALL use each relay-state word with the one meaning the controller's
 verdict gives it, and SHALL NOT use one state's word to explain another:
 
-- **Suspended:** stopped at a committed boundary on purpose, not a fault;
-- **Parked:** stopped by a fault nobody in the system owns, waiting for a user or a
-  plugin fix;
-- **Unbound:** no runner is bound, and the loop is binding one;
-- **Failed:** its runner is gone, and the loop is rebinding it;
+- **Suspended:** stopped at a committed boundary on purpose, not a fault. It holds
+  no runner, and the next message or its timer wakes it on a runner that serves its
+  factory;
+- **Halted:** stopped by a fault the system cannot fix by itself; Flezha retries its
+  bind, but a person has to fix the cause;
+- **Unbound:** no runner is bound, and Flezha is binding one;
+- **Failed:** its runner is gone past its grace, and Flezha is rebinding it;
 - **Recovering:** unbound or failed within its grace;
 - **Degraded:** running, and being repaired in place.
 
-A dead-letter entry SHALL be called a dead letter in visible text, never "parked",
-so "parked" names only the relay state. The word "asleep" SHALL NOT appear in the
-console's own copy.
+Every state SHALL be shown with who handles it: Nobody, Flezha or You (see
+`relay-state-summary`).
+
+The visible copy SHALL NOT contain:
+
+- "parked", whether as a relay state, a dead-letter entry or anything else;
+- "asleep".
+
+A dead-letter entry SHALL be called a dead letter.
 
 #### Scenario: Explaining a suspension
 
@@ -144,8 +152,29 @@ console's own copy.
 - **THEN** the text says it stopped at a committed boundary on purpose
 - **AND** it does not say "parked" or "asleep"
 
-#### Scenario: No dead letter is parked
+#### Scenario: A fault stop reads Halted
 
-- **WHEN** the web layer's visible copy is searched for "parked"
-- **THEN** every occurrence refers to the parked relay state
+- **WHEN** the controller reports a relay `halted`
+- **THEN** every screen shows the state as "Halted", with its glossary term and the
+  shape and negative tone of the worst state
+
+#### Scenario: No copy says parked
+
+- **WHEN** the web layer's visible copy is searched for "parked" and "asleep"
+- **THEN** neither word is found
+
+### Requirement: Who handles a condition is said in three words
+
+The console SHALL name who acts next on any condition with exactly one of:
+
+- **Nobody:** planned, nothing to do;
+- **Flezha:** the system is fixing it;
+- **You:** an operator has to act.
+
+Each word SHALL carry a glossary definition, and SHALL NOT be replaced by a sentence.
+
+#### Scenario: Three words only
+
+- **WHEN** the Handled by row of any condition renders
+- **THEN** its value is "Nobody", "Flezha" or "You"
 

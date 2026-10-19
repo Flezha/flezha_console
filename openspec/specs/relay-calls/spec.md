@@ -65,18 +65,41 @@ The call dialog SHALL let an operator pick an announced channel and enter its va
 
 ### Requirement: A relay is sent a message or called directly
 
-The call dialog SHALL offer a raw mode, always available, that takes a text payload, an optional input channel, an optional partition key and an optional message id. Sending SHALL call `Flezha.Service.Relay.send/6` and show the relay that took the message and its verdict: delivered, absorbed as a duplicate, or suspended until the instance wakes. Calling SHALL call `Flezha.Service.Relay.call/6` with a deadline in milliseconds and show the answer payload and the channel it came on.
+The call dialog SHALL offer a raw mode, always available, that takes:
+
+- a text payload;
+- an optional input channel;
+- an optional partition key;
+- an optional message id.
+
+Sending SHALL call `Flezha.Service.Relay.send/6`. It SHALL show the relay that took
+the message and the controller's answer, in fixed words:
+
+| Answer | Shown as |
+|---|---|
+| delivered | "Delivered" |
+| `suspended` verdict | "Kept until it wakes" |
+| `absorbed` verdict | "Already received" |
+| a refusal, such as `not_ready` | the controller's error, with its code and hint |
+
+Calling SHALL call `Flezha.Service.Relay.call/6` with a deadline in milliseconds and
+show the answer payload and the channel it came on.
 
 #### Scenario: Sending a message
 
 - **WHEN** an operator sends a raw message to a running relay
 - **THEN** `send/6` is called with that payload and channel
-- **AND** the dialog shows the receiving relay and the verdict
+- **AND** the dialog shows the receiving relay and "Delivered"
 
 #### Scenario: A repeated message id
 
 - **WHEN** an operator sends a message whose id the relay's input log still holds
-- **THEN** the dialog shows the verdict as absorbed
+- **THEN** the dialog shows "Already received"
+
+#### Scenario: Sending to a suspended relay
+
+- **WHEN** an operator sends a message to a suspended relay
+- **THEN** the dialog shows "Kept until it wakes"
 
 #### Scenario: Calling with a deadline
 
@@ -231,36 +254,57 @@ The call dialog SHALL keep the results of the sends, calls and channel calls mad
 - **WHEN** more than ten results have been made from the dialog
 - **THEN** only the most recent ten are shown
 
-### Requirement: A relay nothing can run is not sent to
+### Requirement: A relay nothing can run is sent to but not called
 
-When no runner serves a relay's factory, the console SHALL render its Send or call
-control disabled with the reason beside it, and SHALL refuse on the server to open the
-call dialog, to answer the `?do=talk` address, and to send or call, with the same
-reason, so no message is sent that cannot run. The Listen screen's prompt to send or
-call SHALL follow the same rule. A suspended relay whose factory a runner serves SHALL
-stay sendable, because a message is what wakes it. While runner availability is
-unknown, nothing SHALL be disabled, and the controller's answer stays the authority.
+When no runner serves a relay's factory, the console SHALL keep Send enabled and show
+a note beside it:
 
-#### Scenario: No runner serves the factory
+- for a suspended relay: "No runner serves `<factory>` yet; the message is kept until
+  one connects";
+- otherwise: "No runner serves `<factory>`; the controller keeps the message only if
+  this relay journals its input".
+
+The controller's answer SHALL stay the authority on what happened to the message.
+
+Call, and a request to an API channel, which waits for the relay to accept it, SHALL
+be disabled in that case, with the reason beside it. Nobody can answer a call before
+its deadline when nothing runs the relay. The relay screen SHALL read the runners
+serving the factory whenever no runner is bound or the relay is suspended, unbound,
+failed or recovering, because a failed relay still names the runner that left. The server SHALL refuse a call
+under the same condition, including through the `?do=talk` address. The Listen
+screen's prompt SHALL follow the same rule: it offers Send and not Call.
+
+While runner availability is unknown, nothing SHALL be disabled and no note shown.
+
+#### Scenario: Sending to a relay no runner serves
+
+- **WHEN** an operator opens a suspended relay whose factory `echo_steps` no runner
+  serves
+- **THEN** Send is enabled, with the note that the message is kept until a runner
+  connects
+- **AND** sending calls `send/6` and shows "Kept until it wakes"
+
+#### Scenario: Calling a relay no runner serves
 
 - **WHEN** an operator opens a relay whose factory no runner serves
-- **THEN** Send or call is disabled and reads that no runner serves its factory, so a
-  message would only wait
-- **AND** no `send/6` or `call/6` is made
+- **THEN** Call is disabled and reads that no runner serves its factory, so nobody
+  can answer
+- **AND** no `call/6` is made
 
 #### Scenario: The deep link to a relay nothing can run
 
 - **WHEN** an operator opens `/relays/<id>?do=talk` for a relay whose factory no
   runner serves
-- **THEN** the call dialog does not open and the reason is shown
+- **THEN** the dialog opens with Send available and Call disabled with its reason
 
-#### Scenario: A suspended relay a runner serves
+#### Scenario: A failed relay whose runner left
 
-- **WHEN** a suspended relay's factory is served by a runner
-- **THEN** Send or call is enabled and sending journals the message
+- **WHEN** an operator opens a failed relay that still names the runner that left, and
+  no runner serves its factory
+- **THEN** Handled by reads "You" and Call is disabled with its reason
 
 #### Scenario: A runner connects
 
 - **WHEN** a runner serving the factory connects while the relay screen is open
-- **THEN** Send or call becomes enabled without a reload
+- **THEN** Call becomes enabled and the note leaves, without a reload
 

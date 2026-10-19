@@ -292,9 +292,15 @@ defmodule FlezhaUiWeb.RelayLive do
     %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
 
     request =
-      case RelayState.unservable(socket.assigns.serving, socket.assigns.factory_id) do
-        nil -> talk_request(talk, params["action"], {ns, id, token})
-        reason -> {:error, reason}
+      case talk_request(talk, params["action"], {ns, id, token}) do
+        {:ok, kind, _call} = request when kind in [:call, :channel] ->
+          case RelayState.unservable(socket.assigns.serving, socket.assigns.factory_id) do
+            nil -> request
+            reason -> {:error, reason}
+          end
+
+        request ->
+          request
       end
 
     case request do
@@ -331,17 +337,13 @@ defmodule FlezhaUiWeb.RelayLive do
      talk_result(socket, %{kind: socket.assigns.talk.waiting, error: {:remote_error, reason}})}
   end
 
-  # A relay no runner serves cannot act on a message, so the dialog does not
-  # open, whatever the client sent.
+  # A relay no runner serves still takes a message, but nobody can answer a
+  # call, so the dialog opens on the raw form, where Send is offered.
   defp open_talk(socket) do
-    case RelayState.unservable(socket.assigns.serving, socket.assigns.factory_id) do
-      nil -> do_open_talk(socket)
-      reason -> put_flash(socket, :error, reason)
-    end
-  end
+    callable? =
+      is_nil(RelayState.unservable(socket.assigns.serving, socket.assigns.factory_id))
 
-  defp do_open_talk(socket) do
-    mode = if api_channels(socket.assigns.api) == [], do: :raw, else: :channel
+    mode = if callable? and api_channels(socket.assigns.api) != [], do: :channel, else: :raw
 
     talk = %{
       mode: mode,
@@ -650,13 +652,16 @@ defmodule FlezhaUiWeb.RelayLive do
   end
 
   # How many runners serve the relay's factory, read only while no runner is
-  # bound to it: a bound relay is served. A read that fails leaves it unknown,
-  # which disables nothing — the controller's answer stays the authority.
-  # Runner events reload the screen, so it stays current.
-  defp assign_serving(%{assigns: %{factory_id: factory, runner_id: nil}} = socket)
+  # bound to it or its state waits on one: a failed relay keeps the id of the
+  # runner that left. A read that fails leaves it unknown, which disables
+  # nothing — the controller's answer stays the authority. Runner events
+  # reload the screen, so it stays current.
+  defp assign_serving(%{assigns: %{factory_id: factory} = assigns} = socket)
        when not is_nil(factory) do
-    %{ns: ns, flezha_token: token} = socket.assigns
-    assign(socket, serving: NodeManager.serving_count(ns, factory, token))
+    waits? = is_nil(assigns.runner_id) or assigns.relay_state in RelayState.runner_bound_states()
+
+    serving = if waits?, do: NodeManager.serving_count(assigns.ns, factory, assigns.flezha_token)
+    assign(socket, serving: serving)
   end
 
   defp assign_serving(socket), do: assign(socket, serving: nil)
@@ -729,7 +734,9 @@ defmodule FlezhaUiWeb.RelayLive do
   # pipeline graph, so a tick fetches the overwatch state once rather than
   # twice.
   defp assign_facts(socket, facts) do
-    socket |> assign(facts) |> assign(overwatch: facts)
+    socket
+    |> assign(facts)
+    |> assign(overwatch: facts, relay_state: RelayState.of(socket.assigns.row, facts[:suspended]))
   end
 
   @doc "The entry channels the relay's API announces, across its factory entries."

@@ -637,6 +637,7 @@ defmodule FlezhaUiWeb.Layouts do
           rows: rows,
           faulted_groups: NodeManager.faulted_group_ids(groups),
           quotas: quotas,
+          serving: NodeManager.serving_counts(name, Attention.waiting_factories(rows), token),
           error: rows_error
         }
       end

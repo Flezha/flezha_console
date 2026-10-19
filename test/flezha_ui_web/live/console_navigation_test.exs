@@ -110,7 +110,7 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
     } do
       FakeController.set_fleet(node,
         namespaces: ["default"],
-        rows: %{"default" => [FakeController.relay_row("relay_s", %{health: :suspended})]}
+        rows: %{"default" => [FakeController.relay_row("relay_d", %{health: :degraded})]}
       )
 
       {:ok, view, _html} = live(conn, ~p"/cluster")
@@ -244,8 +244,8 @@ defmodule FlezhaUiWeb.ConsoleNavigationTest do
         namespaces: ["default"],
         rows: %{
           "default" => [
-            FakeController.relay_row("relay_s", %{health: :suspended}),
-            FakeController.relay_row("relay_f", %{health: :failed})
+            FakeController.relay_row("relay_d", %{health: :degraded}),
+            FakeController.relay_row("relay_h", %{health: :halted})
           ]
         }
       )

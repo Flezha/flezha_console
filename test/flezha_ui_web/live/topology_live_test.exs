@@ -100,6 +100,13 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       {:ok, Enum.map(Keyword.get(opts, :runners, ["runner-a"]), &%{id: &1, pid: nil})}
     )
 
+    # Every factory is served unless a test says otherwise.
+    FakeController.set(
+      node,
+      {Fleet, :runners_for_factory},
+      {:ok, Keyword.get(opts, :serving, ["runner-a"])}
+    )
+
     FakeController.set(
       node,
       {Relay, :overwatch_state},
@@ -1349,7 +1356,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       {view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       # The first snapshot has nothing to divide by, so no rate is stated.
-      assert headline(html) == {"healthy", "Every relay in default is healthy."}
+      assert headline(html) == {"healthy", "Nothing in default needs attention."}
       refute figures(html) =~ "records/s"
 
       snapshot(node, [{"relay_a", 5_000, 5_000}, {"relay_b", 20, 20}])
@@ -1409,7 +1416,10 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       refute figures(html) =~ "records/s"
     end
 
-    test "one suspended relay of eight needs attention", %{conn: conn, node: node} do
+    test "one suspended relay of eight that a runner can wake needs no attention", %{
+      conn: conn,
+      node: node
+    } do
       rows = [
         summary_row("relay_s", %{health: :suspended})
         | Enum.map(1..7, &summary_row("relay_#{&1}"))
@@ -1419,8 +1429,22 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
-      assert headline(html) == {"attention", "1 relay needs attention."}
-      assert figures(html) =~ "7 of 8 relays healthy"
+      assert headline(html) == {"healthy", "Nothing in default needs attention."}
+      assert figures(html) =~ "7 of 8 relays healthy, 1 suspended"
+      refute html =~ ~s(data-testid="home-problems")
+    end
+
+    test "one suspended relay nothing can wake is a problem", %{conn: conn, node: node} do
+      rows = [
+        summary_row("relay_s", %{health: :suspended})
+        | Enum.map(1..7, &summary_row("relay_#{&1}"))
+      ]
+
+      stack(node, rows: rows, serving: [])
+
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
+
+      assert headline(html) == {"attention", "1 problem needs attention."}
     end
 
     test "dead letters are stated among the figures by their name", %{conn: conn, node: node} do
@@ -1531,7 +1555,10 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert html =~ "2 more problems on the Open problems screen"
     end
 
-    test "a suspended relay's card says whether a runner can wake it", %{conn: conn, node: node} do
+    test "a suspended relay is a problem only when no runner can wake it", %{
+      conn: conn,
+      node: node
+    } do
       stack(node,
         rows: [
           summary_row("served", %{health: :suspended, factory: "orders"}),
@@ -1548,11 +1575,16 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
-      next = &text_of(html, ~s([data-testid="problem-state-relay:default:#{&1}-next"] dd))
-      assert next.("served") == "The next message wakes it on a runner."
-      assert next.("stranded") =~ "cannot run until a runner for gone connects"
+      refute html =~ ~s(data-testid="problem-relay:default:served")
+      refute html =~ ~s(data-testid="problem-relay:default:stranded")
 
-      # Only the factories the shown relays wait on are asked about.
+      row = &condition_value(html, "problem-state-factory:default:gone", &1)
+      assert row.("state") == "No runner"
+      assert row.("impact") == "1 relay waits: 1 suspended"
+      assert row.("handled") == "You"
+      assert row.("next") == "Start a runner that serves gone"
+
+      # Only the factories a waiting relay names are asked about.
       assert node
              |> FakeController.calls({Fleet, :runners_for_factory})
              |> Enum.map(&Enum.at(&1, 1))
@@ -1561,19 +1593,19 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
                ["gone", "orders"]
     end
 
-    test "runners are read for the shown problems only, and not at all with none connected", %{
+    test "runners are read once per waiting factory, and not at all with none connected", %{
       conn: conn,
       node: node
     } do
-      rows = for i <- 1..6, do: summary_row("sus_#{i}", %{health: :suspended, factory: "f#{i}"})
-      stack(node, rows: rows)
+      rows = for i <- 1..6, do: summary_row("sus_#{i}", %{health: :suspended, factory: "f"})
+      stack(node, rows: rows, serving: [])
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       before = length(FakeController.calls(node, {Fleet, :runners_for_factory}))
       tick(view)
 
-      # One tick reads at most the three problems Home shows.
-      assert length(FakeController.calls(node, {Fleet, :runners_for_factory})) - before <= 3
+      # Six relays of one factory cost one read a tick.
+      assert length(FakeController.calls(node, {Fleet, :runners_for_factory})) - before == 1
 
       FakeController.set(node, {Fleet, :runners}, {:ok, []})
       tick(view)
@@ -1582,11 +1614,11 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       assert length(FakeController.calls(node, {Fleet, :runners_for_factory})) == before
 
-      assert text_of(html, ~s([data-testid="problem-state-relay:default:sus_1-serving"] dd)) ==
-               "No runner serves factory f1"
+      assert text_of(html, ~s([data-testid="problem-state-factory:default:f-impact"] dd)) ==
+               "6 relays wait: 6 suspended"
     end
 
-    test "runners that could not be read leave a card's runners unknown, not none", %{
+    test "runners that could not be read open no problem for a suspended relay", %{
       conn: conn,
       node: node
     } do
@@ -1601,9 +1633,22 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
-      assert html =~ ~s(data-testid="problem-state-relay:default:sus")
-      refute html =~ ~s(data-testid="problem-state-relay:default:sus-serving")
-      refute html =~ ~s(data-testid="problem-state-relay:default:sus-next")
+      refute html =~ ~s(data-testid="problem-relay:default:sus")
+      refute html =~ ~s(data-testid="problem-factory:default:orders")
+    end
+
+    test "Home and Open problems show one relay's card with the same rows", %{
+      conn: conn,
+      node: node
+    } do
+      stack(node, rows: [summary_row("sick", %{health: :degraded})])
+
+      {_view, home} = live_loaded(conn, ~p"/namespaces/default")
+      {_view, problems} = live_loaded(conn, ~p"/problems")
+
+      card = ~s([data-testid="problem-state-relay:default:sick"])
+      assert text_of(home, card) == text_of(problems, card)
+      assert text_of(home, card) =~ "Handled by Flezha"
     end
 
     test "a healthy namespace lists none", %{conn: conn, node: node} do
@@ -1992,11 +2037,11 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     end
 
     test "open problems are counted in the worst one's tone", %{conn: conn, node: node} do
-      stack(node, rows: [summary_row("sick", %{health: :failed}), summary_row("fine")])
+      stack(node, rows: [summary_row("sick", %{health: :halted}), summary_row("fine")])
 
       {view, html} = live_loaded(conn, ~p"/namespaces/default")
 
-      # One failed relay in each of the two namespaces.
+      # One halted relay in each of the two namespaces: the operator's to fix.
       assert text_of(html, ~s([data-testid="sys-problems-value"])) == "2"
       assert attrs(html, ~s([data-testid="sys-problems"]), "data-tone") == ["negative"]
       assert text_of(html, ~s([data-testid="sys-problems-verdict"])) == "Urgent"

@@ -530,6 +530,11 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   # The namespace's problems, from the same derivation the shell and the Open
   # problems screen read, tracked against what the screen showed before.
   defp attention(ns, token, previous, read) do
+    runners = if read.runners_read?, do: read.runners, else: :unread
+
+    serving =
+      NodeManager.serving_counts(ns, Attention.waiting_factories(read.rows), token, runners)
+
     items =
       Attention.derive(%{
         namespaces: [
@@ -537,7 +542,8 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
             namespace: ns,
             rows: read.rows,
             faulted_groups: NodeManager.faulted_group_ids(read.groups),
-            quotas: read.quotas
+            quotas: read.quotas,
+            serving: serving
           }
         ]
       })
@@ -545,14 +551,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     {items, appeared, cleared} =
       Attention.track(Attention.by_id(previous), items, DateTime.utc_now())
 
-    serving = serving(ns, token, Enum.take(items, problems_shown()), read)
-
-    %{
-      items: Attention.put_serving(items, serving),
-      serving: serving,
-      appeared: appeared,
-      cleared: cleared
-    }
+    %{items: items, serving: serving, appeared: appeared, cleared: cleared}
   end
 
   # What came and went since the last read goes on the river; the first read
@@ -567,22 +566,6 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
 
   @doc "How many of its problems Home lists before linking to the rest."
   def problems_shown, do: 3
-
-  # How many runners serve the factories the shown problems wait on: whether
-  # a suspended relay can wake depends on it. At most one read per shown
-  # problem, and none when no runner is connected at all. A read that fails
-  # leaves its factory unknown rather than unserved.
-  defp serving(ns, token, shown, %{runners: runners, runners_read?: runners_read?}) do
-    factories = Attention.waiting_factories(shown)
-
-    if runners == [] and runners_read? do
-      Map.new(factories, &{&1, 0})
-    else
-      factories
-      |> Map.new(&{&1, NodeManager.serving_count(ns, &1, token)})
-      |> Map.reject(fn {_factory, count} -> is_nil(count) end)
-    end
-  end
 
   # What the screen already knows about a selection, so opening it costs only
   # its own read.
@@ -652,7 +635,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   @doc """
   The headline: the namespace's condition in one sentence, as `{condition,
   text}`. `condition` is `:unreachable`, `:empty`, `:attention`, `:flowing`,
-  `:quiet` or `:healthy` (every relay healthy, rates not yet measured).
+  `:quiet` or `:healthy` (nothing needs attention, rates not yet measured).
   `inbound` is the namespace's smoothed rate, as `figures/3` takes it, so a
   bursty namespace does not flip between flowing and quiet on every tick.
   """
@@ -670,14 +653,14 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
     do: {:empty, "Nothing runs in #{ns} yet."}
 
   def headline(_summary, [], nil, ns),
-    do: {:healthy, "Every relay in #{ns} is healthy."}
+    do: {:healthy, "Nothing in #{ns} needs attention."}
 
   def headline(_summary, [], inbound, ns) do
     if inbound.in + inbound.out > 0,
-      do: {:flowing, "#{ns} is flowing: every relay is healthy and records are moving."},
+      do: {:flowing, "#{ns} is flowing: nothing needs attention and records are moving."},
       else:
         {:quiet,
-         "#{ns} is quiet: every relay is healthy and none moved records over the last few readings."}
+         "#{ns} is quiet: nothing needs attention and no relay moved records over the last few readings."}
   end
 
   @doc """
@@ -687,9 +670,11 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
   """
   def figures(%{state: :ok} = summary, rows, inbound) do
     healthy = Enum.count(rows, &(NodeManager.row_health(&1) == :healthy))
+    suspended = Enum.count(rows, &(NodeManager.row_health(&1) == :suspended))
 
     [
-      "#{healthy} of #{Words.count(length(rows), "relay")} healthy",
+      "#{healthy} of #{Words.count(length(rows), "relay")} healthy" <>
+        if(suspended > 0, do: ", #{suspended} suspended", else: ""),
       Words.count(summary.runner_count, "runner"),
       inbound && Topology.rate_label(inbound.in, " records/s in"),
       summary.parked > 0 && Words.count(summary.parked, "dead letter")

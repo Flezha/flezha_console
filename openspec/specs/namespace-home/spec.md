@@ -70,27 +70,43 @@ render a scope-less screen.
 ### Requirement: Home opens on a headline sentence
 
 Home SHALL open on one sentence in the display face. The sentence SHALL state the
-namespace's condition. A second line SHALL carry its figures in words: how many
-relays are healthy out of how many, the runner count, the measured inbound rate
-once two snapshots exist, and the dead-letter count. The condition SHALL be one of:
+namespace's condition. A second line SHALL carry its figures in words:
 
-- flowing: every relay is healthy and at least one moved records since the last
-  tick;
-- quiet: every relay is healthy and none moved;
-- needs attention: at least one relay or fault needs attention, naming how many;
+- how many relays are healthy out of how many and, when any are, how many are
+  suspended;
+- the runner count;
+- the measured inbound rate, once two snapshots exist;
+- the dead-letter count.
+
+The condition SHALL be one of:
+
+- flowing: no attention item is open and at least one relay moved records since the
+  last tick;
+- quiet: no attention item is open and none moved;
+- needs attention: at least one attention item is open, naming how many;
 - empty: no relays and no runners;
 - unreachable: no controller connected.
+
+A suspended relay that a runner can wake SHALL NOT turn the condition to needs
+attention.
 
 #### Scenario: Everything is healthy and moving
 
 - **WHEN** every relay in the namespace is healthy and rates show movement
 - **THEN** the headline reads that the namespace is flowing
 
-#### Scenario: One relay is suspended
+#### Scenario: One relay is suspended and can wake
 
-- **WHEN** seven relays are healthy and one is suspended
-- **THEN** the headline says one relay needs attention
-- **AND** the second line says 7 of 8 relays are healthy
+- **WHEN** seven relays are healthy, one is suspended, a runner serves its factory,
+  and none moved records
+- **THEN** the headline reads that the namespace is quiet
+- **AND** the second line says 7 of 8 relays are healthy, 1 suspended
+
+#### Scenario: One relay is suspended and nothing can wake it
+
+- **WHEN** seven relays are healthy and one is suspended, and no runner serves its
+  factory
+- **THEN** the headline says one problem needs attention
 
 #### Scenario: Rates are not yet known
 

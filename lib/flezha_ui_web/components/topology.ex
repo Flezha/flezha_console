@@ -536,7 +536,6 @@ defmodule FlezhaUiWeb.Topology do
         namespace: namespace,
         rows: given.rows,
         relay_ids: ids,
-        faulted_groups: NodeManager.faulted_group_ids(given.groups),
         runners: given.runners,
         snapshot: read.snapshot,
         rates: rates,
@@ -3261,8 +3260,6 @@ defmodule FlezhaUiWeb.Topology do
       |> Enum.take(5)
 
     rows = Map.get(input, :rows, [])
-    faulted = Map.get(input, :faulted_groups, [])
-    attention = FlezhaUiWeb.Attention.relay_items(input.namespace, rows, faulted)
 
     summary_view(%{
       state: ((input.relay_ids == [] and input.runners == []) && :empty) || :ok,
@@ -3276,7 +3273,6 @@ defmodule FlezhaUiWeb.Topology do
             href: ~p"/relays?#{[namespace: input.namespace, health: health]}"
           }
         end),
-      attention: attention,
       stall_notice: Map.get(input, :stall_notice),
       runner_count: length(input.runners),
       backpressured:
@@ -3303,7 +3299,6 @@ defmodule FlezhaUiWeb.Topology do
         stall: nil,
         stall_notice: nil,
         health: [],
-        attention: [],
         busiest: [],
         skew: nil
       },

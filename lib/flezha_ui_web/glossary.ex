@@ -83,11 +83,13 @@ defmodule FlezhaUiWeb.Glossary do
     {"coverage", "Coverage",
      "Whether a partition group's members own every key group exactly once. A gap or an overlap is a fault."},
     {"health", "Health",
-     "How the Convergence Loop classified a relay: healthy, unknown, suspended, degraded, recovering, unbound, failed or parked."},
+     "How the Convergence Loop classified a relay: healthy, unknown, suspended, degraded, recovering, unbound, failed or halted."},
     {"suspended", "Suspended",
-     "A relay stopped at a committed boundary on purpose, not by a fault. The next message wakes it, if a runner serves its factory."},
-    {"parked", "Parked",
-     "A relay stopped by a fault nothing in the system owns. It stays stopped until someone fixes it; the Convergence Loop does not touch it."},
+     "A relay stopped at a committed boundary on purpose, not by a fault. It holds no runner, and the next message or its timer wakes it on a runner that serves its factory."},
+    {"halted", "Halted",
+     "A relay a fault stopped that the system cannot fix by itself. Flezha retries its bind with a growing delay, but it stays stopped until a person fixes the cause."},
+    {"handled by", "Handled by",
+     "Who acts next on a condition: Nobody when it is planned, Flezha when the system is fixing it, You when an operator has to act."},
     {"unbound", "Unbound",
      "A relay no runner is bound to. The Convergence Loop binds it once a runner serving its factory can take it."},
     {"failed", "Failed",
@@ -168,8 +170,17 @@ defmodule FlezhaUiWeb.Glossary do
       ["schedule", "factory", "relay"]
     },
     problems: {
-      "Every open problem in the namespaces you can reach, worst first. A relay's card states its state, why, its runner, who can run it and what happens next; Diagnose adds the controller's findings. Problems leave on their own once they clear.",
-      ["relay", "health", "suspended", "parked", "quota", "dead letter", "partition group"]
+      "Every open problem in the namespaces you can reach, worst first: each is something Flezha is fixing or you have to act on. Every card shows its state, cause, impact, who handles it and the next step; Diagnose adds the controller's findings to a relay's. Problems leave on their own once they clear.",
+      [
+        "relay",
+        "health",
+        "handled by",
+        "suspended",
+        "halted",
+        "quota",
+        "dead letter",
+        "partition group"
+      ]
     },
     dlq: {
       "Dead letters: records a tasklet could not process, grouped by tasklet. Inspect one in place, replay it into its relay, or drop it.",

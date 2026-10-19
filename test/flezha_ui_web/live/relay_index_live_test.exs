@@ -321,12 +321,12 @@ defmodule FlezhaUiWeb.RelayIndexLiveTest do
       refute html =~ "No relays are running"
     end
 
-    test "the health filter offers every verdict, recovering and parked included", %{
+    test "the health filter offers every verdict, recovering and halted included", %{
       conn: conn
     } do
       {:ok, _view, html} = live(conn, ~p"/relays")
 
-      for verdict <- ~w(healthy unknown suspended degraded recovering unbound failed parked) do
+      for verdict <- ~w(healthy unknown suspended degraded recovering unbound failed halted) do
         assert html =~ ~s(data-testid="filter-health-#{verdict}"), "no #{verdict} option"
       end
     end

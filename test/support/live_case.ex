@@ -37,6 +37,7 @@ defmodule FlezhaUiWeb.LiveCase do
           open_section: 2,
           partition_group: 3,
           text_of: 2,
+          condition_value: 3,
           testids: 2,
           submit_plugin_form: 2,
           tick: 1,
@@ -181,6 +182,19 @@ defmodule FlezhaUiWeb.LiveCase do
     |> LazyHTML.text()
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
+  end
+
+  @doc """
+  The value of a condition row `key` under the condition `testid`, as it reads
+  on the page: a glossary term's words without its definition.
+  """
+  def condition_value(html, testid, key) do
+    row = ~s([data-testid="#{testid}-#{key}"])
+
+    case text_of(html, row <> " .fui-term") do
+      "" -> text_of(html, row <> " dd")
+      term -> term
+    end
   end
 
   @doc "The `data-testid` of each element `selector` matches in `html`, in page order."

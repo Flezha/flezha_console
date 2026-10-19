@@ -363,7 +363,7 @@ defmodule FlezhaUiWeb.RelayIndexLive do
   The health values offered as filters, so the list cannot drift from the badge.
 
   Every verdict the controller answers is one of them, `recovering` and
-  `parked` included. `:suspended` too: the Convergence Loop ranks suspension in
+  `halted` included. `:suspended` too: the Convergence Loop ranks suspension in
   the health ladder, so filtering to suspended relays is a health filter and
   costs nothing beyond the listing's own read.
   """

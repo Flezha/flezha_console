@@ -108,7 +108,7 @@ export const HEALTH_VERDICTS = [
   'recovering',
   'unbound',
   'failed',
-  'parked',
+  'halted',
 ] as const;
 
 /**

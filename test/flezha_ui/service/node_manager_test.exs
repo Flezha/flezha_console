@@ -90,14 +90,14 @@ defmodule FlezhaUi.Service.NodeManagerTest do
                :recovering,
                :unbound,
                :failed,
-               :parked
+               :halted
              ]
     end
 
     test "health_counts/1 gives every verdict its own bucket, in rank order" do
-      rows = [%{health: :parked}, %{health: :recovering}, %{health: :healthy}, %{}]
+      rows = [%{health: :halted}, %{health: :recovering}, %{health: :healthy}, %{}]
 
-      assert [healthy: 1, unknown: 1, recovering: 1, parked: 1] =
+      assert [healthy: 1, unknown: 1, recovering: 1, halted: 1] =
                NodeManager.health_counts(rows)
     end
 

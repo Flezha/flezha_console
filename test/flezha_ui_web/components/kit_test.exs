@@ -34,6 +34,35 @@ defmodule FlezhaUiWeb.KitTest do
       %{view: view}
     end
 
+    test "shows a problem card of every kind, each with the same rows", %{view: view} do
+      html = render(view)
+
+      ids =
+        html
+        |> LazyHTML.from_document()
+        |> LazyHTML.query("li.fui-problem")
+        |> LazyHTML.attribute("data-testid")
+
+      for kind <- ~w(relay factory group quota dead_letters rpo stall bootstrap skew) do
+        assert Enum.any?(ids, &String.starts_with?(&1, "problem-#{kind}")), "no #{kind} card"
+      end
+
+      for id <- ids do
+        labels =
+          html
+          |> LazyHTML.from_document()
+          |> LazyHTML.query(
+            ~s([data-testid="#{String.replace(id, "problem-", "problem-state-")}"] dt)
+          )
+          |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
+
+        assert labels -- ["Runner"] == ["State", "Cause", "Impact", "Handled by", "Next step"],
+               id
+      end
+
+      assert html =~ ~s(data-testid="kit-condition")
+    end
+
     test "its switch, segmented control and combobox answer", %{view: view} do
       assert view |> element(~s([data-testid="kit-switch"])) |> render_click() =~
                ~s(aria-checked="false")

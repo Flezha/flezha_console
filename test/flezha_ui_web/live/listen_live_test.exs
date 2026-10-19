@@ -69,16 +69,21 @@ defmodule FlezhaUiWeb.ListenLiveTest do
                FakeController.calls(node, @listen)
     end
 
-    test "offers nothing to send to a relay no runner can run", %{conn: conn, node: node} do
+    test "offers a send but no call to a relay no runner can run", %{conn: conn, node: node} do
       FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
       FakeController.set(node, {Flezha.Service.Fleet, :runners_for_factory}, {:ok, []})
 
       view = listening(conn)
+      html = render(view)
 
-      refute has_element?(view, ~s([data-testid="listen-send"]))
+      assert text_of(html, ~s([data-testid="listen-send"])) ==
+               "Send to relay_a to see something arrive."
 
-      assert text_of(render(view), ~s([data-testid="listen-unservable"])) =~
-               "No runner serves factory store_input"
+      note = text_of(html, ~s([data-testid="listen-unservable"]))
+      assert note =~ "the controller keeps the message only if this relay journals its input"
+
+      assert note =~
+               "Call is off. Nobody can answer a call until a runner serves factory store_input"
     end
 
     test "states a listen the controller refused, with its code", %{conn: conn, node: node} do
