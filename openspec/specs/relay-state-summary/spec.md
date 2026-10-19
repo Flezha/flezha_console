@@ -141,8 +141,9 @@ rows.
 
 #### Scenario: The relay screen and a problem card agree
 
-- **WHEN** the same suspended relay is shown on its relay screen and as an attention
+- **WHEN** the same degraded relay is shown on its relay screen and as an attention
   card
-- **THEN** both render State, Cause, Impact, Runner, Handled by and Next step
-  through the same component, with the same values
+- **THEN** both render State, Cause, Impact, Handled by and Next step through the
+  same component, with the same values
+- **AND** only the relay screen, which reads the bound runner, adds the Runner row
 

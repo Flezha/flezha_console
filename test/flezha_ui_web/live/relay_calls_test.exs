@@ -420,6 +420,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       {:ok, view, html} = live(conn, @url)
 
       refute has_element?(view, ~s([data-testid="talk-open-btn"][disabled]))
+      assert text_of(html, ~s([data-testid="talk-open-btn"])) == "Send"
 
       note = text_of(html, ~s([data-testid="talk-unavailable"]))
       assert note =~ "the controller keeps the message only if this relay journals its input"

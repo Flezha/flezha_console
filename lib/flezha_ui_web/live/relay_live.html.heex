@@ -67,7 +67,9 @@
       }
       data-testid="talk-open-btn"
     >
-      Send or call
+      {if FlezhaUiWeb.RelayState.unservable(@serving, @factory_id),
+        do: "Send",
+        else: "Send or call"}
     </.button>
     <.button
       :if={is_nil(@completion) and NodeManager.granted?(@operations, "Relay.stop")}
