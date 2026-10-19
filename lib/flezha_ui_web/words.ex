@@ -254,16 +254,29 @@ defmodule FlezhaUiWeb.Words do
   def humanize(value), do: inspect(value)
 
   @doc """
-  `count` of `noun`, pluralised by appending "s" unless `plural` says otherwise.
+  `count` of `noun`, pluralised by the regular English endings unless `plural`
+  says otherwise.
 
       iex> FlezhaUiWeb.Words.count(1, "relay")
       "1 relay"
-      iex> FlezhaUiWeb.Words.count(3, "entry", "entries")
-      "3 entries"
+      iex> FlezhaUiWeb.Words.count(3, "process")
+      "3 processes"
+      iex> FlezhaUiWeb.Words.count(2, "old copy")
+      "2 old copies"
+      iex> FlezhaUiWeb.Words.count(3, "person", "people")
+      "3 people"
   """
   def count(count, noun, plural \\ nil)
   def count(1, noun, _plural), do: "1 #{noun}"
-  def count(count, noun, plural), do: "#{count} #{plural || noun <> "s"}"
+  def count(count, noun, plural), do: "#{count} #{plural || plural(noun)}"
+
+  defp plural(noun) do
+    cond do
+      String.ends_with?(noun, ["s", "x", "z", "ch", "sh"]) -> noun <> "es"
+      noun =~ ~r/[^aeiou]y$/ -> String.slice(noun, 0..-2//1) <> "ies"
+      true -> noun <> "s"
+    end
+  end
 
   @doc "Items joined as a sentence: \"a\", \"a and b\", \"a, b and c\"."
   def join([]), do: ""

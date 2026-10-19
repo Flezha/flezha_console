@@ -16,22 +16,36 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
   @file_sink %{
     name: :flezha_file_sink,
     status: :active,
-    kinds: [:event, :metric],
+    kinds: [:metric, :event],
     flavour: :declarative,
     cardinality_budget: 1000,
     area: :plugins,
-    description: "The file sink plugin, which writes relay output to a file.",
+    title: "File sink plugin",
+    description: "The plugin that writes a relay's output to a file.",
     signals: [
       %{
         name: :refused,
         kind: :event,
-        description: "A record was refused because it cannot be written as one line."
+        label: "Record refused",
+        outcome: :failure,
+        description: "A record was refused because it cannot be written as one line.",
+        sentence: "{plugin_id} refused a record for {path}"
       },
-      %{name: :failed, kind: :event, description: "Writing to the file failed."},
+      %{
+        name: :failed,
+        kind: :event,
+        label: "Write failed",
+        outcome: :failure,
+        description: "Writing to the file failed; it will be tried again.",
+        sentence: "{plugin_id} could not write to {path}"
+      },
       %{
         name: :flushed,
         kind: :metric,
-        description: "Lines were written to the file; count is how many."
+        label: "Saved",
+        outcome: :normal,
+        description: "Records were written to the file.",
+        sentence: "{plugin_id} saved {count:record} to {path}"
       }
     ],
     recent: %{window_ms: 900_000, signals: %{flushed: %{count: 42, last_age_ms: 3_000}}}
@@ -40,12 +54,21 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
   @http_poll %{
     name: :flezha_http_poll,
     status: :active,
-    kinds: [:event, :metric],
+    kinds: [:metric, :event],
     flavour: :declarative,
     cardinality_budget: 1000,
     area: :plugins,
-    description: "The HTTP poll plugin, which reads a URL on a timer.",
-    signals: [%{name: :failed, kind: :event, description: "A poll request failed."}],
+    title: "HTTP poll plugin",
+    description: "The plugin that reads a URL on a timer and hands what changed to a relay.",
+    signals: [
+      %{
+        name: :failed,
+        kind: :event,
+        label: "Poll failed",
+        outcome: :failure,
+        description: "A poll request failed."
+      }
+    ],
     recent: %{window_ms: 900_000, signals: %{}}
   }
 
@@ -56,8 +79,18 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
     flavour: :declarative,
     cardinality_budget: 256,
     area: :controller,
-    description: "Authorization: refused calls, tokens and the first-time bootstrap.",
-    signals: [%{name: :token_issued, kind: :event, description: "A token was issued."}],
+    title: "Access control",
+    description:
+      "Calls refused for lack of a role, tokens issued and revoked, and the first administrator's setup.",
+    signals: [
+      %{
+        name: :token_issued,
+        kind: :event,
+        label: "Token issued",
+        outcome: :normal,
+        description: "A token was issued."
+      }
+    ],
     recent: %{window_ms: 900_000, signals: %{}}
   }
 
@@ -65,14 +98,19 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
     FakeController.set(node, {Observability, :list_sources}, {:ok, list})
   end
 
+  defp source_order(view, group) do
+    html = view |> element(~s([data-testid="source-group-#{group}"])) |> render()
+
+    for [name] <- Regex.scan(~r/data-testid="source-([a-z_]+)"/, html, capture: :all_but_first),
+        do: name
+  end
+
   defp toggle(view, source),
     do: view |> element(~s([data-testid="toggle-#{source}"])) |> render_click()
 
   describe "finding a source" do
-    test "the filter matches names and descriptions, and the area still counts them all", %{
-      conn: conn,
-      node: node
-    } do
+    test "the filter matches titles, names and descriptions, and the area still counts them all",
+         %{conn: conn, node: node} do
       sources(node, [@file_sink, @http_poll, @authz])
       {:ok, view, _html} = live(conn, ~p"/observability")
 
@@ -82,12 +120,20 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
         |> render_change(%{"q" => text})
       end
 
-      html = filter.("writes relay output")
+      html = filter.("file")
       assert html =~ ~s(data-testid="source-flezha_file_sink")
       refute html =~ ~s(data-testid="source-flezha_http_poll")
+      assert html =~ ~s(data-testid="source-group-plugins")
+
+      html = filter.("access control")
+      assert html =~ ~s(data-testid="source-platform_authz")
+      refute html =~ ~s(data-testid="source-flezha_file_sink")
 
       html = filter.("authz")
       assert html =~ ~s(data-testid="source-platform_authz")
+
+      html = filter.("reads a url")
+      assert html =~ ~s(data-testid="source-flezha_http_poll")
       refute html =~ ~s(data-testid="source-flezha_file_sink")
 
       assert view |> element(~s([data-testid="source-group-count-plugins"])) |> render() =~
@@ -96,65 +142,102 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
   end
 
   describe "listing" do
-    test "each source is grouped by its declared area and says what it is", %{
+    test "each source is grouped by its declared area, headed by its title", %{
       conn: conn,
       node: node
     } do
       sources(node, [@file_sink, @authz])
-      {:ok, _view, html} = live(conn, ~p"/observability")
+      {:ok, view, html} = live(conn, ~p"/observability")
 
       assert html =~ ~s(data-testid="source-group-plugins")
       assert html =~ ~s(data-testid="source-group-controller")
       assert html =~ "Plugins"
-      assert html =~ "The file sink plugin, which writes relay output to a file."
       assert html =~ ~r/data-testid="source-enabled-flezha_file_sink"[^>]*data-enabled="true"/
       assert html =~ ~r/data-testid="source-enabled-platform_authz"[^>]*data-enabled="false"/
+
+      row = view |> element(~s([data-testid="source-flezha_file_sink"])) |> render()
+
+      assert row =~
+               ~r/class="block fui-label"[^>]*>\s*File sink plugin\s*</
+
+      assert row =~ ~r/class="block fui-tech-name">flezha_file_sink</
+      assert row =~ ~r/class="block fui-hint"[^>]*>\s*The plugin that writes a relay&#39;s output/
     end
 
-    test "a source that spoke says what and when; a quiet one names the window, and speaks last",
-         %{conn: conn, node: node} do
-      busy =
-        put_in(@file_sink.recent.signals, %{
-          flushed: %{count: 12_400, last_age_ms: 3_000},
-          failed: %{count: 1, last_age_ms: 120_000}
-        })
-
-      # Listed quiet-first on purpose: the screen puts the one that spoke on top.
-      sources(node, [@http_poll, busy])
-      {:ok, view, _html} = live(conn, ~p"/observability")
-
-      active = view |> element(~s([data-testid="source-activity-flezha_file_sink"])) |> render()
-      assert active =~ "flushed ×12.4k · failed ×1 · last 3s ago"
-
-      quiet = view |> element(~s([data-testid="source-activity-flezha_http_poll"])) |> render()
-      assert quiet =~ "Nothing in the last 15m"
-
-      group = view |> element(~s([data-testid="source-group-plugins"])) |> render()
-
-      [first, second] =
-        Regex.scan(~r/data-testid="source-(flezha_[a-z_]+)"/, group, capture: :all_but_first)
-
-      assert {first, second} == {["flezha_file_sink"], ["flezha_http_poll"]}
-    end
-
-    test "a source with more than three signals names the three most frequent", %{
+    test "a failure in the window is counted with its age, and its source sorts first", %{
       conn: conn,
       node: node
     } do
+      failing =
+        put_in(@file_sink.recent.signals, %{
+          failed: %{count: 3, last_age_ms: 420_000},
+          flushed: %{count: 12, last_age_ms: 1_000}
+        })
+
+      # Listed second on purpose: the screen puts the failing one on top.
+      sources(node, [@http_poll, failing])
+      {:ok, view, _html} = live(conn, ~p"/observability")
+
+      badge = view |> element(~s([data-testid="source-failures-flezha_file_sink"])) |> render()
+      assert badge =~ "fui-badge--warning"
+      assert badge =~ ~r/⚠ 3 failures in the last 15m, latest 7m ago/
+
+      assert view |> element(~s([data-testid="source-activity-flezha_file_sink"])) |> render() =~
+               "12 saved · last 1s ago"
+
+      assert source_order(view, "plugins") == ["flezha_file_sink", "flezha_http_poll"]
+    end
+
+    test "a quiet source with failure signals reassures; one without says nothing was emitted",
+         %{conn: conn, node: node} do
+      quiet = %{@authz | recent: %{window_ms: 900_000, signals: %{}}}
+      sources(node, [@http_poll, quiet])
+      {:ok, view, _html} = live(conn, ~p"/observability")
+
+      ok = view |> element(~s([data-testid="source-no-failures-flezha_http_poll"])) |> render()
+      assert ok =~ "fui-badge--positive"
+      assert ok =~ "✓ No failures in the last 15m"
+
+      line = view |> element(~s([data-testid="source-activity-platform_authz"])) |> render()
+      assert line =~ "Nothing in the last 15m"
+      refute line =~ "No failures"
+    end
+
+    test "normal activity is told by labels, the three most frequent first", %{
+      conn: conn,
+      node: node
+    } do
+      signals =
+        for {name, label} <- [a: "Read", b: "Sent", c: "HTTP request", d: "Saved"],
+            do: %{name: name, kind: :metric, label: label, outcome: :normal, description: "x"}
+
       recent = %{
         window_ms: 900_000,
         signals:
           Map.new(
-            [a: 1, b: 5, c: 3, d: 9],
-            fn {name, count} -> {name, %{count: count, last_age_ms: 1_000}} end
+            [a: 1, b: 5, c: 3, d: 12_400],
+            fn {name, count} -> {name, %{count: count, last_age_ms: 2_000}} end
           )
       }
 
-      sources(node, [%{@file_sink | recent: recent}])
+      sources(node, [%{@file_sink | signals: signals, recent: recent}])
       {:ok, view, _html} = live(conn, ~p"/observability")
 
       assert view |> element(~s([data-testid="source-activity-flezha_file_sink"])) |> render() =~
-               "d ×9 · b ×5 · c ×3 · 1 more · last 1s ago"
+               "12.4k saved · 5 sent · 3 HTTP request · 1 more · last 2s ago"
+    end
+
+    test "a source that spoke sorts above a quiet one, each band by title", %{
+      conn: conn,
+      node: node
+    } do
+      spoke = %{@authz | name: :zz_spoke, area: :plugins, title: "Zebra"}
+      spoke = put_in(spoke.recent.signals, %{token_issued: %{count: 1, last_age_ms: 1_000}})
+      quiet = %{@authz | name: :aa_quiet, area: :plugins, title: "Aardvark"}
+      sources(node, [quiet, spoke])
+      {:ok, view, _html} = live(conn, ~p"/observability")
+
+      assert source_order(view, "plugins") == ["zz_spoke", "aa_quiet"]
     end
 
     test "a controller that does not describe its sources still lists them by name", %{
@@ -162,16 +245,34 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       node: node
     } do
       sources(node, [%{name: :flezha_health, status: :active}])
-      {:ok, view, html} = live(conn, ~p"/observability")
+      {:ok, _view, html} = live(conn, ~p"/observability")
 
       assert html =~ ~s(data-testid="source-group-other")
       assert html =~ ~s(data-testid="source-flezha_health")
+      assert html =~ ~r/data-testid="source-title-flezha_health"[^>]*>\s*flezha_health\s*</
       refute html =~ ~s(data-testid="source-description-flezha_health")
-
-      assert view |> element(~s([data-testid="source-activity-flezha_health"])) |> render() =~
-               ~r/>\s*<\/span>/
-
+      refute html =~ ~s(data-testid="source-activity-flezha_health")
       assert html =~ ~s(data-testid="tail-flezha_health")
+    end
+
+    test "a controller before titles and outcomes is listed by name, with plain activity", %{
+      conn: conn,
+      node: node
+    } do
+      old =
+        @file_sink
+        |> Map.delete(:title)
+        |> Map.update!(:signals, fn signals ->
+          Enum.map(signals, &Map.drop(&1, [:label, :outcome, :sentence]))
+        end)
+
+      sources(node, [put_in(old.recent.signals, %{failed: %{count: 2, last_age_ms: 1_000}})])
+      {:ok, view, html} = live(conn, ~p"/observability")
+
+      assert html =~ ~r/data-testid="source-title-flezha_file_sink"[^>]*>\s*flezha_file_sink\s*</
+      line = view |> element(~s([data-testid="source-activity-flezha_file_sink"])) |> render()
+      assert line =~ "2 failed · last 1s ago"
+      refute line =~ "fui-badge"
     end
 
     test "one line names each sink and what it is for, and marks one that is not running", %{
@@ -329,18 +430,40 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       assert is_pid(emit)
     end
 
-    test "nothing yet: the drawer says what the source can say", %{conn: conn, node: node} do
+    test "nothing yet: the drawer leads with what the source is and lists what it can say", %{
+      conn: conn,
+      node: node
+    } do
       view = start_tail(conn, node)
-      html = view |> element(~s([data-testid="tail-waiting"])) |> render()
+      panel = view |> element(~s([data-testid="tail-panel"])) |> render()
 
-      assert html =~ "Nothing yet"
-      assert html =~ "flushed"
-      assert html =~ "Lines were written to the file; count is how many."
-      assert html =~ "refused"
-      assert html =~ "failed"
+      assert panel =~ ~r/class="fui-drawer-title"[^>]*>File sink plugin</
+      assert panel =~ ~r/class="fui-tech-name"[^>]*>\s*flezha_file_sink\s*</
+      assert panel =~ ~r/data-testid="tail-lead"[^>]*>\s*The plugin that writes/
+      assert panel =~ ~r/data-testid="tail-count"[^>]*>\s*Waiting for the first signal/
+      assert panel =~ ~s(class="fui-empty")
+      assert panel =~ "Nothing yet — this source speaks when something happens."
+
+      failures = view |> element(~s([data-testid="tail-meanings-failure"])) |> render()
+      assert failures =~ "When something goes wrong"
+      assert failures =~ "Record refused"
+      assert failures =~ "⚠ Failure"
+      assert failures =~ "A record was refused because it cannot be written as one line."
+      assert failures =~ ~r/class="block fui-tech-name">refused</
+      assert failures =~ ~r/class="block fui-tech-name">failed</
+      refute failures =~ "Saved"
+
+      normal = view |> element(~s([data-testid="tail-meanings-normal"])) |> render()
+      assert normal =~ "Normal activity"
+      assert normal =~ "Saved"
+      assert normal =~ ~r/class="fui-badge">Normal</
+      assert normal =~ ~r/class="block fui-tech-name">flushed</
     end
 
-    test "a line says when, what, about whom and how much", %{conn: conn, node: node} do
+    test "a line is one sentence about its subject, its fields behind Details", %{
+      conn: conn,
+      node: node
+    } do
       view = start_tail(conn, node)
 
       FakeController.emit(
@@ -348,19 +471,98 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
         @tail,
         signal(:flushed, controller_now(node), %{
           measurements: %{count: 1},
-          metadata: %{plugin_id: "file_sink#3", path: "/data/out.log"}
+          metadata: %{plugin_id: "showcase_orders", path: "/data/out.log"}
         })
       )
 
       assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tail-record") end)
       line = view |> element(~s([data-testid="tail-record"])) |> render()
 
-      assert line =~ "flushed"
-      assert line =~ "Lines were written to the file; count is how many."
-      assert line =~ "path=/data/out.log plugin_id=file_sink#3"
+      assert line =~
+               ~r/data-testid="tail-sentence"[^>]*>\s*showcase_orders saved 1 record to out.log\s*</
+
+      assert line =~ ~r/<details id="tail-line-\d+"[^>]*data-testid="tail-details"/
+      assert line =~ "Details"
+      assert line =~ "path=/data/out.log plugin_id=showcase_orders"
       assert line =~ "count 1"
       assert line =~ ~r/\d\d:\d\d:\d\d\.\d\d\d/
+      refute line =~ "tail-failure-mark"
+
+      assert view |> element(~s([data-testid="tail-count"])) |> render() =~
+               ~r/Live · 1 signal · newest first/
+
+      html = render(view)
+      refute html =~ ~s(data-testid="tail-waiting")
+      assert html =~ ~s(data-testid="tail-meanings-fold")
+
       refute render(view) =~ ~s(data-testid="tail-history-divider")
+    end
+
+    test "a count reads with its noun and a large one compactly", %{conn: conn, node: node} do
+      view = start_tail(conn, node)
+
+      FakeController.emit(
+        node,
+        @tail,
+        signal(:flushed, controller_now(node), %{
+          measurements: %{count: 12_400},
+          metadata: %{plugin_id: "orders", path: "/var/out/day.log"}
+        })
+      )
+
+      assert PeerNode.eventually(fn ->
+               render(view) =~ "orders saved 12.4k records to day.log"
+             end)
+    end
+
+    test "a failure carries a warning mark in the warning tone", %{conn: conn, node: node} do
+      view = start_tail(conn, node)
+
+      FakeController.emit(
+        node,
+        @tail,
+        signal(:failed, controller_now(node), %{
+          kind: :event,
+          metadata: %{plugin_id: "orders", path: "/data/out.log", reason: :enospc}
+        })
+      )
+
+      assert PeerNode.eventually(fn -> render(view) =~ "tail-failure-mark" end)
+      line = view |> element(~s([data-testid="tail-record"])) |> render()
+
+      assert line =~ ~s(data-outcome="failure")
+      assert line =~ ~r/class="min-w-0 fui-tone-warning"/
+      assert line =~ "⚠"
+      assert line =~ "orders could not write to out.log"
+    end
+
+    test "a template naming a value the signal lacks reads its subject and label", %{
+      conn: conn,
+      node: node
+    } do
+      view = start_tail(conn, node)
+
+      FakeController.emit(
+        node,
+        @tail,
+        signal(:flushed, controller_now(node), %{metadata: %{plugin_id: "orders"}})
+      )
+
+      assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tail-record") end)
+      sentence = view |> element(~s([data-testid="tail-sentence"])) |> render()
+
+      assert sentence =~ ~r/>\s*orders: Saved\s*</
+      refute sentence =~ "{"
+    end
+
+    test "a signal the source does not declare reads by its name", %{conn: conn, node: node} do
+      view = start_tail(conn, node)
+      FakeController.emit(node, @tail, signal(:rotated, controller_now(node)))
+
+      assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tail-record") end)
+
+      assert view |> element(~s([data-testid="tail-sentence"])) |> render() =~
+               ~r/>\s*rotated\s*</
     end
 
     test "an atom label reads as a word, and a long one is cut", %{conn: conn, node: node} do
@@ -396,7 +598,7 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       view = start_tail(conn, node)
 
       html = view |> element(~s([data-testid="tail-panel"])) |> render()
-      assert html =~ ~s(data-testid="tail-history-divider")
+      assert html =~ ~r/class="fui-eyebrow pt-3 pb-1"\s+data-testid="tail-history-divider"/
       assert html =~ "Before you opened the tail"
       assert [[_, a], [_, b]] = Regex.scan(~r/(\d\d:\d\d:\d\d)\.\d\d\d/, html)
       # Newest first, and a minute of controller time apart.

@@ -41,12 +41,16 @@ defmodule FlezhaUiWeb.ObservabilityLive do
   end
 
   @doc """
-  A forwarded signal, as a plain map. The controller sends its
-  `%Flezha.Observability.Signal{}` struct, which this node has no module for
-  and which `Access` cannot read.
+  A forwarded signal, as a plain map with an id for its line. The controller
+  sends its `%Flezha.Observability.Signal{}` struct, which this node has no
+  module for and which `Access` cannot read.
   """
   @impl FlezhaUiWeb.Live.Tail
-  def unwrap_tail(signal) when is_map(signal), do: Map.delete(signal, :__struct__)
+  def unwrap_tail(signal) when is_map(signal) do
+    signal
+    |> Map.delete(:__struct__)
+    |> Map.put(:line_id, System.unique_integer([:positive]))
+  end
 
   @impl true
   def handle_event("toggle_source", %{"source" => name}, socket) do
@@ -142,8 +146,9 @@ defmodule FlezhaUiWeb.ObservabilityLive do
 
   @doc """
   The sources grouped by the area the controller declares, "Other" for none,
-  each group with its sources whose name or description contains `filter` —
-  those that spoke recently first — and how many of all its sources are on.
+  each group with its sources whose title, name or description contains
+  `filter` — those with a recent failure first, then those that spoke recently,
+  each by title — and how many of all its sources are on.
   """
   def groups(sources, filter) do
     needle = filter |> String.trim() |> String.downcase()
@@ -159,7 +164,7 @@ defmodule FlezhaUiWeb.ObservabilityLive do
         sources:
           members
           |> Enum.filter(&matches?(&1, needle))
-          |> Enum.sort_by(&{quiet?(&1), to_string(&1[:name])})
+          |> Enum.sort_by(&{band(activity(&1)), String.downcase(title(&1))})
       }
     end)
     |> Enum.sort_by(fn group -> Enum.find_index(Keyword.keys(@areas), &(&1 == group.key)) end)
@@ -170,100 +175,244 @@ defmodule FlezhaUiWeb.ObservabilityLive do
   end
 
   defp matches?(source, needle) do
-    Enum.any?([source[:name], source[:description]], fn text ->
+    Enum.any?([source[:title], source[:name], source[:description]], fn text ->
       text |> to_string() |> String.downcase() |> String.contains?(needle)
     end)
   end
 
-  defp quiet?(source), do: activity(source) |> elem(0) != :active
+  defp band(%{failures: failures}) when failures > 0, do: 0
+  defp band(%{normal: [_ | _]}), do: 1
+  defp band(_activity), do: 2
+
+  @doc "A source's plain title, or its technical name when it declares none."
+  def title(source), do: to_string(source[:title] || source[:name])
+
+  @doc "A source's technical name, shown under its title, or `nil` when the title is the name."
+  def tech_name(nil), do: nil
+  def tech_name(source), do: if(source[:title], do: to_string(source[:name]))
 
   @doc """
-  What a source said within the controller's history window:
-  `{:active, [{name, count}], newest_age_ms}`, most frequent first;
-  `{:quiet, window_ms}`; or `{:unknown, nil}` when the controller does not say.
+  What a source said within the controller's history window, by outcome:
+  `failures` and the age of the newest, whether it declares any failure signal,
+  and its normal signals as `{label, count}`, most frequent first, with the age
+  of the newest. `nil` when the controller does not say.
   """
   def activity(source) do
     case source[:recent] do
-      %{signals: signals, window_ms: window} when map_size(signals) == 0 ->
-        {:quiet, window}
+      %{signals: signals, window_ms: window} when is_map(signals) ->
+        {failed, normal} =
+          Enum.split_with(signals, fn {name, _} -> outcome(source, name) == :failure end)
 
-      %{signals: signals} when is_map(signals) ->
-        counts =
-          signals
-          |> Enum.map(fn {name, %{count: count}} -> {name, count} end)
-          |> Enum.sort_by(fn {name, count} -> {-count, to_string(name)} end)
-
-        newest = signals |> Map.values() |> Enum.map(& &1.last_age_ms) |> Enum.min()
-        {:active, counts, newest}
+        %{
+          window: window,
+          failure_signals?: Enum.any?(source[:signals] || [], &(&1[:outcome] == :failure)),
+          failures: failed |> Enum.map(fn {_, seen} -> seen.count end) |> Enum.sum(),
+          failure_age: newest(failed),
+          normal:
+            normal
+            |> Enum.map(fn {name, seen} -> {label(source, name), seen.count} end)
+            |> Enum.sort_by(fn {label, count} -> {-count, label} end),
+          normal_age: newest(normal)
+        }
 
       _absent ->
-        {:unknown, nil}
+        nil
     end
   end
 
-  @doc "A source's activity line: what it said in the history window, or that it said nothing."
+  defp newest([]), do: nil
+  defp newest(seen), do: seen |> Enum.map(fn {_, %{last_age_ms: age}} -> age end) |> Enum.min()
+
+  @doc "A source's activity line: its failures, or that it had none, and its normal activity."
   attr :source, :map, required: true
 
-  def activity_line(%{source: source} = assigns) do
-    assigns = assign(assigns, :activity, activity(source))
+  def activity_line(assigns) do
+    assigns = assign(assigns, :activity, activity(assigns.source))
 
     ~H"""
-    <span class="block fui-figures" data-testid={"source-activity-#{@source[:name]}"}>
-      <%= case @activity do %>
-        <% {:active, counts, newest} -> %>
-          {Enum.map_join(Enum.take(counts, 3), " · ", fn {name, count} ->
-            "#{name} ×#{Format.compact(count)}"
-          end)}{if length(counts) > 3, do: " · #{length(counts) - 3} more"} · last {ago(newest)} ago
-        <% {:quiet, window} -> %>
-          Nothing in the last {ago(window)}
-        <% {:unknown, nil} -> %>
-      <% end %>
+    <span
+      :if={@activity}
+      class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm fui-muted"
+      data-testid={"source-activity-#{@source[:name]}"}
+    >
+      <span
+        :if={@activity.failures > 0}
+        class="fui-badge fui-badge--warning"
+        data-testid={"source-failures-#{@source[:name]}"}
+      >
+        ⚠ {Words.count(@activity.failures, "failure")} in the last {ago(@activity.window)}, latest {ago(
+          @activity.failure_age
+        )} ago
+      </span>
+      <span
+        :if={@activity.failures == 0 and @activity.failure_signals?}
+        class="fui-badge fui-badge--positive"
+        data-testid={"source-no-failures-#{@source[:name]}"}
+      >
+        ✓ No failures in the last {ago(@activity.window)}
+      </span>
+      <span :if={@activity.normal != []}>
+        {Enum.map_join(Enum.take(@activity.normal, 3), " · ", fn {label, count} ->
+          "#{Format.compact(count)} #{lower(label)}"
+        end)}{if length(@activity.normal) > 3,
+          do: " · #{length(@activity.normal) - 3} more"} · last {ago(@activity.normal_age)} ago
+      </span>
+      <span :if={
+        @activity.normal == [] and @activity.failures == 0 and not @activity.failure_signals?
+      }>
+        Nothing in the last {ago(@activity.window)}
+      </span>
     </span>
     """
   end
 
-  @doc "Every signal a source declares, with what it says."
+  # "Saved" reads "142 saved"; a label opening with an acronym keeps it.
+  defp lower(<<first::utf8, second::utf8, _::binary>> = label)
+       when second in ?a..?z,
+       do: String.downcase(<<first::utf8>>) <> String.slice(label, 1..-1//1)
+
+  defp lower(label), do: label
+
+  @doc """
+  Every signal a source declares, failures first, each with its label, an
+  outcome badge, its meaning and its full technical name.
+  """
   attr :source, :map, required: true
 
   def signal_meanings(assigns) do
+    {failures, normal} =
+      Enum.split_with(assigns.source[:signals] || [], &(&1[:outcome] == :failure))
+
+    assigns =
+      assign(assigns,
+        catalogue: [
+          {"When something goes wrong", :failure, failures},
+          {"Normal activity", :normal, normal}
+        ]
+      )
+
     ~H"""
-    <dl
-      class="fui-figures grid grid-cols-[minmax(0,10rem)_1fr] gap-x-3 gap-y-1"
-      data-testid="tail-meanings"
-    >
-      <%= for signal <- @source[:signals] || [] do %>
-        <dt class="fui-num truncate">{signal[:name]}</dt>
-        <dd>{signal[:description]}</dd>
-      <% end %>
-    </dl>
+    <div class="space-y-4" data-testid="tail-meanings">
+      <section
+        :for={{heading, outcome, signals} <- @catalogue}
+        :if={signals != []}
+        class="space-y-2"
+        data-testid={"tail-meanings-#{outcome}"}
+      >
+        <h3 class="fui-eyebrow">{heading}</h3>
+        <dl class="fui-review">
+          <div
+            :for={signal <- signals}
+            class="fui-review-row"
+            data-testid={"tail-meaning-#{signal[:name]}"}
+          >
+            <dt><span class="fui-label">{signal[:label] || signal[:name]}</span></dt>
+            <dd class="space-y-1">
+              <span :if={outcome == :failure} class="fui-badge fui-badge--warning">⚠ Failure</span>
+              <span :if={outcome == :normal and signal[:outcome]} class="fui-badge">Normal</span>
+              <span :if={signal[:description]} class="block fui-hint">{signal[:description]}</span>
+              <span class="block fui-tech-name">{signal[:name]}</span>
+            </dd>
+          </div>
+        </dl>
+      </section>
+    </div>
     """
   end
 
   @doc """
-  One signal of a tail: when, what, what it means, about whom and how much.
-  `source` is the tailed source's listing entry, which carries the meanings.
+  One signal of a tail: when, one sentence about its subject, a warning mark
+  on a failure, and its labels and numbers behind a toggle. `source` is the
+  tailed source's listing entry, which carries the declarations.
   """
   attr :signal, :map, required: true
   attr :source, :map, default: nil
   attr :offset_us, :integer, default: nil
 
   def tail_line(assigns) do
+    assigns =
+      assign(assigns,
+        id: "tail-line-#{assigns.signal[:line_id]}",
+        failure?: outcome(assigns.source, assigns.signal[:name]) == :failure
+      )
+
     ~H"""
-    <li class="fui-river-event" data-testid="tail-record">
+    <li class="fui-river-event" data-testid="tail-record" data-outcome={@failure? && "failure"}>
       <span class="fui-river-time">{emitted_at(@signal, @offset_us)}</span>
-      <span class="fui-river-object">{@signal[:name]}</span>
-      <span class="min-w-0">
-        <span :if={meaning(@source, @signal[:name])} class="block">
-          {meaning(@source, @signal[:name])}
-        </span>
-        <span class="flex flex-wrap gap-x-3 fui-num text-xs break-all">
+      <span
+        class={["min-w-0", if(@failure?, do: "fui-tone-warning", else: "fui-strong")]}
+        data-testid="tail-sentence"
+      >
+        <span :if={@failure?} aria-label="Failure" data-testid="tail-failure-mark">⚠</span>
+        {sentence(@source, @signal)}
+      </span>
+      <details id={@id} phx-mounted={JS.ignore_attributes(["open"])} data-testid="tail-details">
+        <summary class="fui-muted text-xs">Details</summary>
+        <span class="flex flex-wrap gap-x-3 fui-tech-name">
           <span :if={labels(@signal[:metadata])}>{labels(@signal[:metadata])}</span>
           <span>{measurements(@signal[:measurements])}</span>
         </span>
-      </span>
+      </details>
     </li>
     """
   end
+
+  @subjects [:relay, :relay_id, :plugin_id, :runner, :runner_id, :hub, :namespace]
+
+  @doc """
+  A signal as one sentence from its declared template, or, when it has none or
+  the signal lacks a value the template names, its subject and its label.
+  """
+  def sentence(source, signal) do
+    values = Map.merge(signal[:measurements] || %{}, signal[:metadata] || %{})
+
+    with %{sentence: template} <- declared(source, signal[:name]),
+         {:ok, filled} <- fill(template, values) do
+      filled
+    else
+      _ ->
+        label = label(source, signal[:name])
+
+        case Enum.find_value(@subjects, &values[&1]) do
+          nil -> label
+          subject -> "#{word(subject)}: #{label}"
+        end
+    end
+  end
+
+  defp fill(template, values) do
+    template
+    |> String.split(~r/\{[^{}]*\}/, include_captures: true)
+    |> Enum.reduce_while({:ok, ""}, fn piece, {:ok, acc} ->
+      case placeholder(piece, values) do
+        {:ok, text} -> {:cont, {:ok, acc <> text}}
+        :missing -> {:halt, :missing}
+      end
+    end)
+  end
+
+  defp placeholder("{" <> rest, values) do
+    {key, noun} =
+      case rest |> String.trim_trailing("}") |> String.split(":", parts: 2) do
+        [key, noun] -> {key, noun}
+        [key] -> {key, nil}
+      end
+
+    case Enum.find(values, fn {name, _} -> to_string(name) == key end) do
+      {_, value} when is_nil(noun) -> {:ok, word(value)}
+      {_, 1} -> {:ok, Words.count(1, noun)}
+      {_, count} when is_number(count) -> {:ok, Words.count(Format.compact(count), noun)}
+      _missing -> :missing
+    end
+  end
+
+  defp placeholder(text, _values), do: {:ok, text}
+
+  # A value as a word in a sentence: a path by its last segment, a number as
+  # the details show it, anything else as a label.
+  defp word("/" <> _ = path), do: Path.basename(path)
+  defp word(value) when is_number(value), do: figure(value)
+  defp word(value), do: label_value(value)
 
   @doc "A span in milliseconds, to its largest unit: `3s`, `15m`."
   def ago(ms), do: Format.age(div(ms, 1_000))
@@ -280,13 +429,22 @@ defmodule FlezhaUiWeb.ObservabilityLive do
   @doc "What a sink is for, from the module that implements it, or `nil` for one this screen does not know."
   def sink_purpose(sink), do: Map.get(@sink_purposes, sink[:module])
 
-  @doc "The meaning the source declares for a signal `name`, or `nil`."
-  def meaning(nil, _name), do: nil
+  @doc "What the source declares for a signal `name`, or `nil`."
+  def declared(nil, _name), do: nil
+  def declared(source, name), do: Enum.find(source[:signals] || [], &(&1[:name] == name))
 
-  def meaning(source, name) do
-    Enum.find_value(source[:signals] || [], fn signal ->
-      if signal[:name] == name, do: signal[:description]
-    end)
+  defp label(source, name) do
+    case declared(source, name) do
+      %{label: label} when is_binary(label) -> label
+      _undeclared -> to_string(name)
+    end
+  end
+
+  defp outcome(source, name) do
+    case declared(source, name) do
+      %{outcome: :failure} -> :failure
+      _other -> :normal
+    end
   end
 
   @doc "When a signal was emitted, placed on this node's clock through `offset_us`."

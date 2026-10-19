@@ -1962,6 +1962,7 @@ defmodule FlezhaUiWeb.CoreComponents do
   attr :id, :string, required: true
   attr :eyebrow, :string, required: true
   attr :title, :string, required: true
+  attr :subtitle, :string, default: nil, doc: "the subject's technical name, under the title"
   attr :on_close, :string, required: true
   attr :testid, :string, default: "inspector"
   slot :inner_block, required: true
@@ -1986,6 +1987,9 @@ defmodule FlezhaUiWeb.CoreComponents do
           <div class="min-w-0 space-y-1">
             <p class="fui-eyebrow">{@eyebrow}</p>
             <h2 id={"#{@id}-title"} class="fui-drawer-title">{@title}</h2>
+            <p :if={@subtitle} class="fui-tech-name" data-testid={"#{@testid}-subtitle"}>
+              {@subtitle}
+            </p>
           </div>
           <button
             type="button"

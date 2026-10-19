@@ -47,8 +47,8 @@ Runner connect, disconnect, drop and readmit events SHALL reach the UI as the ru
 
 The UI SHALL list the controller's observability sources, from
 `Flezha.Service.Observability.list_sources/1`, each with its enabled state, its
-description and its recent activity. Sources SHALL be grouped by the area the
-controller declares for them:
+title, its technical name, its description and its recent activity. Sources SHALL
+be grouped by the area the controller declares for them:
 
 - relays;
 - storage;
@@ -57,19 +57,37 @@ controller declares for them:
 - machine.
 
 A source with no declared area SHALL be listed under "Other". The UI SHALL NOT
-derive a source's area from its name.
+derive a source's area from its name. A source with no declared title SHALL be
+headed by its technical name.
+
+Each row SHALL show, each in its own size and ink:
+
+- the title as the row's heading;
+- the technical name, small and in the monospace face;
+- the description, as a quieter line;
+- the activity line.
 
 Each group SHALL state how many of its sources are enabled. Within a group, sources
-that emitted within the controller's history window SHALL be listed first, then
-by name. A filter SHALL narrow the sources to those whose name or description
-contains the typed text.
+SHALL be listed in this order:
+
+1. those with a failure signal in the controller's history window;
+2. those that emitted anything in the window;
+3. the rest.
+
+Each of these bands SHALL be ordered by title. A filter SHALL narrow the sources
+to those whose title, technical name or description contains the typed text.
 
 A source's activity line SHALL be built from the `recent` field the controller
-answers. It SHALL be one of:
+answers and the outcome of each signal. It SHALL be:
 
-- a count per signal that emitted in the window, and how long ago the newest one
-  arrived;
-- a statement that nothing was emitted in the window, naming the window's length;
+- when a failure signal emitted in the window: a warning mark with how many
+  failures, and how long ago the newest arrived;
+- when the source declares failure signals and none emitted in the window: a
+  positive mark stating there were no failures in the window, naming its length;
+- the normal signals that emitted, told by their labels with their counts, and
+  how long ago the newest arrived;
+- when nothing emitted and the source declares no failure signal: a statement
+  that nothing was emitted in the window, naming its length;
 - nothing, when the controller answers no `recent` field.
 
 The sinks, from `list_sinks/1`, SHALL be summarised in one line naming each sink
@@ -79,30 +97,35 @@ line.
 #### Scenario: Sources and sinks exist
 
 - **WHEN** an operator opens the observability screen
-- **THEN** every source is listed with whether it is enabled, its description and its activity line
+- **THEN** every source is listed with whether it is enabled, its title, its technical name, its description and its activity line
 - **AND** sources are grouped by their declared area, each group stating how many are enabled
 - **AND** one line names every sink and marks any that is not running
 
-#### Scenario: A source emitted recently
+#### Scenario: A source's failures stand out
 
-- **WHEN** the controller answers `flezha_file_sink` with `recent: %{window_ms: 900_000, signals: %{flushed: %{count: 42, last_age_ms: 3_000}}}`
-- **THEN** its row reads that `flushed` arrived 42 times, the last 3 s ago
-- **AND** it is listed above the sources in its group that emitted nothing in the window
+- **WHEN** the controller answers `flezha_file_sink` with `recent` holding `failed` 3 times, the newest 7 minutes ago, and `failed` declared with outcome `:failure`
+- **THEN** its row shows a warning mark reading 3 failures in the last 15 minutes, the latest 7 minutes ago
+- **AND** it is listed first in its group
 
-#### Scenario: A source was quiet
+#### Scenario: A quiet source with failure signals reassures
 
-- **WHEN** the controller answers a source with `recent: %{window_ms: 900_000, signals: %{}}`
-- **THEN** its row states that nothing was emitted in the last 15 minutes
+- **WHEN** the controller answers a source declaring a `:failure` signal with `recent: %{window_ms: 900_000, signals: %{}}`
+- **THEN** its row shows a positive mark stating there were no failures in the last 15 minutes
+
+#### Scenario: Normal activity is told by labels
+
+- **WHEN** the controller answers `flezha_file_sink` with `flushed` labelled "Saved", 142 times, the newest 2 seconds ago
+- **THEN** its row reads that 142 were saved, the last 2 seconds ago
 
 #### Scenario: Filtering sources
 
 - **WHEN** an operator types `file` into the source filter
-- **THEN** only sources whose name or description contains `file` are shown, still in their groups
+- **THEN** only sources whose title, technical name or description contains `file` are shown, still in their groups
 
 #### Scenario: A controller that does not describe its sources
 
-- **WHEN** the controller answers sources without `description`, `area`, `signals` or `recent`
-- **THEN** each source is listed by name under "Other" with its switch and Tail
+- **WHEN** the controller answers sources without `title`, `description`, `area`, `signals` or `recent`
+- **THEN** each source is listed under "Other" headed by its technical name, with its switch and Tail
 - **AND** no activity line and no description are shown, and the screen raises no error
 
 #### Scenario: Observability is disabled on the controller
@@ -334,32 +357,47 @@ The relay screen's call activity SHALL be received through `Flezha.Service.Relay
 
 The controller SHALL declare, for every observability source it registers itself:
 
-- a one-line description;
+- a plain title;
+- a one-line description written for an operator;
 - an area;
-- every signal the source can emit, each with its kind and a one-line meaning.
+- every signal the source can emit, each with:
+  - its kind;
+  - a plain label;
+  - an outcome of `:normal` or `:failure`;
+  - a one-line meaning;
+  - optionally, a sentence template.
 
 It SHALL answer these in `list_sources/1`. The controller SHALL NOT register a
 source that nothing can make emit.
 
-The UI SHALL show a source's description on its row, and its signals with their
-meanings when the source is tailed. A signal emitted under a name the source does
-not declare SHALL still be shown, with no meaning.
+The UI SHALL show a source's title and description on its row. When the source is
+tailed, the UI SHALL list its signals in two groups, failures first and then normal
+activity. Each signal SHALL be shown with:
+
+- its label;
+- an outcome badge;
+- its meaning;
+- its technical name in full, never cut off.
+
+A signal emitted under a name the source does not declare SHALL still be shown, by
+its name, with no meaning.
 
 #### Scenario: Every core source is described
 
 - **WHEN** the controller has booted with its default configuration
-- **THEN** every source `list_sources/1` answers has a non-empty description and an area
-- **AND** every signal it declares has a kind and a non-empty meaning
+- **THEN** every source `list_sources/1` answers has a non-empty title, description and an area
+- **AND** every signal it declares has a kind, a non-empty label, an outcome and a non-empty meaning
 
 #### Scenario: No source that cannot emit is listed
 
 - **WHEN** an operator opens the observability screen against the controller after this change
 - **THEN** neither `flezha_reconcile`, `flezha_leadership` nor `flezha_bounded_mailbox` is listed
 
-#### Scenario: The tail names what may appear
+#### Scenario: The tail names what may appear, failures first
 
 - **WHEN** an operator tails `flezha_file_sink` and nothing has arrived yet
-- **THEN** the tail lists `flushed`, `refused` and `failed`, each with its meaning
+- **THEN** the tail lists `refused` and `failed` under a heading for what goes wrong, and `flushed` under normal activity
+- **AND** each shows its label, its outcome badge, its meaning and its full technical name
 
 ### Requirement: A tail opens with the source's recent history
 
@@ -384,24 +422,68 @@ together SHALL be capped at 200.
 
 ### Requirement: A tail line says when, what, about whom and how much
 
-Each signal in a tail SHALL be shown with:
+Each signal in a tail SHALL be shown as:
 
 - the time of day it was emitted, shown as the console's other live streams show
-  theirs. It SHALL be derived from the signal's controller timestamp and one reading
-  of the controller's clock taken when the tail is opened;
-- the signal's name and the meaning the source declares for it;
-- its labels, the signal's metadata, as sorted `key=value` pairs;
-- its numbers, the signal's measurements.
+  theirs. It SHALL be derived from the signal's controller timestamp and one
+  reading of the controller's clock taken when the tail is opened;
+- one sentence about its subject, built from the signal's sentence template. The
+  subject SHALL be the first present label of `relay`, `relay_id`, `plugin_id`,
+  `runner`, `runner_id`, `hub` and `namespace`. When the template names a value
+  the signal does not carry, or the signal has no template, the sentence SHALL be
+  the subject and the signal's label;
+- a warning mark, when the signal's outcome is `:failure`;
+- a details toggle that reveals its labels as sorted `key=value` pairs and its
+  numbers.
 
-On a phone-width screen a line SHALL wrap into a block, not scroll sideways.
+A value that is a path SHALL show only its last segment in the sentence and in
+full in the details. On a phone-width screen a line SHALL wrap into a block, not
+scroll sideways.
 
 #### Scenario: A file sink signal
 
-- **WHEN** `flezha_file_sink` emits `flushed` with measurements `%{count: 1}` and metadata `%{plugin_id: "file_sink#3", path: "/data/out.log"}` during a tail
-- **THEN** the line shows the time it was emitted, `flushed`, its meaning, `path=/data/out.log plugin_id=file_sink#3` and `count 1`
+- **WHEN** `flezha_file_sink` emits `flushed`, whose template is `"{plugin_id} saved {count:record} to {path}"`, with measurements `%{count: 1}` and metadata `%{plugin_id: "showcase_orders", path: "/data/out.log"}` during a tail
+- **THEN** the line shows the time it was emitted and reads "showcase_orders saved 1 record to out.log"
+- **AND** its details reveal `path=/data/out.log plugin_id=showcase_orders` and `count 1`
+
+#### Scenario: A failure line stands out
+
+- **WHEN** `flezha_file_sink` emits `failed`, whose outcome is `:failure`, during a tail
+- **THEN** its line carries a warning mark
+
+#### Scenario: A template names a value the signal lacks
+
+- **WHEN** a signal's template names `{path}` and the signal carries no `path`
+- **THEN** the line reads its subject and its label, and shows no unfilled placeholder
 
 #### Scenario: Buffered and live signals share one clock
 
 - **WHEN** a buffered signal was emitted 60 seconds of controller time before a live one
 - **THEN** their shown times are 60 seconds apart
+
+### Requirement: The tail drawer separates what it shows
+
+The tail drawer SHALL give each kind of text its own place, size and ink, using the
+console's existing type and surface recipes and no new colour or size token:
+
+- the source's title as the drawer title, with its technical name beneath it, small
+  and in the monospace face;
+- the description as the lead, in body ink;
+- a status line, small and quiet, stating whether the tail is live or waiting and how
+  many signals it shows, separated from what follows by a rule;
+- while nothing has arrived, the console's empty-state component;
+- the signal catalogue as bordered rows under small-caps group headings;
+- the tail's lines, with the history divider in the small-caps heading style.
+
+#### Scenario: Waiting for the first signal
+
+- **WHEN** an operator tails a source that has sent nothing
+- **THEN** the drawer shows the title, the technical name, the lead, a status line saying it is waiting, the empty-state component and the catalogue
+- **AND** the lead, the status line, the empty-state text and a catalogue row's meaning each compute to a different size or ink
+
+#### Scenario: Signals are flowing
+
+- **WHEN** signals have arrived
+- **THEN** the status line says the tail is live and how many signals it shows
+- **AND** the catalogue is folded into a toggle the reader opens, which stays open as signals arrive
 

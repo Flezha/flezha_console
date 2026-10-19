@@ -49,7 +49,7 @@
         type="search"
         name="q"
         value={@source_filter}
-        placeholder="Filter by name or meaning"
+        placeholder="Filter by name or description"
         aria-label="Filter sources by name or description"
         compact
         phx-debounce="150"
@@ -81,15 +81,20 @@
         row_testid={&"source-#{&1[:name]}"}
       >
         <:col :let={source} label="Source">
-          <span class="fui-num">{source[:name]}</span>
-          <span
-            :if={source[:description]}
-            class="block fui-muted text-sm"
-            data-testid={"source-description-#{source[:name]}"}
-          >
-            {source[:description]}
+          <span class="block space-y-1">
+            <span class="block fui-label" data-testid={"source-title-#{source[:name]}"}>
+              {title(source)}
+            </span>
+            <span :if={tech_name(source)} class="block fui-tech-name">{tech_name(source)}</span>
+            <span
+              :if={source[:description]}
+              class="block fui-hint"
+              data-testid={"source-description-#{source[:name]}"}
+            >
+              {source[:description]}
+            </span>
+            <.activity_line source={source} />
           </span>
-          <.activity_line source={source} />
         </:col>
         <:col :let={source} label="Emitting">
           <span
@@ -131,12 +136,19 @@
   id="tail-panel"
   testid="tail-panel"
   eyebrow="Live tail"
-  title={to_string(@tailing || "Tail")}
+  title={if @tail_source, do: title(@tail_source), else: to_string(@tailing || "Tail")}
+  subtitle={tech_name(@tail_source)}
   on_close="stop_tail"
 >
-  <p :if={@tail_source[:description]} class="fui-muted">{@tail_source[:description]}</p>
-  <p class="fui-figures" data-testid="tail-count">
-    {Words.count(length(@tail_records), "signal")}, newest first.
+  <p :if={@tail_source[:description]} class="fui-strong" data-testid="tail-lead">
+    {@tail_source[:description]}
+  </p>
+  <p class="fui-eyebrow fui-drawer-status" data-testid="tail-count">
+    <%= if @tail_records == [] do %>
+      Waiting for the first signal
+    <% else %>
+      Live · {Words.count(length(@tail_records), "signal")} · newest first
+    <% end %>
   </p>
 
   <.notice :if={pubsub_disabled?(@tail_error)} kind={:info} testid="pubsub-sink-disabled">
@@ -154,10 +166,10 @@
     down are not shown.
   </.notice>
 
-  <div :if={@tailing && @tail_records == []} class="space-y-2" data-testid="tail-waiting">
-    <p class="fui-muted">
-      Nothing yet. A source speaks only when the part it reports on does something.
-    </p>
+  <div :if={@tailing && @tail_records == []} class="space-y-4" data-testid="tail-waiting">
+    <.empty_state icon="hero-signal" testid="tail-empty">
+      Nothing yet — this source speaks when something happens.
+    </.empty_state>
     <.signal_meanings :if={@tail_source} source={@tail_source} />
   </div>
   <%!-- The open state is the reader's: a re-render on every signal must not fold it. --%>
@@ -167,8 +179,8 @@
     phx-mounted={JS.ignore_attributes(["open"])}
     data-testid="tail-meanings-fold"
   >
-    <summary class="fui-figures">What this source can say</summary>
-    <.signal_meanings source={@tail_source} />
+    <summary class="fui-eyebrow">What this source can say</summary>
+    <div class="pt-3"><.signal_meanings source={@tail_source} /></div>
   </details>
 
   <ol
@@ -184,7 +196,7 @@
     />
     <li
       :if={Enum.any?(@tail_records, & &1[:history?])}
-      class="fui-figures pt-2"
+      class="fui-eyebrow pt-3 pb-1"
       data-testid="tail-history-divider"
     >
       Before you opened the tail

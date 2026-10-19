@@ -539,6 +539,18 @@
   z-index: var(--fui-z-popover);
 }
 
+/* The technical name beside a plain one: small and quiet like a stream's
+   time, and never cut off. */
+.fui-tech-name {
+  overflow-wrap: anywhere;
+}
+
+/* A drawer's status line, set off from what follows by a rule. */
+.fui-drawer-status {
+  border-bottom: 1px solid var(--fui-line);
+  padding-bottom: var(--fui-space-2);
+}
+
 /* A live tail fills the drawer it opens in. Its lines are event rows whose
    detail takes the drawer's whole width under the time and the name. */
 .fui-tail {
@@ -2561,7 +2573,8 @@ button.fui-step-text:hover .fui-step-label {
   padding: var(--fui-space-2) 0;
 }
 
-.fui-river-time {
+.fui-river-time,
+.fui-tech-name {
   color: var(--fui-ink-3);
   font-family: var(--fui-font-mono);
   font-size: var(--fui-text-xs);
