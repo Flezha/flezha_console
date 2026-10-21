@@ -102,65 +102,17 @@ The controller screen SHALL offer a memory snapshot — top processes, ETS table
 - **WHEN** `mem_top/1` answers `{:error, %Flezha.Error{class: :denied}}`
 - **THEN** the panel states the refusal and no snapshot is rendered
 
-### Requirement: The controller can be drained and stopped from the console
+### Requirement: The controller is stopped with flz, not from the console
 
-The controller screen SHALL offer Stop controller when the operations whoami answers
-for the operator include `Controller.stop`, which core grants to `admin` at `_system`. Stop SHALL open a dialog that names the controller node, offers a
-drain timeout and a force option (finalise only, skipping the quiesce and the drain),
-and is confirmed only after the operator types the node name and any timeout is a
-whole number of seconds. On confirm the console SHALL call
-`Flezha.Service.Controller.stop/2` on exactly the node named, with an emit pid, and
-SHALL refuse rather than stop another node that has since become the connected one.
-Stop SHALL NOT be offered while a shutdown is already in progress. It SHALL show each
-progress event as it arrives, and SHALL follow `Flezha.Service.Controller.shutdown_status/1`
-on the tick until the call answers or the node goes away. A stop that ends with the
-controller node disconnecting SHALL be presented as a completed stop, not as an
-error. The rest of the console SHALL then show its existing disconnected state.
+The controller screen SHALL NOT offer to stop the controller: the controller keeps
+`Flezha.Service.Controller.stop/2` off the network, and an operator stops it with
+`flz controller stop`. The screen SHALL still show the shutdown state, so a stop
+made elsewhere is visible.
 
-#### Scenario: An admin stops the controller
+#### Scenario: No stop control
 
-- **WHEN** an operator granted `Controller.stop` types the node name and confirms
-- **THEN** the console calls `stop/2`, lists the drain progress as it streams, and
-  shows the shutdown phase advancing
-
-#### Scenario: The controller goes away
-
-- **WHEN** the controller node disconnects after a stop was requested and the call
-  ends with a lost connection
-- **THEN** the dialog states the controller stopped, with the last phase and the
-  elapsed time
-- **AND** the shell's liveness shows the controller as disconnected
-
-#### Scenario: The confirmation is not typed
-
-- **WHEN** the typed name does not match the node name
-- **THEN** the confirm button stays disabled and nothing is called
-
-#### Scenario: The connected node changed
-
-- **WHEN** the node named in the dialog is no longer connected when the operator
-  confirms
-- **THEN** no node is stopped and the dialog states the controller is not connected
-
-#### Scenario: A shutdown is already under way
-
-- **WHEN** the controller reports a shutdown in progress
+- **WHEN** an operator opens the controller screen, whatever its role
 - **THEN** no Stop control is rendered
-
-#### Scenario: A forced stop
-
-- **WHEN** the operator ticks force and confirms
-- **THEN** `stop/2` is called with `force: true`
-
-#### Scenario: The role does not grant stop
-
-- **WHEN** the operator's operations do not include `Controller.stop`
-- **THEN** no Stop control is rendered
-
-#### Scenario: The stop is refused
-
-- **WHEN** `stop/2` answers an error
-- **THEN** the dialog shows it with its code and hint and the controller keeps running
 
 ### Requirement: The durability shipper's health is visible
 

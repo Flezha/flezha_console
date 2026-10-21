@@ -14,7 +14,10 @@ defmodule FlezhaUi.Service.PublishedSurfaceTest do
 
   # Read before a context exists, because their answers are what a context is
   # built from. Nothing else may be called without one.
-  @context_free ["Flezha.AuthZ.TokenStore.verify/1", "Flezha.AuthZ.enforcement_posture/0"]
+  @context_free ["Flezha.Service.Admin.context/2", "Flezha.AuthZ.enforcement_posture/0"]
+
+  # The door every published operation is run through.
+  @door ["Flezha.Service.Admin.run/4"]
 
   setup_all do
     core = System.get_env("FLEZHA_CORE_PATH") || Path.expand("../flezha", File.cwd!())
@@ -32,7 +35,7 @@ defmodule FlezhaUi.Service.PublishedSurfaceTest do
     catalogue = core |> Path.join("flz_transport/errors.json") |> File.read!() |> Jason.decode!()
 
     %{
-      allowed: MapSet.new(names(File.read!(published_path)) ++ @context_free),
+      allowed: MapSet.new(names(File.read!(published_path)) ++ @context_free ++ @door),
       calls: MapSet.new(names(out)),
       stubs: stubs(),
       classes: Map.new(catalogue["codes"], fn {code, entry} -> {code, entry["class"]} end)
@@ -54,7 +57,7 @@ defmodule FlezhaUi.Service.PublishedSurfaceTest do
     assert MapSet.size(calls) > 50
   end
 
-  test "every call the console makes is published or context-free", %{
+  test "every call the console makes is published, context-free or the door", %{
     calls: calls,
     allowed: allowed
   } do

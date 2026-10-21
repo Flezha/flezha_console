@@ -5,7 +5,7 @@ TBD - created by archiving change resync-with-flezha-platform. Update Purpose af
 ## Requirements
 ### Requirement: Identity is resolved from a verified token
 
-The UI SHALL derive its flezha principal only from `Flezha.AuthZ.TokenStore.verify/1`. The principal, namespace, and role in the caller context SHALL be the values that call returned. A principal, namespace, role, or list of roles supplied by a UI user, or assembled by the UI itself, SHALL NOT be placed in a caller context. Every other controller call SHALL carry this caller context as its last argument; `Flezha.AuthZ.TokenStore.verify/1` and `Flezha.AuthZ.enforcement_posture/0` are the only calls made without one. The role SHALL be shown as the controller names it — one of `viewer`, `app`, `ops`, `admin`, `runner`, `spawner`, `stopper`.
+The UI SHALL derive its flezha principal only from `Flezha.Service.Admin.context/2`, called with the source `:ui` and the token. The principal, namespace, and role in the caller context SHALL be the values that call returned. A principal, namespace, role, or list of roles supplied by a UI user, or assembled by the UI itself, SHALL NOT be placed in a caller context. Every other controller call SHALL be a published operation run through `Flezha.Service.Admin.run/4` with this caller context; `Flezha.Service.Admin.context/2` and `Flezha.AuthZ.enforcement_posture/0` are the only calls made without one. The role SHALL be shown as the controller names it — one of `viewer`, `app`, `ops`, `admin`, `runner`, `spawner`, `stopper`.
 
 #### Scenario: A valid token binds an identity
 
@@ -38,7 +38,7 @@ The UI SHALL derive its flezha principal only from `Flezha.AuthZ.TokenStore.veri
 #### Scenario: Every call carries the context
 
 - **WHEN** any controller call other than the two context-free reads is made through `NodeManager`
-- **THEN** its last argument is the caller context `NodeManager.caller_context/1` built
+- **THEN** it is run through `Flezha.Service.Admin.run/4` with the caller context `NodeManager.caller_context/1` built
 
 #### Scenario: A typed principal is not trusted
 
@@ -72,7 +72,7 @@ The UI SHALL use the signed-in user's own flezha token when they have stored one
 
 ### Requirement: Verification results are cached
 
-Token verification SHALL be cached, keyed by a digest of the token, for a period no longer than the token's own `expires_at`, so a screen does not spend one remote call establishing identity per remote call that does work. A verification failure with an `authz.token_*` code SHALL be cached for the same short period; a transport failure or `authz.registry_unavailable` SHALL NOT be cached. A refusal from any call — `{:error, %Flezha.Error{class: :denied}}` — SHALL evict the cached entry for the token that made it. A verification that times out or answers `authz.registry_unavailable` SHALL be reported as that failure, and the call SHALL NOT be made with an unbound caller context.
+Token verification SHALL be cached, keyed by a digest of the token, for a short period, so a screen does not spend one remote call establishing identity per remote call that does work. A verification failure with an `authz.token_*` code SHALL be cached for the same short period; a transport failure or `authz.registry_unavailable` SHALL NOT be cached. A refusal from any call — `{:error, %Flezha.Error{class: :denied}}` — SHALL evict the cached entry for the token that made it. A verification that times out or answers `authz.registry_unavailable` SHALL be reported as that failure, and the call SHALL NOT be made with an unbound caller context.
 
 #### Scenario: Repeated calls reuse one verification
 
@@ -160,7 +160,7 @@ The namespace switcher SHALL offer only namespaces the bound token can reach. A 
 - **WHEN** the bound token's namespace is `_system`
 - **THEN** every namespace is offered
 
-### Requirement: Tokens are administered from the namespace screen
+### Requirement: Tokens are listed on the namespace screen
 
 The namespace screen SHALL list the tokens of that namespace from `Flezha.Service.Namespace.tokens/1`. Each token SHALL be shown with:
 
@@ -173,7 +173,7 @@ The token itself SHALL never be shown. Times SHALL be shown relative to now, wit
 
 The listing SHALL offer a status filter of Active, Revoked, Expired and All, each with its count. The filter SHALL default to Active. Rows SHALL be ordered by soonest expiry first, and tokens that never expire SHALL come last.
 
-An operator SHALL be able to issue a token for a principal and role in that namespace through `Flezha.Service.Namespace.issue_token/5`, with an optional label and a lifetime in seconds or `never`. An operator SHALL be able to revoke a listed token through `Flezha.Service.Namespace.revoke_token/2` after an explicit confirmation.
+The console SHALL NOT issue or revoke tokens: the controller keeps those operations off the network, and an operator issues and revokes tokens with `flz`.
 
 #### Scenario: Tokens are listed
 
@@ -202,74 +202,19 @@ An operator SHALL be able to issue a token for a principal and role in that name
 - **WHEN** a token row carries no `created_at`, `expires_at` or `created_by`
 - **THEN** those cells show a placeholder and the row is still listed
 
-#### Scenario: Issuing a token
+#### Scenario: No token is issued or revoked here
 
-- **WHEN** an operator issues a token for a principal and role
-- **THEN** `issue_token/5` is called with the principal, the screen's namespace, the role and the lifetime and label given
-- **AND** the new token is listed on the next read
+- **WHEN** an operator opens a namespace screen, whatever its role
+- **THEN** no issue or revoke control is rendered
 
-#### Scenario: An invalid lifetime
+### Requirement: The bootstrap is claimed with flz
 
-- **WHEN** an operator enters a lifetime that is neither a positive number of seconds nor `never`
-- **THEN** the form names the lifetime field
-- **AND** no call is made
+The console SHALL NOT claim the bootstrap: the controller keeps that operation off the network. While the enforcement posture is `:bootstrap_pending`, the settings screen SHALL offer no claim, and the posture banner names `flz auth bootstrap`.
 
-#### Scenario: Revoking a token
+#### Scenario: A pending bootstrap
 
-- **WHEN** an operator confirms revoking a listed token
-- **THEN** `revoke_token/2` is called with its id
-- **AND** the token is listed as revoked
-
-#### Scenario: The revocation is not confirmed
-
-- **WHEN** an operator opens the revoke confirmation and dismisses it
-- **THEN** no call is made
-
-### Requirement: An issued token is shown once and kept nowhere
-
-The token value `issue_token/5` answers SHALL be shown once, in the dialog that issued it, with a control to copy it and a statement that it will not be shown again. It SHALL be dropped from the screen's state when the dialog closes and SHALL NOT be written to a flash message, a log line, a URL, or any store.
-
-#### Scenario: The token is shown after issue
-
-- **WHEN** a token is issued
-- **THEN** its value is shown in the issue dialog with a copy control and a show-once notice
-
-#### Scenario: The dialog is closed
-
-- **WHEN** the operator closes the issue dialog
-- **THEN** the token value is no longer present in the rendered page or the LiveView's assigns
-
-#### Scenario: The token does not leak into logs
-
-- **WHEN** a token is issued
-- **THEN** the console's log output for that request does not contain the token value
-
-### Requirement: The bootstrap is claimed from settings without showing the token
-
-While the enforcement posture is `:bootstrap_pending`, the settings screen SHALL offer to claim the bootstrap with the one-time bootstrap token through `Flezha.Service.Namespace.bootstrap/2`. When the claim answers a minted token, it SHALL be stored as the signed-in user's own flezha token through the same encrypted path a pasted token uses, and SHALL NOT be rendered. The claim SHALL NOT be offered under any other posture, so the console never performs a recovery claim that would invalidate an existing admin.
-
-#### Scenario: Claiming a pending bootstrap
-
-- **WHEN** the posture is `:bootstrap_pending` and an operator submits the bootstrap token
-- **THEN** `bootstrap/2` is called with it
-- **AND** the settings screen shows the principal now bound as `admin@_system`
-
-#### Scenario: The minted token is stored, not shown
-
-- **WHEN** the claim answers a minted token
-- **THEN** it becomes the signed-in user's stored token
-- **AND** its value does not appear in the rendered page
-
-#### Scenario: The posture is not pending
-
-- **WHEN** the posture is `:enforced` or `:open`
-- **THEN** no bootstrap claim control is rendered
-
-#### Scenario: A wrong bootstrap token
-
-- **WHEN** the controller refuses the presented token
-- **THEN** the refusal is shown with its code and hint
-- **AND** no token is stored
+- **WHEN** the posture is `:bootstrap_pending`
+- **THEN** the settings screen renders no bootstrap claim control
 
 ### Requirement: Controls follow the operations the caller's role grants
 
@@ -278,14 +223,14 @@ The console SHALL read, once per verified token and cached with that verificatio
 #### Scenario: A viewer token
 
 - **WHEN** the bound role is `viewer`
-- **THEN** no start, stop, send, call, replay, bind, rotate, delete, issue or revoke control is rendered
+- **THEN** no start, stop, send, call, replay, bind, rotate or delete control is rendered
 - **AND** the read-only panels still render
 
 #### Scenario: An ops token
 
 - **WHEN** the bound role is `ops`
 - **THEN** state rotation and replay controls are rendered
-- **AND** state delete, retention, token and role-binding controls are not
+- **AND** state delete and retention controls are not
 
 #### Scenario: An older controller
 

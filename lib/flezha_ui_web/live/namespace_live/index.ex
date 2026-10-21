@@ -26,9 +26,7 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
        declarations_unavailable?: false,
        show_create: false,
        create_form: %{"name" => "", "max_relays" => "", "max_runners" => ""},
-       create_error: nil,
-       confirm_delete: nil,
-       delete_confirmation: ""
+       create_error: nil
      )
      |> refresh()}
   end
@@ -62,47 +60,6 @@ defmodule FlezhaUiWeb.NamespaceLive.Index do
        |> put_flash(:info, "Namespace #{name} declared.")}
     else
       {:error, reason} -> {:noreply, assign(socket, create_error: reason)}
-    end
-  end
-
-  @impl true
-  def handle_event("confirm_delete", %{"name" => name}, socket) do
-    {:noreply, assign(socket, confirm_delete: name, delete_confirmation: "")}
-  end
-
-  @impl true
-  def handle_event("cancel_delete", _params, socket) do
-    {:noreply, assign(socket, confirm_delete: nil, delete_confirmation: "")}
-  end
-
-  @impl true
-  def handle_event("delete_confirmation_change", %{"confirm" => %{"name" => value}}, socket) do
-    {:noreply, assign(socket, delete_confirmation: value)}
-  end
-
-  @impl true
-  def handle_event("delete", _params, socket) do
-    name = socket.assigns.confirm_delete
-
-    # The typed name is a confirmation, never an argument: the namespace acted
-    # on is the one the operator opened the dialog for.
-    if socket.assigns.delete_confirmation == name do
-      case NodeManager.delete_namespace(name, socket.assigns.flezha_token) do
-        {:error, reason} ->
-          {:noreply,
-           socket
-           |> assign(confirm_delete: nil, delete_confirmation: "")
-           |> put_flash(:error, error_message(reason, "the delete"))}
-
-        _ok ->
-          {:noreply,
-           socket
-           |> assign(confirm_delete: nil, delete_confirmation: "")
-           |> refresh()
-           |> put_flash(:info, "Namespace #{name} deleted.")}
-      end
-    else
-      {:noreply, socket}
     end
   end
 

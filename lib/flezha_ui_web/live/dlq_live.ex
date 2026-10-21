@@ -75,7 +75,7 @@ defmodule FlezhaUiWeb.DlqLive do
   @impl true
   def handle_event("drop", %{"ref" => ref}, socket) do
     case NodeManager.dlq_drop(ref, socket.assigns.flezha_token) do
-      :ok ->
+      {:ok, _dropped} ->
         {:noreply,
          socket
          |> assign(confirm: nil)

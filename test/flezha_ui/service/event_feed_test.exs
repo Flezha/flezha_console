@@ -54,7 +54,7 @@ defmodule FlezhaUi.Service.EventFeedTest do
       start_supervised!(runner_feed())
 
       assert PeerNode.eventually(fn -> length(open_streams(node)) == 1 end)
-      assert [[:flezha_runner, %{source: :ui}]] = FakeController.calls(node, @tail)
+      assert [["flezha_runner", %{source: :ui}]] = FakeController.calls(node, @tail)
     end
 
     test "broadcasts a runner signal once on the UI's topic", %{node: node} do
@@ -238,7 +238,7 @@ defmodule FlezhaUi.Service.EventFeedTest do
       Phoenix.PubSub.subscribe(FlezhaUi.PubSub, EventFeed.topic(:flezha_relay))
       feed = start_supervised!(relay_feed())
       assert PeerNode.eventually(fn -> open_streams(node) != [] end)
-      assert [[:flezha_relay, %{source: :ui}]] = FakeController.calls(node, @tail)
+      assert [["flezha_relay", %{source: :ui}]] = FakeController.calls(node, @tail)
 
       FakeController.emit(node, @tail, %{
         name: :relay_exited,

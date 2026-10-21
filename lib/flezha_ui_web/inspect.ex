@@ -185,7 +185,6 @@ defmodule FlezhaUiWeb.Inspect do
     case NodeManager.dlq_get(ref, token) do
       {:ok, entry, payload} -> %{ref: ref, entry: entry, payload: payload, error: nil}
       {:error, reason} -> %{ref: ref, entry: nil, payload: nil, error: reason}
-      _other -> %{ref: ref, entry: nil, payload: nil, error: :not_found}
     end
   end
 

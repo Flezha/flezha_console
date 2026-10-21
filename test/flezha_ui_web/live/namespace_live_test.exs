@@ -411,13 +411,13 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
       with_relays(node, ["relay_a", "relay_b", "relay_c"])
       send(view.pid, :refresh)
 
-      open_section(view, "access")
-      view |> element(~s([data-testid="issue-token-btn"])) |> render_click()
+      render_click(view, "confirm_stop", %{"relay_id" => "relay_a"})
       FakeController.open_gate(node, :home)
       render_async(view)
       assert relays_shown(view) == "2"
 
-      view |> element(~s([data-testid="issue-token-cancel"])) |> render_click()
+      view |> element(~s([data-testid="stop-cancel-btn"])) |> render_click()
+      send(view.pid, :refresh)
       render_async(view)
       assert relays_shown(view) == "3"
     end

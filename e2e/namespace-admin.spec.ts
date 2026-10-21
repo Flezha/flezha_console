@@ -1,43 +1,20 @@
-import {
-  growListing,
-  menuAction,
-  test,
-  expect,
-  openSection,
-  visitLive,
-  type Page,
-} from './fixtures';
+import { cliCall, growListing, test, expect, openSection } from './fixtures';
 
 /**
  * Namespaces as declared objects: quota meters against live counters, the
- * create/delete round-trip, and the runners a namespace lists; its finished
+ * create and quota round-trip, and the runners a namespace lists; its finished
  * relays are read in `steps.spec.ts`. What the forms refuse before the
- * controller, the role bindings and the delete gate are asserted in
- * `namespace_admin_test.exs`.
+ * controller and the role bindings are asserted in `namespace_admin_test.exs`.
  *
  * `DevSetup` declares `default` with quota overrides, so its meters are real.
  * Every run adds its workers' namespaces to the listing, so a row is found by
  * growing the listing to it, and the runner row read is whichever the stack
  * runs, since no test adds or removes a runner.
  * The created namespace is deleted in the same test, because the suite runs
- * against a shared controller and must leave it as it found it.
+ * against a shared controller and must leave it as it found it. The console
+ * deletes no namespace, so that is done through `cliCall()`, the request `flz`
+ * sends.
  */
-/**
- * Deletes `name` from the listing, typing its name to confirm. Safe from
- * `finally`: a namespace already gone is left alone.
- */
-async function deleteNamespace(page: Page, name: string): Promise<void> {
-  await visitLive(page, '/namespaces');
-  const row = page.getByTestId(`namespace-row-${name}`);
-  await growListing(page, 'namespaces', row);
-  if ((await row.count()) === 0) return;
-
-  await menuAction(page, `namespace-menu-${name}`, `namespace-delete-${name}`);
-  await expect(page.getByTestId('delete-namespace-modal')).toContainText(name);
-  await page.getByTestId('delete-namespace-confirmation').fill(name);
-  await page.getByTestId('delete-namespace-confirm').click();
-  await expect(row).toHaveCount(0);
-}
 
 test.describe('Namespace administration', () => {
   test('quota meters render against the controller’s live counters, and the runners panel lists the runner', async ({
@@ -66,9 +43,10 @@ test.describe('Namespace administration', () => {
     ).toBeVisible();
   });
 
-  test('creating a namespace and deleting it round-trips', async ({ page, live }) => {
+  test('creating a namespace and changing its limits round-trips', async ({ page, live }) => {
     // Lowercase and hyphenated: the controller validates the name.
     const name = `e2e-tmp-${Date.now().toString(36)}`;
+    let created = false;
 
     try {
       await live('/namespaces');
@@ -90,6 +68,7 @@ test.describe('Namespace administration', () => {
       await page.getByTestId('create-max-runners').fill('3');
       await page.getByTestId('create-namespace-submit').click();
       await expect(page.getByTestId('create-namespace-modal')).toHaveCount(0);
+      created = true;
 
       const row = page.getByTestId(`namespace-row-${name}`);
       await growListing(page, 'namespaces', row);
@@ -122,10 +101,8 @@ test.describe('Namespace administration', () => {
       await page.getByTestId('quota-save').click();
       await expect(page.getByTestId('quota-modal')).toHaveCount(0);
       await expect(page.getByTestId('quota-relays')).toContainText('of 9');
-
-      await deleteNamespace(page, name);
     } finally {
-      await deleteNamespace(page, name);
+      if (created) await cliCall('Namespace.delete', [name]);
     }
   });
 });

@@ -72,7 +72,7 @@ scope switch moves between the two forms.
 | `/plugins` | Enabled plugins per namespace, the providers on offer, and the packages installed on the controller with why one was refused |
 | `/cluster` | Cluster nodes, per-node health rollup, hub recovery per node (a notice only while a hub is recovering), runners — each with its node, connection time, last contact (late ones flagged and listed first), relay count and what it serves, with a summary, a filter, a node choice, "Late only" and a sort — and which runners serve a factory; drop a runner and readmit its process |
 | `/observability` | Every source the controller reports through, grouped by area and headed by its plain title, each saying what it is, whether anything failed in the last 15 minutes (failing sources first) and what else it said, with a filter, an on/off switch, the sinks in one line, and a tail that opens with the source's recent history, tells each signal as a sentence about its subject with its raw fields behind Details, and lists what the source can say, failures first |
-| `/controller` | Readiness, authorization and durability in one sentence; durability posture, RPO breaches and the shipper with the time left to each retry, shutdown and boot state, memory hot spots by name with their queue and initial call; drain and stop the controller, watching each phase |
+| `/controller` | Readiness, authorization and durability in one sentence; durability posture, RPO breaches and the shipper with the time left to each retry, shutdown and boot state, memory hot spots by name with their queue and initial call |
 | `/schedules` | Cron schedules with their status (active, inactive or dormant), creation time, last fire with its outcome and the relay it started, and the next fire the job is armed for; run one now, after a confirmation |
 | `/dlq` | Dead letters grouped by tasklet, each with when it was dead-lettered, its attempts, size and whether it waits or is replaying, and the queue's total size; inspect an entry's payload in place, replay, drop |
 | `/audit` | Audit file catalog with the file being written first — open any file to read its records — filtered reads as rows that open to the whole record, Read more past the limit, live tail, rotation |
@@ -460,11 +460,15 @@ the content of every screen is drawn with the console's own component kit.
 ## How the UI talks to the controller
 
 Every remote call goes through `FlezhaUi.Service.NodeManager`, which is the
-only module that names a `Flezha.*` module, and every call is a function on
+only module that names a `Flezha.*` module, and every call is an operation on
 core's **published consumer API**: a `Flezha.Service.*` function listed in
-core's `docs/api/consumers/published.txt`, called with the caller context last.
-Only two reads go without a context, because a context is built from them:
-`Flezha.AuthZ.TokenStore.verify/1` and `Flezha.AuthZ.enforcement_posture/0`.
+core's `docs/internal/api/consumers/published.txt`, run through core's one door,
+`Flezha.Service.Admin.run/4`, with the console's caller context. Only two reads
+go without a context, because a context is built from them:
+`Flezha.Service.Admin.context/2` and `Flezha.AuthZ.enforcement_posture/0`.
+The door keeps the operations core does not let the network reach — issuing,
+revoking and binding, deleting a namespace, claiming the bootstrap and stopping
+the controller — away from the console; `flz` makes them.
 `test/flezha_ui/service/published_surface_test.exs` holds the console to that
 with core's own extractor and list (`FLEZHA_CORE_PATH`, default `../flezha`).
 
@@ -473,10 +477,11 @@ The controller is the node `FLEZHA_NODE` names, and only that one:
 otherwise, so another node connected to the console — a remote shell, a helper
 node, a second controller — never receives a call, a caller context or a token.
 
-A call answers the published function's own value, or its
+A call answers the door's `{:ok, value}`, or its
 `{:error, %Flezha.Error{}}` — code, class, message, hint — untouched, or one of
 the transport conditions only this node sees: not connected, API missing,
-timeout, remote error. `NodeManager.error/1` reads any of them as one map, so a
+timeout, remote error. An operation the door does not publish reads as API
+missing. `NodeManager.error/1` reads any of them as one map, so a
 screen decides how to present an error from its class and code, never from its
 text, and a refusal reads as a refusal with the controller's own message rather
 than as an empty table. `CoreComponents.runtime_error/1` renders every one of
@@ -492,10 +497,10 @@ posture is `:open`, renders every control; either way the controller still
 judges each call.
 
 Identity works the way the controller's own CLI does it: a principal comes
-*only* from `Flezha.AuthZ.TokenStore.verify/1`. A name typed into this UI is
+*only* from `Flezha.Service.Admin.context/2`. A name typed into this UI is
 never placed in a caller context, because that context is what the controller's
-audit log records. Verifications are cached briefly — never past the token's
-own expiry, and never for a transient `authz.registry_unavailable`. A refused
+audit log records. Verifications are cached briefly, and never for a transient
+`authz.registry_unavailable`. A refused
 call evicts the entry. The controller sees only the principal, never the token,
 so a revoked token stops working when its cached verification expires. A
 verification the token store cannot answer is reported as that failure; the

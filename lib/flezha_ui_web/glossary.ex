@@ -113,9 +113,6 @@ defmodule FlezhaUiWeb.Glossary do
   @doc "Every term, as `%{key:, name:, definition:}`, in reading order."
   def terms, do: Enum.map(@terms, fn {key, _name, _definition} -> Map.fetch!(@by_key, key) end)
 
-  @doc "Every role a principal can be bound to or issued, as `{role, what it allows}`."
-  def roles, do: @roles
-
   @doc "One term by its key, or `nil`."
   def term(key), do: Map.get(@by_key, String.downcase(key))
 

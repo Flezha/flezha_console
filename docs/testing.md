@@ -33,7 +33,7 @@ only there.
 Put it in **ExUnit** when the state is one a healthy dev stack refuses to enter:
 audit logging switched off, a controller that is disconnected, timing out,
 version-skewed or shutting down, a partition group to rescale, a second running
-namespace, a confirmed controller stop or runner drop. `FakeController`
+namespace, a confirmed runner drop. `FakeController`
 produces all of those in milliseconds.
 
 Put it in **Playwright** when only a real browser can observe it: a JS hook, a

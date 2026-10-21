@@ -63,10 +63,10 @@ defmodule FlezhaUi.Service.NodeManagerDistributedTest do
                capture_quietly(fn -> NodeManager.erpc_call(:maps, :list_entries, [%{}]) end)
     end
 
-    test "a controller predating the liveness counters is reported as api_missing" do
-      # This peer carries no stand-ins at all, which is exactly a controller
-      # that does not have the published read yet.
-      assert {:error, {:api_missing, Flezha.Service.Controller, :liveness_counters, 1}} =
+    test "a controller predating the door is reported as api_missing for the door" do
+      # This peer carries no stand-ins at all, so it has no door to run the
+      # published read through.
+      assert {:error, {:api_missing, Flezha.Service.Admin, :run, 4}} =
                capture_quietly(fn -> NodeManager.liveness_snapshot(nil) end)
     end
   end

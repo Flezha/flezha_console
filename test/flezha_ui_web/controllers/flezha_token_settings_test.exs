@@ -7,7 +7,7 @@ defmodule FlezhaUiWeb.FlezhaTokenSettingsTest do
 
   use FlezhaUiWeb.LiveCase
 
-  alias Flezha.AuthZ.TokenStore
+  alias Flezha.Service.Admin
   alias FlezhaUi.Accounts
 
   defp store(conn, token),
@@ -26,8 +26,8 @@ defmodule FlezhaUiWeb.FlezhaTokenSettingsTest do
 
     FakeController.set(
       node,
-      {TokenStore, :verify},
-      {:ok, %{principal: "alice", namespace: "acme", role: :ops, expires_at: :never}}
+      {Admin, :context},
+      {:ok, %{principal: "alice", namespace: "acme", role: :ops, source: :ui}}
     )
 
     conn = store(conn, token)
@@ -47,7 +47,7 @@ defmodule FlezhaUiWeb.FlezhaTokenSettingsTest do
 
     FakeController.set(
       node,
-      {TokenStore, :verify},
+      {Admin, :context},
       FakeController.error("authz.token_unknown", "no such token")
     )
 

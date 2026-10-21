@@ -173,7 +173,7 @@ An error state a screen handles through a shared mechanic MAY be covered by that
 
 ### Requirement: The fake controller stands in by name
 
-ExUnit's fake controller SHALL be compiled only under `MIX_ENV=test`, SHALL be loaded onto the peer node rather than into the test VM, and SHALL mirror the controller's published consumer API: every stand-in module SHALL be a module on core's published surface (`Flezha.Service.*`) or one of the two context-free reads (`Flezha.AuthZ.TokenStore.verify/1`, `Flezha.AuthZ.enforcement_posture/0`), plus a `Flezha.Error` struct carrying `code`, `class`, `message`, `details` and `hint`. Every stub SHALL carry the published function's name and arity, take the caller context last, and answer in the real return shapes — `{:ok, value}` or `:ok` on success and `{:error, %Flezha.Error{}}` with a code from core's error catalogue on failure. Tests SHALL reach the controller through `NodeManager` and its `:erpc` transport, not around it.
+ExUnit's fake controller SHALL be compiled only under `MIX_ENV=test`, SHALL be loaded onto the peer node rather than into the test VM, and SHALL mirror the controller's published consumer API: every stand-in module SHALL be a module on core's published surface (`Flezha.Service.*`), core's door (`Flezha.Service.Admin`, whose `run/4` applies the stand-in an operation names and answers as core's door does, and whose `context/2` is a context-free read), or the context-free `Flezha.AuthZ.enforcement_posture/0`, plus a `Flezha.Error` struct carrying `code`, `class`, `message`, `details` and `hint`. Every stub SHALL carry the published function's name and arity, take the caller context last, and answer in the real return shapes — `{:ok, value}` or `:ok` on success and `{:error, %Flezha.Error{}}` with a code from core's error catalogue on failure. Tests SHALL reach the controller through `NodeManager` and its `:erpc` transport, not around it.
 
 #### Scenario: A screen's controller calls are served
 
@@ -298,7 +298,7 @@ The gate SHALL skip its own test file, which must name every banned term, and SH
 
 ### Requirement: Core's record of the console's calls is kept in step
 
-Every change that alters which controller functions the console calls SHALL regenerate core's `docs/api/consumers/flezha_ui.txt` from this checkout with core's `scripts/consumer_surface.py`, and core's `test/flezha/api/consumer_surface_test.exs` SHALL pass with `FLEZHA_UI_PATH` pointing at this checkout. Once the console calls only the published surface, that test's list of calls known not to resolve SHALL be empty, and the test SHALL assert that every recorded console call is on the published surface or is one of the two context-free reads.
+Every change that alters which controller functions the console calls SHALL regenerate core's `docs/internal/api/consumers/flezha_ui.txt` from this checkout with core's `scripts/consumer_surface.py`, and core's `test/flezha/api/consumer_surface_test.exs` SHALL pass with `FLEZHA_UI_PATH` pointing at this checkout. Once the console calls only the published surface, that test's list of calls known not to resolve SHALL be empty, and the test SHALL assert that every recorded console call is on the published surface, is the door `Flezha.Service.Admin.run/4`, or is one of the two context-free reads.
 
 #### Scenario: The record matches the console
 
@@ -312,8 +312,8 @@ Every change that alters which controller functions the console calls SHALL rege
 
 #### Scenario: Every console call is published
 
-- **WHEN** the recorded console calls are compared with `docs/api/consumers/published.txt`
-- **THEN** each is on the published surface or is `Flezha.AuthZ.TokenStore.verify/1` or `Flezha.AuthZ.enforcement_posture/0`
+- **WHEN** the recorded console calls are compared with `docs/internal/api/consumers/published.txt`
+- **THEN** each is on the published surface, is `Flezha.Service.Admin.run/4`, or is `Flezha.Service.Admin.context/2` or `Flezha.AuthZ.enforcement_posture/0`
 
 ### Requirement: Every browser test fails on a broken page
 

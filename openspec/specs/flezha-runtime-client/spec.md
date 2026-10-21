@@ -55,6 +55,11 @@ All calls from the UI into the flezha controller SHALL pass through `FlezhaUi.Se
 - **THEN** `NodeManager` returns `{:error, {:api_missing, module, function, arity}}`
 - **AND** the remote stacktrace is logged at warning level
 
+#### Scenario: The door does not publish the operation
+
+- **WHEN** the door answers `control.unknown_function` for an operation
+- **THEN** `NodeManager` returns `{:error, {:api_missing, module, function, arity}}` naming the published function it asked for
+
 #### Scenario: The controller does not answer in time
 
 - **WHEN** a remote call exceeds its timeout
@@ -166,7 +171,7 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 
 ### Requirement: The caller context carries a bound principal
 
-`NodeManager.caller_context/1` SHALL build the context the way `Flezha.Service.CallerContext.from_token/2` builds it on the controller: `source: :ui` plus the `principal`, `namespace`, and `role` returned by `Flezha.AuthZ.TokenStore.verify/1`, and nothing else. Exactly one helper SHALL construct it, and every call into a published controller function SHALL pass it as the last argument.
+`NodeManager.caller_context/1` SHALL build the context the way `Flezha.Service.CallerContext.from_token/2` builds it on the controller: `source: :ui` plus the `principal`, `namespace`, and `role` that `Flezha.Service.Admin.context/2` returns for the token, and nothing else. Exactly one helper SHALL construct it, and every published operation SHALL be run through `Flezha.Service.Admin.run/4` with it.
 
 #### Scenario: A verified token binds the context
 
@@ -261,22 +266,22 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 
 ### Requirement: Only the published consumer API is called
 
-Every remote call `NodeManager` makes SHALL name a function on core's published consumer surface — a `Flezha.Service.*` function listed in core's `docs/api/consumers/published.txt`, called with the caller context as its last argument — or one of the two context-free calls, `Flezha.AuthZ.TokenStore.verify/1` and `Flezha.AuthZ.enforcement_posture/0`. No top-level `Flezha` function, internal manager, store, configuration read, or non-Flezha module SHALL be called on the controller.
+Every remote call `NodeManager` makes SHALL run an operation on core's published consumer surface — a `Flezha.Service.*` function listed in core's `docs/internal/api/consumers/published.txt` — through core's door, `Flezha.Service.Admin.run/4`, with the caller context and the placement `:given`, or be one of the two context-free calls, `Flezha.Service.Admin.context/2` and `Flezha.AuthZ.enforcement_posture/0`. The operation is named as core's catalogue names it, the module's last segment and the function (`"Relay.start"`). No top-level `Flezha` function, internal manager, store, configuration read, or non-Flezha module SHALL be called on the controller.
 
 #### Scenario: Every call site is published
 
 - **WHEN** core's consumer-surface script records the console's call sites
-- **THEN** every recorded call resolves to a published function or one of the two context-free calls
+- **THEN** every recorded call resolves to a published function, the door, or one of the two context-free calls
 
-#### Scenario: A call takes the caller context last
+#### Scenario: A call goes through the door
 
 - **WHEN** `NodeManager` calls a published `Flezha.Service.*` function
-- **THEN** the last argument is the context `caller_context/1` built
+- **THEN** it calls `Flezha.Service.Admin.run/4` with the operation's name, its arguments, the context `caller_context/1` built and `:given`
 
 #### Scenario: Context-free calls stay context-free
 
 - **WHEN** `NodeManager` verifies a token or reads the enforcement posture
-- **THEN** it calls `TokenStore.verify/1` or `AuthZ.enforcement_posture/0` with no caller context
+- **THEN** it calls `Admin.context/2` or `AuthZ.enforcement_posture/0` with no caller context
 - **AND** no other call is made without one
 
 ### Requirement: A controller error is shown with its code, hint and reference

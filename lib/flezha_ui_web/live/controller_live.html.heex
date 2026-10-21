@@ -4,19 +4,6 @@
       {sentence(@boot, @authz, @status)}
     </span>
   </:sentence>
-  <:actions>
-    <.button
-      :if={
-        @status && !@status[:shutdown_in_progress] &&
-          NodeManager.granted?(@operations, "Controller.stop")
-      }
-      variant="danger"
-      phx-click="open_stop"
-      data-testid="stop-controller-btn"
-    >
-      Stop controller
-    </.button>
-  </:actions>
 </.page_header>
 
 <%!-- Readiness --%>
@@ -241,5 +228,3 @@
     </.grid>
   </div>
 </.section>
-
-<.stop_dialog :if={@stop} stop={@stop} />

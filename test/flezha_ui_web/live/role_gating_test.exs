@@ -22,7 +22,7 @@ defmodule FlezhaUiWeb.RoleGatingTest do
              Fleet.runners_for_factory Namespace.get Namespace.list Namespace.quota
              Namespace.quota_kinds Namespace.roles Namespace.tokens Namespace.whoami
              PluginManager.enabled Relay.api Relay.cell_state Relay.diagnose Relay.info Relay.list
-             Relay.list_namespaces Relay.list_relays Relay.overwatch_state Relay.partition_groups
+             Relay.list_namespaces Relay.overwatch_state Relay.partition_groups
              Relay.registry Relay.relay_plugins Relay.relay_rows Schedule.list Steps.cells
              Steps.completed_retention_hours Steps.time_travel)
 
@@ -154,10 +154,6 @@ defmodule FlezhaUiWeb.RoleGatingTest do
     "delete-relay_a/orders/k1" => :admin,
     "retention-form" => :admin,
     "start-relay-btn" => :ops,
-    "bind-role-btn" => :admin,
-    "unbind-role-alice-ops" => :admin,
-    "issue-token-btn" => :admin,
-    "revoke-token-tok-1" => :admin,
     "enable-plugin-btn" => :ops,
     "plugin-bind-out_1" => :ops,
     "plugin-update-out_1" => :ops,
@@ -182,7 +178,7 @@ defmodule FlezhaUiWeb.RoleGatingTest do
         do: assert(rendered?(html, panel), "#{panel} missing")
   end
 
-  test "ops gets rotation and replay, not delete, retention, tokens or bindings", %{
+  test "ops gets rotation and replay, not delete or retention", %{
     conn: conn,
     node: node
   } do

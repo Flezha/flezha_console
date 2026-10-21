@@ -174,7 +174,7 @@ defmodule FlezhaUiWeb.ScheduleLive do
   @impl true
   def handle_event("remove", %{"name" => name}, socket) do
     case NodeManager.schedule_remove(name, socket.assigns.flezha_token) do
-      :ok ->
+      {:ok, _removed} ->
         {:noreply,
          socket
          |> assign(confirm_remove: nil)

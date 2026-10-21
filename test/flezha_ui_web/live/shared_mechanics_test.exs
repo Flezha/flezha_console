@@ -66,16 +66,6 @@ defmodule FlezhaUiWeb.SharedMechanicsTest do
     FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{factory_id: "store_input"}})
   end
 
-  defp arrange(:namespaces, node, _user) do
-    FakeController.set(
-      node,
-      {Relay, :list_namespaces},
-      {:ok, [%{namespace: "doomed", running: false}]}
-    )
-
-    FakeController.set(node, {Namespace, :list}, {:ok, [namespace_record("doomed")]})
-  end
-
   defp arrange(:access, node, _user) do
     FakeController.set(
       node,
@@ -367,53 +357,6 @@ defmodule FlezhaUiWeb.SharedMechanicsTest do
         kept: "relay-index-row-relay_a"
       },
       %{
-        screen: "namespaces",
-        dialog: "delete",
-        route: "/namespaces",
-        arrange: :namespaces,
-        open: "namespace-delete-doomed",
-        modal: "delete-namespace-modal",
-        cancel: "delete-namespace-cancel",
-        call: {Namespace, :delete},
-        kept: "namespace-row-doomed"
-      },
-      %{
-        screen: "namespace home",
-        dialog: "role unbind",
-        route: "/namespaces/default",
-        arrange: :access,
-        before: ["section-toggle-access"],
-        open: "unbind-binding-alice",
-        modal: "unbind-role-modal",
-        cancel: "unbind-role-cancel",
-        call: {Namespace, :unbind_role},
-        kept: "role-binding-alice"
-      },
-      %{
-        screen: "namespace home",
-        dialog: "role bind",
-        route: "/namespaces/default",
-        arrange: :access,
-        before: ["section-toggle-access"],
-        open: "bind-role-btn",
-        modal: "bind-role-modal",
-        cancel: "bind-role-cancel",
-        call: {Namespace, :bind_role},
-        kept: "role-binding-alice"
-      },
-      %{
-        screen: "namespace home",
-        dialog: "token revocation",
-        route: "/namespaces/default",
-        arrange: :access,
-        before: ["section-toggle-access"],
-        open: "revoke-token-tok-1",
-        modal: "revoke-token-modal",
-        cancel: "revoke-token-cancel",
-        call: {Namespace, :revoke_token},
-        kept: "revoke-token-tok-1"
-      },
-      %{
         screen: "namespace home",
         dialog: "rescale",
         route: "/namespaces/default",
@@ -513,17 +456,6 @@ defmodule FlezhaUiWeb.SharedMechanicsTest do
         cancel: "rewind-cancel-btn",
         call: {Steps, :rewind},
         kept: "open-rewind-btn"
-      },
-      %{
-        screen: "controller",
-        dialog: "stop",
-        route: "/controller",
-        arrange: :none,
-        open: "stop-controller-btn",
-        modal: "stop-controller-modal",
-        cancel: "stop-cancel",
-        call: {Controller, :stop},
-        kept: "stop-controller-btn"
       },
       %{
         screen: "cluster",

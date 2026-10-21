@@ -46,21 +46,6 @@
         >
           {ns.name}
         </.link>
-        <.row_menu
-          :if={ns.declared?}
-          id={"namespace-menu-#{ns.name}"}
-          label={"Actions for #{ns.name}"}
-          testid={"namespace-menu-#{ns.name}"}
-        >
-          <:item
-            click="confirm_delete"
-            values={%{name: ns.name}}
-            testid={"namespace-delete-#{ns.name}"}
-            danger
-          >
-            Delete
-          </:item>
-        </.row_menu>
       </div>
       <p>
         <.state_badge
@@ -147,40 +132,4 @@
       <.button type="submit" data-testid="create-namespace-submit">Declare</.button>
     </div>
   </form>
-</.dialog>
-
-<.dialog
-  :if={@confirm_delete}
-  testid="delete-namespace-modal"
-  size="confirm"
-  on_close="cancel_delete"
->
-  <:title>Delete namespace</:title>
-  <p>
-    Type <span class="fui-ident">{@confirm_delete}</span>
-    to confirm. This removes the declaration and its quotas.
-  </p>
-  <form phx-change="delete_confirmation_change">
-    <.input
-      type="text"
-      name="confirm[name]"
-      value={@delete_confirmation}
-      autocomplete="off"
-      mono
-      data-testid="delete-namespace-confirmation"
-    />
-  </form>
-  <:actions>
-    <.button variant="ghost" phx-click="cancel_delete" data-testid="delete-namespace-cancel">
-      Cancel
-    </.button>
-    <.button
-      variant="danger"
-      phx-click="delete"
-      disabled={@delete_confirmation != @confirm_delete}
-      data-testid="delete-namespace-confirm"
-    >
-      Delete
-    </.button>
-  </:actions>
 </.dialog>

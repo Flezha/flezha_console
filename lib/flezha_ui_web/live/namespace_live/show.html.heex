@@ -383,25 +383,10 @@
     <div data-testid="role-bindings" class="space-y-3">
       <div class="flex items-center justify-between gap-3">
         <h3 class="fui-eyebrow">Role bindings</h3>
-        <.button
-          :if={NodeManager.granted?(@operations, "Namespace.bind_role")}
-          variant="secondary"
-          size="sm"
-          icon="hero-plus"
-          phx-click="open_bind"
-          data-testid="bind-role-btn"
-        >
-          Bind
-        </.button>
       </div>
       <.empty_state :if={@role_bindings == []} icon="hero-key" testid="role-bindings-empty">
         A <.term key="role" /> binding lets a <.term key="principal" />
         act in this namespace. None is bound yet.
-        <:action :if={NodeManager.granted?(@operations, "Namespace.bind_role")}>
-          <.button size="sm" phx-click="open_bind" data-testid="bind-role-empty-btn">
-            Bind one
-          </.button>
-        </:action>
       </.empty_state>
       <.grid
         :if={@role_bindings != []}
@@ -435,34 +420,6 @@
             testid={"binding-by-#{binding[:principal]}"}
           />
         </:col>
-        <:menu :let={binding}>
-          <.row_menu
-            :if={NodeManager.granted?(@operations, "Namespace.unbind_role")}
-            id={"binding-menu-#{binding[:principal]}"}
-            label={"Actions for #{binding[:principal]}"}
-            testid={"binding-menu-#{binding[:principal]}"}
-          >
-            <:item
-              :for={role <- binding[:roles] || []}
-              click="confirm_unbind"
-              values={
-                %{principal: binding[:principal], namespace: binding[:namespace], role: role}
-              }
-              testid={"unbind-role-#{binding[:principal]}-#{role}"}
-              danger
-            >
-              Unbind {role}
-            </:item>
-            <:item
-              click="confirm_unbind"
-              values={%{principal: binding[:principal], namespace: binding[:namespace]}}
-              testid={"unbind-binding-#{binding[:principal]}"}
-              danger
-            >
-              Remove binding
-            </:item>
-          </.row_menu>
-        </:menu>
       </.grid>
     </div>
 
@@ -470,16 +427,6 @@
     <div data-testid="tokens-panel" class="space-y-3">
       <div class="flex items-center justify-between gap-3">
         <h3 class="fui-eyebrow">Tokens</h3>
-        <.button
-          :if={NodeManager.granted?(@operations, "Namespace.issue_token")}
-          variant="secondary"
-          size="sm"
-          icon="hero-plus"
-          phx-click="open_issue"
-          data-testid="issue-token-btn"
-        >
-          Issue
-        </.button>
       </div>
       <.runtime_error error={@tokens_error} action="the token listing" />
       <.empty_state :if={@tokens == [] and is_nil(@tokens_error)} icon="hero-identification">
@@ -540,26 +487,6 @@
             testid={"token-revoked-#{row.id}"}
           />
         </:col>
-        <:menu :let={row}>
-          <.row_menu
-            :if={
-              row.status == :active and
-                NodeManager.granted?(@operations, "Namespace.revoke_token")
-            }
-            id={"token-menu-#{row.id}"}
-            label={"Actions for token #{row.id}"}
-            testid={"token-menu-#{row.id}"}
-          >
-            <:item
-              click="confirm_revoke"
-              values={%{id: row.id}}
-              testid={"revoke-token-#{row.id}"}
-              danger
-            >
-              Revoke
-            </:item>
-          </.row_menu>
-        </:menu>
       </.grid>
     </div>
   </div>
@@ -792,155 +719,3 @@
     <.button phx-click="save_quotas" data-testid="quota-save">Save</.button>
   </:actions>
 </.dialog>
-
-<.dialog
-  :if={@token_issue}
-  testid="issue-token-modal"
-  size="form"
-  on_close="close_issue"
-  close_testid="issue-token-close"
->
-  <:title>Issue a token for {@ns}</:title>
-
-  <%= if @token_issue.issued do %>
-    <div data-testid="issued-token" class="space-y-3">
-      <.notice icon="hero-exclamation-triangle">
-        This token is shown once and kept nowhere. Copy it now; closing this dialog drops it.
-      </.notice>
-      <p class="fui-figures">
-        For <.ident value={@token_issue.issued.principal} full />
-        as {@token_issue.issued.role}, id <span data-testid="issued-token-id" class="fui-ident">{@token_issue.issued.id}</span>.
-      </p>
-      <.code_block id="issued-token-value" testid="issued-token-value">
-        {@token_issue.issued.token}
-      </.code_block>
-      <div class="flex justify-end gap-3">
-        <.button
-          variant="secondary"
-          data-fui-copy-from="#issued-token-value"
-          data-testid="issued-token-copy"
-          icon="hero-clipboard"
-        >
-          Copy
-        </.button>
-        <.button phx-click="close_issue" data-testid="issued-token-done">Done</.button>
-      </div>
-    </div>
-  <% else %>
-    <.form_error error={@token_issue.error} action="the token issue" testid="issue-token-error" />
-    <form phx-submit="issue_token" class="space-y-4">
-      <.input
-        type="text"
-        name="token[principal]"
-        label="Principal"
-        hint="Who the token speaks for — a person or a service, such as ops@acme or billing-app."
-        placeholder="ops@acme"
-        value={@token_issue.form["principal"]}
-        mono
-        required
-        data-testid="issue-token-principal"
-      />
-      <.role_field
-        name="token[role]"
-        value={@token_issue.form["role"]}
-        testid="issue-token-role"
-      />
-      <.input
-        type="text"
-        name="token[ttl]"
-        label="Lifetime"
-        hint="seconds, or never"
-        value={@token_issue.form["ttl"]}
-        mono
-        data-testid="issue-token-ttl"
-      />
-      <.input
-        type="text"
-        name="token[label]"
-        label="Label"
-        hint="optional"
-        value={@token_issue.form["label"]}
-        data-testid="issue-token-label"
-      />
-      <div class="flex justify-end gap-3 pt-2">
-        <.button variant="ghost" phx-click="close_issue" data-testid="issue-token-cancel">
-          Cancel
-        </.button>
-        <.button type="submit" data-testid="issue-token-submit">Issue</.button>
-      </div>
-    </form>
-  <% end %>
-</.dialog>
-
-<.confirm_dialog
-  :if={@confirm_revoke}
-  title="Revoke token?"
-  confirm_label="Revoke"
-  on_confirm="revoke_token"
-  on_cancel="cancel_revoke"
-  values={%{"id" => @confirm_revoke.id}}
-  testid="revoke-token-modal"
-  cancel_testid="revoke-token-cancel"
-  confirm_testid="revoke-token-confirm"
->
-  Revoke token <.ident value={@confirm_revoke.id} full /> of
-  <.ident value={@confirm_revoke.principal} full />? Whoever holds it can no longer use it.
-</.confirm_dialog>
-
-<.dialog :if={@role_bind} testid="bind-role-modal" size="form" on_close="close_bind">
-  <:title>Bind a role in {@ns}</:title>
-  <.form_error error={@role_bind.error} action="the bind" testid="bind-role-error" />
-  <form phx-submit="bind_role" class="space-y-4">
-    <.input
-      type="text"
-      name="binding[principal]"
-      label="Principal"
-      hint="Who gets the role — the principal a token was issued to, such as ops@acme."
-      placeholder="ops@acme"
-      value={@role_bind.form["principal"]}
-      mono
-      required
-      data-testid="bind-role-principal"
-    />
-    <.role_field
-      name="binding[role]"
-      value={@role_bind.form["role"]}
-      testid="bind-role-role"
-    />
-    <div class="flex justify-end gap-3 pt-2">
-      <.button variant="ghost" phx-click="close_bind" data-testid="bind-role-cancel">
-        Cancel
-      </.button>
-      <.button type="submit" data-testid="bind-role-submit">Bind</.button>
-    </div>
-  </form>
-</.dialog>
-
-<.confirm_dialog
-  :if={@confirm_unbind}
-  title={if @confirm_unbind.role, do: "Unbind role?", else: "Remove binding?"}
-  confirm_label={if @confirm_unbind.role, do: "Unbind", else: "Remove"}
-  on_confirm="unbind_role"
-  on_cancel="cancel_unbind"
-  values={%{"principal" => @confirm_unbind.principal, "role" => @confirm_unbind.role || ""}}
-  testid="unbind-role-modal"
-  cancel_testid="unbind-role-cancel"
-  confirm_testid="unbind-role-confirm"
->
-  <%= if @confirm_unbind.role do %>
-    Take <.ident value={@confirm_unbind.role} full /> away from
-    <.ident value={@confirm_unbind.principal} full /> in
-    <.ident value={@confirm_unbind.namespace} full />? Its other roles stay.
-  <% else %>
-    Remove every role <.ident value={@confirm_unbind.principal} full /> holds in
-    <.ident value={@confirm_unbind.namespace} full />? It can no longer act on this
-    controller until it is bound again.
-  <% end %>
-  <span
-    :if={@confirm_unbind.namespace == "_system"}
-    class="block mt-2"
-    data-testid="unbind-cluster-wide"
-  >
-    This binding is cluster-wide: it reaches every namespace, not only this one.
-  </span>
-</.confirm_dialog>
