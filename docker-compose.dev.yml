@@ -128,6 +128,9 @@ services:
     environment:
       FLEZHA_SOCKET_FILES_PATH: /flezha/storage/app/sockets/
       FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
+      # The SDK's default under /var/lib is not writable by the image's user;
+      # in its home the id survives a restart, so the runner is recognised.
+      FLEZHA_RUNNER_ID_PATH: /home/flezha/.flezha-runner-id
       <<: *default-runner-credential
     working_dir: /flezha/test/apps/rust_runner
     command:

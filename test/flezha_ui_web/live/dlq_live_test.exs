@@ -55,6 +55,21 @@ defmodule FlezhaUiWeb.DlqLiveTest do
   end
 
   describe "listing" do
+    test "a sink's parked error object reads as its message and code", %{conn: conn, node: node} do
+      object =
+        ~s({"code":"websocket.unacknowledged","class":"unavailable",) <>
+          ~s("message":"the websocket peer did not acknowledge the output","details":{"attempts":3},"hint":null})
+
+      with_entries(node, [entry(%{"error" => object})])
+
+      {:ok, _view, html} = live(conn, ~p"/dlq")
+
+      assert html =~
+               "the websocket peer did not acknowledge the output (websocket.unacknowledged)"
+
+      refute html =~ "&quot;code&quot;"
+    end
+
     test "renders the dead letters with their cell key", %{conn: conn, node: node} do
       with_entries(node, [entry(), entry(%{"id" => "18", "cell_key" => "cust-4"})])
 

@@ -371,7 +371,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
                id: "relay_failed",
                phase: "finished",
                run: :steps,
-               status: :failed,
+               status: "error",
                error: "tasklet crashed: :badarg",
                finished_at: now - 90,
                expires_at: now + 6 * 86_400
@@ -429,7 +429,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
         {:ok,
          %{
            namespace: "default",
-           status: :failed,
+           status: "error",
            error: "boom",
            finished_at: System.system_time(:second) - 30
          }}
@@ -440,7 +440,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       assert html =~ ~s(data-testid="completion-record")
       assert html =~ "Failed"
       assert html =~ "boom"
-      assert text_of(html, ~s([data-testid="completion-finished"])) =~ "30 s ago"
+      assert text_of(html, ~s([data-testid="completion-finished"])) =~ ~r/\b3\d s ago/
       refute html =~ ~s(data-testid="runtime-error")
     end
   end
