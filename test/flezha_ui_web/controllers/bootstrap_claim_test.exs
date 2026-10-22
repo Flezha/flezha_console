@@ -120,14 +120,14 @@ defmodule FlezhaUiWeb.BootstrapClaimTest do
        Flezha.Error.new(
          "authz.bootstrap_token_mismatch",
          "that is not the bootstrap token",
-         "cat app_data/auth/bootstrap.token"
+         "cat storage/app/auth/bootstrap.token"
        )}
     )
 
     html = conn |> claim("flzb_wrong") |> html_response(200)
 
     assert html =~ "authz.bootstrap_token_mismatch"
-    assert html =~ "cat app_data/auth/bootstrap.token"
+    assert html =~ "cat storage/app/auth/bootstrap.token"
     assert Accounts.user_flezha_token(user) == before
   end
 

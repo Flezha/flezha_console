@@ -34,7 +34,7 @@ services:
     stdin_open: true
     restart: unless-stopped
     environment:
-      FLEZHA_SOCKET_FILES_PATH: /flezha/app_data/sockets/
+      FLEZHA_SOCKET_FILES_PATH: /flezha/storage/app/sockets/
       FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
       FLEZHA_GRACEFUL_SHUTDOWN_ENABLED: ${FLEZHA_GRACEFUL_SHUTDOWN_ENABLED:-true}
       FLEZHA_GRACEFUL_SHUTDOWN_TIMEOUT_MS: ${FLEZHA_GRACEFUL_SHUTDOWN_TIMEOUT_MS:-60000}
@@ -48,7 +48,7 @@ services:
       FLEZHA_AUTHZ_ENABLED: "true"
       # Absolute, so the bootstrap token's path does not depend on the cwd the
       # controller happened to start in.
-      FLEZHA_AUTHZ_DIR: /flezha/app_data/auth
+      FLEZHA_AUTHZ_DIR: /flezha/storage/app/auth
       # The dev default already, stated because a controller with no durability
       # posture refuses to boot under prod config and the difference is worth
       # being able to see here.
@@ -126,7 +126,7 @@ services:
       bootstrap:
         condition: service_completed_successfully
     environment:
-      FLEZHA_SOCKET_FILES_PATH: /flezha/app_data/sockets/
+      FLEZHA_SOCKET_FILES_PATH: /flezha/storage/app/sockets/
       FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
       <<: *default-runner-credential
     working_dir: /flezha/test/apps/rust_runner
@@ -134,7 +134,7 @@ services:
       - sh
       - -c
       - |
-        until [ -S /flezha/app_data/sockets/runner_control_channel.sock ]; do
+        until [ -S /flezha/storage/app/sockets/runner_control_channel.sock ]; do
           echo "[runner] waiting for controller control socket..."
           sleep 1
         done
@@ -176,7 +176,7 @@ services:
       - sh
       - -c
       - |
-        until [ -S /flezha/app_data/sockets/runner_control_channel.sock ]; do
+        until [ -S /flezha/storage/app/sockets/runner_control_channel.sock ]; do
           echo "[sandbox_runner] waiting for controller control socket..."
           sleep 1
         done

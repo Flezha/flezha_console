@@ -250,7 +250,7 @@ bootstrap is claimed again, and bring the stack up:
 ```bash
 docker compose -f docker-compose.dev.yml down
 ../flezha/target/release/flz reset --yes --include-dlq --include-schedules \
-  --include-auth --include-audit --app-data-root ../flezha/app_data
+  --include-auth --include-audit --storage-root ../flezha/storage
 docker volume rm flezha_ui_fui_auth_data
 docker compose -f docker-compose.dev.yml up
 ```

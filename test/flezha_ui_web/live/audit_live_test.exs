@@ -226,7 +226,7 @@ defmodule FlezhaUiWeb.AuditLiveTest do
         {AuditLog, :stats},
         {:ok,
          %{
-           current_file: "app_data/audit/audit-current.jsonl",
+           current_file: "storage/app/audit/audit-current.jsonl",
            record_count: 12,
            current_file_bytes: 4096
          }}
