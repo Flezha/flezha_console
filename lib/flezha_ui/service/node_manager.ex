@@ -1205,14 +1205,14 @@ defmodule FlezhaUi.Service.NodeManager do
       factory_id: Map.get(state, :factory_id),
       runner_id: overwatch_runner(Map.get(state, :runner_id)),
       run: builder_run(Map.get(state, :builder) || %{}),
-      suspended: Map.get(state, :suspended, false),
+      suspended: Map.get(state, :phase) == :suspended,
       effectively_once: Map.get(state, :effectively_once, false),
       # Defaulted rather than required, so an older controller whose overwatch
       # omits a field decodes instead of failing.
       durable_steps: Map.get(state, :durable_steps, false),
       correction_window_ms: Map.get(state, :correction_window_ms),
       arrived_via_hotswap?: Map.get(state, :arrived_via_hotswap?, false),
-      init_error: Map.get(state, :init_error),
+      init_error: Map.get(state, :halt_reason),
       default_input_type: Map.get(state, :default_input_type),
       settings: Map.get(state, :settings),
       started_at: started_at,
@@ -1363,7 +1363,8 @@ defmodule FlezhaUi.Service.NodeManager do
 
   @doc """
   A durable steps relay's task journal as the controller reports it:
-  `%{entries:, leaf_tasks:, complete:}`, the entries newest first.
+  `%{entries:, outcome:}`, the entries newest first. `outcome` is the
+  `%{status:, error:}` the engine ended the run with, `nil` while it runs.
   """
   def task_journal(relay_id, token) do
     with {:ok, %{entries: entries} = report} <-

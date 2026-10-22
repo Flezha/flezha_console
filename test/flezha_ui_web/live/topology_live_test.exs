@@ -31,7 +31,7 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       factory_id: "static_cell",
       runner_id: "runner-a",
       builder: %{run: :flow, opts: []},
-      suspended: false,
+      phase: :running,
       started_at: nil,
       extensions: %{subs: subs, plugins: plugins}
     }

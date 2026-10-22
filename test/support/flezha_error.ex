@@ -4,7 +4,7 @@ defmodule Flezha.Error do
 
   `lib/` never names it — the UI reads a controller error by its fields — so it
   exists only for fixtures to answer the shape a published function answers.
-  Each code carries the class core's catalogue (`flz_transport/errors.json`)
+  Each code carries the class core's catalogue (`crates/flz_transport/errors.json`)
   gives it, so a fixture cannot invent a class the controller would not send.
   """
 

@@ -98,7 +98,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       conn: conn,
       node: node
     } do
-      steps(node, %{init_error: :factory_missing})
+      steps(node, %{halt_reason: :factory_missing})
 
       {:ok, _view, html} = live(conn, @url)
 
@@ -165,8 +165,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
              %{seq: 1, type: "iter_committed", iter: 1, task_idx: 0},
              %{seq: 2, type: "iter_committed", iter: 2, task_idx: 0}
            ],
-           leaf_tasks: ["reply"],
-           complete: false
+           outcome: nil
          }}
       )
 
@@ -179,8 +178,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       # Newest first: seq 2's row is rendered before seq 1's.
       assert :binary.match(html, "journal-entry-2") < :binary.match(html, "journal-entry-1")
       assert html =~ ~s(Committed iterations: <span class="fui-num">3, 2, 1</span>)
-      assert html =~ ~s(Its leaf tasklets are <span class="fui-num">reply</span>)
-      assert html =~ "has not committed every leaf"
+      assert html =~ "The run has not ended yet."
     end
 
     test "a dead-lettered entry names its tasklet and its dead-letter entry", %{
@@ -205,8 +203,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
                dlq_entry: "relay_steps/charge/abc"
              }
            ],
-           leaf_tasks: [],
-           complete: true
+           outcome: %{status: "error", error: "charge declined"}
          }}
       )
 
@@ -215,6 +212,8 @@ defmodule FlezhaUiWeb.RelayStepsTest do
       html = open_section(view, "journal")
 
       assert html =~ ~s(data-testid="journal-dead-lettered-9")
+      assert html =~ "Failed"
+      assert html =~ "<code>charge declined</code>"
 
       assert html =~
                ~r/Tasklet <span class="fui-num">charge<\/span>\s+could not process it: dead letter <span class="fui-num">relay_steps\/charge\/abc<\/span>/
@@ -339,7 +338,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
                id: "relay_done",
                phase: "finished",
                run: :steps,
-               status: :completed,
+               status: "ok",
                finished_at: System.system_time(:second) - 60
              }
            ]
@@ -381,7 +380,7 @@ defmodule FlezhaUiWeb.RelayStepsTest do
                id: "relay_kept",
                phase: "finished",
                run: :steps,
-               status: :completed,
+               status: "ok",
                finished_at: now
              }
            ]

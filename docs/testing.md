@@ -269,7 +269,7 @@ it honest:
 - `published_surface_test.exs` reads the core checkout beside this repository
   (`FLEZHA_CORE_PATH` or `../flezha`): every call the console makes is
   published, every stub stands in for a published function, and every error code
-  the fake answers carries the class core's `flz_transport/errors.json` gives
+  the fake answers carries the class core's `crates/flz_transport/errors.json` gives
   it.
 - `controller_shapes_test.exs` checks every stub's default answer and every
   fixture builder (`relay_row/2`, `runner_row/2`, `graph_channel/5`,

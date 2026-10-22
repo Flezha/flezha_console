@@ -156,8 +156,8 @@ defmodule FlezhaUiWeb.Words do
       steps: {"steps", :neutral}
     },
     completion: %{
-      completed: {"Completed", :positive},
-      failed: {"Failed", :negative},
+      ok: {"Completed", :positive},
+      error: {"Failed", :negative},
       cancelled: {"Cancelled", :neutral}
     }
   }

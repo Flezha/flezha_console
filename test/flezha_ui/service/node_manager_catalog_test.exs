@@ -228,7 +228,7 @@ defmodule FlezhaUi.Service.NodeManagerCatalogTest do
          %{
            relays: [
              %{id: "live", phase: "running"},
-             %{id: "done", phase: "finished", status: :completed, finished_at: 1}
+             %{id: "done", phase: "finished", status: "ok", finished_at: 1}
            ]
          }}
       )

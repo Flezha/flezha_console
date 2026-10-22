@@ -32,7 +32,9 @@ defmodule FlezhaUi.Service.PublishedSurfaceTest do
     end
 
     {out, 0} = System.cmd("python3", [extractor, File.cwd!()])
-    catalogue = core |> Path.join("flz_transport/errors.json") |> File.read!() |> Jason.decode!()
+
+    catalogue =
+      core |> Path.join("crates/flz_transport/errors.json") |> File.read!() |> Jason.decode!()
 
     %{
       allowed: MapSet.new(names(File.read!(published_path)) ++ @context_free ++ @door),

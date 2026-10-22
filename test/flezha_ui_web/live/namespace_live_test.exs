@@ -241,7 +241,7 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
            groups: [],
            relays: [
              %{id: "relay_a", phase: "running"},
-             %{id: "echo_1", phase: "finished", status: :completed, finished_at: 1_700_000_000}
+             %{id: "echo_1", phase: "finished", status: "ok", finished_at: 1_700_000_000}
            ]
          }}
       )

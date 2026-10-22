@@ -19,7 +19,7 @@ import {
  *
  * The dev stack seeds the flow relay `testnet_store_1` into `default`, so
  * its presence is asserted; a test that needs a steps relay starts its own. Totals are not: the
- * controller's `app_data` may carry durable state from earlier campaigns, so
+ * controller's `storage` may carry durable state from earlier campaigns, so
  * any absolute count is somebody else's number. Which rows each filter keeps
  * and which choices it offers are asserted in `relay_index_live_test.exs`.
  */

@@ -10,7 +10,7 @@
 # `deps/`, which belong to builds on the host.
 set -eu
 
-root=/flezha/app_data/plugins
+root=/flezha/storage/app/plugins
 build=/home/flezha/_build/plugins
 out=$build/out
 

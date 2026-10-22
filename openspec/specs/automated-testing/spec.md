@@ -182,7 +182,7 @@ ExUnit's fake controller SHALL be compiled only under `MIX_ENV=test`, SHALL be l
 
 #### Scenario: The fake holds only published names
 
-- **WHEN** the modules in `FakeController.modules/0` and the functions they export are compared with core's `docs/api/consumers/published.txt` and the two context-free reads
+- **WHEN** the modules in `FakeController.modules/0` and the functions they export are compared with core's `docs/internal/api/consumers/published.txt`, the door and the two context-free reads
 - **THEN** every stub is on that list
 - **AND** no stand-in remains for a retired module such as `Flezha.Service.EventManager`, `Flezha.Service.HubManager`, `Flezha.Service.CliManager` or a top-level `Flezha` function
 

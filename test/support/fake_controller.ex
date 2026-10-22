@@ -333,6 +333,7 @@ defmodule FakeController do
     {%{
        id: "relay",
        restart: :temporary,
+       shutdown: 5_000,
        start: {Flezha.Relay, :start_link, [{"default", "runner-a", builder}]}
      }, [], %{}}
   end
@@ -633,7 +634,7 @@ defmodule Flezha.Service.Steps do
   defstub completion(id, %{source: :ui} = ctx), do: :error
 
   defstub journal(id, %{source: :ui} = ctx),
-    do: {:ok, %{instance: id, entries: [], leaf_tasks: [], complete: true}}
+    do: {:ok, %{instance: id, entries: [], outcome: nil}}
 
   defstub committed_iterations(id, %{source: :ui} = ctx), do: {:ok, []}
   defstub consumed_offset(id, %{source: :ui} = ctx), do: {:ok, nil}
@@ -789,8 +790,8 @@ defmodule Flezha.Service.Controller do
          durability_levels: %{},
          durability_superseded: 0,
          node: :"flezha@node-a",
-         file_plugin_root: "/flezha/plugins",
-         state_root: "/flezha/state",
+         file_plugin_root: "/flezha/storage/app/files",
+         state_root: "/flezha/storage/app/state",
          monotonic_us: System.monotonic_time(:microsecond)
        }}
 

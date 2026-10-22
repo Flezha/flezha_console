@@ -249,8 +249,8 @@ bootstrap is claimed again, and bring the stack up:
 
 ```bash
 docker compose -f docker-compose.dev.yml down
-../flezha/target/release/flz reset --yes --include-dlq --include-schedules \
-  --include-auth --include-audit --app-data-root ../flezha/app_data
+../flezha/_build/.target/release/flz reset --yes --include-dlq --include-schedules \
+  --include-auth --include-audit --storage-root ../flezha/storage
 docker volume rm flezha_ui_fui_auth_data
 docker compose -f docker-compose.dev.yml up
 ```
@@ -262,7 +262,7 @@ A cold start then seeds cleanly in the current vocabulary.
 | Container | Role |
 | --- | --- |
 | `fui_plugin_packages` | One-shot: builds and places the plugin packages the controller loads at boot. Any `docker compose up`, even of one service, runs it again, and the controller lists the re-placed packages as pending until `docker restart flezha_controller` |
-| `flezha_controller` | The controller, built from `../flezha/docker/dev/Dockerfile.toolchain` |
+| `flezha_controller` | The controller, built from `../flezha/deploy/docker/dev/Dockerfile.toolchain` |
 | `flezha_rust_runner` | `test/apps/rust_runner`, waits for the control socket then connects |
 | `fui_bootstrap` | One-shot: claims the authorization bootstrap and issues the UI's token |
 | `fui_web` | This app |
