@@ -31,7 +31,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
     {:ok, _view, html} = live(conn, ~p"/cluster")
 
     assert html =~ "authz-bootstrap-pending"
-    assert html =~ "flz auth bootstrap"
+    assert html =~ "flz auth bootstrap &lt; storage/app/auth/bootstrap.token"
   end
 
   test "an enforced controller with no bound identity says calls will be refused", %{

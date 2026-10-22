@@ -1883,7 +1883,7 @@ defmodule FlezhaUiWeb.CoreComponents do
       class="mb-6"
     >
       Authorization is enforced on this controller but has not been claimed. Run
-      <code>flz auth bootstrap &lt;token&gt;</code>
+      <code>flz auth bootstrap &lt; storage/app/auth/bootstrap.token</code>
       on the controller to claim it; until then every operator verb is refused.
     </.notice>
 
