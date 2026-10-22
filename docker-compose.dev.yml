@@ -24,10 +24,10 @@ x-sandbox-runner-credential: &sandbox-runner-credential
 services:
   controller:
     build:
-      # The toolchain image is what flezha's own docker/dev/docker-compose.yml
+      # The toolchain image is what flezha's own deploy/docker/dev/docker-compose.yml
       # builds: Elixir+OTP, Rust, Node.js, protoc against bind-mounted source.
       context: ../flezha
-      dockerfile: docker/dev/Dockerfile.toolchain
+      dockerfile: deploy/docker/dev/Dockerfile.toolchain
     container_name: flezha_controller
     hostname: flezha_controller
     tty: true
@@ -60,7 +60,7 @@ services:
       # The plugin root is read once, at boot.
       plugin_packages:
         condition: service_completed_successfully
-    # Graceful shutdown — see flezha's docs/operations/graceful_shutdown.md.
+    # Graceful shutdown — see flezha's docs/public/topics/deploying/deploying_a_controller.md.
     stop_signal: SIGTERM
     stop_grace_period: 75s
     ulimits:
@@ -80,7 +80,7 @@ services:
       - ../flezha:/flezha
       - fui_flezha_build:/flezha/_build
       - fui_flezha_deps:/flezha/deps
-      - fui_flezha_cargo_target:/flezha/target
+      - fui_flezha_cargo_target:/flezha/_build/.target
     networks:
       - fui_network
 
@@ -90,7 +90,7 @@ services:
   plugin_packages:
     build:
       context: ../flezha
-      dockerfile: docker/dev/Dockerfile.toolchain
+      dockerfile: deploy/docker/dev/Dockerfile.toolchain
     container_name: fui_plugin_packages
     restart: "no"
     command: ["sh", "/flezha_ui_dev/plugin_packages.sh"]
@@ -103,14 +103,14 @@ services:
     networks:
       - fui_network
 
-  # The runner is its own service, mirroring flezha's docker/dev/docker-compose.yml.
+  # The runner is its own service, mirroring flezha's deploy/docker/dev/docker-compose.yml.
   # It owns its process, so it survives a controller restart on the SDK's own
   # reconnect loop — unlike a runner launched through the controller, which dies
   # with whatever process owned its Port.
   runner:
     build:
       context: ../flezha
-      dockerfile: docker/dev/Dockerfile.toolchain
+      dockerfile: deploy/docker/dev/Dockerfile.toolchain
     container_name: flezha_rust_runner
     restart: unless-stopped
     # The runner exits when its stdin reaches EOF, which is how a controller
@@ -128,6 +128,9 @@ services:
     environment:
       FLEZHA_SOCKET_FILES_PATH: /flezha/storage/app/sockets/
       FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
+      # The SDK's default under /var/lib is not writable by the image's user;
+      # in its home the id survives a restart, so the runner is recognised.
+      FLEZHA_RUNNER_ID_PATH: /home/flezha/.flezha-runner-id
       <<: *default-runner-credential
     working_dir: /flezha/test/apps/rust_runner
     command:
@@ -147,7 +150,7 @@ services:
       - fui_auth_data:/auth:ro
       - fui_socket_data:/socket_data
       - ../flezha:/flezha
-      - fui_flezha_cargo_target:/flezha/target
+      - fui_flezha_cargo_target:/flezha/_build/.target
     networks:
       - fui_network
 

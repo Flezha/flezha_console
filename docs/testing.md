@@ -33,7 +33,7 @@ only there.
 Put it in **ExUnit** when the state is one a healthy dev stack refuses to enter:
 audit logging switched off, a controller that is disconnected, timing out,
 version-skewed or shutting down, a partition group to rescale, a second running
-namespace, a confirmed controller stop or runner drop. `FakeController`
+namespace, a confirmed runner drop. `FakeController`
 produces all of those in milliseconds.
 
 Put it in **Playwright** when only a real browser can observe it: a JS hook, a
@@ -269,7 +269,7 @@ it honest:
 - `published_surface_test.exs` reads the core checkout beside this repository
   (`FLEZHA_CORE_PATH` or `../flezha`): every call the console makes is
   published, every stub stands in for a published function, and every error code
-  the fake answers carries the class core's `flz_transport/errors.json` gives
+  the fake answers carries the class core's `crates/flz_transport/errors.json` gives
   it.
 - `controller_shapes_test.exs` checks every stub's default answer and every
   fixture builder (`relay_row/2`, `runner_row/2`, `graph_channel/5`,

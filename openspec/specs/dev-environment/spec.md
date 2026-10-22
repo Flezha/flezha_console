@@ -5,7 +5,7 @@ TBD - created by archiving change resync-with-flezha-runtime. Update Purpose aft
 ## Requirements
 ### Requirement: The dev stack builds against current flezha
 
-`docker-compose.dev.yml` SHALL build the controller service from `flezha/docker/dev/Dockerfile.toolchain` and SHALL NOT reference any deleted path, image, or binary. The runner service SHALL run core's `test/apps/rust_runner`.
+`docker-compose.dev.yml` SHALL build the controller service from `flezha/deploy/docker/dev/Dockerfile.toolchain` and SHALL NOT reference any deleted path, image, or binary. The runner service SHALL run core's `test/apps/rust_runner`.
 
 #### Scenario: Building the dev stack
 

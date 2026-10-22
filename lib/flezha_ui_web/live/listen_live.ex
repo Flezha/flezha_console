@@ -64,8 +64,8 @@ defmodule FlezhaUiWeb.ListenLive do
 
   # The relay's own suspended flag, which the registry's verdict can lag.
   defp suspended?(ns, relay_id, token) do
-    case NodeManager.overwatch_state(ns, relay_id, token) do
-      {:ok, %{} = state} -> Map.get(state, :suspended, false)
+    case NodeManager.overwatch_facts(ns, relay_id, token) do
+      {:ok, facts} -> facts.suspended
       _unread -> nil
     end
   end

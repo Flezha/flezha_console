@@ -321,7 +321,12 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       with_namespaces(node, %{"default" => {:ok, []}})
       providers(node, [provider("relay_stdout", :relay)], 0)
       describe_provider(node, "relay_stdout", :relay, [:on_output])
-      FakeController.set(node, {Relay, :list_relays}, {:ok, ["relay_a", "relay_b"]})
+
+      FakeController.set(
+        node,
+        {Relay, :list},
+        {:ok, Enum.map(["relay_a", "relay_b"], &FakeController.relay_row/1)}
+      )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
       open_enable(view)
@@ -429,8 +434,9 @@ defmodule FlezhaUiWeb.PluginLiveTest do
 
       FakeController.set(
         node,
-        {Relay, :list_relays},
-        {:per_arg, 0, %{"staging" => {:ok, ["stage_1"]}}, {:ok, ["relay_a"]}}
+        {Relay, :list},
+        {:per_arg, 0, %{"staging" => {:ok, [FakeController.relay_row("stage_1")]}},
+         {:ok, [FakeController.relay_row("relay_a")]}}
       )
 
       {:ok, view, _html} = live(conn, ~p"/plugins")
@@ -572,7 +578,12 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       with_namespaces(node, %{"default" => {:ok, []}})
       providers(node, [provider("relay_stdout", :relay)], 0)
       describe_provider(node, "relay_stdout", :relay, [:on_output], [])
-      FakeController.set(node, {Relay, :list_relays}, {:ok, ["relay_a"]})
+
+      FakeController.set(
+        node,
+        {Relay, :list},
+        {:ok, Enum.map(["relay_a"], &FakeController.relay_row/1)}
+      )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
       open_enable(view)
@@ -639,7 +650,13 @@ defmodule FlezhaUiWeb.PluginLiveTest do
       )
 
       describe_provider(node, "relay_stdout", :relay, [:on_output])
-      FakeController.set(node, {Relay, :list_relays}, {:ok, ["relay_a", "relay_b"]})
+
+      FakeController.set(
+        node,
+        {Relay, :list},
+        {:ok, Enum.map(["relay_a", "relay_b"], &FakeController.relay_row/1)}
+      )
+
       :ok
     end
 

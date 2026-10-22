@@ -328,7 +328,7 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       {:ok, view, _html} = live(conn, ~p"/observability")
       toggle(view, "platform_authz")
 
-      assert [[:platform_authz, %{source: :ui}]] =
+      assert [["platform_authz", %{source: :ui}]] =
                FakeController.calls(node, {Observability, :enable_source})
     end
 
@@ -338,7 +338,7 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
       {:ok, view, _html} = live(conn, ~p"/observability")
       toggle(view, "platform_authz")
 
-      assert [[:platform_authz, _ctx]] =
+      assert [["platform_authz", _ctx]] =
                FakeController.calls(node, {Observability, :disable_source})
     end
 
@@ -427,7 +427,9 @@ defmodule FlezhaUiWeb.ObservabilityLiveTest do
                  params.source == :flezha_file_sink
                end)
 
-      assert [[:flezha_file_sink, %{source: :ui, emit: emit}]] = FakeController.calls(node, @tail)
+      assert [["flezha_file_sink", %{source: :ui, emit: emit}]] =
+               FakeController.calls(node, @tail)
+
       assert is_pid(emit)
     end
 

@@ -194,10 +194,8 @@ defmodule FlezhaUi.FormatTest do
       assert Format.unix_time(1_760_000_000_000, :millisecond) == "2025-10-09 08:53:20 UTC"
     end
 
-    test "an absent time is a dash, and a token that never expires says so" do
+    test "an absent time is a dash" do
       assert Format.unix_time(nil, :second) == "—"
-      assert Format.token_expiry(:never) == "never"
-      assert Format.token_expiry(1_760_000_000) == "2025-10-09 08:53:20 UTC"
     end
   end
 end

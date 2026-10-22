@@ -67,9 +67,6 @@
         <.stat :if={@authz.principal} label="Principal" mono>{@authz.principal}</.stat>
         <.stat :if={@authz.namespace} label="Namespace" mono>{@authz.namespace}</.stat>
         <.stat :if={@authz.role} label="Role" mono>{@authz.role}</.stat>
-        <.stat :if={@authz.expires_at} label="Expires">
-          {Format.token_expiry(@authz.expires_at)}
-        </.stat>
         <.stat :if={is_nil(@authz.principal)} label="Bound identity">
           None — {if @authz.reason,
             do: code_names(error_message(@authz.reason)),
@@ -109,40 +106,6 @@
         <input type="hidden" name="action" value="clear_flezha_token" />
         <.button variant="secondary">Clear token</.button>
       </.form>
-
-      <%!-- Only while no admin has claimed the controller: a claim after that
-            would be core's recovery, which unbinds the existing admin. --%>
-      <div
-        :if={@authz.posture == :bootstrap_pending}
-        data-testid="bootstrap-claim"
-        class="pt-4 space-y-3"
-      >
-        <p>
-          No admin has claimed this controller yet. Claim it with the one-time bootstrap token
-          from its <code>bootstrap.token</code>
-          file; the admin token it mints is stored as yours and not shown.
-        </p>
-        <.runtime_error error={@bootstrap_error} action="the bootstrap claim" />
-        <.form
-          for={%{}}
-          as={:bootstrap}
-          action={~p"/users/settings"}
-          method="put"
-          id="claim_bootstrap"
-        >
-          <input type="hidden" name="action" value="claim_bootstrap" />
-          <.input
-            type="password"
-            name="bootstrap[token]"
-            id="bootstrap_token"
-            value=""
-            label="Bootstrap token"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <.button class="mt-4" data-testid="bootstrap-claim-btn">Claim bootstrap</.button>
-        </.form>
-      </div>
     </div>
   </.section>
 </div>

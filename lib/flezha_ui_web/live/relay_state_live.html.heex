@@ -57,10 +57,15 @@
     <p data-testid="task-journal-committed">
       Committed iterations: <span class="fui-num">{Enum.join(@committed_iterations, ", ") |> then(&if(&1 == "", do: "none", else: &1))}</span>.
     </p>
-    <p data-testid="task-journal-leaves">
-      Its leaf tasklets are <span class="fui-num">{Enum.join(@journal.leaf_tasks, ", ")}</span>; {if @journal.complete,
-        do: "the in-flight iteration has committed every leaf.",
-        else: "the in-flight iteration has not committed every leaf."}
+    <p data-testid="task-journal-outcome">
+      <%= if @journal.outcome do %>
+        The run ended:
+        <.said kind={:completion} value={@journal.outcome.status} /><span :if={
+          @journal.outcome[:error] not in [nil, ""]
+        }>, <code>{@journal.outcome.error}</code></span>.
+      <% else %>
+        The run has not ended yet.
+      <% end %>
     </p>
   </div>
   <.empty_state :if={@journal.entries == []} icon="hero-book-open">

@@ -162,14 +162,6 @@ defmodule FlezhaUi.Format do
   def time_of_day(_other), do: "—"
 
   @doc """
-  A token's `expires_at`, which the controller answers as unix seconds or the
-  atom `:never`.
-  """
-  def token_expiry(:never), do: "never"
-  def token_expiry(seconds) when is_integer(seconds), do: unix_time(seconds, :second)
-  def token_expiry(_other), do: "—"
-
-  @doc """
   A unix time the controller answers as an integer in `unit` — `:second` for a
   token or a drop mark, `:millisecond` for a shipment — as an absolute time.
   """

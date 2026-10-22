@@ -91,7 +91,7 @@ defmodule FlezhaUiWeb.ListenLiveTest do
       node: node
     } do
       FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
-      FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{suspended: true}})
+      FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{phase: :suspended}})
       FakeController.set(node, {Flezha.Service.Fleet, :runners_for_factory}, {:ok, []})
 
       note = text_of(render(listening(conn)), ~s([data-testid="listen-unservable"]))

@@ -79,7 +79,9 @@ test.describe('Observability', () => {
     const line = page.getByTestId('tail-record').filter({ has: details });
     await expect(line.getByTestId('tail-sentence')).toHaveText(/The VM holds \S+ bytes in all/);
     await expect(details.locator('.fui-tech-name')).toBeHidden();
-    await details.locator('summary').click();
+    // Dispatched, not clicked: each VM poll moves the line down, and a pointer
+    // click waits for it to stand still.
+    await details.locator('summary').dispatchEvent('click');
     await expect(details.locator('.fui-tech-name')).toContainText(/value \S+/);
     const count = page.getByTestId('tail-count');
     const before = await count.textContent();

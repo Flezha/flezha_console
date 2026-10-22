@@ -4,7 +4,7 @@ defmodule Flezha.Error do
 
   `lib/` never names it — the UI reads a controller error by its fields — so it
   exists only for fixtures to answer the shape a published function answers.
-  Each code carries the class core's catalogue (`flz_transport/errors.json`)
+  Each code carries the class core's catalogue (`crates/flz_transport/errors.json`)
   gives it, so a fixture cannot invent a class the controller would not send.
   """
 
@@ -49,6 +49,7 @@ defmodule Flezha.Error do
     "audit.disabled" => :unavailable,
     "controller.timeout" => :unavailable,
     "internal.uncatalogued" => :internal,
+    "control.unknown_function" => :not_found,
     "diagnose.no_runner" => :unavailable,
     "diagnose.finished" => :conflict,
     "diagnose.unknown" => :unavailable,
@@ -60,7 +61,6 @@ defmodule Flezha.Error do
     "call.unavailable" => :unavailable,
     "usage.invalid_number" => :invalid,
     "authz.unknown_role" => :invalid,
-    "authz.bootstrap_token_mismatch" => :denied,
     "plugin.package_invalid" => :invalid,
     "schedule.not_found" => :not_found,
     "state.inbox_unreadable" => :unavailable,

@@ -75,7 +75,7 @@ defmodule FlezhaUiWeb.DlqLive do
   @impl true
   def handle_event("drop", %{"ref" => ref}, socket) do
     case NodeManager.dlq_drop(ref, socket.assigns.flezha_token) do
-      :ok ->
+      {:ok, _dropped} ->
         {:noreply,
          socket
          |> assign(confirm: nil)
@@ -186,7 +186,21 @@ defmodule FlezhaUiWeb.DlqLive do
       attempts: entry["attempts"],
       payload_bytes: entry["payload_bytes"],
       replaying?: entry["status"] == "replaying",
-      error: entry["error"]
+      error: park_error(entry["error"])
     }
   end
+
+  # A sink's park stores the controller's error object as JSON text; a
+  # tasklet's failure is plain text.
+  defp park_error("{" <> _ = text) do
+    case Jason.decode(text) do
+      {:ok, %{"code" => code, "message" => message}} ->
+        error_message(%{code: code, message: message})
+
+      _other ->
+        text
+    end
+  end
+
+  defp park_error(error), do: error
 end

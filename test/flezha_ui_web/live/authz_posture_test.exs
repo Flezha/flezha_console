@@ -10,7 +10,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
   use FlezhaUiWeb.LiveCase
 
   alias Flezha.AuthZ
-  alias Flezha.AuthZ.TokenStore
+  alias Flezha.Service.Admin
   alias FlezhaUi.TestEnv
 
   setup %{node: node} do
@@ -39,7 +39,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
     node: node
   } do
     FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
-    FakeController.set(node, {TokenStore, :verify}, FakeController.error("authz.token_unknown"))
+    FakeController.set(node, {Admin, :context}, FakeController.error("authz.token_unknown"))
 
     {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -53,7 +53,7 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
 
     FakeController.set(
       node,
-      {TokenStore, :verify},
+      {Admin, :context},
       FakeController.error("authz.token_revoked", "the token has been revoked")
     )
 
@@ -68,8 +68,8 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
 
     FakeController.set(
       node,
-      {TokenStore, :verify},
-      {:ok, %{principal: "alice", namespace: "acme", role: :ops, expires_at: :never}}
+      {Admin, :context},
+      {:ok, %{principal: "alice", namespace: "acme", role: :ops, source: :ui}}
     )
 
     {:ok, _view, html} = live(conn, ~p"/cluster")
@@ -110,8 +110,8 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
 
     FakeController.set(
       node,
-      {TokenStore, :verify},
-      {:ok, %{principal: "alice", namespace: "acme", role: :ops, expires_at: :never}}
+      {Admin, :context},
+      {:ok, %{principal: "alice", namespace: "acme", role: :ops, source: :ui}}
     )
 
     {:ok, _view, html} = live(conn, ~p"/cluster")
@@ -127,8 +127,8 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
 
     FakeController.set(
       node,
-      {TokenStore, :verify},
-      {:ok, %{principal: "alice", namespace: "acme", role: :ops, expires_at: :never}}
+      {Admin, :context},
+      {:ok, %{principal: "alice", namespace: "acme", role: :ops, source: :ui}}
     )
 
     {:ok, _view, html} = live(conn, ~p"/cluster")
@@ -143,8 +143,8 @@ defmodule FlezhaUiWeb.AuthzPostureTest do
 
     FakeController.set(
       node,
-      {TokenStore, :verify},
-      {:ok, %{principal: "root", namespace: "_system", role: :admin, expires_at: :never}}
+      {Admin, :context},
+      {:ok, %{principal: "root", namespace: "_system", role: :admin, source: :ui}}
     )
 
     {:ok, _view, html} = live(conn, ~p"/cluster")

@@ -439,7 +439,7 @@ defmodule FlezhaUiWeb.RelayCallsTest do
       FakeController.set(
         node,
         {Relay, :overwatch_state},
-        {:ok, %{factory_id: "orders", suspended: true}}
+        {:ok, %{factory_id: "orders", phase: :suspended}}
       )
 
       FakeController.set(node, {Relay, :send}, {:ok, %{to: "relay_a", verdict: :suspended}})

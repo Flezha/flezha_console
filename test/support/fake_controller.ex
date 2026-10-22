@@ -4,7 +4,7 @@ defmodule FakeController.Stub do
 
       use FakeController.Stub
 
-      defstub list_relays(ns, %{source: :ui} = ctx), do: {:ok, []}
+      defstub list(ns, %{source: :ui} = ctx), do: {:ok, []}
 
   Generates the function *and* the key `FakeController` files it under, so the
   two cannot drift. Written by hand they can: a key naming the wrong function
@@ -54,10 +54,10 @@ defmodule FakeController do
   Canned answers for the published consumer API `NodeManager` calls.
 
   Every stand-in carries the name of a module on core's published surface —
-  `Flezha.Service.*`, plus the two context-free reads in `Flezha.AuthZ` and
-  `Flezha.AuthZ.TokenStore` — and every stub takes the caller context last and
-  answers in the shape the core function answers. A stand-in only stands in if
-  the code under test reaches it by the name it already uses. Shipped onto a
+  `Flezha.Service.*`, plus the context-free posture read in `Flezha.AuthZ` —
+  and every stub takes the caller context last and answers in the shape the
+  core function answers. `Flezha.Service.Admin` stands in for core's door,
+  which is how the code under test reaches them. Shipped onto a
   peer node, they let a LiveView be driven through the real `:erpc` transport
   against states a live controller cannot be asked to produce — an empty
   controller, a populated dead-letter queue, a refusal, a version-skewed API.
@@ -98,8 +98,8 @@ defmodule FakeController do
       Flezha.Service.PluginManager,
       Flezha.Service.AuditLog,
       Flezha.Service.Observability,
-      Flezha.AuthZ,
-      Flezha.AuthZ.TokenStore
+      Flezha.Service.Admin,
+      Flezha.AuthZ
     ]
   end
 
@@ -333,6 +333,7 @@ defmodule FakeController do
     {%{
        id: "relay",
        restart: :temporary,
+       shutdown: 5_000,
        start: {Flezha.Relay, :start_link, [{"default", "runner-a", builder}]}
      }, [], %{}}
   end
@@ -564,7 +565,6 @@ defmodule Flezha.Service.Relay do
   use FakeController.Stub
 
   defstub list_namespaces(%{source: :ui} = ctx), do: {:ok, []}
-  defstub list_relays(ns, %{source: :ui} = ctx), do: {:ok, []}
   defstub list(ns, %{source: :ui} = ctx), do: {:ok, []}
   defstub relay_rows(ns, %{source: :ui} = ctx), do: {:ok, []}
   defstub relay_plugins(ns, %{source: :ui} = ctx), do: {:ok, []}
@@ -634,7 +634,7 @@ defmodule Flezha.Service.Steps do
   defstub completion(id, %{source: :ui} = ctx), do: :error
 
   defstub journal(id, %{source: :ui} = ctx),
-    do: {:ok, %{instance: id, entries: [], leaf_tasks: [], complete: true}}
+    do: {:ok, %{instance: id, entries: [], outcome: nil}}
 
   defstub committed_iterations(id, %{source: :ui} = ctx), do: {:ok, []}
   defstub consumed_offset(id, %{source: :ui} = ctx), do: {:ok, nil}
@@ -725,7 +725,6 @@ defmodule Flezha.Service.Namespace do
   defstub create(name, opts, %{source: :ui} = ctx),
     do: {:ok, %{name: name, quotas: Keyword.get(opts, :quotas, %{})}}
 
-  defstub delete(name, %{source: :ui} = ctx), do: :ok
   defstub set_quotas(name, quotas, %{source: :ui} = ctx), do: {:ok, %{name: name, quotas: quotas}}
 
   defstub quota_kinds(%{source: :ui} = ctx),
@@ -740,47 +739,6 @@ defmodule Flezha.Service.Namespace do
     do: {:ok, Map.take(ctx, [:principal, :namespace, :role])}
 
   defstub tokens(%{source: :ui} = ctx), do: {:ok, []}
-
-  defstub issue_token(principal, namespace, role, opts, %{source: :ui} = ctx),
-    do:
-      {:ok,
-       %{
-         id: "tok-new",
-         principal: principal,
-         namespace: namespace,
-         role: role,
-         label: opts[:label],
-         status: :active,
-         token: "flzt_issued_secret_value"
-       }}
-
-  defstub revoke_token(id, %{source: :ui} = ctx),
-    do:
-      {:ok,
-       %{
-         id: id,
-         principal: "p",
-         namespace: "default",
-         role: :viewer,
-         label: nil,
-         status: :revoked
-       }}
-
-  defstub bind_role(principal, role, namespace, %{source: :ui} = ctx),
-    do:
-      {:ok,
-       %{
-         principal: principal,
-         role: role,
-         namespace: namespace,
-         binding: %{principal: principal, namespace: namespace, roles: [role]}
-       }}
-
-  defstub unbind_role(principal, role, %{source: :ui} = ctx),
-    do: {:ok, %{principal: principal, role: role, binding: nil}}
-
-  defstub bootstrap(bootstrap_token, %{source: :ui} = ctx),
-    do: {:ok, %{principal: "admin-claimed", minted_token: "flzt_minted_admin_secret"}}
 end
 
 defmodule Flezha.Service.Dlq do
@@ -832,8 +790,8 @@ defmodule Flezha.Service.Controller do
          durability_levels: %{},
          durability_superseded: 0,
          node: :"flezha@node-a",
-         file_plugin_root: "/flezha/plugins",
-         state_root: "/flezha/state",
+         file_plugin_root: "/flezha/storage/app/files",
+         state_root: "/flezha/storage/app/state",
          monotonic_us: System.monotonic_time(:microsecond)
        }}
 
@@ -857,21 +815,7 @@ defmodule Flezha.Service.Controller do
   defstub mem_top(%{source: :ui} = ctx), do: {:ok, %{}}
   defstub liveness_counters(%{source: :ui} = ctx), do: {:ok, %{channels: [], relays: []}}
 
-  defstub shutdown_status(%{source: :ui} = ctx),
-    do:
-      {:ok,
-       %{
-         shutdown_in_progress: false,
-         shutdown_phase: nil,
-         signal_handler_status: :ok,
-         graceful_shutdown_enabled: true,
-         graceful_shutdown_timeout_ms: 60_000
-       }}
-
   defstub durability_status(%{source: :ui} = ctx), do: {:ok, []}
-
-  def stop(opts, %{source: :ui} = ctx),
-    do: FakeController.stream({__MODULE__, :stop}, [opts, ctx], ctx)
 end
 
 defmodule Flezha.Service.PluginManager do
@@ -911,9 +855,35 @@ defmodule Flezha.AuthZ do
   defstub enforcement_posture(), do: :open
 end
 
-defmodule Flezha.AuthZ.TokenStore do
-  @moduledoc "Stand-in for the context-free token verification. See `FakeController`."
+defmodule Flezha.Service.Admin do
+  @moduledoc """
+  Stand-in for core's door. See `FakeController`.
+
+  `run/4` records the operation's name, applies the stand-in it names with the
+  caller context appended, and answers as core's door does: `{:ok, value, more}` as
+  `{:ok, [value, more]}`, and any other answer that is not `{:ok, _}` or an
+  error wrapped in `{:ok, _}`. An operation no stand-in defines is refused with
+  `control.unknown_function`, as core refuses one it does not publish.
+  """
   use FakeController.Stub
 
-  defstub verify(token), do: FakeController.error("authz.token_unknown")
+  defstub context(source, token), do: FakeController.error("authz.token_unknown")
+
+  def run(name, args, context, :given),
+    do: FakeController.answer({__MODULE__, :run}, [name], dispatch(name, args, context))
+
+  defp dispatch(name, args, context) do
+    [module, function] = String.split(name, ".", parts: 2)
+    module = Module.concat(Flezha.Service, module)
+    function = String.to_atom(function)
+
+    if function_exported?(module, function, length(args) + 1),
+      do: module |> apply(function, args ++ [context]) |> answer(),
+      else: FakeController.error("control.unknown_function")
+  end
+
+  defp answer({:error, _reason} = refused), do: refused
+  defp answer({:ok, value}), do: {:ok, value}
+  defp answer({:ok, value, more}), do: {:ok, [value, more]}
+  defp answer(other), do: {:ok, other}
 end

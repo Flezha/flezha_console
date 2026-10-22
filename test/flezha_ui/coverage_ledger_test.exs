@@ -51,7 +51,11 @@ defmodule FlezhaUi.CoverageLedgerTest do
   @bindings_floor 100
 
   # {test id or event, reason}
-  @exempt []
+  @exempt [
+    {"delete",
+     "the cell state dialog binds its action as `on_confirm={@confirm.action}`, which " <>
+       "the ledger cannot read; relay_state_live_test.exs confirms it through state-confirm-btn"}
+  ]
 
   @own_file Path.relative_to_cwd(__ENV__.file)
 

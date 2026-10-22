@@ -54,7 +54,7 @@ test.describe('Steps relays', () => {
 
     await openSection(page, 'journal');
     await expect(page.getByTestId('task-journal-committed')).toContainText('Committed iterations');
-    await expect(page.getByTestId('task-journal-leaves')).toContainText('leaf tasklets');
+    await expect(page.getByTestId('task-journal-outcome')).toContainText('The run has not ended yet.');
 
     const open = page.getByTestId('open-rewind-btn');
     await open.click();

@@ -53,13 +53,6 @@ defmodule FlezhaUi.Service.NodeManagerCallsTest do
       {&NodeManager.update_plugin("p", %{namespace: "ns", opts: %{"x" => 1}}, &1),
        {PluginManager, :update}, ["p", [namespace: "ns", opts: %{"x" => 1}]]},
       {&NodeManager.list_tokens(&1), {Namespace, :tokens}, []},
-      {&NodeManager.issue_token("bob", "ns", "viewer", [ttl: 60], &1), {Namespace, :issue_token},
-       ["bob", "ns", "viewer", [ttl: 60]]},
-      {&NodeManager.revoke_token("tok-1", &1), {Namespace, :revoke_token}, ["tok-1"]},
-      {&NodeManager.bind_role("bob", "ops", "ns", &1), {Namespace, :bind_role},
-       ["bob", "ops", "ns"]},
-      {&NodeManager.unbind_role("bob", nil, &1), {Namespace, :unbind_role}, ["bob", nil]},
-      {&NodeManager.bootstrap("flzb_one_time", &1), {Namespace, :bootstrap}, ["flzb_one_time"]},
       {&NodeManager.inbox("r1", &1), {Steps, :inbox}, ["r1"]},
       {&NodeManager.outbox("rc/t/k", &1), {Steps, :outbox}, ["rc/t/k"]},
       {&NodeManager.rotate_cell("rc/t/k", &1), {Steps, :rotate}, ["rc/t/k"]},
@@ -109,6 +102,28 @@ defmodule FlezhaUi.Service.NodeManagerCallsTest do
 
     test "an unbind answers :ok", %{node: _node} do
       assert NodeManager.unbind_plugin("p", "ns", "r1", nil) == :ok
+    end
+
+    test "a read answering two values keeps its own shape", %{node: node} do
+      assert NodeManager.cell_state("ns", "r1", nil, nil) == {:ok, "{}", 0}
+
+      FakeController.set(node, {Flezha.Service.Dlq, :get}, {:ok, %{ref: "e1"}, "payload"})
+      assert NodeManager.dlq_get("e1", nil) == {:ok, %{ref: "e1"}, "payload"}
+    end
+
+    test "a relay with no completion record answers not_found" do
+      assert NodeManager.completion("r1", nil) == {:error, :not_found}
+    end
+
+    test "the relay ids are read from the relay listing's rows", %{node: node} do
+      FakeController.set(
+        node,
+        {Relay, :list},
+        {:ok, [FakeController.relay_row("r1"), FakeController.relay_row("r2")]}
+      )
+
+      assert NodeManager.list_relays("ns", nil) == {:ok, ["r1", "r2"]}
+      assert [["ns", %{source: :ui}]] = FakeController.calls(node, {Relay, :list})
     end
 
     test "an answer of another shape is reported, never matched as success", %{node: node} do
@@ -195,8 +210,8 @@ defmodule FlezhaUi.Service.NodeManagerCallsTest do
 
     FakeController.set(
       node,
-      {Flezha.AuthZ.TokenStore, :verify},
-      {:ok, %{principal: "v@acme", namespace: "default", role: :viewer, expires_at: :never}}
+      {Flezha.Service.Admin, :context},
+      {:ok, %{principal: "v@acme", namespace: "default", role: :viewer, source: :ui}}
     )
 
     if operations do

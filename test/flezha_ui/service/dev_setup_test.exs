@@ -130,7 +130,7 @@ defmodule FlezhaUi.Service.DevSetupTest do
     end
 
     test "a relay that is already running is left alone", %{node: node} do
-      FakeController.set(node, {Relay, :list_relays}, {:ok, ["relay_a"]})
+      FakeController.set(node, {Relay, :list}, {:ok, [FakeController.relay_row("relay_a")]})
       configure(relays: [relay("relay_a")])
 
       assert seed!().ready
@@ -202,7 +202,13 @@ defmodule FlezhaUi.Service.DevSetupTest do
                FakeController.calls(node, {PluginManager, :enable})
 
       GenServer.stop(DevSetup)
-      FakeController.set(node, {Relay, :list_relays}, {:ok, ["testnet_showcase"]})
+
+      FakeController.set(
+        node,
+        {Relay, :list},
+        {:ok, [FakeController.relay_row("testnet_showcase")]}
+      )
+
       assert seed!().ready
       assert length(FakeController.calls(node, {Relay, :start})) == 1
     end

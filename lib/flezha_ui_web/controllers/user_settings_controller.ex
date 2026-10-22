@@ -76,32 +76,6 @@ defmodule FlezhaUiWeb.UserSettingsController do
     end
   end
 
-  # Offered only while the bootstrap is pending: a claim made later is core's
-  # break-glass recovery, which unbinds the existing admin. The minted admin
-  # token becomes the user's own through the encrypted path a pasted token
-  # takes, and is never rendered.
-  def update(conn, %{"action" => "claim_bootstrap", "bootstrap" => %{"token" => bootstrap_token}}) do
-    user = conn.assigns.current_scope.user
-
-    with :bootstrap_pending <- conn.assigns.authz.posture,
-         {:ok, %{principal: principal} = claimed} <-
-           NodeManager.bootstrap(String.trim(bootstrap_token), nil) do
-      store_minted(user, claimed[:minted_token])
-
-      conn
-      |> put_flash(:info, claimed_flash(principal, claimed[:minted_token]))
-      |> redirect(to: ~p"/users/settings")
-    else
-      {:error, reason} ->
-        render(conn, :edit, bootstrap_error: reason)
-
-      _posture ->
-        conn
-        |> put_flash(:error, "No bootstrap is pending on the controller.")
-        |> redirect(to: ~p"/users/settings")
-    end
-  end
-
   def update(conn, %{"action" => "clear_flezha_token"}) do
     user = conn.assigns.current_scope.user
     previous = Accounts.user_flezha_token(user)
@@ -128,22 +102,6 @@ defmodule FlezhaUiWeb.UserSettingsController do
     end
   end
 
-  # The token changeset has no validations, so storing answers `{:ok, _}`.
-  defp store_minted(user, minted) when is_binary(minted) do
-    previous = Accounts.user_flezha_token(user)
-    {:ok, _user} = Accounts.update_user_flezha_token(user, minted)
-    previous && NodeManager.evict_token(previous)
-    NodeManager.evict_token(minted)
-  end
-
-  defp store_minted(_user, _minted), do: :ok
-
-  defp claimed_flash(principal, minted) when is_binary(minted),
-    do: "Bootstrap claimed: #{principal} is bound as admin@_system, and its token is now yours."
-
-  defp claimed_flash(principal, _minted),
-    do: "Bootstrap claimed: #{principal} is bound as admin@_system. No token was minted for it."
-
   # What binds is the effective token, which may be the service token; whether
   # the *user* stored one is a separate fact, and the screen states both. The
   # token value itself is never assigned.
@@ -155,7 +113,6 @@ defmodule FlezhaUiWeb.UserSettingsController do
     |> assign(:password_changeset, Accounts.change_user_password(user))
     |> assign(:user_token_stored?, Accounts.user_flezha_token(user) != nil)
     |> assign(:authz, NodeManager.authz_status(Accounts.flezha_token(user)))
-    |> assign(:bootstrap_error, nil)
   end
 
   # Stated from the verification, so an operator learns immediately that the

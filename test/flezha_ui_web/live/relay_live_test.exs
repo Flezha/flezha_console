@@ -112,7 +112,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
         factory_id: "store_input",
         runner_id: "runner-a",
         started_at: System.system_time(:millisecond) - 60_000,
-        suspended: false,
+        phase: :running,
         effectively_once: true,
         default_input_type: "2"
       })
@@ -136,7 +136,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
     end
 
     test "a relay that failed to initialise does not read as healthy", %{conn: conn, node: node} do
-      overwatch(node, %{factory_id: "store_input", init_error: :boom})
+      overwatch(node, %{factory_id: "store_input", halt_reason: :boom})
       registry_row(node, %{health: :healthy})
 
       {:ok, _view, html} = live(conn, @url)
@@ -149,7 +149,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       conn: conn,
       node: node
     } do
-      overwatch(node, %{factory_id: "store_input", suspended: true})
+      overwatch(node, %{factory_id: "store_input", phase: :suspended})
 
       {:ok, view, html} = live(conn, @url)
 
@@ -172,7 +172,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       conn: conn,
       node: node
     } do
-      overwatch(node, %{factory_id: "store_input", suspended: true})
+      overwatch(node, %{factory_id: "store_input", phase: :suspended})
       FakeController.set(node, {Flezha.Service.Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
 
       FakeController.set(
@@ -234,7 +234,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
     end
 
     test "a suspended relay a runner serves wakes on the next message", %{conn: conn, node: node} do
-      overwatch(node, %{factory_id: "store_input", suspended: true})
+      overwatch(node, %{factory_id: "store_input", phase: :suspended})
       FakeController.set(node, {Flezha.Service.Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
 
       {:ok, _view, html} = live(conn, @url)
@@ -275,7 +275,7 @@ defmodule FlezhaUiWeb.RelayLiveTest do
       FakeController.set(
         node,
         {Flezha.Service.Steps, :completion},
-        {:ok, %{status: :completed, finished_at: System.system_time(:second)}}
+        {:ok, %{status: "ok", finished_at: System.system_time(:second)}}
       )
 
       {:ok, _view, html} = live(conn, @url)

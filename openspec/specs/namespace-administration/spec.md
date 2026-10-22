@@ -60,9 +60,9 @@ For each namespace the UI SHALL show every quota kind `Flezha.Service.Namespace.
 - **WHEN** an operator opens a namespace whose quota is breached
 - **THEN** the quota section is open without the operator expanding it
 
-### Requirement: Namespace creation, deletion, and quota edits
+### Requirement: Namespace creation and quota edits
 
-An operator SHALL be able to create a namespace with quota overrides, change an existing namespace's quotas, and delete a namespace, through `Flezha.Service.Namespace.create/3`, `set_quotas/3`, and `delete/2`. Deletion SHALL require an explicit confirmation naming the namespace. Because `set_quotas/3` replaces a namespace's overrides as a whole, a quota edit SHALL send every limit the namespace holds, with the edited ones changed.
+An operator SHALL be able to create a namespace with quota overrides and change an existing namespace's quotas, through `Flezha.Service.Namespace.create/3` and `set_quotas/3`. The console SHALL NOT delete a namespace: the controller keeps that operation off the network, and an operator deletes a namespace with `flz`. Because `set_quotas/3` replaces a namespace's overrides as a whole, a quota edit SHALL send every limit the namespace holds, with the edited ones changed.
 
 #### Scenario: Creating a namespace
 
@@ -83,24 +83,16 @@ An operator SHALL be able to create a namespace with quota overrides, change an 
 - **AND** the limits the operator did not edit keep their values
 - **AND** the meters re-render against the new limits
 
-#### Scenario: Deleting a namespace
+#### Scenario: No namespace is deleted here
 
-- **WHEN** an operator confirms deletion by naming the namespace
-- **THEN** `Service.Namespace.delete/2` is called
-
-#### Scenario: Deletion is not confirmed
-
-- **WHEN** an operator opens the delete confirmation and dismisses it
-- **THEN** no delete call is made
+- **WHEN** an operator opens the namespaces listing, whatever its role
+- **THEN** no delete control is rendered
 
 ### Requirement: Role bindings for a namespace are visible
 
 The namespace screen SHALL list the principals bound to the namespace, from `Flezha.Service.Namespace.roles/2`. Each principal SHALL be listed with every role it holds there, when its binding was last changed by a bind, and which principal made that bind.
 
-An operator SHALL be able to:
-
-- bind a principal to a role in the screen's namespace through `Flezha.Service.Namespace.bind_role/4`;
-- unbind one role, or a principal's whole binding, through `Flezha.Service.Namespace.unbind_role/3`, after an explicit confirmation that states what will be taken away.
+The console SHALL NOT bind or unbind roles: the controller keeps those operations off the network, and an operator binds and unbinds roles with `flz`.
 
 Role bindings SHALL be rendered as a section that collapses. The section header SHALL state how many principals are bound, so the count is readable while the section is shut.
 
@@ -127,35 +119,12 @@ Role bindings SHALL be rendered as a section that collapses. The section header 
 #### Scenario: A namespace has no bound principals
 
 - **WHEN** no principal is bound to the namespace
-- **THEN** an empty state says so and offers the bind control
+- **THEN** an empty state says so
 
-#### Scenario: Binding a role
+#### Scenario: No role is bound or unbound here
 
-- **WHEN** an operator binds a principal to a role
-- **THEN** `bind_role/4` is called with the principal, the role and the screen's namespace
-- **AND** the principal is listed with that role on the next read
-
-#### Scenario: An unknown role
-
-- **WHEN** the controller refuses the bind with `authz.unknown_role`
-- **THEN** the refusal is shown with its message, which names the roles there are
-
-#### Scenario: Unbinding one role
-
-- **WHEN** an operator confirms unbinding one role from a principal
-- **THEN** `unbind_role/3` is called with the principal and that role
-- **AND** the principal's other roles remain listed
-
-#### Scenario: Unbinding a whole binding
-
-- **WHEN** an operator confirms removing a principal's whole binding
-- **THEN** `unbind_role/3` is called with the principal and no role
-- **AND** the principal is no longer listed
-
-#### Scenario: The unbind is not confirmed
-
-- **WHEN** an operator opens the unbind confirmation and dismisses it
-- **THEN** no call is made
+- **WHEN** an operator opens the role bindings section, whatever its role
+- **THEN** no bind or unbind control is rendered
 
 ### Requirement: Quota fields refuse what is not a whole number
 

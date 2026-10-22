@@ -1,8 +1,9 @@
 defmodule FlezhaUi.Service.NodeManagerIdentityTest do
   @moduledoc """
   The identity half of the seam: token verification, the caller context built
-  from it, the error shape, the enforcement posture, and the stream operations
-  a context carries an emit pid for.
+  from it, the door every operation is run through, the error shape, the
+  enforcement posture, and the stream operations a context carries an emit pid
+  for.
 
   Each verification gets its own token string. Verification is cached per
   token, so a second answer set under a token already asked about would never
@@ -16,7 +17,7 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
 
   @moduletag :distributed
 
-  @verify {Flezha.AuthZ.TokenStore, :verify}
+  @context {Flezha.Service.Admin, :context}
   @posture {Flezha.AuthZ, :enforcement_posture}
   @cache :flezha_ui_authz_cache
 
@@ -33,19 +34,19 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
 
   defp identity(overrides \\ %{}) do
     Map.merge(
-      %{principal: "ops@acme", namespace: "default", role: :ops, expires_at: :never},
+      %{source: :ui, principal: "ops@acme", namespace: "default", role: :ops},
       overrides
     )
   end
 
   # A static answer, not a closure: the peer never loads this test module, so a
   # function defined here is `:undef` there.
-  defp bind(node, identity), do: FakeController.set(node, @verify, {:ok, identity})
+  defp bind(node, identity), do: FakeController.set(node, @context, {:ok, identity})
 
-  defp refuse_verify(node, code),
-    do: FakeController.set(node, @verify, FakeController.error(code))
+  defp refuse_context(node, code),
+    do: FakeController.set(node, @context, FakeController.error(code))
 
-  defp verify_calls(node), do: FakeController.calls(node, @verify)
+  defp context_calls(node), do: FakeController.calls(node, @context)
 
   describe "error/1" do
     test "reads a controller error by its fields" do
@@ -96,29 +97,31 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
   end
 
   describe "verify_token/1" do
-    test "a valid token answers the store's identity", %{node: node, token: token} do
+    test "a valid token answers the door's context", %{node: node, token: token} do
       bind(node, identity())
 
       assert {:ok, %{principal: "ops@acme", namespace: "default", role: :ops}} =
                NodeManager.verify_token(token)
+
+      assert [[:ui, ^token]] = context_calls(node)
     end
 
     test "the store's own refusals pass through", %{node: node} do
       for code <-
             ~w(authz.token_malformed authz.token_unknown authz.token_revoked authz.token_expired) do
         token = unique_token()
-        refuse_verify(node, code)
+        refuse_context(node, code)
 
         assert {:error, %Flezha.Error{code: ^code}} = NodeManager.verify_token(token)
       end
     end
 
     test "no token is not a call at all", %{node: node} do
-      before = length(verify_calls(node))
+      before = length(context_calls(node))
 
       assert {:error, :no_token} = NodeManager.verify_token(nil)
       assert {:error, :no_token} = NodeManager.verify_token("")
-      assert length(verify_calls(node)) == before
+      assert length(context_calls(node)) == before
     end
   end
 
@@ -128,37 +131,26 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
 
       for _ <- 1..5, do: NodeManager.caller_context(token)
 
-      assert length(verify_calls(node)) == 1
+      assert length(context_calls(node)) == 1
     end
 
     test "an authz.token_* failure is cached, so a bad token is not re-asked per call", %{
       node: node
     } do
       token = unique_token()
-      refuse_verify(node, "authz.token_revoked")
+      refuse_context(node, "authz.token_revoked")
 
       for _ <- 1..3, do: NodeManager.verify_token(token)
 
-      assert length(verify_calls(node)) == 1
+      assert length(context_calls(node)) == 1
     end
 
     test "an unopened registry is not an answer about the token", %{node: node, token: token} do
-      refuse_verify(node, "authz.registry_unavailable")
+      refuse_context(node, "authz.registry_unavailable")
 
       for _ <- 1..3, do: NodeManager.verify_token(token)
 
-      assert length(verify_calls(node)) == 3
-    end
-
-    test "the cache never outlives the token's own expiry", %{node: node, token: token} do
-      # Already past: the entry is worth zero milliseconds, so it is not stored.
-      expired = System.system_time(:second) - 60
-      bind(node, identity(%{expires_at: expired}))
-
-      NodeManager.verify_token(token)
-      NodeManager.verify_token(token)
-
-      assert length(verify_calls(node)) == 2
+      assert length(context_calls(node)) == 3
     end
 
     test "eviction forces the next call to re-ask", %{node: node, token: token} do
@@ -168,7 +160,7 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
       NodeManager.evict_token(token)
       NodeManager.verify_token(token)
 
-      assert length(verify_calls(node)) == 2
+      assert length(context_calls(node)) == 2
     end
   end
 
@@ -191,7 +183,7 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
 
     test "an unverifiable token leaves the context unbound", %{node: node} do
       token = unique_token()
-      refuse_verify(node, "authz.token_expired")
+      refuse_context(node, "authz.token_expired")
 
       assert NodeManager.caller_context(token) == %{source: :ui}
     end
@@ -204,7 +196,7 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
     test "a value that looks like a principal is not one", %{node: node} do
       # The only input is a token, and an unverifiable one binds nothing — so a
       # principal name typed into any form can never reach the context.
-      refuse_verify(node, "authz.token_malformed")
+      refuse_context(node, "authz.token_malformed")
 
       assert NodeManager.caller_context("admin@_system") == %{source: :ui}
     end
@@ -228,7 +220,7 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
       node: node,
       token: token
     } do
-      refuse_verify(node, "authz.registry_unavailable")
+      refuse_context(node, "authz.registry_unavailable")
 
       assert {:error, %Flezha.Error{code: "authz.registry_unavailable"}} =
                NodeManager.audit_stats(token)
@@ -246,7 +238,7 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
     } do
       bind(node, identity())
       NodeManager.caller_context(token)
-      assert length(verify_calls(node)) == 1
+      assert length(context_calls(node)) == 1
 
       FakeController.set(
         node,
@@ -258,7 +250,7 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
 
       # The cached identity is gone, so the next context is established afresh.
       NodeManager.caller_context(token)
-      assert length(verify_calls(node)) == 2
+      assert length(context_calls(node)) == 2
     end
 
     test "a failure that is not a refusal keeps the cached identity", %{
@@ -278,7 +270,7 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
                NodeManager.overwatch_state("default", "gone", token)
 
       NodeManager.caller_context(token)
-      assert length(verify_calls(node)) == 1
+      assert length(context_calls(node)) == 1
     end
 
     test "an authorized call carries the bound context last", %{node: node, token: token} do
@@ -289,6 +281,32 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
 
       assert [[%{source: :ui, principal: "alice", namespace: "acme", role: :viewer}]] =
                FakeController.calls(node, {Flezha.Service.AuditLog, :list_files})
+    end
+
+    test "an operation is run through the door by its catalogue name", %{
+      node: node,
+      token: token
+    } do
+      bind(node, identity())
+
+      assert {:ok, []} = NodeManager.audit_files(token)
+      assert ["AuditLog.list_files"] in FakeController.calls(node, {Flezha.Service.Admin, :run})
+    end
+
+    test "an operation the door does not publish is version skew, named as called", %{
+      node: node,
+      token: token
+    } do
+      bind(node, identity())
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Relay, :graph},
+        FakeController.error("control.unknown_function")
+      )
+
+      assert {:error, {:api_missing, Flezha.Service.Relay, :graph, 3}} =
+               NodeManager.relay_graph("default", "relay_a", token)
     end
 
     test "a domain error passes through as the controller's own", %{node: node, token: token} do
@@ -354,7 +372,7 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
       assert {:ok, request} = NodeManager.observability_tail(:flezha_runner, nil, self())
       assert PeerNode.eventually(fn -> FakeController.streams(node, key) == [self()] end)
 
-      assert [[:flezha_runner, %{source: :ui, emit: emit}]] = FakeController.calls(node, key)
+      assert [["flezha_runner", %{source: :ui, emit: emit}]] = FakeController.calls(node, key)
       assert emit == self()
 
       FakeController.emit(node, key, %{name: :runner_connected})
@@ -378,7 +396,7 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
       assert {:ended, {:error, %Flezha.Error{class: :denied}}} = await_end(request)
 
       NodeManager.caller_context(token)
-      assert length(verify_calls(node)) == 2
+      assert length(context_calls(node)) == 2
     end
 
     test "a message that is not the answer is not mistaken for one" do
@@ -435,7 +453,7 @@ defmodule FlezhaUi.Service.NodeManagerIdentityTest do
 
     test "a rejected token is distinguished from no token at all", %{node: node} do
       FakeController.set(node, {Flezha.AuthZ, :enforcement_posture}, :enforced)
-      refuse_verify(node, "authz.token_expired")
+      refuse_context(node, "authz.token_expired")
 
       assert %{principal: nil, token?: true, reason: %Flezha.Error{code: "authz.token_expired"}} =
                NodeManager.authz_status(unique_token())

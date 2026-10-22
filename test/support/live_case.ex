@@ -218,8 +218,8 @@ defmodule FlezhaUiWeb.LiveCase do
 
     FakeController.set(
       node,
-      {Flezha.AuthZ.TokenStore, :verify},
-      {:ok, Map.put(identity, :expires_at, :never)}
+      {Flezha.Service.Admin, :context},
+      {:ok, Map.put(identity, :source, :ui)}
     )
   end
 
