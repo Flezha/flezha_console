@@ -74,16 +74,35 @@ defmodule FlezhaUi.Service.NodeConnector do
       )
 
   @doc """
-  The controller node this console talks to: `FLEZHA_NODE`, else the
+  The controller node this console talks to: `FLEZHA_NODE`; else, with
+  `FLEZHA_NODE_QUERY` (`name@dns-name`), a `name@address` node for an address
+  the DNS name resolves to, one already connected first; else the
   `:flezha_node` setting.
 
   Read on every call rather than kept from boot, so the connector and the seam
-  always aim at the node currently configured.
+  always aim at the node currently configured, and at a replaced controller
+  under its new address.
   """
   def target_node do
-    case System.get_env("FLEZHA_NODE") do
-      nil -> Application.get_env(:flezha_ui, :flezha_node, :flezha@flezha_agent_dev)
-      val -> String.to_atom(val)
+    case {System.get_env("FLEZHA_NODE"), System.get_env("FLEZHA_NODE_QUERY")} do
+      {nil, nil} -> Application.get_env(:flezha_ui, :flezha_node, :flezha@flezha_agent_dev)
+      {nil, query} -> queried_node(query)
+      {node, _query} -> String.to_atom(node)
     end
+  end
+
+  # A controller named after its pod address takes a new name with every new
+  # pod, so the names are rebuilt from what the DNS name resolves to now.
+  defp queried_node(query) do
+    [name, host] = String.split(query, "@", parts: 2)
+
+    candidates =
+      case :inet.getaddrs(String.to_charlist(host), :inet) do
+        {:ok, addresses} -> addresses |> Enum.map(&:"#{name}@#{:inet.ntoa(&1)}") |> Enum.sort()
+        {:error, _reason} -> []
+      end
+
+    Enum.find(candidates, &(&1 in Node.list(:connected))) || List.first(candidates) ||
+      String.to_atom(query)
   end
 end

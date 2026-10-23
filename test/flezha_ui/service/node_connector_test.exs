@@ -51,6 +51,33 @@ defmodule FlezhaUi.Service.NodeConnectorTest do
     assert node in Node.list()
   end
 
+  test "finds the controller through FLEZHA_NODE_QUERY's DNS name" do
+    {peer, node} = PeerNode.start!("query_peer", [], %{connection: :standard_io})
+    on_exit(fn -> PeerNode.stop(peer) end)
+    Node.disconnect(node)
+    [name, "127.0.0.1"] = node |> Atom.to_string() |> String.split("@")
+    TestEnv.put_system("FLEZHA_NODE", nil)
+    TestEnv.put_system("FLEZHA_NODE_QUERY", "#{name}@localhost")
+
+    assert NodeConnector.target_node() == node
+
+    connector =
+      start_supervised!(%{
+        id: NodeConnector,
+        start: {GenServer, :start_link, [NodeConnector, []]}
+      })
+
+    :sys.get_state(connector)
+    assert node in Node.list()
+  end
+
+  test "aims at the query itself when its DNS name does not resolve" do
+    TestEnv.put_system("FLEZHA_NODE", nil)
+    TestEnv.put_system("FLEZHA_NODE_QUERY", "flezha@no-such-host.invalid")
+
+    assert NodeConnector.target_node() == :"flezha@no-such-host.invalid"
+  end
+
   test "keeps retrying a node it cannot reach" do
     PeerNode.ensure_distributed!()
     node = :"absent_#{System.unique_integer([:positive])}@127.0.0.1"
