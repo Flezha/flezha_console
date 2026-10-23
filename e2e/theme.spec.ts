@@ -225,12 +225,19 @@ test.describe('Brand outside the shell', () => {
       expect(await logo.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(ink[scheme]);
 
       await expect(page.locator('img[src*="badger-laptop"]')).toHaveCount(0);
-      await expect(page.getByTestId('theme-toggle')).toBeVisible();
+      await expect(page.getByTestId('auth-topbar').getByTestId('theme-toggle')).toBeVisible();
 
       // Centred: the form's middle sits on the page's middle.
       const box = (await page.locator('#login_form_password').boundingBox())!;
       const width = page.viewportSize()!.width;
       expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(4);
+
+      // Heading and form stand one gap apart, as in any signed-out column.
+      const gaps = await page.locator('.fui-auth-form').evaluate((column) => {
+        const boxes = [...column.children].map((el) => el.getBoundingClientRect());
+        return boxes.slice(1).map((b, i) => Math.round(b.top - boxes[i].bottom));
+      });
+      expect(new Set(gaps).size, `gaps ${gaps}`).toBe(1);
     }
 
     // Left on the light login screen by the loop above.

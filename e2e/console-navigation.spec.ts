@@ -74,6 +74,23 @@ test.describe('The console shell', () => {
     await expect(page.getByTestId('log-out')).toBeVisible();
     await expect(page.locator('#account-menu [data-flz-theme-toggle]')).toHaveCount(0);
   });
+
+  test('a lost connection says so in one toast row: icon, words, dismiss', async ({ page, live, pageHealth }) => {
+    pageHealth.allow(/took phx-(client-)?error/, 'the test drops the socket on purpose');
+    await live('/cluster');
+
+    await page.evaluate(() =>
+      (window as unknown as { liveSocket: { disconnect(): void } }).liveSocket.disconnect(),
+    );
+
+    const toast = page.locator('#client-error');
+    await expect(toast).toBeVisible();
+    await expect(toast).toHaveCSS('display', 'flex');
+    const icon = (await toast.locator('.fui-toast-icon').boundingBox())!;
+    const dismiss = (await toast.locator('[data-toast-dismiss]').boundingBox())!;
+    expect(dismiss.y).toBeLessThan(icon.y + icon.height);
+    expect(dismiss.x).toBeGreaterThan(icon.x + icon.width);
+  });
 });
 
 test.describe("A relay's views", () => {

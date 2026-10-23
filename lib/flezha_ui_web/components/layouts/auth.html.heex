@@ -1,15 +1,19 @@
-<main class="fui-auth" data-testid="auth-canvas">
-  <div class="fui-auth-toggle"><.theme_toggle /></div>
-  <div class="fui-auth-form">
-    <.link navigate={~p"/"} class="justify-self-center">
+<div class="fui-auth" data-testid="auth-canvas">
+  <header class="fui-auth-bar" data-testid="auth-topbar">
+    <.link navigate={~p"/"} aria-label="Flezha UI">
       <.brand_lockup on={:canvas} />
     </.link>
-    <%= if assigns[:inner_block] do %>
-      {render_slot(@inner_block)}
-    <% else %>
-      {@inner_content}
-    <% end %>
-  </div>
-</main>
+    <.theme_toggle />
+  </header>
+  <main class="fui-auth-main">
+    <div class="fui-auth-form">
+      <%= if assigns[:inner_block] do %>
+        {render_slot(@inner_block)}
+      <% else %>
+        {@inner_content}
+      <% end %>
+    </div>
+  </main>
+</div>
 
 <.flash_group flash={@flash} />

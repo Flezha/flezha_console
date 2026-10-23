@@ -2132,7 +2132,7 @@ defmodule FlezhaUiWeb.CoreComponents do
         id="client-error"
         kind={:error}
         title={gettext("Lost the connection")}
-        phx-disconnected={show(".phx-client-error #client-error")}
+        phx-disconnected={JS.show(to: ".phx-client-error #client-error", display: "flex")}
         phx-connected={hide("#client-error")}
         hidden
       >
@@ -2143,7 +2143,7 @@ defmodule FlezhaUiWeb.CoreComponents do
         id="server-error"
         kind={:error}
         title={gettext("Something went wrong")}
-        phx-disconnected={show(".phx-server-error #server-error")}
+        phx-disconnected={JS.show(to: ".phx-server-error #server-error", display: "flex")}
         phx-connected={hide("#server-error")}
         hidden
       >
@@ -2444,8 +2444,6 @@ defmodule FlezhaUiWeb.CoreComponents do
   end
 
   ## JS Commands
-
-  def show(js \\ %JS{}, selector), do: JS.show(js, to: selector)
 
   def hide(js \\ %JS{}, selector), do: JS.hide(js, to: selector)
 

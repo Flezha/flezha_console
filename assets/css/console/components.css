@@ -2925,22 +2925,44 @@ a.fui-indicator:hover .fui-indicator-go {
 }
 
 /* ======================================================================
-   Signed-out pages: one centred column, with the theme toggle in reach
+   Signed-out pages: a bar with the brand and the theme toggle, over one
+   centred column
    ====================================================================== */
 
 .fui-auth {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+.fui-auth-bar {
+  align-items: center;
+  border-bottom: 1px solid var(--fui-line);
+  display: flex;
+  justify-content: space-between;
+  padding: var(--fui-space-2) var(--fui-space-5);
+}
+
+.fui-auth-bar .fui-logo {
+  height: 2rem;
+}
+
+.fui-auth-main {
   align-items: center;
   display: grid;
   grid-template-columns: minmax(0, 28rem);
   justify-content: center;
-  min-height: 100vh;
   padding: var(--fui-space-9) var(--fui-space-6);
-  position: relative;
 }
 
 .fui-auth-form {
   display: grid;
   gap: var(--fui-space-5);
+}
+
+/* The column's gap spaces its blocks; a console header's own margin would double it. */
+.fui-auth-form > .fui-page-header {
+  margin-bottom: 0;
 }
 
 .fui-auth-mascot {
@@ -2949,23 +2971,17 @@ a.fui-indicator:hover .fui-indicator-go {
   max-width: 16rem;
 }
 
-.fui-auth-toggle {
-  position: absolute;
-  right: var(--fui-space-4);
-  top: var(--fui-space-4);
-}
-
-/* The shell sizes its own chrome buttons for a finger; this one sits outside it. */
+/* The shell sizes its own chrome buttons for a finger; this bar sits outside it. */
 @media (pointer: coarse) {
-  .fui-auth-toggle > .flz-chrome-icon-btn {
+  .fui-auth .flz-chrome-icon-btn {
     min-height: var(--fui-control-h);
     min-width: var(--fui-control-h);
   }
 }
 
 @media (width <= 599px) {
-  .fui-auth {
-    padding: var(--fui-space-9) var(--fui-space-4) var(--fui-space-7);
+  .fui-auth-main {
+    padding: var(--fui-space-7) var(--fui-space-4);
   }
 }
 
