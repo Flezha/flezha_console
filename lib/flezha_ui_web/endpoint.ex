@@ -25,7 +25,10 @@ defmodule FlezhaUiWeb.Endpoint do
     at: "/",
     from: :flezha_ui,
     gzip: false,
-    only: FlezhaUiWeb.static_paths()
+    only: FlezhaUiWeb.static_paths(),
+    # A release digests the root favicon to favicon-<hash>.svg, which `only`'s
+    # exact names miss.
+    only_matching: ~w(favicon)
 
   # Code reloading can be explicitly enabled under the
   # :code_reloader configuration of your endpoint.
