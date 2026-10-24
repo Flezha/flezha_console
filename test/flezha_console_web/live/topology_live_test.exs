@@ -1776,9 +1776,32 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert text_of(html, ~s([data-testid="ns-parked-value"])) == "7"
       assert text_of(html, ~s([data-testid="ns-parked"] .fcon-indicator-label)) == "Dead letters"
       refute text_of(html, ~s([data-testid="ns-parked"])) =~ "parked"
-      assert attrs(html, ~s([data-testid="ns-parked"]), "data-tone") == ["negative"]
+      assert attrs(html, ~s([data-testid="ns-parked"]), "data-tone") == ["warning"]
       assert text_of(html, ~s([data-testid="ns-parked-verdict"])) == "Waiting"
       assert has_element?(view, ~s(a[data-testid="ns-parked"][href="/dlq"]))
+    end
+
+    test "a dead letter is a warning Home counts as its own problem", %{conn: conn, node: node} do
+      stack(node, namespaces: ["default"])
+
+      FakeController.set(
+        node,
+        {Dlq, :stats},
+        {:ok, [%{relay_class: "relay_a", tasklet_id: "sh", entries: 1, bytes: 0}]}
+      )
+
+      {view, html} = live_loaded(conn, ~p"/namespaces/default")
+
+      assert attrs(html, ~s([data-testid="home-headline"]), "data-condition") == ["attention"]
+      assert text_of(html, ~s([data-testid="home-headline"])) == "1 problem needs attention."
+
+      assert has_element?(
+               view,
+               ~s([data-testid="home-problems"] [data-testid="problem-dead_letters:relay_a"])
+             )
+
+      html = render_async(view)
+      assert attrs(html, ~s([data-testid="problems-count"]), "data-tone") == ["warning"]
     end
 
     test "plugins are counted once however many relays bind them", %{conn: conn, node: node} do

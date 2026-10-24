@@ -15,7 +15,8 @@ defmodule FlezhaConsoleWeb.Attention do
 
   where `condition` is its facts, as `condition/1` renders them, and the
   severity follows who handles it: negative for the operator, warning for
-  Flezha. A relay item carries `relay: %{state:, factory:, serving:}` in place
+  Flezha. Dead letters are a warning whoever handles them, and name the
+  namespace whose relay rows hold their class. A relay item carries `relay: %{state:, factory:, serving:}` in place
   of `condition`, which `FlezhaConsoleWeb.RelayState.summary/1` renders with the
   diagnosis once asked; `serving` is how many runners serve its factory, nil
   when unread. It names no runner: a registry row names the one that last
@@ -79,7 +80,8 @@ defmodule FlezhaConsoleWeb.Attention do
     * `:namespaces` — `[%{namespace:, rows:, faulted_groups:, quotas:, serving:}]`,
       `serving` mapping each factory `waiting_factories/1` names to how many
       runners serve it;
-    * `:dlq` — the dead-letter statistics;
+    * `:dlq` — the dead-letter statistics, each class's items placed in the
+      namespace whose `rows` hold that relay;
     * `:breaches` — references past their RPO target;
     * `:verdicts` — recent stall verdicts, as `FlezhaConsoleWeb.Topology.stall/1` answers;
     * `:authz` — the `NodeManager.authz_status/1` map;
@@ -96,7 +98,7 @@ defmodule FlezhaConsoleWeb.Attention do
       end)
 
     namespaced ++
-      dead_letter_items(Map.get(input, :dlq, [])) ++
+      dead_letter_items(Map.get(input, :dlq, []), relay_namespaces(input)) ++
       rpo_items(Map.get(input, :breaches, [])) ++
       stall_items(Map.get(input, :verdicts, [])) ++
       bootstrap_items(Map.get(input, :authz)) ++
@@ -245,14 +247,15 @@ defmodule FlezhaConsoleWeb.Attention do
   end
 
   # An item that is not a relay: its State is its kind's word, and its tone
-  # follows who handles it, red for the operator and amber for Flezha.
+  # follows who handles it, red for the operator and amber for Flezha, unless
+  # `severity` says otherwise.
   defp problem(kind, fields, condition) do
     handler = Keyword.fetch!(condition, :handled_by)
 
     Map.merge(
       %{
         kind: kind,
-        severity: Words.tone(:handled_by, handler),
+        severity: Keyword.get(condition, :severity, Words.tone(:handled_by, handler)),
         namespace: nil,
         condition: %{
           state: Words.say(:problem, kind),
@@ -309,7 +312,16 @@ defmodule FlezhaConsoleWeb.Attention do
     end
   end
 
-  defp dead_letter_items(stats) do
+  # A relay class is its relay's id, so the namespace whose rows hold that id
+  # owns the class's dead letters.
+  defp relay_namespaces(input) do
+    for ns <- Map.get(input, :namespaces, []),
+        row <- Map.get(ns, :rows, []),
+        into: %{},
+        do: {to_string(row.id), ns.namespace}
+  end
+
+  defp dead_letter_items(stats, namespaces) do
     stats
     |> Enum.group_by(&to_string(Map.get(&1, :relay_class)))
     |> Enum.flat_map(fn {class, rows} ->
@@ -323,6 +335,7 @@ defmodule FlezhaConsoleWeb.Attention do
             %{
               id: "dead_letters:#{class}",
               reason: :entries,
+              namespace: Map.get(namespaces, class),
               object: %{kind: :relay_class, id: class},
               what: "#{Words.count(entries, "dead letter")} for #{class}",
               actions: [%{label: "Open dead-letter", navigate: ~p"/dlq?#{[class: class]}"}]
@@ -331,7 +344,9 @@ defmodule FlezhaConsoleWeb.Attention do
               "#{tasklet_phrase(tasklets)} could not process #{Words.count(entries, "record")}",
             impact: "They wait in the dead-letter queue",
             handled_by: :you,
-            next: "Replay or drop them"
+            next: "Replay or drop them",
+            # Nothing is lost: the records wait safely for a replay or a drop.
+            severity: :warning
           )
         ]
       else

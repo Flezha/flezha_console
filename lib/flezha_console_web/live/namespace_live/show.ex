@@ -281,6 +281,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
       )
 
     {tokens, tokens_error} = tokens(ns, token)
+    summary = Topology.read_summary(token, rows)
 
     %{
       assigns: [
@@ -305,7 +306,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
         tokens_error: tokens_error
       ],
       load_error: load_error,
-      summary: Topology.read_summary(token, rows),
+      summary: summary,
       runner_ids: Enum.map(connected_runners, &NodeManager.identifier_id/1),
       attention:
         attention(ns, token, previous, %{
@@ -313,7 +314,8 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
           groups: groups,
           quotas: quotas,
           runners: runners,
-          runners_read?: is_nil(runners_error)
+          runners_read?: is_nil(runners_error),
+          dlq: if(summary == :disconnected, do: [], else: summary.dlq)
         })
     }
   end
@@ -361,7 +363,8 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
             quotas: read.quotas,
             serving: serving
           }
-        ]
+        ],
+        dlq: read.dlq
       })
 
     {items, appeared, cleared} =
@@ -519,8 +522,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
 
   defp parked_said(_parked),
     do:
-      {:negative, "Waiting",
-       "Records a tasklet could not process, waiting for a replay or a drop"}
+      {:warning, "Waiting", "Records a tasklet could not process, waiting for a replay or a drop"}
 
   # How many of the namespace's items need attention: relays when every item
   # is one, problems otherwise.

@@ -196,11 +196,33 @@ defmodule FlezhaConsoleWeb.AttentionTest do
       })
 
     assert item.what == "3 dead letters for orders"
-    assert item.severity == :negative
+    assert item.severity == :warning
+    assert item.namespace == nil
     assert text(item, "cause") == "Tasklets t1 and t2 could not process 3 records"
+    assert text(item, "handled") == "You"
     assert text(item, "next") == "Replay or drop them"
     refute inspect(item) =~ "parked"
     assert [%{navigate: "/dlq?class=orders"}] = item.actions
+  end
+
+  test "dead letters belong to the namespace whose relay rows hold their class" do
+    items =
+      Attention.derive(%{
+        namespaces: [
+          %{namespace: "default", rows: [%{id: :orders, health: :healthy, node: :a}]},
+          %{namespace: "sandbox", rows: [%{id: "prices", health: :healthy, node: :a}]}
+        ],
+        dlq: [
+          %{relay_class: "orders", tasklet_id: "t", entries: 1},
+          %{relay_class: "prices", tasklet_id: "t", entries: 2},
+          %{relay_class: "stopped", tasklet_id: "t", entries: 3}
+        ]
+      })
+
+    assert Map.new(items, &{&1.object.id, &1.namespace}) ==
+             %{"orders" => "default", "prices" => "sandbox", "stopped" => nil}
+
+    assert Enum.all?(items, &(&1.severity == :warning))
   end
 
   test "RPO breaches, a stall, an unclaimed bootstrap and version skew are each one item" do
