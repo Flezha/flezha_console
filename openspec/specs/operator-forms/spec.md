@@ -7,7 +7,7 @@ reports rather than typed from memory.
 ## Requirements
 ### Requirement: One field component
 
-Every labelled form control on the operator screens SHALL be rendered by a single field component in `FlezhaUiWeb.CoreComponents`. The control's styling SHALL exist only in that component, so a size, a focus ring, or a border is one decision rather than one per template. The component SHALL support text, number, password, textarea, and select controls, SHALL carry a caller-supplied `data-testid` through to the rendered control unchanged, and SHALL render a field's own errors with the field.
+Every labelled form control on the operator screens SHALL be rendered by a single field component in `FlezhaConsoleWeb.CoreComponents`. The control's styling SHALL exist only in that component, so a size, a focus ring, or a border is one decision rather than one per template. The component SHALL support text, number, password, textarea, and select controls, SHALL carry a caller-supplied `data-testid` through to the rendered control unchanged, and SHALL render a field's own errors with the field.
 
 #### Scenario: A form is authored
 
@@ -94,7 +94,7 @@ Where the controller can report the set a field's value must come from — a nam
 
 ### Requirement: Generated fields are typed and checked by one core
 
-Fields the console generates from a type description, the options a plugin provider lists and the properties of a relay entry channel's schema, SHALL be cast and checked by one shared module, `FlezhaUiWeb.Live.TypedFields`, built on Ecto schemaless changesets, and rendered by the field component. The core SHALL report every failing field at once, each on its own field, and SHALL answer only the fields that were given. It SHALL NOT turn a field name supplied by the controller into an atom. No screen SHALL parse generated fields by hand beside it.
+Fields the console generates from a type description, the options a plugin provider lists and the properties of a relay entry channel's schema, SHALL be cast and checked by one shared module, `FlezhaConsoleWeb.Live.TypedFields`, built on Ecto schemaless changesets, and rendered by the field component. The core SHALL report every failing field at once, each on its own field, and SHALL answer only the fields that were given. It SHALL NOT turn a field name supplied by the controller into an atom. No screen SHALL parse generated fields by hand beside it.
 
 #### Scenario: Two forms share the core
 

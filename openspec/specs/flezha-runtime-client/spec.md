@@ -5,7 +5,7 @@ TBD - created by archiving change resync-with-flezha-runtime. Update Purpose aft
 ## Requirements
 ### Requirement: Single ERPC seam
 
-All calls from the UI into the flezha controller SHALL pass through `FlezhaUi.Service.NodeManager`. No LiveView, controller, or other service module SHALL invoke `:erpc` or reference a `Flezha.*` remote module name directly.
+All calls from the console into the flezha controller SHALL pass through `FlezhaConsole.Service.NodeManager`. No LiveView, controller, or other service module SHALL invoke `:erpc` or reference a `Flezha.*` remote module name directly.
 
 #### Scenario: A LiveView needs controller data
 

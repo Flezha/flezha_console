@@ -298,12 +298,12 @@ The gate SHALL skip its own test file, which must name every banned term, and SH
 
 ### Requirement: Core's record of the console's calls is kept in step
 
-Every change that alters which controller functions the console calls SHALL regenerate core's `docs/internal/api/consumers/flezha_ui.txt` from this checkout with core's `scripts/consumer_surface.py`, and core's `test/flezha/api/consumer_surface_test.exs` SHALL pass with `FLEZHA_UI_PATH` pointing at this checkout. Once the console calls only the published surface, that test's list of calls known not to resolve SHALL be empty, and the test SHALL assert that every recorded console call is on the published surface, is the door `Flezha.Service.Admin.run/4`, or is one of the two context-free reads.
+Every change that alters which controller functions the console calls SHALL regenerate core's `docs/internal/api/consumers/flezha_console.txt` from this checkout with core's `scripts/consumer_surface.py`, and core's `test/flezha/api/consumer_surface_test.exs` SHALL pass with `FLEZHA_CONSOLE_PATH` pointing at this checkout. Once the console calls only the published surface, that test's list of calls known not to resolve SHALL be empty, and the test SHALL assert that every recorded console call is on the published surface, is the door `Flezha.Service.Admin.run/4`, or is one of the two context-free reads.
 
 #### Scenario: The record matches the console
 
-- **WHEN** core's consumer-surface test runs with `FLEZHA_UI_PATH` set to this checkout
-- **THEN** the regenerated call set equals the recorded `flezha_ui.txt` and the test passes
+- **WHEN** core's consumer-surface test runs with `FLEZHA_CONSOLE_PATH` set to this checkout
+- **THEN** the regenerated call set equals the recorded `flezha_console.txt` and the test passes
 
 #### Scenario: No call is recorded as broken
 

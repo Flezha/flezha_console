@@ -66,7 +66,7 @@ An operator SHALL be able to read audit records filtered by file, source, name, 
 
 ### Requirement: Live tail
 
-An operator SHALL be able to tail the audit log live. The tail SHALL start paused, SHALL be established through `FlezhaUi.Service.EventFeed` by `Flezha.Service.AuditLog.tail/2`, and SHALL be released by stopping the `EventFeed` process holding it when the tail is stopped or the screen closes; the controller removes the subscription when that process exits.
+An operator SHALL be able to tail the audit log live. The tail SHALL start paused, SHALL be established through `FlezhaConsole.Service.EventFeed` by `Flezha.Service.AuditLog.tail/2`, and SHALL be released by stopping the `EventFeed` process holding it when the tail is stopped or the screen closes; the controller removes the subscription when that process exits.
 
 #### Scenario: Starting a tail
 

@@ -39,7 +39,7 @@ cluster; those are the Cluster screen's (see `cluster-and-fleet`).
 
 #### Scenario: The map is gone
 
-- **WHEN** the codebase is searched for `namespace_map` and `fui-map-`
+- **WHEN** the codebase is searched for `namespace_map` and `fcon-map-`
 - **THEN** no component, test id or style of either name exists
 
 ### Requirement: The root address lands on a Home

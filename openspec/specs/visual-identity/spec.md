@@ -5,45 +5,6 @@ How the console looks and identifies itself: its brand lockup and favicon, one
 source of colour, status colour that states an outcome, one control vocabulary, and
 the shared theme contract.
 ## Requirements
-### Requirement: The console carries a Flezha UI brand lockup
-
-The console SHALL identify itself with the Flezha UI lockup: the badger over the
-FLEZHA name with UI beside it, `priv/static/images/flezha-ui-badger-line-text-white.svg`.
-UI SHALL be set at about FLEZHA's cap height, in FLEZHA's face, centred on the
-lockup's height. It SHALL be rendered as a CSS mask, so that it takes the ink of
-the surface it sits on, with its aspect ratio read from the file's own `viewBox`.
-The mark SHALL NOT be a fixed-colour `<img>` or a raster image. Inside the shell,
-the lockup SHALL sit at the top of the rail, in the stylebook's chrome brand recipe.
-
-#### Scenario: A screen inside the shell
-
-- **WHEN** the rail renders its brand link in either theme
-- **THEN** it shows the lockup as a mask in the chrome's ink
-- **AND** the link carries an accessible name of "Flezha UI"
-
-#### Scenario: A screen sitting on the content canvas
-
-- **WHEN** the login, registration, confirmation or not-found screen renders its
-  brand mark
-- **THEN** it shows the same lockup in the brand ink, with no per-theme image swap
-
-#### Scenario: The lockup keeps its proportions
-
-- **WHEN** the lockup file is replaced by one with a different `viewBox`
-- **THEN** the lockup takes the new proportions without a code change
-
-#### Scenario: The product name is legible
-
-- **WHEN** the rail renders the lockup
-- **THEN** UI stands at about the cap height of FLEZHA and is not clipped by the
-  `viewBox`
-
-#### Scenario: The old marks are gone
-
-- **WHEN** the web layer and `priv/static` are searched for `flezha-ui-purple`,
-  `flezha-ui-gold`, or a brand name styled with its own font-size and font-weight
-- **THEN** no occurrence remains
-
 ### Requirement: The console ships the Flezha favicon
 
 The console SHALL serve the stylebook's adaptive badger favicon,
@@ -72,12 +33,12 @@ verbatim. It SHALL NOT ship the stock Phoenix favicon or an ICO it builds itself
 ### Requirement: Colour has exactly one source
 
 Every colour the console paints SHALL resolve to a `flezha_stylebook` token. The
-kit SHALL read colours through its `--fui-*` roles in
+kit SHALL read colours through its `--fcon-*` roles in
 `assets/css/console/tokens.css`, each of which names the stylebook token it takes,
 so the console follows the stylebook's palette and its theme switch. The token
 file MAY define colours the stylebook has no token for — the signal colour for
 live data, the overlay scrim and shadow, and the ink laid on a solid fill in the
-dark theme — and nowhere else. `flezha_ui` SHALL NOT contain colour literals — no
+dark theme — and nowhere else. `flezha_console` SHALL NOT contain colour literals — no
 hex, `rgb()`, `hsl()`, or named colour — in stylesheets, templates, Elixir modules,
 JavaScript, or build configuration, outside that token file.
 
@@ -85,11 +46,11 @@ JavaScript, or build configuration, outside that token file.
 
 - **WHEN** `tokens.css` is read
 - **THEN** the surface, ink, line, accent, outcome and brand roles each name a
-  stylebook token, such as `--fui-ink-1: var(--text-primary)`
+  stylebook token, such as `--fcon-ink-1: var(--text-primary)`
 
 #### Scenario: An undefined token is introduced
 
-- **WHEN** the console gate runs over `flezha_ui`'s `assets/` and `lib/`
+- **WHEN** the console gate runs over `flezha_console`'s `assets/` and `lib/`
 - **THEN** it reports any `var()` naming a token nobody defines, and the check fails
 
 #### Scenario: A colour literal is introduced
@@ -101,22 +62,22 @@ JavaScript, or build configuration, outside that token file.
 #### Scenario: The progress bar takes theme colours
 
 - **WHEN** the page-load progress indicator renders
-- **THEN** its colour comes from a `--fui-*` role and changes with the theme
+- **THEN** its colour comes from a `--fcon-*` role and changes with the theme
 
 ### Requirement: Status colour states an outcome
 
 Colour that reports an outcome SHALL come from the stylebook's outcome tokens,
-through the roles `--fui-positive`, `--fui-warning` and `--fui-negative`. Two
+through the roles `--fcon-positive`, `--fcon-warning` and `--fcon-negative`. Two
 other roles SHALL NOT report status:
 
-- `--fui-accent` marks interaction: focus, the current place, links and primary
+- `--fcon-accent` marks interaction: focus, the current place, links and primary
   actions;
-- `--fui-signal` marks live data only: flow, rates and change marks.
+- `--fcon-signal` marks live data only: flow, rates and change marks.
 
 Status SHALL never be conveyed by colour alone: a state is also stated in words or
 by a distinct shape, which keeps a warning apart from the signal colour where the
 two are close in hue. Every solid fill SHALL be painted with its matched
-`--fui-on-*` ink.
+`--fcon-on-*` ink.
 
 #### Scenario: A relay's health is rendered
 
@@ -377,4 +338,43 @@ small-screen layout.
 - **WHEN** the console's stylesheets are searched for rules on `flz-canvas`,
   `flz-sidebar` or `flz-topbar`
 - **THEN** none are found; the shell comes from the stylebook's `components.css`
+
+### Requirement: The console carries a Flezha Console brand lockup
+
+The console SHALL identify itself with the Flezha Console lockup: the badger over the
+FLEZHA name with CONSOLE beside it, `priv/static/images/flezha-console-badger-line-text-white.svg`.
+CONSOLE SHALL be set at about FLEZHA's cap height, in FLEZHA's face, centred on the
+lockup's height. It SHALL be rendered as a CSS mask, so that it takes the ink of
+the surface it sits on, with its aspect ratio read from the file's own `viewBox`.
+The mark SHALL NOT be a fixed-colour `<img>` or a raster image. Inside the shell,
+the lockup SHALL sit at the top of the rail, in the stylebook's chrome brand recipe.
+
+#### Scenario: A screen inside the shell
+
+- **WHEN** the rail renders its brand link in either theme
+- **THEN** it shows the lockup as a mask in the chrome's ink
+- **AND** the link carries an accessible name of "Flezha Console"
+
+#### Scenario: A screen sitting on the content canvas
+
+- **WHEN** the login, registration, confirmation or not-found screen renders its
+  brand mark
+- **THEN** it shows the same lockup in the brand ink, with no per-theme image swap
+
+#### Scenario: The lockup keeps its proportions
+
+- **WHEN** the lockup file is replaced by one with a different `viewBox`
+- **THEN** the lockup takes the new proportions without a code change
+
+#### Scenario: The product name is legible
+
+- **WHEN** the rail renders the lockup
+- **THEN** CONSOLE stands at about the cap height of FLEZHA and is not clipped by the
+  `viewBox`
+
+#### Scenario: The old marks are gone
+
+- **WHEN** the web layer and `priv/static` are searched for `flezha-ui-purple`,
+  `flezha-ui-gold`, or a brand name styled with its own font-size and font-weight
+- **THEN** no occurrence remains
 

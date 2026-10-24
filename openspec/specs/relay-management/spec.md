@@ -56,7 +56,7 @@ A namespace holding partition group members SHALL present them as one group row 
 
 ### Requirement: The registered factory catalog
 
-The UI SHALL read a namespace's registered factories together with the runners serving each, through one `FlezhaUi.Service.NodeManager` function used by every screen that names a factory, backed by one `Flezha.Service.Fleet.factories/2` call whose rows carry the runners serving each factory. A factory SHALL be presented with its description, its run (`flow` or `steps`), and whether any runner currently serves it. A form SHALL read the catalog when it is opened and when its namespace changes. Because the catalog is one read, a runner listing MAY read it on its refresh tick to show what each runner serves; it SHALL NOT be read once per factory.
+The console SHALL read a namespace's registered factories together with the runners serving each, through one `FlezhaConsole.Service.NodeManager` function used by every screen that names a factory, backed by one `Flezha.Service.Fleet.factories/2` call whose rows carry the runners serving each factory. A factory SHALL be presented with its description, its run (`flow` or `steps`), and whether any runner currently serves it. A form SHALL read the catalog when it is opened and when its namespace changes. Because the catalog is one read, a runner listing MAY read it on its refresh tick to show what each runner serves; it SHALL NOT be read once per factory.
 
 #### Scenario: Factories are registered and served
 

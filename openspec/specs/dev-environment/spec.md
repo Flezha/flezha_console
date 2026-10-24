@@ -135,7 +135,7 @@ Dev seeding SHALL declare its namespace through `Flezha.Service.Namespace.create
 
 ### Requirement: The asset build resolves the stylebook from a clean checkout
 
-Asset setup SHALL install the `flezha_ui` asset dependencies and place the stylebook's fonts and brand SVGs into the served static tree. It SHALL fail with an actionable message when the sibling `flezha_stylebook` repository is absent, rather than producing an unstyled build.
+Asset setup SHALL install the `flezha_console` asset dependencies and place the stylebook's fonts and brand SVGs into the served static tree. It SHALL fail with an actionable message when the sibling `flezha_stylebook` repository is absent, rather than producing an unstyled build.
 
 #### Scenario: Setting up a clean checkout
 
@@ -182,12 +182,12 @@ The dev environment SHALL NOT migrate controller state written under the retired
 
 ### Requirement: The dev console restarts itself on a configuration change
 
-When the dev console runs in the `fui_web` container and a config file Phoenix's code reloader checks (`Mix.Project.config_files/0` under `config/`), `mix.exs` or `mix.lock` changes, the console SHALL stop its VM so that the container's restart policy starts it again with the new configuration and dependencies. Any other file, including an editor's lock or temporary file beside a config file, SHALL NOT stop it. The behaviour SHALL be enabled only by `FLEZHA_UI_RESTART_ON_CONFIG_CHANGE=true`, which the dev compose file sets on `fui_web`, only in the VM that serves the endpoint, and SHALL NOT be active in any other run.
+When the dev console runs in the `fcon_web` container and a config file Phoenix's code reloader checks (`Mix.Project.config_files/0` under `config/`), `mix.exs` or `mix.lock` changes, the console SHALL stop its VM so that the container's restart policy starts it again with the new configuration and dependencies. Any other file, including an editor's lock or temporary file beside a config file, SHALL NOT stop it. The behaviour SHALL be enabled only by `FLEZHA_CONSOLE_RESTART_ON_CONFIG_CHANGE=true`, which the dev compose file sets on `fcon_web`, only in the VM that serves the endpoint, and SHALL NOT be active in any other run.
 
 #### Scenario: A config file changes in the dev stack
 
 - **WHEN** `config/dev.exs` is saved while the dev stack runs
-- **THEN** `fui_web` restarts once
+- **THEN** `fcon_web` restarts once
 - **AND** the console serves pages again without the "You must restart your server" error
 
 #### Scenario: Several writes from one save
@@ -202,12 +202,12 @@ When the dev console runs in the `fui_web` container and a config file Phoenix's
 
 #### Scenario: Outside the container
 
-- **WHEN** `mix phx.server` runs without `FLEZHA_UI_RESTART_ON_CONFIG_CHANGE=true`
+- **WHEN** `mix phx.server` runs without `FLEZHA_CONSOLE_RESTART_ON_CONFIG_CHANGE=true`
 - **THEN** no watcher is started and a config change does not stop the server
 
 ### Requirement: Screen refresh cadence is configurable and fast in dev
 
-Each screen's periodic refresh SHALL use the interval from `:flezha_ui, :refresh_interval_ms` when that is set, and the screen's own declared interval otherwise. The liveness readout SHALL show the interval actually in use. The dev stack SHALL set the interval to 500 ms through `FLEZHA_UI_REFRESH_INTERVAL_MS`, so that a browser test sees a tick-fed figure settle within a second. The ExUnit environment SHALL set it to one hour, so that only the ticks a test sends fire. Production SHALL leave it unset.
+Each screen's periodic refresh SHALL use the interval from `:flezha_console, :refresh_interval_ms` when that is set, and the screen's own declared interval otherwise. The liveness readout SHALL show the interval actually in use. The dev stack SHALL set the interval to 500 ms through `FLEZHA_CONSOLE_REFRESH_INTERVAL_MS`, so that a browser test sees a tick-fed figure settle within a second. The ExUnit environment SHALL set it to one hour, so that only the ticks a test sends fire. Production SHALL leave it unset.
 
 #### Scenario: The dev stack refreshes fast
 

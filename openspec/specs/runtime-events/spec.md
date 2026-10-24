@@ -164,13 +164,13 @@ its state to assistive technology.
 
 ### Requirement: Controller subscriptions are taken through the published tail operations
 
-Every live controller subscription the UI holds — runner session events, an observability source's signals, the audit log's records — SHALL be taken through a published stream operation of the consumer API (`Flezha.Service.Observability.tail/2` or `Flezha.Service.AuditLog.tail/2`) with the UI's caller context, and SHALL be held by `FlezhaUi.Service.EventFeed`, which receives the signals on the UI node and forwards each one to the UI process that asked for it. The UI SHALL NOT call `Flezha.Service.EventManager` or any other unpublished controller module to subscribe.
+Every live controller subscription the console holds — runner session events, an observability source's signals, the audit log's records — SHALL be taken through a published stream operation of the consumer API (`Flezha.Service.Observability.tail/2` or `Flezha.Service.AuditLog.tail/2`) with the console's caller context, and SHALL be held by `FlezhaConsole.Service.EventFeed`, which receives the signals on the console node and forwards each one to the console process that asked for it. The console SHALL NOT call `Flezha.Service.EventManager` or any other unpublished controller module to subscribe.
 
 #### Scenario: Establishing the runner event subscription
 
 - **WHEN** the event bridge connects to the controller
 - **THEN** it asks `EventFeed` to tail the observability source on which core publishes runner session signals
-- **AND** the tail is established through `Flezha.Service.Observability.tail/2` with the UI's caller context
+- **AND** the tail is established through `Flezha.Service.Observability.tail/2` with the console's caller context
 - **AND** the subscription stays in place for as long as the `EventFeed` process holding it lives
 
 #### Scenario: No unpublished subscription call remains
@@ -208,7 +208,7 @@ The bridge SHALL monitor the controller connection and the feed's subscription a
 
 ### Requirement: Every tail rides the event feed
 
-A live tail of an observability source or of the audit log SHALL be carried by `FlezhaUi.Service.EventFeed`, the mechanism that carries runtime events. A second subscription mechanism SHALL NOT be introduced.
+A live tail of an observability source or of the audit log SHALL be carried by `FlezhaConsole.Service.EventFeed`, the mechanism that carries runtime events. A second subscription mechanism SHALL NOT be introduced.
 
 #### Scenario: Tailing a source
 
@@ -318,7 +318,7 @@ that Home's namespace.
 
 ### Requirement: A relay's call activity rides the event feed
 
-The relay screen's call activity SHALL be received through `Flezha.Service.Relay.listen/5` with the direction `:calls` and the UI's caller context, held by an `FlezhaUi.Service.EventFeed` linked to the screen, the mechanism that carries the payload tap and the listen screen. A second subscription mechanism SHALL NOT be introduced. Each open Calls panel SHALL hold exactly one such listen. The listen SHALL be opened when the panel opens and SHALL end when the panel folds or the screen closes. A replacement listen SHALL be opened only after the previous one was stopped under its tag, so nothing the previous one sent reaches the screen.
+The relay screen's call activity SHALL be received through `Flezha.Service.Relay.listen/5` with the direction `:calls` and the console's caller context, held by an `FlezhaConsole.Service.EventFeed` linked to the screen, the mechanism that carries the payload tap and the listen screen. A second subscription mechanism SHALL NOT be introduced. Each open Calls panel SHALL hold exactly one such listen. The listen SHALL be opened when the panel opens and SHALL end when the panel folds or the screen closes. A replacement listen SHALL be opened only after the previous one was stopped under its tag, so nothing the previous one sent reaches the screen.
 
 #### Scenario: Opening the panel
 

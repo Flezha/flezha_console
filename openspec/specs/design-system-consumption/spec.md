@@ -7,7 +7,7 @@ and components another Flezha surface could reuse are contributed upstream.
 ## Requirements
 ### Requirement: The stylebook is a declared dependency, not a copy
 
-`flezha_ui` SHALL depend on the `flezha_stylebook` repository, published as the
+`flezha_console` SHALL depend on the `flezha_stylebook` repository, published as the
 package `@flezha/stylebook`, as an npm `file:` dependency declared in
 `assets/package.json` as `file:../../flezha_stylebook`. From it the console SHALL
 take only:
@@ -19,7 +19,7 @@ take only:
 - the token gate script;
 - until the relay graph's own redesign, the recipes that graph uses.
 
-It SHALL reference each through the package name. `flezha_ui` SHALL NOT keep a
+It SHALL reference each through the package name. `flezha_console` SHALL NOT keep a
 checked-in copy of the stylebook's stylesheets, behaviours, scripts or logo kit.
 
 #### Scenario: A stylebook script is referenced
@@ -29,7 +29,7 @@ checked-in copy of the stylebook's stylesheets, behaviours, scripts or logo kit.
 
 #### Scenario: The package resolves to the sibling checkout
 
-- **WHEN** the asset dependencies are installed with `flezha_stylebook` checked out beside `flezha_ui`
+- **WHEN** the asset dependencies are installed with `flezha_stylebook` checked out beside `flezha_console`
 - **THEN** `assets/node_modules/@flezha/stylebook` resolves to that checkout and is not a dangling link
 
 #### Scenario: Only the declared parts are taken
@@ -61,7 +61,7 @@ preflight, while Tailwind utilities still win over component recipes.
 
 #### Scenario: A kit class is combined with a utility
 
-- **WHEN** an element carries both an `fui-` component class and a Tailwind
+- **WHEN** an element carries both an `fcon-` component class and a Tailwind
   spacing or layout utility
 - **THEN** the utility takes effect and the component skin is otherwise preserved
 
@@ -93,7 +93,7 @@ poses, copied from the resolved package. It SHALL place no stylebook typeface.
 #### Scenario: A build produces the static tree
 
 - **WHEN** the asset step runs
-- **THEN** `images/flezha-ui-badger-line-text-white.svg`, `favicon.svg`,
+- **THEN** `images/flezha-console-badger-line-text-white.svg`, `favicon.svg`,
   `favicon.ico`, `images/badger-laptop.webp` and `images/badger-not-found.png` are
   placed in the static tree from the resolved package, and no Inter, Space
   Grotesk or JetBrains Mono face is
@@ -101,17 +101,17 @@ poses, copied from the resolved package. It SHALL place no stylebook typeface.
 #### Scenario: A retired asset is not left behind
 
 - **WHEN** `priv/static/images` is listed after the asset build
-- **THEN** it holds no F-mark lockup other than the current Flezha UI lockup
+- **THEN** it holds no F-mark lockup other than the current Flezha Console lockup
 
 ### Requirement: The token contract is gated in this repository
 
-`flezha_ui` SHALL run the stylebook's token gate as part of its checks, invoking
+`flezha_console` SHALL run the stylebook's token gate as part of its checks, invoking
 the gate script through the installed `@flezha/stylebook` package, twice:
 
-- with the console's config, grading the `--fui-*` tokens in
+- with the console's config, grading the `--fcon-*` tokens in
   `assets/css/console/tokens.css`, resolved through the stylebook's palette;
 - with the graph's config, grading the stylebook tokens the relay graph still uses
-  and ignoring `--fui-*` names.
+  and ignoring `--fcon-*` names.
 
 Each run SHALL fail on:
 
@@ -124,7 +124,7 @@ Third-party code in a `vendor/` directory SHALL NOT be scanned.
 
 #### Scenario: A developer references a token that does not exist
 
-- **WHEN** a template or stylesheet uses `var(--fui-not-a-token)`
+- **WHEN** a template or stylesheet uses `var(--fcon-not-a-token)`
 - **THEN** the gate reports it and fails
 
 #### Scenario: A developer writes a colour literal

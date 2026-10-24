@@ -6,7 +6,7 @@ The console's own design layer: role-named tokens and their contrast and use gat
 ### Requirement: The console names its design tokens by role
 
 The console SHALL define every colour, spacing, radius, elevation, motion and type
-value its kit uses as a `--fui-*` custom property in
+value its kit uses as a `--fcon-*` custom property in
 `assets/css/console/tokens.css`. The scales — type, space, radius, control height,
 drawer width, motion and layering — are the console's own. Each colour role SHALL
 alias a `flezha_stylebook` token, so the console takes the stylebook's palette in
@@ -14,22 +14,22 @@ both themes and follows its theme switch:
 
 | Role | Stylebook token |
 | --- | --- |
-| `--fui-page` | `--surface-base` |
-| `--fui-canvas` | `--surface-sheet` |
-| `--fui-surface`, `--fui-raised` | `--surface-raised` |
-| `--fui-hover` | `--surface-hover` |
-| `--fui-line` | `--border-default` |
-| `--fui-line-strong` | `--field-border` |
-| `--fui-ink-1`, `-2`, `-3` | `--text-primary`, `--text-secondary`, `--text-muted` |
-| `--fui-accent`, `--fui-brand` | `--text-brand` |
-| `--fui-on-accent` | `--text-on-brand`; `--text-on-gold` in the dark theme |
-| `--fui-positive`, `--fui-warning`, `--fui-negative` | `--positive`, `--warning`, `--negative` |
-| `--fui-on-positive`, `-warning`, `-negative` | `--text-on-positive`, `--text-on-warning`, `--text-on-negative` |
+| `--fcon-page` | `--surface-base` |
+| `--fcon-canvas` | `--surface-sheet` |
+| `--fcon-surface`, `--fcon-raised` | `--surface-raised` |
+| `--fcon-hover` | `--surface-hover` |
+| `--fcon-line` | `--border-default` |
+| `--fcon-line-strong` | `--field-border` |
+| `--fcon-ink-1`, `-2`, `-3` | `--text-primary`, `--text-secondary`, `--text-muted` |
+| `--fcon-accent`, `--fcon-brand` | `--text-brand` |
+| `--fcon-on-accent` | `--text-on-brand`; `--text-on-gold` in the dark theme |
+| `--fcon-positive`, `--fcon-warning`, `--fcon-negative` | `--positive`, `--warning`, `--negative` |
+| `--fcon-on-positive`, `-warning`, `-negative` | `--text-on-positive`, `--text-on-warning`, `--text-on-negative` |
 
 Each fill role SHALL have a `-subtle` variant, mixed from that role and
-`--fui-surface`. The console SHALL add only what the stylebook has no token for:
+`--fcon-surface`. The console SHALL add only what the stylebook has no token for:
 
-- `--fui-signal`, for live data only, and its `--fui-on-signal` ink — the
+- `--fcon-signal`, for live data only, and its `--fcon-on-signal` ink — the
   stylebook's `--gold` in the dark theme;
 - the overlay scrim and the overlay shadow.
 
@@ -41,13 +41,13 @@ Each fill role SHALL have a `-subtle` variant, mixed from that role and
 #### Scenario: Both themes are defined
 
 - **WHEN** the dark theme is applied
-- **THEN** every `--fui-*` colour role resolves, either through the stylebook's own
+- **THEN** every `--fcon-*` colour role resolves, either through the stylebook's own
   dark value or through the console's dark override
 
 #### Scenario: Signal is not a status
 
 - **WHEN** a relay's flow, a rate or a change mark is painted
-- **THEN** it uses `--fui-signal`, and no outcome badge uses `--fui-signal`
+- **THEN** it uses `--fcon-signal`, and no outcome badge uses `--fcon-signal`
 
 ### Requirement: The console's tokens are gated for contrast and use
 
@@ -56,8 +56,8 @@ The console SHALL run the stylebook's token gate with a console config over
 and the stylebook token file as its base, whose palettes resolve the roles that
 alias it. The gate SHALL fail on:
 
-- a `var(--fui-*)` that no file defines;
-- a `--fui-*` token that nothing references;
+- a `var(--fcon-*)` that no file defines;
+- a `--fcon-*` token that nothing references;
 - an ink-on-surface pairing below 4.5:1, or a solid fill and its matched ink below
   4.5:1, in either theme;
 - a colour literal outside a token file.
@@ -67,13 +67,13 @@ behave exactly as before without them.
 
 #### Scenario: A low-contrast token
 
-- **WHEN** `--fui-ink-3` is set so that it reaches 4.2:1 on `--fui-raised` in the
+- **WHEN** `--fcon-ink-3` is set so that it reaches 4.2:1 on `--fcon-raised` in the
   light theme
 - **THEN** the console gate fails, naming the pair and the theme
 
 #### Scenario: An aliased role is graded
 
-- **WHEN** the console gate grades `--fui-ink-3` on `--fui-raised`
+- **WHEN** the console gate grades `--fcon-ink-3` on `--fcon-raised`
 - **THEN** it resolves each through the stylebook's palette for that theme and
   grades the resulting colours
 
@@ -114,7 +114,7 @@ preloaded. Inter, Space Grotesk and JetBrains Mono SHALL no longer be served.
 
 ### Requirement: Every element comes from one component kit
 
-Every control and display SHALL be rendered through the console's `fui-` kit, on
+Every control and display SHALL be rendered through the console's `fcon-` kit, on
 every screen including the auth, settings and error pages. The stylebook's own
 recipes are kept for the buttons, for tiles and the figures that fit them, for the
 shell's rail and topbar with their brand, menus and chrome buttons, and for the
@@ -220,7 +220,7 @@ table or an empty-state message that the data has not yet confirmed.
 
 ### Requirement: Focus is always visible and icons are labelled
 
-Every interactive element SHALL show a focus ring in `--fui-accent` on keyboard
+Every interactive element SHALL show a focus ring in `--fcon-accent` on keyboard
 focus in both themes. Every icon-only control SHALL carry an accessible name.
 Icons SHALL be Heroicons outline at 16 or 20 pixels.
 
