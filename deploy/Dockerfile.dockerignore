@@ -1,0 +1,11 @@
+# Only what the release is built from; build output, dependencies and the dev
+# stack's files stay out of the context.
+*
+!mix.exs
+!mix.lock
+!config/
+!lib/
+!priv/
+!assets/
+assets/node_modules/
+priv/static/assets/

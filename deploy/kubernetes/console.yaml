@@ -1,0 +1,194 @@
+# The console on Kubernetes, beside the controllers that core's deploy/kubernetes/ runs in the
+# namespace `flezha`: a Postgres for its accounts, the console itself as a hidden node, and a
+# headless service that resolves to every controller pod. Before applying, create the Secret
+# `flezha-console` (see the console guide in the Flezha docs); `flezha-secrets` holds the
+# controllers' RELEASE_COOKIE already.
+
+# Every controller pod, by address: the console names a controller after the address its pod
+# has now (FLEZHA_NODE_QUERY below).
+apiVersion: v1
+kind: Service
+metadata:
+  name: flezha-controllers
+  namespace: flezha
+spec:
+  clusterIP: None
+  selector:
+    app: flezha
+  ports:
+    - name: epmd
+      port: 4369
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: console-db
+  namespace: flezha
+spec:
+  clusterIP: None
+  selector:
+    app: console-db
+  ports:
+    - name: postgres
+      port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: console-db
+  namespace: flezha
+spec:
+  serviceName: console-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: console-db
+  template:
+    metadata:
+      labels:
+        app: console-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - name: POSTGRES_USER
+              value: console
+            - name: POSTGRES_DB
+              value: console
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-console
+                  key: DB_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "console"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: console
+  namespace: flezha
+spec:
+  selector:
+    app: console
+  ports:
+    - name: http
+      port: 4000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: console
+  namespace: flezha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: console
+  template:
+    metadata:
+      labels:
+        app: console
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: console
+          image: flezha-console:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4000
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # A hidden node under the controllers' cookie: it reaches the controllers without
+            # joining their mesh.
+            - name: RELEASE_DISTRIBUTION
+              value: name
+            - name: RELEASE_NODE
+              value: flezha_console@$(POD_IP)
+            - name: ERL_FLAGS
+              value: -hidden
+            - name: RELEASE_COOKIE
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-secrets
+                  key: RELEASE_COOKIE
+            - name: FLEZHA_NODE_QUERY
+              value: flezha@flezha-controllers.flezha.svc.cluster.local
+            - name: FLEZHA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-console
+                  key: FLEZHA_TOKEN
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-console
+                  key: DB_PASSWORD
+            - name: DATABASE_URL
+              value: ecto://console:$(DB_PASSWORD)@console-db/console
+            - name: SECRET_KEY_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-console
+                  key: SECRET_KEY_BASE
+            - name: FLEZHA_CONSOLE_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-console
+                  key: ADMIN_EMAIL
+            - name: FLEZHA_CONSOLE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-console
+                  key: ADMIN_PASSWORD
+            # The address browsers use; LiveView compares a page's origin with it.
+            - name: PHX_HOST
+              value: localhost
+            - name: PHX_URL_SCHEME
+              value: http
+            - name: PHX_URL_PORT
+              value: "4000"
+          readinessProbe:
+            httpGet:
+              path: /users/log-in
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /users/log-in
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 50m
+            limits:
+              memory: 512Mi

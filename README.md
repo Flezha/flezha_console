@@ -551,3 +551,12 @@ FLEZHA_NODE=flezha@flezha_controller.flezha_network \
 
 Both nodes take the same cookie, one you choose: nothing falls back to a
 built-in value.
+
+## License
+
+Flezha Console is licensed under the [Mozilla Public License 2.0](LICENSE), the
+same license as the Flezha controller. Use it and run it anywhere, commercially
+too; if you distribute a modified copy, publish your changes to its files under
+the same license. Flezha Console is provided "AS IS", without warranty of any kind
+(MPL-2.0 §6-7). The license grants no trademark rights: a fork, derived work or
+hosted service must not use the name "Flezha" or one confusingly similar.
