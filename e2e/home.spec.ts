@@ -1,11 +1,11 @@
 import { test, expect, startRelayCli, stopRelayCli, uniqueId } from './fixtures';
 
 /**
- * A namespace's Home against the dev stack: the headline, the system and
- * namespace tiles, and inspection from a shared link.
+ * A namespace's Home against the dev stack: the headline, the namespace
+ * tiles, and inspection from a shared link.
  *
  * What each tile says for an arranged fleet — every verdict, the flow before
- * two readings, a breached limit, the fleet figures' cost — is asserted in
+ * two readings, a breached limit — is asserted in
  * `test/flezha_ui_web/live/topology_live_test.exs`; what lives here is that
  * the real fleet reaches the tiles and that their links lead on.
  */
@@ -19,19 +19,16 @@ test('/ lands on the Home last worked in, whose tiles count the dev stack', asyn
 
   // The real fleet reaches each tile; how large it is is the stack's to say,
   // so each figure is read for its form.
-  for (const tile of ['sys-namespaces', 'sys-nodes', 'sys-runners', 'sys-relays', 'ns-relays', 'ns-runners']) {
+  for (const tile of ['ns-relays', 'ns-runners']) {
     await expect(page.getByTestId(`${tile}-value`), tile).toHaveText(/\d/);
   }
-  await expect(page.getByTestId('sys-nodes-condition')).toContainText('This console is connected to');
   await expect(page.getByTestId('ns-flow')).toBeVisible();
+  // Figures for the whole cluster are the Cluster screen's.
+  await expect(page.locator('[data-testid^="sys-"]')).toHaveCount(0);
 
   await page.getByTestId('ns-relays-all').click();
   await expect(page).toHaveURL(/\/namespaces\/default\/relays$/);
   await expect(page.getByTestId('relays-index-table')).toBeVisible();
-
-  await page.goBack();
-  await page.getByTestId('sys-problems').click();
-  await expect(page).toHaveURL(/\/problems$/);
 });
 
 test('a relay started and stopped from flz reaches the river without a reload', async ({ page, live }) => {
@@ -69,13 +66,12 @@ test('a shared link opens a relay inspector on Home, which opens the relay', asy
   await expect(page).toHaveURL(/\/namespaces\/default\/relays\/testnet_noop$/);
 });
 
-test('the system and namespace tiles stand level, keep their content inside, and lift on hover', async ({
+test('the namespace tiles stand level, keep their content inside, and lift on hover', async ({
   page,
   live,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await live('/namespaces/default');
-  await expect(page.getByTestId('home-system-tiles')).toBeVisible();
   await expect(page.getByTestId('home-namespace-tiles')).toBeVisible();
 
   // Each row of tiles is a grid line with one minimum height; a line grows
@@ -95,7 +91,7 @@ test('the system and namespace tiles stand level, keep their content inside, and
     return [...byLine.entries()];
   });
 
-  expect(lines.length).toBeGreaterThanOrEqual(2);
+  expect(lines.length).toBeGreaterThanOrEqual(1);
   for (const [line, { minimum, heights }] of lines) {
     expect(Math.min(...heights), `${line}: ${heights}`).toBeGreaterThanOrEqual(minimum);
     expect(Math.max(...heights) - Math.min(...heights), `${line}: ${heights}`).toBeLessThanOrEqual(16);

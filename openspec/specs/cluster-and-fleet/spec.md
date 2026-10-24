@@ -3,6 +3,48 @@
 ## Purpose
 TBD - created by archiving change resync-with-flezha-runtime. Update Purpose after archive.
 ## Requirements
+### Requirement: The Cluster screen opens with an overview in tiles
+
+Above its nodes, the Cluster screen SHALL show one row of tiles for everything the
+operator's token reaches:
+
+- **Namespaces:** how many are reachable.
+- **Controller nodes:** how many, and which one this console is connected to.
+- **Runners:** how many distinct runners serve any reachable namespace. A runner
+  answered by more than one namespace SHALL count once, here and in the screen's
+  sentence.
+- **Relays:** how many across the reachable namespaces, with a health strip and
+  the healthy count.
+- **Open problems:** how many, in the tone of the worst, linking to `/problems`.
+- **Controller:** whether it is connected, its durability posture, and its
+  durability breaches.
+
+Namespaces, nodes, runners and the controller's posture SHALL come from the reads
+this screen already makes. Relay health, open problems and durability breaches
+SHALL come from the shell pulse (see `attention`). The row SHALL show a skeleton
+until the pulse has answered once.
+
+#### Scenario: Two namespaces are reachable
+
+- **WHEN** the token reaches `default` with three relays and `sandbox` with two
+- **THEN** the Namespaces tile reads 2 and the Relays tile reads 5
+
+#### Scenario: One runner serves two namespaces
+
+- **WHEN** both reachable namespaces answer the same runner
+- **THEN** the Runners tile reads 1 and the sentence says one runner
+
+#### Scenario: Nothing needs attention
+
+- **WHEN** no attention item is open anywhere
+- **THEN** the Open problems tile reads that nothing needs attention, in the
+  positive tone
+
+#### Scenario: A durability breach
+
+- **WHEN** the controller reports a durability RPO breach
+- **THEN** the Controller tile says so in words and in the negative tone
+
 ### Requirement: Cluster membership view
 
 The UI SHALL show the controller cluster's node membership, marking which node the UI is connected to. The node list SHALL be the union of the nodes `Flezha.Service.Controller.cluster_status/2` answers for each namespace the caller can see; the UI SHALL NOT call `:erlang.nodes/1` or any other unpublished function on the controller to list members. A node that hosts no hub for any namespace visible to the caller is not listed.

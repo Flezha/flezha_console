@@ -1,7 +1,11 @@
 defmodule FlezhaUiWeb.ClusterLive do
   @moduledoc """
-  Where the control plane actually lives: cluster nodes, which node hosts each
-  namespace's hub, and the runners serving each namespace.
+  Where the control plane actually lives: a row of tiles for everything the
+  operator's token reaches, cluster nodes, which node hosts each namespace's
+  hub, and the runners serving each namespace.
+
+  The tiles count what this screen reads, except relay health, open problems
+  and durability breaches, which come from the shell pulse every screen keeps.
 
   Subscribes to runner events so the fleet reflects a connect or disconnect
   without waiting for the refresh timer.
@@ -25,6 +29,7 @@ defmodule FlezhaUiWeb.ClusterLive do
      |> runner_actions_init()
      |> assign(page_title: "Cluster", selected_factory: nil, factory_runners: nil)
      |> assign(load_error: nil, connected_node: nil, cluster_nodes: [], namespaces: [])
+     |> assign(runner_count: 0, controller_status: nil)
      |> refresh()}
   end
 
@@ -61,9 +66,47 @@ defmodule FlezhaUiWeb.ClusterLive do
       connected_node: connected,
       cluster_nodes:
         namespaces |> Enum.flat_map(& &1.hub_nodes) |> NodeManager.cluster_nodes(connected),
-      namespaces: namespaces
+      namespaces: namespaces,
+      # One runner may answer for more than one namespace; it is still one.
+      runner_count:
+        namespaces |> Enum.flat_map(& &1.runners) |> Enum.uniq_by(& &1.id) |> length(),
+      controller_status: NodeManager.ok_or(NodeManager.controller_status(token), nil)
     )
   end
+
+  defp health_total(health), do: health |> Enum.map(&elem(&1, 1)) |> Enum.sum()
+
+  defp nodes_said([]), do: {:negative, "Unreachable", "None reachable"}
+
+  defp nodes_said(nodes) do
+    case Enum.find(nodes, & &1.connected?) do
+      nil -> {:negative, "Disconnected", "This console is connected to none of them"}
+      node -> {:positive, "Connected", "This console is connected to #{node.name}"}
+    end
+  end
+
+  defp problems_said([]), do: {:positive, "Clear", "Nothing needs attention"}
+
+  defp problems_said(items) do
+    tone = FlezhaUiWeb.Attention.worst(items)
+    verdict = if tone == :negative, do: "Urgent", else: "Attention"
+    {tone, verdict, Words.need_attention(length(items), "problem")}
+  end
+
+  defp controller_said(nil, _breaches, _status),
+    do: {:negative, "Down", "This console cannot reach it"}
+
+  defp controller_said(_node, breaches, _status) when breaches > 0,
+    do:
+      {:negative, "Breach",
+       "#{Words.count(breaches, "durability breach", "durability breaches")} past their RPO"}
+
+  defp controller_said(_node, _breaches, %{durability_posture: posture}) do
+    said = Words.say(:durability_posture, posture)
+    {if(said.tone == :neutral, do: :positive, else: said.tone), "Up", said.text}
+  end
+
+  defp controller_said(_node, _breaches, _status), do: {:positive, "Up", "Connected"}
 
   @doc "A recovery state as an operator reads it, in its tone."
   def recovery(state), do: Words.say(:hub_recovery, state)

@@ -101,10 +101,10 @@ namespace and some are not, and it says which is which.
 - **Problems are counted on the rail.** A per-session pulse reads every
   reachable namespace every ten seconds, with the operator's own token and a
   fixed number of calls per namespace, and the Problems entry shows how many
-  are open in the tone of the worst. Home's system tiles read the same pulse,
-  which counts runners, nodes and the controller's status only for Home and
-  only while its tab is shown. The pulse reads in a task, one at a time, so a
-  slow controller delays the count but never a click.
+  are open in the tone of the worst. The Cluster screen's overview tiles take
+  relay health, problems and durability breaches from the same pulse. The
+  pulse reads in a task, one at a time, so a slow controller delays the count
+  but never a click.
 - **Home answers before it has read.** Home's reads run off its LiveView
   process: the screen connects with its frame and a skeleton, and its figures
   arrive when the read answers. One read is in flight at a time; a tick due

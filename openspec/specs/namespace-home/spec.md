@@ -1,7 +1,7 @@
 # namespace-home Specification
 
 ## Purpose
-A namespace's Home: the screen the root address lands on, its headline sentence, the system and namespace indicator tiles, how it reads its controller (in the background and one read at a time, paused while hidden, one read per burst of events), and the teaching state of an empty namespace.
+A namespace's Home: the screen the root address lands on, its headline sentence, the namespace indicator tiles, how it reads its controller (in the background and one read at a time, paused while hidden, one read per burst of events), and the teaching state of an empty namespace.
 ## Requirements
 ### Requirement: Home is the namespace's own screen
 
@@ -11,21 +11,21 @@ bottom it SHALL hold:
 
 - a headline sentence;
 - the namespace's attention items;
-- the system indicators;
 - the namespace indicators;
 - the event river;
 - the namespace's folded sections: limits, access, partition groups, finished
   relays and runners.
 
 No other screen SHALL render the namespace data-plane summary. Home SHALL NOT draw
-a map of the namespace's data plane.
+a map of the namespace's data plane. Home SHALL NOT show figures for the whole
+cluster; those are the Cluster screen's (see `cluster-and-fleet`).
 
 #### Scenario: Opening a namespace
 
 - **WHEN** an operator opens `/namespaces/default`
-- **THEN** the headline, the attention items for `default`, the system indicators,
-  the namespace indicators and the river render in that order above the folded
-  sections
+- **THEN** the headline, the attention items for `default`, the namespace
+  indicators and the river render in that order above the folded sections
+- **AND** no tile counts another namespace
 
 #### Scenario: The summary is not duplicated
 
@@ -129,52 +129,17 @@ attention.
 When a namespace has no relays and no runners, the namespace indicators SHALL be
 replaced by one sentence saying what a runner and a relay are. It SHALL offer
 Start relay when the operator's operations include starting one. It SHALL state
-that a runner must connect before a relay can run. The system indicators SHALL
-still render.
+that a runner must connect before a relay can run.
 
 #### Scenario: A fresh namespace
 
 - **WHEN** an operator opens the Home of a namespace with nothing running
 - **THEN** in place of the namespace indicators Home explains that runners serve
   factories and relays are started from them, and offers Start relay when allowed
-- **AND** the system indicators still render
-
-### Requirement: Home shows the system in indicator tiles
-
-Above the namespace's own figures, Home SHALL show one row of tiles for everything
-the operator's token reaches:
-
-- **Namespaces:** how many are reachable.
-- **Controller nodes:** how many, and which one this console is connected to.
-- **Runners:** how many serve any reachable namespace.
-- **Relays:** how many across the reachable namespaces, with a health strip and
-  the healthy count.
-- **Open problems:** how many, in the tone of the worst, linking to `/problems`.
-- **Controller:** whether it is connected, its durability posture, and its
-  durability breaches.
-
-The figures SHALL come from the shell pulse (see `attention`). The row SHALL state
-when it was last read.
-
-#### Scenario: Two namespaces are reachable
-
-- **WHEN** the token reaches `default` with three relays and `sandbox` with two
-- **THEN** the Namespaces tile reads 2 and the Relays tile reads 5
-
-#### Scenario: Nothing needs attention
-
-- **WHEN** no attention item is open anywhere
-- **THEN** the Open problems tile reads that nothing needs attention, in the
-  positive tone
-
-#### Scenario: A durability breach
-
-- **WHEN** the controller reports a durability RPO breach
-- **THEN** the Controller tile says so in words and in the negative tone
 
 ### Requirement: Home shows its namespace in indicator tiles
 
-Below the system tiles, Home SHALL show one row of tiles for its namespace:
+Below its attention items, Home SHALL show one row of tiles for its namespace:
 
 - **Relays:** the total, a health strip, and a count for each non-healthy verdict,
   each linking to the relays index filtered to this namespace and that health.
@@ -259,14 +224,14 @@ window SHALL result in a single read.
 ### Requirement: Home's tiles share one height
 
 Every indicator tile on Home SHALL lay out its label, figure, condition and foot in
-one fixed order, with its foot at the bottom, and both tile rows SHALL share one
-minimum row height, so the system tiles and the namespace tiles stand at the same
-height whenever no tile's content exceeds it.
+one fixed order, with its foot at the bottom, and the tile row SHALL keep one
+minimum row height, so its tiles stand at the same height whenever no tile's
+content exceeds it.
 
-#### Scenario: Both rows on a desktop
+#### Scenario: The row on a desktop
 
 - **WHEN** Home renders at 1280 px wide with the default namespace's tiles
-- **THEN** every system tile and every namespace tile stands at the shared minimum
+- **THEN** every namespace tile stands at the shared minimum
   height, or at most one line of text taller where its words wrap further
 
 ### Requirement: The namespace row is headed by its kind

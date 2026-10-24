@@ -216,6 +216,49 @@ defmodule FlezhaUiWeb.Words do
     Enum.find([:negative, :warning, :positive], :neutral, &(&1 in tones))
   end
 
+  @doc """
+  A relays tile's `{tone, verdict, condition}` for health counts as
+  `NodeManager.health_counts/1` answers them: painted in the worst verdict,
+  whose count is the pill.
+  """
+  def health_said([]), do: {:neutral, nil, "None running"}
+
+  def health_said(health) do
+    worst = health |> Enum.map(fn {verdict, _} -> tone(:health, verdict) end) |> worst()
+
+    verdict =
+      Enum.find_value(health, "Healthy", fn {verdict, count} = bucket ->
+        if count > 0 and verdict != :healthy and tone(:health, verdict) == worst,
+          do: counted(bucket)
+      end)
+
+    condition =
+      case health do
+        [{:healthy, _count}] -> "All healthy"
+        _mixed -> Enum.map_join(health, " · ", &counted/1)
+      end
+
+    {worst, verdict, condition}
+  end
+
+  defp counted({verdict, count}), do: "#{count} #{String.downcase(text(:health, verdict))}"
+
+  @doc """
+  A runners tile's `{tone, verdict}`: no runner is a problem only while there
+  are relays waiting for one. `nil` runners have not been read.
+  """
+  def runners_said(nil, _relays), do: {:neutral, nil}
+  def runners_said(0, 0), do: {:neutral, nil}
+  def runners_said(0, _relays), do: {:warning, "Needed"}
+  def runners_said(_runners, _relays), do: {:positive, "Connected"}
+
+  @doc """
+      iex> FlezhaUiWeb.Words.need_attention(2, "problem")
+      "2 problems need attention"
+  """
+  def need_attention(count, noun),
+    do: "#{count(count, noun)} #{if count == 1, do: "needs", else: "need"} attention"
+
   # A string value and an atom value name the same state: the controller
   # answers atoms, a URL or a form answers strings.
   defp lookup(table, value) do

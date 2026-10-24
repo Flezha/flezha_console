@@ -125,11 +125,9 @@ pulse SHALL NOT run on the disconnected first render. No item SHALL be gathered
 with any principal but the operator's.
 
 Beside its items, the pulse SHALL keep the fleet totals its reads already answer:
-the number of reachable namespaces and the relay health counts summed across them.
-A screen that asks for fleet figures SHALL also get the runner count across those
-namespaces, the controller nodes, and the controller's status. Those reads are a
-fixed number per namespace, made only while that screen is visible. A screen that
-does not ask SHALL cost the pulse no extra call.
+the relay health counts summed across the reachable namespaces and the number of
+durability breaches. The pulse SHALL NOT read runners, controller nodes or the
+controller's status.
 
 #### Scenario: The pulse runs only when connected
 
@@ -153,14 +151,9 @@ does not ask SHALL cost the pulse no extra call.
 - **WHEN** the operator's token is bound to one namespace
 - **THEN** only that namespace's items are gathered and shown
 
-#### Scenario: Only Home pays for fleet figures
+#### Scenario: The pulse reads no fleet figures
 
-- **WHEN** the pulse runs on the relays index
-- **THEN** it makes no `runners`, `cluster_status` or `controller_status` call
-
-#### Scenario: A hidden Home pays nothing extra
-
-- **WHEN** the pulse runs while Home's tab is hidden
+- **WHEN** the pulse runs on any screen
 - **THEN** it makes no `runners`, `cluster_status` or `controller_status` call
 
 ### Requirement: The shell shows how much needs attention

@@ -1472,7 +1472,6 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert html =~ "a runner must connect before a relay can run"
       assert html =~ ~s(data-testid="start-relay-empty-btn")
       refute html =~ ~s(data-testid="home-namespace-tiles")
-      assert html =~ ~s(data-testid="home-system")
     end
   end
 
@@ -1991,64 +1990,20 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     end
   end
 
-  describe "Home's system tiles" do
-    test "count every reachable namespace, node, runner and relay", %{conn: conn, node: node} do
-      stack(node, relays: ["relay_a", "relay_b"], runners: ["runner-a"])
-
-      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
-
-      assert text_of(html, ~s([data-testid="sys-namespaces-value"])) == "2"
-      # Two namespaces of two relays each.
-      assert text_of(html, ~s([data-testid="sys-relays-value"])) == "4"
-      assert text_of(html, ~s([data-testid="sys-relays-condition"])) == "All healthy"
-      assert text_of(html, ~s([data-testid="sys-relays-verdict"])) == "Healthy"
-      assert text_of(html, ~s([data-testid="sys-runners-verdict"])) == "Connected"
-      assert text_of(html, ~s([data-testid="sys-nodes-verdict"])) == "Connected"
-      # A count with no verdict draws no pill.
-      refute html =~ ~s(data-testid="sys-namespaces-verdict")
-      # Each namespace answers the same runner id: it is one runner.
-      assert text_of(html, ~s([data-testid="sys-runners-value"])) == "1"
-      assert text_of(html, ~s([data-testid="sys-nodes-value"])) == "1"
-      assert text_of(html, ~s([data-testid="sys-nodes-condition"])) =~ "connected to #{node}"
-      assert text_of(html, ~s([data-testid="sys-runners"] .fui-indicator-foot)) == "1 in default"
-
-      assert text_of(html, ~s([data-testid="sys-problems-condition"])) ==
-               "Nothing needs attention"
-
-      assert text_of(html, ~s([data-testid="sys-problems-verdict"])) == "Clear"
-
-      assert attrs(html, ~s([data-testid="sys-controller"]), "data-tone") == ["positive"]
-      assert html =~ ~s(data-testid="home-system-checked")
-    end
-
-    test "a durability breach is stated on the controller tile", %{conn: conn, node: node} do
+  describe "Home's scope" do
+    test "Home counts its own namespace and leaves the cluster to Cluster", %{
+      conn: conn,
+      node: node
+    } do
       stack(node)
 
-      FakeController.set(
-        node,
-        {Controller, :durability_breaches},
-        {:ok, [%{ref: "r1", age_ms: 90_000, rpo_ms: 60_000}]}
-      )
-
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
-      assert attrs(html, ~s([data-testid="sys-controller"]), "data-tone") == ["negative"]
-      assert text_of(html, ~s([data-testid="sys-controller-condition"])) =~ "1 durability breach"
+      assert html =~ ~s(data-testid="home-namespace-tiles")
+      refute html =~ ~s(data-testid="sys-)
     end
 
-    test "open problems are counted in the worst one's tone", %{conn: conn, node: node} do
-      stack(node, rows: [summary_row("sick", %{health: :halted}), summary_row("fine")])
-
-      {view, html} = live_loaded(conn, ~p"/namespaces/default")
-
-      # One halted relay in each of the two namespaces: the operator's to fix.
-      assert text_of(html, ~s([data-testid="sys-problems-value"])) == "2"
-      assert attrs(html, ~s([data-testid="sys-problems"]), "data-tone") == ["negative"]
-      assert text_of(html, ~s([data-testid="sys-problems-verdict"])) == "Urgent"
-      assert has_element?(view, ~s(a[data-testid="sys-problems"][href="/problems"]))
-    end
-
-    test "only Home asks the pulse for fleet figures", %{conn: conn, node: node} do
+    test "the shell's pulse reads no fleet figures", %{conn: conn, node: node} do
       stack(node)
 
       {_view, _html} = live_loaded(conn, ~p"/problems")
@@ -2056,42 +2011,6 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
       assert FakeController.calls(node, {Controller, :cluster_status}) == []
       assert FakeController.calls(node, {Controller, :status}) == []
       assert FakeController.calls(node, {Fleet, :runners}) == []
-    end
-
-    test "the fleet figures cost the same for two relays and for fifty", %{
-      conn: conn,
-      node: node
-    } do
-      reach = fn relays ->
-        FakeController.reset(node)
-        stack(node, relays: relays)
-        live_loaded(conn, ~p"/namespaces/default")
-
-        for key <- [{Controller, :cluster_status}, {Controller, :status}],
-            do: length(FakeController.calls(node, key))
-      end
-
-      assert reach.(["relay_a", "relay_b"]) == reach.(Enum.map(1..50, &"relay_#{&1}"))
-    end
-
-    test "a hidden Home's pulse keeps its fleet figures without reading them", %{
-      conn: conn,
-      node: node
-    } do
-      stack(node)
-
-      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
-      assert length(FakeController.calls(node, {Controller, :cluster_status})) == 2
-
-      view
-      |> element("#home-visibility")
-      |> render_hook("refresh_visibility", %{"hidden" => true})
-
-      send(view.pid, :shell_pulse)
-      html = render_async(view)
-
-      assert length(FakeController.calls(node, {Controller, :cluster_status})) == 2
-      assert text_of(html, ~s([data-testid="sys-nodes-value"])) == "1"
     end
   end
 
@@ -2323,8 +2242,6 @@ defmodule FlezhaUiWeb.TopologyLiveTest do
     [n] = Regex.run(~r"[\d.]+(?=/s)", text_of(html, ~s([data-testid="#{testid}"])))
     String.to_float(n)
   end
-
-  # Home once the shell's first pulse, which its system tiles read, has landed.
 
   defp stopped(relay) do
     %{

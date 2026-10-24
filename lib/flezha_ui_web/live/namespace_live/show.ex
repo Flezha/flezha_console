@@ -1,14 +1,12 @@
 defmodule FlezhaUiWeb.NamespaceLive.Show do
   @moduledoc """
   A namespace's Home: a headline sentence, the namespace's open problems,
-  indicator tiles for everything the operator reaches and then for this
-  namespace, the event river, and its administration folded below — limits,
-  access, partition groups, finished relays and runners.
+  indicator tiles for the namespace, the event river, and its administration
+  folded below — limits, access, partition groups, finished relays and runners.
 
   It replaces both the former dashboard and the namespace overview, and is the
-  only screen that renders the namespace's data-plane summary. The system
-  tiles read the shell pulse, which this screen asks for fleet figures
-  (`pulse_fleet`); the namespace tiles read this screen's own tick.
+  only screen that renders the namespace's data-plane summary. Figures for
+  everything the operator reaches are the Cluster screen's.
   """
 
   use FlezhaUiWeb, :live_view
@@ -63,7 +61,6 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
         params: %{},
         confirm_stop: nil,
         load_error: nil,
-        pulse_fleet: true,
         plugin_pairs: [],
         schedules: [],
         groups: [],
@@ -525,82 +522,15 @@ defmodule FlezhaUiWeb.NamespaceLive.Show do
       {:negative, "Waiting",
        "Records a tasklet could not process, waiting for a replay or a drop"}
 
-  defp health_total(health), do: health |> Enum.map(&elem(&1, 1)) |> Enum.sum()
-
-  # Relays by verdict: painted in the worst, whose count is the pill.
-  defp health_said([]), do: {:neutral, nil, "None running"}
-
-  defp health_said(health) do
-    worst =
-      health |> Enum.map(fn {verdict, _} -> Words.tone(:health, verdict) end) |> Words.worst()
-
-    verdict =
-      Enum.find_value(health, "Healthy", fn {verdict, count} = bucket ->
-        if count > 0 and verdict != :healthy and Words.tone(:health, verdict) == worst,
-          do: counted(bucket)
-      end)
-
-    condition =
-      case health do
-        [{:healthy, _count}] -> "All healthy"
-        _mixed -> Enum.map_join(health, " · ", &counted/1)
-      end
-
-    {worst, verdict, condition}
-  end
-
-  defp counted({verdict, count}), do: "#{count} #{String.downcase(Words.text(:health, verdict))}"
-
-  # No runner is a problem only while there are relays waiting for one.
-  defp runners_said(nil, _relays), do: {:neutral, nil}
-  defp runners_said(0, 0), do: {:neutral, nil}
-  defp runners_said(0, _relays), do: {:warning, "Needed"}
-  defp runners_said(_runners, _relays), do: {:positive, "Connected"}
-
-  defp nodes_said(nil), do: {:neutral, nil, "Not read yet"}
-  defp nodes_said([]), do: {:negative, "Unreachable", "None reachable"}
-
-  defp nodes_said(nodes) do
-    case Enum.find(nodes, & &1.connected?) do
-      nil -> {:negative, "Disconnected", "This console is connected to none of them"}
-      node -> {:positive, "Connected", "This console is connected to #{node.name}"}
-    end
-  end
-
-  defp problems_said([]), do: {:positive, "Clear", "Nothing needs attention"}
-
-  defp problems_said(items) do
-    tone = Attention.worst(items)
-    verdict = if tone == :negative, do: "Urgent", else: "Attention"
-    {tone, verdict, need_attention(length(items), "problem")}
-  end
-
   # How many of the namespace's items need attention: relays when every item
   # is one, problems otherwise.
   defp attention_title(items) do
     relays = Enum.count(items, &(&1.kind == :relay))
 
     if relays == length(items),
-      do: need_attention(relays, "relay"),
-      else: need_attention(length(items), "problem")
+      do: Words.need_attention(relays, "relay"),
+      else: Words.need_attention(length(items), "problem")
   end
-
-  defp need_attention(count, noun),
-    do: "#{Words.count(count, noun)} #{if count == 1, do: "needs", else: "need"} attention"
-
-  defp controller_said(nil, _fleet), do: {:negative, "Down", "This console cannot reach it"}
-
-  defp controller_said(_node, %{breaches: breaches}) when breaches > 0,
-    do:
-      {:negative, "Breach",
-       "#{Words.count(breaches, "durability breach", "durability breaches")} past their RPO"}
-
-  defp controller_said(_node, %{status: %{durability_posture: posture}}) do
-    said = Words.say(:durability_posture, posture)
-    {if(said.tone == :neutral, do: :positive, else: said.tone), "Up", said.text}
-  end
-
-  defp controller_said(_node, _fleet), do: {:positive, "Up", "Connected"}
 
   # A registry row names the runner that last hosted a relay, so only a
   # running relay's runner is counted as serving it.

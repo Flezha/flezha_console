@@ -32,97 +32,6 @@
     <.runtime_error error={:node_not_connected} />
   </div>
 <% else %>
-  <%!-- Everything the operator reaches, from the shell pulse --%>
-  <.section
-    testid="home-system"
-    help="Everything your token reaches, across every namespace. Read with the shell's check every 10 seconds."
-  >
-    <:title>System</:title>
-    <:actions :if={@shell_pulse}>
-      <span class="fui-figures" data-testid="home-system-checked">
-        Read at {Format.time_of_day(@shell_pulse.checked_at)}
-      </span>
-    </:actions>
-    <.skeleton :if={is_nil(@shell_pulse)} rows={2} testid="home-system-loading" />
-    <div :if={@shell_pulse} class="fui-indicators" data-testid="home-system-tiles">
-      <% fleet = @shell_pulse.fleet %>
-      <.tile
-        testid="sys-namespaces"
-        icon="hero-rectangle-stack"
-        label="Namespaces"
-        value={fleet.namespaces}
-        condition="Reachable with your token"
-        href={~p"/namespaces"}
-      >
-        <:foot>You are in {@ns}</:foot>
-      </.tile>
-      <% {nodes_tone, nodes_verdict, nodes_condition} = nodes_said(fleet[:nodes]) %>
-      <.tile
-        testid="sys-nodes"
-        icon="hero-server-stack"
-        label="Controller nodes"
-        value={fleet[:nodes] && length(fleet.nodes)}
-        tone={nodes_tone}
-        verdict={nodes_verdict}
-        condition={nodes_condition}
-        href={~p"/cluster"}
-      />
-      <% {sys_runners_tone, sys_runners_verdict} =
-        runners_said(fleet[:runners], health_total(fleet.health)) %>
-      <.tile
-        testid="sys-runners"
-        icon="hero-cube"
-        label="Runners"
-        value={fleet[:runners]}
-        tone={sys_runners_tone}
-        verdict={sys_runners_verdict}
-        condition={(fleet[:runners] && "Connected across the cluster") || "Not read yet"}
-        href={~p"/cluster"}
-      >
-        <:foot>{length(@runners)} in {@ns}</:foot>
-      </.tile>
-      <% {relays_tone, relays_verdict, relays_condition} = health_said(fleet.health) %>
-      <.tile
-        testid="sys-relays"
-        icon="hero-cpu-chip"
-        label="Relays"
-        value={health_total(fleet.health)}
-        tone={relays_tone}
-        verdict={relays_verdict}
-        condition={relays_condition}
-        href={~p"/relays"}
-      >
-        <.strip counts={fleet.health} testid="sys-relays-strip" />
-        <:foot :if={@topology[:relay_count]}>{@topology.relay_count} in {@ns}</:foot>
-      </.tile>
-      <% {problems_tone, problems_verdict, problems_condition} =
-        problems_said(@shell_pulse.items) %>
-      <.tile
-        testid="sys-problems"
-        icon="hero-exclamation-triangle"
-        label="Open problems"
-        value={length(@shell_pulse.items)}
-        tone={problems_tone}
-        verdict={problems_verdict}
-        condition={problems_condition}
-        href={~p"/problems"}
-      >
-        <:foot>{length(@items)} in {@ns}</:foot>
-      </.tile>
-      <% {controller_tone, controller_value, controller_condition} =
-        controller_said(NodeManager.connected_node(), fleet) %>
-      <.tile
-        testid="sys-controller"
-        icon="hero-server"
-        label="Controller"
-        value={controller_value}
-        tone={controller_tone}
-        condition={controller_condition}
-        href={~p"/controller"}
-      />
-    </div>
-  </.section>
-
   <%!-- This namespace, from this screen's own tick --%>
   <.section
     testid="home-namespace"
@@ -149,7 +58,7 @@
       <% true -> %>
         <div class="fui-indicators" data-testid="home-namespace-tiles">
           <% health = Enum.map(@topology.health, &{&1.health, &1.count}) %>
-          <% {relays_tone, relays_verdict, relays_condition} = health_said(health) %>
+          <% {relays_tone, relays_verdict, relays_condition} = Words.health_said(health) %>
           <.tile
             testid="ns-relays"
             icon="hero-cpu-chip"
@@ -174,7 +83,7 @@
               </.link>
             </span>
           </.tile>
-          <% {runners_tone, runners_verdict} = runners_said(length(@runners), length(@rows)) %>
+          <% {runners_tone, runners_verdict} = Words.runners_said(length(@runners), length(@rows)) %>
           <.tile
             testid="ns-runners"
             icon="hero-cube"

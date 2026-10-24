@@ -122,7 +122,7 @@ defmodule FlezhaUiWeb.Glossary do
   # Per screen kind: what it shows, what it is for, and the terms it marks.
   @screens %{
     home: {
-      "Home sums up everything you can reach, then this namespace, in tiles: how many relays, runners, plugins and schedules there are, how healthy they are, what is flowing and how close each limit is. This namespace's problems sit below its tiles; the river below them lists what happened while you watched.",
+      "Home sums up this namespace in tiles: how many relays, runners, plugins and schedules there are, how healthy they are, what is flowing and how close each limit is. This namespace's problems sit below its tiles; the river below them lists what happened while you watched.",
       ["namespace", "runner", "relay", "factory", "health", "quota"]
     },
     relays: {
@@ -184,7 +184,7 @@ defmodule FlezhaUiWeb.Glossary do
       ["dead letter", "tasklet", "relay"]
     },
     cluster: {
-      "The controller nodes, each namespace's hub and where it runs, and the runners connected to each namespace.",
+      "Everything you can reach, summed up in tiles; then the controller nodes, each namespace's hub and where it runs, and the runners connected to each namespace.",
       ["hub", "runner", "factory", "namespace"]
     },
     controller: {

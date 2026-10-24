@@ -7,7 +7,7 @@
       )} host the
       <.term key="hub">hubs</.term>
       of {Words.count(length(@namespaces), "namespace")}, served by {Words.count(
-        @namespaces |> Enum.map(&length(&1.runners)) |> Enum.sum(),
+        @runner_count,
         "runner"
       )}.
     </span>
@@ -19,8 +19,86 @@
 
 <.runtime_error error={@load_error} />
 
+<%!-- Everything the operator reaches --%>
+<.section
+  flush
+  testid="cluster-overview"
+  help="Everything your token reaches, across every namespace. Relay health, open problems and durability breaches come from the console's check every 10 seconds; the rest is read with this screen every 5 seconds."
+>
+  <:title>Overview</:title>
+  <.skeleton :if={is_nil(@shell_pulse)} rows={2} testid="cluster-overview-loading" />
+  <div :if={@shell_pulse} class="fui-indicators" data-testid="cluster-overview-tiles">
+    <% fleet = @shell_pulse.fleet %>
+    <.tile
+      testid="sys-namespaces"
+      icon="hero-rectangle-stack"
+      label="Namespaces"
+      value={length(@namespaces)}
+      condition="Reachable with your token"
+      href={~p"/namespaces"}
+    />
+    <% {nodes_tone, nodes_verdict, nodes_condition} = nodes_said(@cluster_nodes) %>
+    <.tile
+      testid="sys-nodes"
+      icon="hero-server-stack"
+      label="Controller nodes"
+      value={length(@cluster_nodes)}
+      tone={nodes_tone}
+      verdict={nodes_verdict}
+      condition={nodes_condition}
+    />
+    <% {runners_tone, runners_verdict} =
+      Words.runners_said(@runner_count, health_total(fleet.health)) %>
+    <.tile
+      testid="sys-runners"
+      icon="hero-cube"
+      label="Runners"
+      value={@runner_count}
+      tone={runners_tone}
+      verdict={runners_verdict}
+      condition="Connected across the cluster"
+    />
+    <% {relays_tone, relays_verdict, relays_condition} = Words.health_said(fleet.health) %>
+    <.tile
+      testid="sys-relays"
+      icon="hero-cpu-chip"
+      label="Relays"
+      value={health_total(fleet.health)}
+      tone={relays_tone}
+      verdict={relays_verdict}
+      condition={relays_condition}
+      href={~p"/relays"}
+    >
+      <.strip counts={fleet.health} testid="sys-relays-strip" />
+    </.tile>
+    <% {problems_tone, problems_verdict, problems_condition} =
+      problems_said(@shell_pulse.items) %>
+    <.tile
+      testid="sys-problems"
+      icon="hero-exclamation-triangle"
+      label="Open problems"
+      value={length(@shell_pulse.items)}
+      tone={problems_tone}
+      verdict={problems_verdict}
+      condition={problems_condition}
+      href={~p"/problems"}
+    />
+    <% {controller_tone, controller_value, controller_condition} =
+      controller_said(@connected_node, fleet.breaches, @controller_status) %>
+    <.tile
+      testid="sys-controller"
+      icon="hero-server"
+      label="Controller"
+      value={controller_value}
+      tone={controller_tone}
+      condition={controller_condition}
+      href={~p"/controller"}
+    />
+  </div>
+</.section>
+
 <%!-- Nodes --%>
-<.section flush testid="cluster-nodes-panel">
+<.section testid="cluster-nodes-panel">
   <:title>Nodes</:title>
   <.empty_state :if={@cluster_nodes == []} icon="hero-server" testid="cluster-nodes-empty">
     A controller node hosts namespace hubs. None is reachable from this console.

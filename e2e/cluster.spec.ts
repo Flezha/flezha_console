@@ -16,6 +16,21 @@ import { test, expect, menuAction, choose } from './fixtures';
  * `test/flezha_ui_web/live/cluster_live_test.exs` and `runner_drop_test.exs`.
  */
 test.describe('Cluster and fleet', () => {
+  test('the overview counts the dev stack and leads to its problems', async ({ page, live }) => {
+    await live('/cluster');
+
+    // How large the fleet is is the stack's to say, so each figure is read for
+    // its form.
+    for (const tile of ['sys-namespaces', 'sys-nodes', 'sys-runners', 'sys-relays', 'sys-problems']) {
+      await expect(page.getByTestId(`${tile}-value`), tile).toHaveText(/\d/);
+    }
+    await expect(page.getByTestId('sys-nodes-condition')).toContainText('This console is connected to');
+    await expect(page.getByTestId('sys-controller-value')).toHaveText(/\w/);
+
+    await page.getByTestId('sys-problems').click();
+    await expect(page).toHaveURL(/\/problems$/);
+  });
+
   test('shows the nodes, hub placement, runners and factories, looks a factory up, cancels a runner drop, and explains hub recovery', async ({
     page,
     live,

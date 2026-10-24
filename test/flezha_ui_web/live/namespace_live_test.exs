@@ -522,9 +522,8 @@ defmodule FlezhaUiWeb.NamespaceLiveTest do
 
       ExUnit.CaptureLog.capture_log(fn ->
         send(view.pid, :shell_pulse)
-        html = render_async(view)
+        render_async(view)
 
-        assert text_of(html, ~s([data-testid="sys-namespaces-value"])) == "1"
         assert checked_at(view) == read_at
       end)
     end

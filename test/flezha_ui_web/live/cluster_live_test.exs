@@ -49,6 +49,88 @@ defmodule FlezhaUiWeb.ClusterLiveTest do
 
   defp factory(id, runners \\ []), do: %{id: id, description: nil, run: :flow, runners: runners}
 
+  describe "the overview tiles" do
+    # Two namespaces holding the same rows, served by one runner that answers
+    # for both.
+    defp two_namespaces(node, rows) do
+      FakeController.set_fleet(node, rows: %{"staging" => rows, "default" => rows})
+      FakeController.set(node, {Fleet, :factories}, {:ok, []})
+      FakeController.set(node, {Fleet, :runners}, {:ok, [FakeController.runner_row("runner-a")]})
+      FakeController.set(node, {Controller, :cluster_status}, {:ok, status([])})
+    end
+
+    test "count every reachable namespace, node, runner and relay", %{conn: conn, node: node} do
+      two_namespaces(node, [FakeController.relay_row("a"), FakeController.relay_row("b")])
+
+      {_view, html} = live_loaded(conn, ~p"/cluster")
+
+      assert text_of(html, ~s([data-testid="sys-namespaces-value"])) == "2"
+      # A count with no verdict draws no pill.
+      refute html =~ ~s(data-testid="sys-namespaces-verdict")
+      # Two namespaces of two relays each.
+      assert text_of(html, ~s([data-testid="sys-relays-value"])) == "4"
+      assert text_of(html, ~s([data-testid="sys-relays-condition"])) == "All healthy"
+      assert text_of(html, ~s([data-testid="sys-relays-verdict"])) == "Healthy"
+      # Each namespace answers the same runner id: it is one runner, here and
+      # in the sentence above.
+      assert text_of(html, ~s([data-testid="sys-runners-value"])) == "1"
+      assert text_of(html, ~s([data-testid="sys-runners-verdict"])) == "Connected"
+      assert text_of(html, ~s([data-testid="cluster-connected"])) =~ "served by 1 runner"
+      assert text_of(html, ~s([data-testid="sys-nodes-value"])) == "1"
+      assert text_of(html, ~s([data-testid="sys-nodes-verdict"])) == "Connected"
+      assert text_of(html, ~s([data-testid="sys-nodes-condition"])) =~ "connected to #{node}"
+
+      assert text_of(html, ~s([data-testid="sys-problems-condition"])) ==
+               "Nothing needs attention"
+
+      assert text_of(html, ~s([data-testid="sys-problems-verdict"])) == "Clear"
+      assert attrs(html, ~s([data-testid="sys-controller"]), "data-tone") == ["positive"]
+    end
+
+    test "a durability breach is stated on the controller tile", %{conn: conn, node: node} do
+      two_namespaces(node, [FakeController.relay_row("a")])
+
+      FakeController.set(
+        node,
+        {Controller, :durability_breaches},
+        {:ok, [%{ref: "r1", age_ms: 90_000, rpo_ms: 60_000}]}
+      )
+
+      {_view, html} = live_loaded(conn, ~p"/cluster")
+
+      assert attrs(html, ~s([data-testid="sys-controller"]), "data-tone") == ["negative"]
+      assert text_of(html, ~s([data-testid="sys-controller-condition"])) =~ "1 durability breach"
+    end
+
+    test "open problems are counted in the worst one's tone", %{conn: conn, node: node} do
+      two_namespaces(node, [
+        FakeController.relay_row("sick", %{health: :halted}),
+        FakeController.relay_row("fine")
+      ])
+
+      {view, html} = live_loaded(conn, ~p"/cluster")
+
+      # One halted relay in each of the two namespaces: the operator's to fix.
+      assert text_of(html, ~s([data-testid="sys-problems-value"])) == "2"
+      assert attrs(html, ~s([data-testid="sys-problems"]), "data-tone") == ["negative"]
+      assert text_of(html, ~s([data-testid="sys-problems-verdict"])) == "Urgent"
+      assert has_element?(view, ~s(a[data-testid="sys-problems"][href="/problems"]))
+    end
+
+    test "wait for the shell's first check before drawing", %{conn: conn, node: node} do
+      two_namespaces(node, [FakeController.relay_row("a")])
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert html =~ ~s(data-testid="cluster-overview-loading")
+      refute html =~ ~s(data-testid="cluster-overview-tiles")
+    end
+  end
+
+  defp attrs(html, selector, name) do
+    html |> LazyHTML.from_fragment() |> LazyHTML.query(selector) |> LazyHTML.attribute(name)
+  end
+
   describe "cluster membership" do
     test "marks the node this UI is connected to", %{conn: conn, node: node} do
       one_namespace(node, [])
