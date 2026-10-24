@@ -8,12 +8,12 @@
 #
 # Run as an Erlang node on the controller's network:
 #
-#     elixir --sname fui_bootstrap --cookie <cookie> priv/dev/bootstrap_authz.exs
+#     elixir --sname fcon_bootstrap --cookie <cookie> priv/dev/bootstrap_authz.exs
 #
 # Environment:
 #   FLEZHA_NODE        the controller node, e.g. flezha@flezha_controller
 #   FLEZHA_TOKEN_FILE  where to write the issued token
-#   FLEZHA_UI_PRINCIPAL  optional, defaults to "flezha-ui"
+#   FLEZHA_CONSOLE_PRINCIPAL  optional, defaults to "flezha-console"
 #   FLEZHA_RUNNER_TOKEN_FILE  optional: where to write a runner credential, so
 #                      the dev runner can prove its namespace to a controller
 #                      that enforces authorization
@@ -41,7 +41,7 @@ defmodule BootstrapAuthz do
   def run do
     node = String.to_atom(env!("FLEZHA_NODE"))
     token_path = env!("FLEZHA_TOKEN_FILE")
-    principal = System.get_env("FLEZHA_UI_PRINCIPAL") || "flezha-ui"
+    principal = System.get_env("FLEZHA_CONSOLE_PRINCIPAL") || "flezha-console"
 
     connect!(node)
     await_ready!(node)

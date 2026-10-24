@@ -1,4 +1,4 @@
-defmodule FlezhaUi.NamingGate do
+defmodule FlezhaConsole.NamingGate do
   @moduledoc """
   Judges tracked files against the vocabulary core has retired, and the tests
   against the waits a test must not make.
@@ -18,7 +18,7 @@ defmodule FlezhaUi.NamingGate do
   """
 
   @binary_ext ~w(.png .ico .woff .woff2 .jpg)
-  @own_files ~w(test/support/naming_gate.ex test/flezha_ui/naming_gate_test.exs)
+  @own_files ~w(test/support/naming_gate.ex test/flezha_console/naming_gate_test.exs)
   @legal ~w(LICENSE)
 
   # {pattern, the term to use instead, scope}
@@ -87,9 +87,9 @@ defmodule FlezhaUi.NamingGate do
   @allowlist [
     {".claude/", ~r/workflow/i,
      "OpenSpec's generated commands and skills use the word for OpenSpec's own process"},
-    {"test/flezha_ui_web/live/console_navigation_test.exs", ~r/\/operatives/,
+    {"test/flezha_console_web/live/console_navigation_test.exs", ~r/\/operatives/,
      "asserts the retired routes answer 404"},
-    {"test/flezha_ui_web/live/console_navigation_test.exs", ~r/\/stream(?![A-Za-z0-9_-])/,
+    {"test/flezha_console_web/live/console_navigation_test.exs", ~r/\/stream(?![A-Za-z0-9_-])/,
      "asserts the retired routes answer 404"},
     {"openspec/specs/console-navigation/spec.md", ~r/\/operatives|\/stream(?![A-Za-z0-9_-])/,
      "the scenario that the retired routes answer 404 names them"},

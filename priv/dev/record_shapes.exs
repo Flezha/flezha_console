@@ -1,10 +1,10 @@
 # Records the shape of the dev controller's answer to each published read the
-# console makes (`FlezhaUi.ControllerShapes.reads/0`) into
+# console makes (`FlezhaConsole.ControllerShapes.reads/0`) into
 # `test/support/fixtures/controller_shapes.json`, which the fake controller's
 # answers are checked against. With `--check` it records into memory instead
 # and fails, naming each read whose answer no longer has the committed shape.
 #
-# Run inside `fui_web`, as a node of the dev stack:
+# Run inside `fcon_web`, as a node of the dev stack:
 #
 #     elixir --sname <unique> --cookie <cookie> priv/dev/record_shapes.exs [--check]
 #
@@ -15,7 +15,7 @@
 Code.require_file("../../test/support/controller_shapes.ex", __DIR__)
 
 defmodule RecordShapes do
-  alias FlezhaUi.ControllerShapes, as: Shapes
+  alias FlezhaConsole.ControllerShapes, as: Shapes
 
   @committed Path.expand("../../test/support/fixtures/controller_shapes.json", __DIR__)
   @timeout_ms 30_000
@@ -24,12 +24,12 @@ defmodule RecordShapes do
     controller = String.to_atom(env!("FLEZHA_NODE"))
     token = env!("FLEZHA_TOKEN_FILE") |> File.read!() |> String.trim()
     {:ok, host} = :inet.gethostname()
-    console = :"flezha_ui@#{host}"
+    console = :"flezha_console@#{host}"
 
     Node.connect(controller) || die("could not reach #{controller}")
     Node.connect(console) || die("could not reach #{console}")
 
-    context = :erpc.call(console, FlezhaUi.Service.NodeManager, :caller_context, [token])
+    context = :erpc.call(console, FlezhaConsole.Service.NodeManager, :caller_context, [token])
 
     if map_size(context) < 2,
       do: die("the console's token binds no identity: #{inspect(context)}")

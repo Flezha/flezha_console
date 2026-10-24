@@ -1,4 +1,4 @@
-defmodule FlezhaUi.DataCase do
+defmodule FlezhaConsole.DataCase do
   @moduledoc """
   This module defines the setup for tests requiring
   access to the application's data layer.
@@ -10,7 +10,7 @@ defmodule FlezhaUi.DataCase do
   we enable the SQL sandbox, so changes done to the database
   are reverted at the end of every test. If you are using
   PostgreSQL, you can even run database tests asynchronously
-  by setting `use FlezhaUi.DataCase, async: true`, although
+  by setting `use FlezhaConsole.DataCase, async: true`, although
   this option is not recommended for other databases.
   """
 
@@ -18,17 +18,17 @@ defmodule FlezhaUi.DataCase do
 
   using do
     quote do
-      alias FlezhaUi.Repo
+      alias FlezhaConsole.Repo
 
       import Ecto
       import Ecto.Changeset
       import Ecto.Query
-      import FlezhaUi.DataCase
+      import FlezhaConsole.DataCase
     end
   end
 
   setup tags do
-    FlezhaUi.DataCase.setup_sandbox(tags)
+    FlezhaConsole.DataCase.setup_sandbox(tags)
     :ok
   end
 
@@ -36,7 +36,7 @@ defmodule FlezhaUi.DataCase do
   Sets up the sandbox based on the test tags.
   """
   def setup_sandbox(tags) do
-    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(FlezhaUi.Repo, shared: not tags[:async])
+    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(FlezhaConsole.Repo, shared: not tags[:async])
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
   end
 

@@ -25,16 +25,16 @@ const pref = {
 
 // ---- Popovers ----
 //
-// A `[data-fui-pop]` holds a trigger and a panel. Delegated from the document,
+// A `[data-fcon-pop]` holds a trigger and a panel. Delegated from the document,
 // so a menu works on a plain controller page and survives LiveView replacing
 // its markup; the panel's `hidden` and the trigger's `aria-expanded` are left
 // alone by the server patch (`JS.ignore_attributes`).
 
-const popPanel = pop => pop.querySelector(":scope > [data-fui-pop-panel]")
-const popTrigger = pop => pop.querySelector(":scope > [data-fui-pop-trigger]")
-const popItems = pop => [...popPanel(pop).querySelectorAll("[data-fui-pop-item]")].filter(i => !i.hidden)
+const popPanel = pop => pop.querySelector(":scope > [data-fcon-pop-panel]")
+const popTrigger = pop => pop.querySelector(":scope > [data-fcon-pop-trigger]")
+const popItems = pop => [...popPanel(pop).querySelectorAll("[data-fcon-pop-item]")].filter(i => !i.hidden)
 const popOpen = pop => !popPanel(pop).hidden
-const openPops = () => [...document.querySelectorAll("[data-fui-pop]")].filter(popOpen)
+const openPops = () => [...document.querySelectorAll("[data-fcon-pop]")].filter(popOpen)
 
 // Placed against the viewport, so no scrolling ancestor — a grid, the canvas —
 // clips it; it opens upward when there is no room below, and aligns to the
@@ -45,12 +45,12 @@ const EDGE = 8
 function placePop(pop) {
   const panel = popPanel(pop)
   const rect = popTrigger(pop).getBoundingClientRect()
-  const end = panel.matches(".fui-popover--end, .right-0")
+  const end = panel.matches(".fcon-popover--end, .right-0")
   const width = document.documentElement.clientWidth
   // Every side is set, so no stylesheet offset is left to apply against the
   // viewport.
   Object.assign(panel.style, {position: "fixed", top: "auto", bottom: "auto", left: "auto", right: "auto", marginTop: "0", maxWidth: `${width - 2 * EDGE}px`})
-  if (pop.closest(".fui-combobox")) { panel.style.minWidth = `${Math.min(rect.width, width - 2 * EDGE)}px` }
+  if (pop.closest(".fcon-combobox")) { panel.style.minWidth = `${Math.min(rect.width, width - 2 * EDGE)}px` }
   if (end) { panel.style.right = `${width - rect.right}px` }
   else { panel.style.left = `${rect.left}px` }
   const placed = panel.getBoundingClientRect()
@@ -71,7 +71,7 @@ function openPop(pop, at = null) {
   popPanel(pop).hidden = false
   placePop(pop)
   popTrigger(pop).setAttribute("aria-expanded", "true")
-  const filter = popPanel(pop).querySelector("[data-fui-filter]")
+  const filter = popPanel(pop).querySelector("[data-fcon-filter]")
   if (filter) { filter.value = ""; filterPop(popPanel(pop), ""); filter.focus({preventScroll: true}); return }
   const items = popItems(pop)
   if (!items.length) { return }
@@ -89,30 +89,30 @@ function closePop(pop, {refocus = false} = {}) {
 }
 
 function closePops(except = null) {
-  for (const pop of document.querySelectorAll("[data-fui-pop]")) {
+  for (const pop of document.querySelectorAll("[data-fcon-pop]")) {
     if (pop !== except && !pop.contains(except)) { closePop(pop) }
   }
 }
 
 // A filter box narrows the items of its popover, or of any list marked
-// `data-fui-filterable`.
+// `data-fcon-filterable`.
 function filterPop(container, text) {
   const needle = text.trim().toLowerCase()
-  for (const item of container.querySelectorAll("[data-fui-pop-item], [data-fui-item]")) {
+  for (const item of container.querySelectorAll("[data-fcon-pop-item], [data-fcon-item]")) {
     item.hidden = needle !== "" && !item.textContent.toLowerCase().includes(needle)
   }
 }
 
 document.addEventListener("click", event => {
-  const trigger = event.target.closest("[data-fui-pop-trigger]")
+  const trigger = event.target.closest("[data-fcon-pop-trigger]")
   if (trigger) {
-    const pop = trigger.closest("[data-fui-pop]")
+    const pop = trigger.closest("[data-fcon-pop]")
     popOpen(pop) ? closePop(pop) : openPop(pop)
     return
   }
-  const item = event.target.closest("[data-fui-pop-item]")
-  if (item) { closePop(item.closest("[data-fui-pop]"), {refocus: true}); return }
-  if (!event.target.closest("[data-fui-pop-panel]")) { closePops() }
+  const item = event.target.closest("[data-fcon-pop-item]")
+  if (item) { closePop(item.closest("[data-fcon-pop]"), {refocus: true}); return }
+  if (!event.target.closest("[data-fcon-pop-panel]")) { closePops() }
 })
 
 // A placed panel follows its trigger when what holds the trigger scrolls, and
@@ -131,23 +131,23 @@ document.addEventListener("scroll", event => {
 window.addEventListener("resize", () => followPops(document.documentElement))
 
 document.addEventListener("input", event => {
-  if (event.target.matches("[data-fui-filter]")) {
-    filterPop(event.target.closest("[data-fui-pop], [data-fui-filterable]"), event.target.value)
+  if (event.target.matches("[data-fcon-filter]")) {
+    filterPop(event.target.closest("[data-fcon-pop], [data-fcon-filterable]"), event.target.value)
   }
 })
 
 document.addEventListener("keydown", event => {
-  const pop = event.target.closest?.("[data-fui-pop]")
+  const pop = event.target.closest?.("[data-fcon-pop]")
   if (!pop) { return }
 
-  if (event.target.matches("[data-fui-pop-trigger]")) {
+  if (event.target.matches("[data-fcon-pop-trigger]")) {
     const at = {ArrowDown: 0, ArrowUp: -1}[event.key]
     if (at !== undefined) { event.preventDefault(); openPop(pop, at) }
     return
   }
 
   const items = popItems(pop)
-  if (event.target.matches("[data-fui-filter]")) {
+  if (event.target.matches("[data-fcon-filter]")) {
     if (event.key === "ArrowDown" && items.length) { event.preventDefault(); items[0].focus() }
     if (event.key === "Enter" && items.length) { event.preventDefault(); items[0].click() }
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closePop(pop, {refocus: true}) }
@@ -176,7 +176,7 @@ document.addEventListener("keydown", event => {
 
 // ---- The navigation drawer ----
 //
-// Below desk width the rail is a drawer. A `[data-fui-nav-toggle]` opens and
+// Below desk width the rail is a drawer. A `[data-fcon-nav-toggle]` opens and
 // closes it, delegated like the popovers so it works on a page with no
 // socket; while it is open the rest of the shell is inert.
 
@@ -194,7 +194,7 @@ function setNav(open, {refocus = false} = {}) {
   if (!app || open === navOpen()) { return }
   app.toggleAttribute("data-nav-open", open)
   for (const part of app.querySelectorAll(":scope > :not(#shell-nav)")) { part.inert = open }
-  for (const toggle of app.querySelectorAll("[data-fui-nav-toggle]")) { toggle.setAttribute("aria-expanded", String(open)) }
+  for (const toggle of app.querySelectorAll("[data-fcon-nav-toggle]")) { toggle.setAttribute("aria-expanded", String(open)) }
   if (open) {
     // Scrolled into view: in a short landscape drawer the current place can sit
     // below the fold, and the drawer is fixed, so the page does not move.
@@ -202,18 +202,18 @@ function setNav(open, {refocus = false} = {}) {
     ;(nav.querySelector("[aria-current]") ?? nav.querySelector(FOCUSABLE))?.focus()
   } else if (refocus) {
     // The opener may have been hidden by a resize into another mode.
-    const back = navOpener && visible(navOpener) ? navOpener : [...app.querySelectorAll("[data-fui-nav-toggle]")].find(visible)
+    const back = navOpener && visible(navOpener) ? navOpener : [...app.querySelectorAll("[data-fcon-nav-toggle]")].find(visible)
     back?.focus({preventScroll: true})
   }
 }
 
 document.addEventListener("click", event => {
-  const toggle = event.target.closest("[data-fui-nav-toggle]")
+  const toggle = event.target.closest("[data-fcon-nav-toggle]")
   if (toggle) { navOpener = toggle; setNav(!navOpen(), {refocus: true}); return }
   if (!navOpen()) { return }
   // A tap on the scrim lands on the inert shell around the drawer; a toast
   // floats over everything and is not beside the drawer.
-  if (!event.target.closest("#shell-nav, .fui-toasts")) { setNav(false, {refocus: true}) }
+  if (!event.target.closest("#shell-nav, .fcon-toasts")) { setNav(false, {refocus: true}) }
   else {
     // A link to where the operator already is navigates nowhere, so focus
     // goes back to the menu control rather than to a page that never loads.
@@ -232,14 +232,14 @@ window.matchMedia("(width >= 1024px)").addEventListener("change", ({matches}) =>
 
 // ---- Copying an identifier or a value shown once ----
 //
-// `data-fui-copy` names the value itself; `data-fui-copy-from` names the
+// `data-fcon-copy` names the value itself; `data-fcon-copy-from` names the
 // element whose text is the value. Either way the control says so for a moment.
 
 document.addEventListener("click", event => {
-  const control = event.target.closest("[data-fui-copy], [data-fui-copy-from]")
+  const control = event.target.closest("[data-fcon-copy], [data-fcon-copy-from]")
   if (!control) { return }
-  const value = control.dataset.fuiCopy ??
-    document.querySelector(control.dataset.fuiCopyFrom)?.textContent.trim()
+  const value = control.dataset.fconCopy ??
+    document.querySelector(control.dataset.fconCopyFrom)?.textContent.trim()
   if (value === undefined || !navigator.clipboard) { return }
   // Said only once the clipboard took it: a page served over plain http has
   // no clipboard to write to.
@@ -257,7 +257,7 @@ const openHelp = () => {
 }
 
 document.addEventListener("click", event => {
-  if (event.target.closest("[data-fui-help-open]")) { event.preventDefault(); openHelp() }
+  if (event.target.closest("[data-fcon-help-open]")) { event.preventDefault(); openHelp() }
 })
 
 // ---- Keyboard shortcuts ----
@@ -294,10 +294,10 @@ const deadToast = el => !el.closest("[data-phx-session]")
 
 document.addEventListener("click", event => {
   const dismiss = event.target.closest("[data-toast-dismiss]")
-  if (dismiss && deadToast(dismiss)) { dismiss.closest(".fui-toast").hidden = true }
+  if (dismiss && deadToast(dismiss)) { dismiss.closest(".fcon-toast").hidden = true }
 })
 
-for (const toast of document.querySelectorAll('.fui-toast[data-kind="info"]')) {
+for (const toast of document.querySelectorAll('.fcon-toast[data-kind="info"]')) {
   if (deadToast(toast)) { setTimeout(() => { toast.hidden = true }, TOAST_MS) }
 }
 
@@ -406,7 +406,7 @@ Hooks.FlzPalette = {
     window.addEventListener("keydown", this.onKeydown)
   },
   updated() {
-    const input = this.el.querySelector(".fui-palette-input")
+    const input = this.el.querySelector(".fcon-palette-input")
     if (input && document.activeElement !== input) { input.focus() }
   },
   destroyed() { window.removeEventListener("keydown", this.onKeydown) }
@@ -655,11 +655,11 @@ Hooks.FlzPipeline = {
     const style = getComputedStyle(this.el)
     const ink = name => style.getPropertyValue(name).trim()
     this.inks = {
-      signal: ink("--fui-signal"),
-      surface: ink("--fui-surface"),
-      fail: ink("--fui-negative"),
-      warning: ink("--fui-warning"),
-      text: ink("--fui-ink-2"),
+      signal: ink("--fcon-signal"),
+      surface: ink("--fcon-surface"),
+      fail: ink("--fcon-negative"),
+      warning: ink("--fcon-warning"),
+      text: ink("--fcon-ink-2"),
       // A canvas does not resolve custom properties, so the face is read here.
       mono: `10px ${ink("--font-mono") || "monospace"}`
     }
@@ -887,7 +887,7 @@ Hooks.FlzPipeline = {
          ...[...nodes].map(id => `#topology-canvas[data-focus] [data-node="${CSS.escape(id)}"]`)].join(",\n") +
         " { opacity: 1; }\n" +
         [...nets].map(id => `#topology-canvas .topo-net[data-net="${CSS.escape(id)}"] .topo-wire`).join(",\n") +
-        (nets.size ? " { stroke: var(--fui-accent); stroke-opacity: 1; stroke-width: 2; }" : "")
+        (nets.size ? " { stroke: var(--fcon-accent); stroke-opacity: 1; stroke-width: 2; }" : "")
       : ""
   },
 
@@ -1240,7 +1240,7 @@ const token = name =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 
 function configureTopbar() {
-  topbar.config({barColors: {0: token("--fui-accent")}, shadowColor: token("--fui-accent")})
+  topbar.config({barColors: {0: token("--fcon-accent")}, shadowColor: token("--fcon-accent")})
 }
 configureTopbar()
 document.addEventListener("flz-theme-change", configureTopbar)
@@ -1250,14 +1250,14 @@ window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 
 // A result that renders away from the control that asked for it is brought
 // into view and marked for a moment, so a click never seems to do nothing.
-window.addEventListener("phx:fui:reveal", ({detail}) => {
+window.addEventListener("phx:fcon:reveal", ({detail}) => {
   const el = document.getElementById(detail.id)
   if (!el) return
   const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches
   el.scrollIntoView({behavior: still ? "auto" : "smooth", block: "nearest"})
-  el.classList.remove("fui-revealed")
+  el.classList.remove("fcon-revealed")
   void el.offsetWidth
-  el.classList.add("fui-revealed")
+  el.classList.add("fcon-revealed")
 })
 
 // connect if there are any LiveViews on the page

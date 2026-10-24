@@ -1,0 +1,11 @@
+<Layouts.auth flash={%{}}>
+  <div data-testid="not-found" class="fcon-auth-form">
+    <img src={~p"/images/badger-not-found.png"} alt="" class="fcon-auth-mascot" />
+    <.page_header help={false} eyebrow="Not found" title="Nothing here">
+      <:sentence>
+        This page does not exist. The link may be mistyped, or what it pointed at has moved.
+      </:sentence>
+    </.page_header>
+    <.button variant="secondary" href={~p"/"} icon="hero-arrow-left">Back to the console</.button>
+  </div>
+</Layouts.auth>

@@ -6,7 +6,7 @@ import { test, expect, startRelayCli, stopRelayCli, uniqueId } from './fixtures'
  *
  * What each tile says for an arranged fleet — every verdict, the flow before
  * two readings, a breached limit — is asserted in
- * `test/flezha_ui_web/live/topology_live_test.exs`; what lives here is that
+ * `test/flezha_console_web/live/topology_live_test.exs`; what lives here is that
  * the real fleet reaches the tiles and that their links lead on.
  */
 test('/ lands on the Home last worked in, whose tiles count the dev stack', async ({ page, live }) => {
@@ -79,7 +79,7 @@ test('the namespace tiles stand level, keep their content inside, and lift on ho
   // decide, so tiles are compared within their line, never across lines.
   const lines = await page.evaluate(() => {
     const byLine = new Map<string, { minimum: number; heights: number[] }>();
-    for (const tile of document.querySelectorAll('[data-testid$="-tiles"] .fui-indicator')) {
+    for (const tile of document.querySelectorAll('[data-testid$="-tiles"] .fcon-indicator')) {
       const grid = tile.closest('[data-testid$="-tiles"]') as HTMLElement;
       const box = tile.getBoundingClientRect();
       const key = `${grid.dataset.testid} at ${Math.round(box.top)}`;
@@ -100,7 +100,7 @@ test('the namespace tiles stand level, keep their content inside, and lift on ho
   // Nothing a tile holds — a figure, a sparkline, a meter — leaves its box.
   const spilled = () =>
     page.evaluate(() =>
-      [...document.querySelectorAll('.fui-indicator')].flatMap((tile) => {
+      [...document.querySelectorAll('.fcon-indicator')].flatMap((tile) => {
         const box = tile.getBoundingClientRect();
         return [...tile.querySelectorAll('*')]
           .filter((el) => {

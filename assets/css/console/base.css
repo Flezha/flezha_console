@@ -6,18 +6,18 @@
  */
 
 html {
-  background: var(--fui-page);
-  color: var(--fui-ink-1);
-  font-family: var(--fui-font-sans);
+  background: var(--fcon-page);
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-sans);
   font-size: 100%;
   -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--fui-page);
-  color: var(--fui-ink-1);
-  font-size: var(--fui-text-md);
-  line-height: var(--fui-leading-normal);
+  background: var(--fcon-page);
+  color: var(--fcon-ink-1);
+  font-size: var(--fcon-text-md);
+  line-height: var(--fcon-leading-normal);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
@@ -26,14 +26,14 @@ h1,
 h2,
 h3,
 h4 {
-  color: var(--fui-ink-1);
-  font-family: var(--fui-font-display);
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-display);
   font-weight: 600;
-  line-height: var(--fui-leading-tight);
+  line-height: var(--fcon-leading-tight);
 }
 
 a {
-  color: var(--fui-accent);
+  color: var(--fcon-accent);
   text-decoration: none;
 }
 
@@ -46,12 +46,12 @@ code,
 kbd,
 pre,
 samp {
-  font-family: var(--fui-font-mono);
+  font-family: var(--fcon-font-mono);
   font-size: 0.95em;
 }
 
 /* Figures line up in columns and do not jitter as they change. */
-.fui-num,
+.fcon-num,
 code,
 kbd,
 pre,
@@ -60,8 +60,8 @@ td {
 }
 
 ::selection {
-  background: var(--fui-accent-subtle);
-  color: var(--fui-ink-1);
+  background: var(--fcon-accent-subtle);
+  color: var(--fcon-ink-1);
 }
 
 /* ---- Form baseline ----
@@ -81,73 +81,73 @@ td {
     select,
     textarea
   ) {
-  background-color: var(--fui-field);
-  border: 1px solid var(--fui-line-strong);
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-ink-1);
+  background-color: var(--fcon-field);
+  border: 1px solid var(--fcon-line-strong);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
   font: inherit;
-  font-size: var(--fui-text-md);
-  min-height: var(--fui-control-h);
-  padding: var(--fui-space-2) var(--fui-space-4);
+  font-size: var(--fcon-text-md);
+  min-height: var(--fcon-control-h);
+  padding: var(--fcon-space-2) var(--fcon-space-4);
   transition:
-    border-color var(--fui-fast) var(--fui-ease),
-    box-shadow var(--fui-fast) var(--fui-ease);
+    border-color var(--fcon-fast) var(--fcon-ease),
+    box-shadow var(--fcon-fast) var(--fcon-ease);
   width: 100%;
 }
 
 /* As heavy as preflight's own placeholder rule, so this one, later, wins. */
 :is(input, textarea)::placeholder {
-  color: var(--fui-ink-3);
+  color: var(--fcon-ink-3);
   opacity: 1;
 }
 
 select {
   appearance: none;
   background-image:
-    linear-gradient(45deg, transparent 50%, var(--fui-ink-3) 50%),
-    linear-gradient(135deg, var(--fui-ink-3) 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, var(--fcon-ink-3) 50%),
+    linear-gradient(135deg, var(--fcon-ink-3) 50%, transparent 50%);
   background-position:
     calc(100% - 22px) 50%,
     calc(100% - 16px) 50%;
   background-repeat: no-repeat;
   background-size: 6px 6px;
   cursor: pointer;
-  padding-right: var(--fui-space-8);
+  padding-right: var(--fcon-space-8);
 }
 
 :where(select) option {
-  background: var(--fui-raised);
-  color: var(--fui-ink-1);
+  background: var(--fcon-raised);
+  color: var(--fcon-ink-1);
 }
 
 :where(input, select, textarea):hover:not(:disabled) {
-  border-color: var(--fui-ink-3);
+  border-color: var(--fcon-ink-3);
 }
 
 :where(input, select, textarea):focus-visible {
-  border-color: var(--fui-accent);
-  box-shadow: 0 0 0 3px var(--fui-accent-subtle);
+  border-color: var(--fcon-accent);
+  box-shadow: 0 0 0 3px var(--fcon-accent-subtle);
   outline: none;
 }
 
 :where(input, select, textarea):disabled {
-  background-color: var(--fui-canvas);
-  color: var(--fui-ink-3);
+  background-color: var(--fcon-canvas);
+  color: var(--fcon-ink-3);
   cursor: not-allowed;
 }
 
 :where(input, select, textarea)[aria-invalid="true"] {
-  border-color: var(--fui-negative);
+  border-color: var(--fcon-negative);
 }
 
 textarea {
   min-height: 8rem;
-  padding: var(--fui-space-3) var(--fui-space-4);
+  padding: var(--fcon-space-3) var(--fcon-space-4);
   resize: vertical;
 }
 
 :where(input[type="checkbox"], input[type="radio"]) {
-  accent-color: var(--fui-accent);
+  accent-color: var(--fcon-accent);
   cursor: pointer;
   height: 1.25rem;
   width: 1.25rem;
@@ -156,7 +156,7 @@ textarea {
 /* A phone keeps typed controls at 16 px so iOS does not zoom on focus. */
 @media (width <= 599px) {
   :is(input, select, textarea):where(:not([type="checkbox"], [type="radio"])) {
-    font-size: max(16px, var(--fui-text-md));
+    font-size: max(16px, var(--fcon-text-md));
   }
 }
 
@@ -165,7 +165,7 @@ textarea {
  * does not draw it.
  */
 :focus-visible {
-  outline: 2px solid var(--fui-accent);
+  outline: 2px solid var(--fcon-accent);
   outline-offset: 2px;
 }
 
@@ -175,7 +175,7 @@ textarea {
 
 /* ---- Scrollbars ---- */
 * {
-  scrollbar-color: var(--fui-line-strong) transparent;
+  scrollbar-color: var(--fcon-line-strong) transparent;
   scrollbar-width: thin;
 }
 

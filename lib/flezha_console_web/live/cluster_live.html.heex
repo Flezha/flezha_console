@@ -1,0 +1,286 @@
+<.page_header eyebrow="Platform" title="Cluster">
+  <:sentence>
+    <span :if={@connected_node} data-testid="cluster-connected">
+      This console is connected to the controller at <span class="fcon-num">{@connected_node}</span>. {Words.count(
+        length(@cluster_nodes),
+        "node"
+      )} host the
+      <.term key="hub">hubs</.term>
+      of {Words.count(length(@namespaces), "namespace")}, served by {Words.count(
+        @runner_count,
+        "runner"
+      )}.
+    </span>
+    <span :if={!@connected_node} data-testid="cluster-disconnected">
+      This console holds no connection to a controller node.
+    </span>
+  </:sentence>
+</.page_header>
+
+<.runtime_error error={@load_error} />
+
+<%!-- Everything the operator reaches --%>
+<.section
+  flush
+  testid="cluster-overview"
+  help="Everything your token reaches, across every namespace. Relay health, open problems and durability breaches come from the console's check every 10 seconds; the rest is read with this screen every 5 seconds."
+>
+  <:title>Overview</:title>
+  <.skeleton :if={is_nil(@shell_pulse)} rows={2} testid="cluster-overview-loading" />
+  <div :if={@shell_pulse} class="fcon-indicators" data-testid="cluster-overview-tiles">
+    <% fleet = @shell_pulse.fleet %>
+    <.tile
+      testid="sys-namespaces"
+      icon="hero-rectangle-stack"
+      label="Namespaces"
+      value={length(@namespaces)}
+      condition="Reachable with your token"
+      href={~p"/namespaces"}
+    />
+    <% {nodes_tone, nodes_verdict, nodes_condition} = nodes_said(@cluster_nodes) %>
+    <.tile
+      testid="sys-nodes"
+      icon="hero-server-stack"
+      label="Controller nodes"
+      value={length(@cluster_nodes)}
+      tone={nodes_tone}
+      verdict={nodes_verdict}
+      condition={nodes_condition}
+    />
+    <% {runners_tone, runners_verdict} =
+      Words.runners_said(@runner_count, health_total(fleet.health)) %>
+    <.tile
+      testid="sys-runners"
+      icon="hero-cube"
+      label="Runners"
+      value={@runner_count}
+      tone={runners_tone}
+      verdict={runners_verdict}
+      condition="Connected across the cluster"
+    />
+    <% {relays_tone, relays_verdict, relays_condition} = Words.health_said(fleet.health) %>
+    <.tile
+      testid="sys-relays"
+      icon="hero-cpu-chip"
+      label="Relays"
+      value={health_total(fleet.health)}
+      tone={relays_tone}
+      verdict={relays_verdict}
+      condition={relays_condition}
+      href={~p"/relays"}
+    >
+      <.strip counts={fleet.health} testid="sys-relays-strip" />
+    </.tile>
+    <% {problems_tone, problems_verdict, problems_condition} =
+      problems_said(@shell_pulse.items) %>
+    <.tile
+      testid="sys-problems"
+      icon="hero-exclamation-triangle"
+      label="Open problems"
+      value={length(@shell_pulse.items)}
+      tone={problems_tone}
+      verdict={problems_verdict}
+      condition={problems_condition}
+      href={~p"/problems"}
+    />
+    <% {controller_tone, controller_value, controller_condition} =
+      controller_said(@connected_node, fleet.breaches, @controller_status) %>
+    <.tile
+      testid="sys-controller"
+      icon="hero-server"
+      label="Controller"
+      value={controller_value}
+      tone={controller_tone}
+      condition={controller_condition}
+      href={~p"/controller"}
+    />
+  </div>
+</.section>
+
+<%!-- Nodes --%>
+<.section testid="cluster-nodes-panel">
+  <:title>Nodes</:title>
+  <.empty_state :if={@cluster_nodes == []} icon="hero-server" testid="cluster-nodes-empty">
+    A controller node hosts namespace hubs. None is reachable from this console.
+  </.empty_state>
+  <.paged :let={page} id="cluster-nodes" rows={@cluster_nodes} paging={@paging}>
+    <ul :if={@cluster_nodes != []} data-testid="cluster-nodes" class="fcon-tiles">
+      <li
+        :for={node <- page}
+        data-testid={"cluster-node-#{node.name}"}
+        class="fcon-tile flz-tile"
+      >
+        <span class="flex items-center gap-2">
+          <% tone = (node.connected? && :positive) || :neutral %>
+          <span
+            class={"fcon-shape fcon-tone-#{tone}"}
+            data-shape={Words.shape(tone)}
+            aria-hidden="true"
+          >
+          </span>
+          <span class="fcon-num font-medium">{node.name}</span>
+        </span>
+        <span :if={node.connected?} class="fcon-figures">Connected to this console</span>
+      </li>
+    </ul>
+  </.paged>
+</.section>
+
+<%!-- Per-namespace hubs and runners --%>
+<.empty_state
+  :if={@namespaces == []}
+  icon="hero-rectangle-stack"
+  testid="cluster-namespaces-empty"
+>
+  A namespace's hub runs on one or more of these nodes. No namespace is running.
+</.empty_state>
+
+<.section :for={ns <- @namespaces} testid={"cluster-namespace-#{ns.name}"}>
+  <:title><span class="fcon-num">{ns.name}</span></:title>
+  <:actions>
+    <span class="fcon-figures">
+      Hub on
+      <%= cond do %>
+        <% ns.hub_error -> %>
+          <span data-testid={"hub-nodes-#{ns.name}"} class="fcon-tone-warning">
+            {code_names(error_message(ns.hub_error, "the hub read"))}
+          </span>
+        <% ns.hub_nodes == [] -> %>
+          <span data-testid={"hub-nodes-#{ns.name}"}>no node — no hub running</span>
+        <% true -> %>
+          <span data-testid={"hub-nodes-#{ns.name}"} class="fcon-num">
+            {Enum.join(ns.hub_nodes, ", ")}
+          </span>
+      <% end %>
+    </span>
+  </:actions>
+
+  <.notice
+    :for={{node, state} <- hubs_not_serving(ns.per_node)}
+    kind={:info}
+    icon="hero-arrow-path"
+    testid={"hub-not-serving-#{node}"}
+  >
+    The hub on <span class="fcon-num">{node}</span>
+    is {String.downcase(state)}: it is replaying its state and serves again once done. Nothing
+    needs doing.
+  </.notice>
+
+  <div class="space-y-8">
+    <%!-- Per-node relay rollup --%>
+    <div data-testid={"node-rollup-#{ns.name}"} class="space-y-2">
+      <h3 class="fcon-eyebrow flex items-center gap-1">
+        Relays per node
+        <.help_tip id={"help-rollup-#{ns.name}"} label="What the per-node columns mean">
+          Each row is a cluster node holding relays of this namespace. <b>Hub recovery</b>
+          is the state of the namespace's hub on that node: <i>Serving</i>
+          is normal; <i>Recovering</i>
+          means the hub is rebuilding its state after a restart or a move and serves again when it
+          finishes. Recovery runs by itself — there is nothing to start or stop.
+        </.help_tip>
+      </h3>
+      <p :if={ns.per_node == []} class="fcon-figures">No relay is placed in this namespace.</p>
+      <.grid
+        :if={ns.per_node != []}
+        paging={@paging}
+        id={"rollup-#{ns.name}"}
+        rows={ns.per_node}
+        row_testid={&"node-#{&1.node}"}
+      >
+        <:col :let={row} label="Node"><span class="fcon-num">{row.node}</span></:col>
+        <:col :let={row} label="Relays" num>
+          <span data-testid={"node-count-#{row.node}"}>{row.count}</span>
+        </:col>
+        <:col :let={row} label="Health">
+          <span class="flex flex-wrap gap-1">
+            <.state_badge :for={{health, count} <- row.health} value={health} count={count} />
+          </span>
+        </:col>
+        <:col :let={row} label="Hub recovery">
+          <span
+            :if={row.recovery in [:unavailable, :unreachable]}
+            data-testid={"recovery-unavailable-#{row.node}"}
+            class="fcon-muted"
+          >
+            Unavailable
+          </span>
+          <span
+            :if={row.recovery not in [:unavailable, :unreachable]}
+            data-testid={"recovery-#{row.node}"}
+            class={"fcon-tone-#{recovery(row.recovery).tone}"}
+          >
+            {recovery(row.recovery).text}
+          </span>
+        </:col>
+      </.grid>
+      <p :if={ns.unplaced != []} data-testid={"unplaced-#{ns.name}"} class="fcon-tone-warning">
+        {Words.count(length(ns.unplaced), "relay")} have no live node:
+        <span class="fcon-num">{Enum.map_join(ns.unplaced, ", ", &to_string(&1.id))}</span>
+      </p>
+    </div>
+
+    <%!-- Runners --%>
+    <div class="space-y-2">
+      <h3 class="fcon-eyebrow">
+        Runners
+        <span
+          :if={ns.runner_principal}
+          data-testid={"runner-principal-#{ns.name}"}
+          class="normal-case tracking-normal font-normal"
+        >
+          · they connect as <span class="fcon-num">{ns.runner_principal}</span>
+        </span>
+      </h3>
+      <.runner_table
+        paging={@paging}
+        namespace={ns.name}
+        runners={ns.runners}
+        marks={ns.marks}
+        factories?={true}
+        view={@runner_views[ns.name]}
+        can_drop={NodeManager.granted?(@operations, "Fleet.drop_runner")}
+        can_readmit={NodeManager.granted?(@operations, "Fleet.readmit_runner")}
+        error={FlezhaConsoleWeb.Live.RunnerActions.error_for(@runner_error, ns.name)}
+      >
+        <:empty>
+          <p data-testid={"runners-empty-#{ns.name}"} class="fcon-figures">
+            A runner serves this namespace's factories. None has connected.
+          </p>
+        </:empty>
+      </.runner_table>
+    </div>
+
+    <%!-- Factory placement --%>
+    <div :if={ns.factories != []} class="space-y-3">
+      <h3 class="fcon-eyebrow">Which runners serve each factory</h3>
+      <div class="flex flex-wrap gap-2">
+        <.segmented label={"Factories in #{ns.name}"}>
+          <:option
+            :for={factory <- ns.factories}
+            click="select_factory"
+            value={"#{ns.name}/#{factory.id}"}
+            current={@selected_factory == {ns.name, factory.id}}
+            testid={"factory-#{factory.id}"}
+          >
+            <span class="fcon-num">{factory.id}</span><span class="fcon-muted"> · {factory.run || "—"}</span>
+          </:option>
+        </.segmented>
+      </div>
+      <div :if={@selected_factory && elem(@selected_factory, 0) == ns.name} class="space-y-2">
+        <p :if={@factory_runners == []} data-testid="factory-runners-empty">
+          No runner currently serves <span class="fcon-num">{elem(@selected_factory, 1)}</span>.
+        </p>
+        <p :if={@factory_runners != []} data-testid="factory-runners">
+          <span class="fcon-num">{elem(@selected_factory, 1)}</span>
+          is served by
+          <span :for={runner <- @factory_runners} class="mr-2"><.ident value={runner} /></span>
+        </p>
+        <.button variant="ghost" size="sm" phx-click="clear_factory" data-testid="clear-factory">
+          Clear
+        </.button>
+      </div>
+    </div>
+  </div>
+</.section>
+
+<.runner_dialogs drop={@runner_drop} readmit={@runner_readmit} />

@@ -1,0 +1,115 @@
+<.page_header
+  eyebrow="Relay"
+  title={@relay_id}
+  crumbs={@breadcrumbs}
+  tabs={Layouts.relay_tabs(@ns, @relay_id, :listen)}
+  tabs_label="Relay views"
+>
+  <:sentence>
+    Listening to {@relay_id}'s
+    <.term :if={@direction == "output"} key="output">outputs</.term>
+    <span :if={@direction != "output"}>inputs</span>
+    as they happen. The listen holds only while this view is open.
+  </:sentence>
+  <:actions>
+    <Layouts.partition_menu ns={@ns} relay_id={@relay_id} view={:listen} members={@partitions} />
+    <span :if={@status == :connecting} class="fcon-figures self-center">Connecting…</span>
+    <.segmented label="Direction">
+      <:option
+        :for={direction <- ~w(input output)}
+        click="switch_direction"
+        value={direction}
+        current={@direction == direction}
+        testid={"listen-direction-#{direction}"}
+      >
+        {String.capitalize(direction)}
+      </:option>
+    </.segmented>
+  </:actions>
+</.page_header>
+
+<%!-- Controls --%>
+<div class="flex flex-wrap items-start gap-3 mb-4">
+  <.button
+    variant="secondary"
+    icon={if @paused, do: "hero-play", else: "hero-pause"}
+    phx-click="toggle_pause"
+    aria-pressed={to_string(@paused)}
+    data-testid="listen-pause"
+  >
+    {if @paused, do: "Resume", else: "Pause"}
+  </.button>
+  <.button variant="ghost" icon="hero-trash" phx-click="clear" data-testid="listen-clear">
+    Clear
+  </.button>
+  <form phx-change="set_filter" class="flex-1 min-w-[12rem] max-w-xs">
+    <.input
+      type="text"
+      name="filter"
+      value={@filter}
+      placeholder="Filter by a regular expression"
+      aria-label="Filter by a regular expression"
+      compact
+      mono
+      data-testid="listen-filter"
+    />
+    <p :if={@filter_error} data-testid="listen-filter-error" class="fcon-error mt-1">
+      {@filter_error}
+    </p>
+  </form>
+  <span data-testid="listen-count" class="ml-auto fcon-figures self-center">
+    <.live_value id="listen-count-value" value={@message_count} />
+    messages received{if @paused, do: " (paused)"}
+  </span>
+</div>
+
+<%!-- Message feed --%>
+<div
+  data-testid="listen-feed"
+  id="listen-feed"
+  phx-hook="ScrollBottom"
+  class="fcon-code max-h-[60vh]"
+>
+  <%= case @status do %>
+    <% :connecting -> %>
+      <p data-testid="listen-connecting" class="fcon-muted">
+        Attaching a listener to the relay's {@direction}s…
+      </p>
+    <% :error -> %>
+      <div data-testid="listen-error">
+        <.runtime_error error={@error} action={"listening to this relay's #{@direction}s"} />
+      </div>
+    <% :ended -> %>
+      <p data-testid="listen-ended" class="fcon-muted">The relay ended, so the listen is over.</p>
+    <% :connected -> %>
+      <% display_messages = filtered_messages(@messages, @filter_regex) %>
+      <div :if={display_messages == []} data-testid="listen-empty" class="fcon-muted space-y-2">
+        <p>
+          Waiting for the relay's {@direction}s. Nothing has passed through since this view opened.
+        </p>
+        <% unservable = FlezhaConsoleWeb.RelayState.unservable(@serving, @factory_id) %>
+        <.link
+          :if={NodeManager.granted?(@operations, "Relay.send")}
+          navigate={~p"/namespaces/#{@ns}/relays/#{@relay_id}?do=talk"}
+          data-testid="listen-send"
+        >
+          {if unservable, do: "Send to", else: "Send or call"} {@relay_id} to see something arrive.
+        </.link>
+        <p :if={unservable} data-testid="listen-unservable">
+          {FlezhaConsoleWeb.RelayState.no_runner_note(@relay_state, @serving, @factory_id)}
+        </p>
+      </div>
+      <div
+        :for={msg <- Enum.reverse(display_messages)}
+        data-testid="listen-message"
+        data-kind={msg.kind}
+        class="flex flex-wrap gap-x-3 py-1"
+      >
+        <span class="fcon-muted shrink-0 w-28">{Format.time_of_day(msg.timestamp)}</span>
+        <code class="flex-1 break-all whitespace-pre-wrap">{msg.message}</code>
+        <code :if={msg.metadata && msg.metadata != %{}} class="fcon-muted shrink-0">
+          {Enum.map_join(msg.metadata, ", ", fn {k, v} -> "#{k}=#{inspect(v)}" end)}
+        </code>
+      </div>
+  <% end %>
+</div>

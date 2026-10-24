@@ -19,7 +19,7 @@ import {
  * One test per provider, so a provider that breaks fails under its own name
  * rather than disappearing into a summary that passes when any one provider
  * worked. The hooks offered, the option bounds and the listings are asserted
- * in `test/flezha_ui_web/live/plugin_live_test.exs`.
+ * in `test/flezha_console_web/live/plugin_live_test.exs`.
  */
 
 const { id: RELAY } = ownRelay('pw_attach');
@@ -148,7 +148,7 @@ test.describe('Plugin attachment', () => {
         provider: 'hook_webhook',
         name,
         hooks: ['on_relay_started'],
-        opts: { url: 'ftp://fui_web/x' },
+        opts: { url: 'ftp://fcon_web/x' },
       });
       await page.getByTestId('attach-submit-btn').click();
 

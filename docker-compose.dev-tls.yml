@@ -6,7 +6,7 @@
 #
 # A node needs a certificate from that CA as well as the cookie, and a node
 # without TLS cannot connect at all. `docker exec` inherits ELIXIR_ERL_OPTIONS,
-# so a helper node started inside fui_web runs over TLS with that container's
+# so a helper node started inside fcon_web runs over TLS with that container's
 # certificate. Without this file the stack runs over plain TCP.
 
 x-dist-tls: &dist-tls
@@ -14,7 +14,7 @@ x-dist-tls: &dist-tls
     dist_tls_certs:
       condition: service_completed_successfully
   volumes:
-    - fui_dist_tls:/dist_tls:ro
+    - fcon_dist_tls:/dist_tls:ro
 
 services:
   # Makes the CA, and a key, certificate and option file per distributed host,
@@ -23,19 +23,19 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: fui_dist_tls_certs
+    container_name: fcon_dist_tls_certs
     user: root
     restart: "no"
     command:
       - sh
-      - /flezha_ui_dev/dist_tls_certs.sh
+      - /flezha_console_dev/dist_tls_certs.sh
       - flezha_controller
-      - fui_web
-      - fui_bootstrap
-      - fui_sandbox_bootstrap
+      - fcon_web
+      - fcon_bootstrap
+      - fcon_sandbox_bootstrap
     volumes:
-      - ./priv/dev:/flezha_ui_dev:ro
-      - fui_dist_tls:/dist_tls
+      - ./priv/dev:/flezha_console_dev:ro
+      - fcon_dist_tls:/dist_tls
 
   controller:
     <<: *dist-tls
@@ -45,17 +45,17 @@ services:
   bootstrap:
     <<: *dist-tls
     environment:
-      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fui_bootstrap.conf
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fcon_bootstrap.conf
 
   sandbox_bootstrap:
     <<: *dist-tls
     environment:
-      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fui_sandbox_bootstrap.conf
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fcon_sandbox_bootstrap.conf
 
   web:
     <<: *dist-tls
     environment:
-      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fui_web.conf
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fcon_web.conf
 
 volumes:
-  fui_dist_tls:
+  fcon_dist_tls:

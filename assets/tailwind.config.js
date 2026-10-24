@@ -8,8 +8,8 @@ const path = require("path")
 module.exports = {
   content: [
     "./js/**/*.js",
-    "../lib/flezha_ui_web.ex",
-    "../lib/flezha_ui_web/**/*.*ex"
+    "../lib/flezha_console_web.ex",
+    "../lib/flezha_console_web/**/*.*ex"
   ],
   theme: {
     extend: {
@@ -17,18 +17,18 @@ module.exports = {
       // come from the console's kit. `font-mono` / `font-sans` land on the
       // console's own faces for the few places a utility sets them.
       fontFamily: {
-        sans: "var(--fui-font-sans)",
-        mono: "var(--fui-font-mono)",
-        display: "var(--fui-font-display)",
+        sans: "var(--fcon-font-sans)",
+        mono: "var(--fcon-font-mono)",
+        display: "var(--fcon-font-display)",
       },
       // The size utilities a template reaches for land on the console's own
       // type scale, so a `text-xs` hint is as legible as the kit's.
       fontSize: {
-        xs: "var(--fui-text-xs)",
-        sm: "var(--fui-text-sm)",
-        base: "var(--fui-text-md)",
-        lg: "var(--fui-text-lg)",
-        xl: "var(--fui-text-xl)",
+        xs: "var(--fcon-text-xs)",
+        sm: "var(--fcon-text-sm)",
+        base: "var(--fcon-text-md)",
+        lg: "var(--fcon-text-lg)",
+        xl: "var(--fcon-text-xl)",
       },
     },
   },

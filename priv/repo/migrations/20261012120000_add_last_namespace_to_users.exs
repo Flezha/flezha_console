@@ -1,4 +1,4 @@
-defmodule FlezhaUi.Repo.Migrations.AddLastNamespaceToUsers do
+defmodule FlezhaConsole.Repo.Migrations.AddLastNamespaceToUsers do
   use Ecto.Migration
 
   def change do

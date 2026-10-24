@@ -86,7 +86,7 @@ test.describe('The console shell', () => {
     const toast = page.locator('#client-error');
     await expect(toast).toBeVisible();
     await expect(toast).toHaveCSS('display', 'flex');
-    const icon = (await toast.locator('.fui-toast-icon').boundingBox())!;
+    const icon = (await toast.locator('.fcon-toast-icon').boundingBox())!;
     const dismiss = (await toast.locator('[data-toast-dismiss]').boundingBox())!;
     expect(dismiss.y).toBeLessThan(icon.y + icon.height);
     expect(dismiss.x).toBeGreaterThan(icon.x + icon.width);

@@ -60,7 +60,7 @@ A test waits only for a condition it caused, and stops as soon as it holds:
   cause and polls at the default timeout. Nothing reads the seeded websocket
   sources — they are there for a person looking at the console.
 - **Rates.** The dev stack refreshes every screen every 500 ms
-  (`FLEZHA_UI_REFRESH_INTERVAL_MS` in `docker-compose.dev.yml`), so traffic sent
+  (`FLEZHA_CONSOLE_REFRESH_INTERVAL_MS` in `docker-compose.dev.yml`), so traffic sent
   across two ticks moves a rate within a second.
 - **ExUnit.** A test sends `:refresh` to a view itself; `config/test.exs` sets the
   screens' interval to an hour so no timer fires one in its place, and the
@@ -150,7 +150,7 @@ Before it changes anything on the stack, global setup:
   the controller refuses to create twice. A second run against a held stack
   stops there, naming the run that holds it and how long ago it started, and
   leaves that run's users logged in. A run is known to be going by its nodes
-  in `fui_web`, which are named after it (`pw_<run>_…`): a lock whose run has
+  in `fcon_web`, which are named after it (`pw_<run>_…`): a lock whose run has
   no node left was left by a run that died, and is taken over with a warning.
   `E2E_TAKE_LOCK=1` takes a lock over regardless. A run in UI mode holds the
   stack until it is closed. Playwright clears `test-results/` before global
@@ -195,7 +195,7 @@ while other rows of its listing change, which `access.spec.ts` drives with two
 sessions.
 
 An ExUnit test that changes the VM's environment — an application setting or
-an OS variable such as `FLEZHA_TOKEN` — does it through `FlezhaUi.TestEnv`,
+an OS variable such as `FLEZHA_TOKEN` — does it through `FlezhaConsole.TestEnv`,
 which restores what it found when the test ends, and runs serially.
 
 ## When a browser test fails
@@ -225,7 +225,7 @@ repair, and its next boot spends that time recovering.
 
 A behaviour several screens get from one module is one table-driven test, with
 one row per screen, each failing under its screen's name:
-`test/flezha_ui_web/live/shared_mechanics_test.exs` holds cancelling a
+`test/flezha_console_web/live/shared_mechanics_test.exs` holds cancelling a
 confirmation, a refused primary read, an empty screen, closing a tail and a
 relay's verdicts on each screen that lists it; `launcher_test.exs` the relay
 launcher both screens serve; `disconnected_screens_test.exs` every screen with
@@ -247,7 +247,7 @@ submit — named as a forgery and asserting the server refuses it.
 
 ## The coverage ledger
 
-`test/flezha_ui/coverage_ledger_test.exs` reads `lib/` on every run and fails
+`test/flezha_console/coverage_ledger_test.exs` reads `lib/` on every run and fails
 naming each LiveView event no test drives through its markup, and each binding
 to an event no clause handles. An event counts as driven when a test clicks,
 fills, checks or selects the control bound to it — in the browser or through
@@ -285,13 +285,13 @@ fails naming each read whose answer moved. When core changes an answer,
 re-record and fix the fake in the same change:
 
 ```bash
-docker exec fui_web sh -c 'exec elixir --sname rs1 --cookie "$ERLANG_COOKIE" \
-  /flezha_ui/priv/dev/record_shapes.exs'          # writes the file
-docker exec fui_web sh -c 'exec elixir --sname rs2 --cookie "$ERLANG_COOKIE" \
-  /flezha_ui/priv/dev/record_shapes.exs --check'  # what global setup runs
+docker exec fcon_web sh -c 'exec elixir --sname rs1 --cookie "$ERLANG_COOKIE" \
+  /flezha_console/priv/dev/record_shapes.exs'          # writes the file
+docker exec fcon_web sh -c 'exec elixir --sname rs2 --cookie "$ERLANG_COOKIE" \
+  /flezha_console/priv/dev/record_shapes.exs --check'  # what global setup runs
 ```
 
-A new read the console makes is added to `FlezhaUi.ControllerShapes.reads/0`.
+A new read the console makes is added to `FlezhaConsole.ControllerShapes.reads/0`.
 
 ## Page-health guards
 
@@ -337,8 +337,8 @@ fixture itself:
   flips a flag for the whole runner process.
 
 A plugin runs on the controller, inside the compose network, so options that
-name a service point at it there — Kafka at `fui_kafka:9092`, HTTP at
-`http://fui_web:4000` — never at `localhost`. A disabled plugin keeps its
+name a service point at it there — Kafka at `fcon_kafka:9092`, HTTP at
+`http://fcon_web:4000` — never at `localhost`. A disabled plugin keeps its
 bindings, so `disablePlugin()` unbinds every relay first. A revoked token stays
 listed as revoked.
 
@@ -348,7 +348,7 @@ listed as revoked.
 `demo` market group, its two partitions and its fourteen-tasklet graph, and an
 analyzer runner with a graph of its own. That stack serves its own pinned
 checkout of the console, not this one, so a change is seen there only once that
-checkout carries it; it listens on the port its `FLEZHA_UI_HOST_PORT` gives
+checkout carries it; it listens on the port its `FLEZHA_CONSOLE_HOST_PORT` gives
 (`E2E_MARKET_URL`, `http://localhost:4000` by default). `E2E_MARKET_STACK=1`
 adds a `market` project that runs the spec there, logged in as that stack's
 seeded user, beside the rest of the suite on this stack. A runner without a

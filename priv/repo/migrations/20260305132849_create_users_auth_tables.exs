@@ -1,4 +1,4 @@
-defmodule FlezhaUi.Repo.Migrations.CreateUsersAuthTables do
+defmodule FlezhaConsole.Repo.Migrations.CreateUsersAuthTables do
   use Ecto.Migration
 
   def change do

@@ -4,13 +4,13 @@
 #
 #     mix run --no-start priv/repo/seeds.exs
 
-alias FlezhaUi.Accounts
-alias FlezhaUi.Accounts.User
+alias FlezhaConsole.Accounts
+alias FlezhaConsole.Accounts.User
 
 if Mix.env() == :dev do
   {:ok, _apps} = Application.ensure_all_started(:ecto_sql)
 
-  Ecto.Migrator.with_repo(FlezhaUi.Repo, fn repo ->
+  Ecto.Migrator.with_repo(FlezhaConsole.Repo, fn repo ->
     email = "admin@flezha.com"
 
     unless Accounts.get_user_by_email(email) do

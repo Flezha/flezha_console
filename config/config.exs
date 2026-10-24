@@ -7,41 +7,41 @@
 # General application configuration
 import Config
 
-config :flezha_ui, :scopes,
+config :flezha_console, :scopes,
   user: [
     default: true,
-    module: FlezhaUi.Accounts.Scope,
+    module: FlezhaConsole.Accounts.Scope,
     assign_key: :current_scope,
     access_path: [:user, :id],
     schema_key: :user_id,
     schema_type: :id,
     schema_table: :users,
-    test_data_fixture: FlezhaUi.AccountsFixtures,
+    test_data_fixture: FlezhaConsole.AccountsFixtures,
     test_setup_helper: :register_and_log_in_user
   ]
 
-config :flezha_ui,
-  ecto_repos: [FlezhaUi.Repo],
+config :flezha_console,
+  ecto_repos: [FlezhaConsole.Repo],
   generators: [timestamp_type: :utc_datetime]
 
 # How long a page's websocket may take to answer before Phoenix falls back to
 # long polling, as it must behind a proxy that blocks websockets.
-config :flezha_ui, :longpoll_fallback_ms, 2_500
+config :flezha_console, :longpoll_fallback_ms, 2_500
 
 # Where a controller error's code links to: core's errors reference, one
 # section per code family.
-config :flezha_ui, :core_docs_url, "https://docs.flezha.com"
+config :flezha_console, :core_docs_url, "https://docs.flezha.com"
 
 # Configures the endpoint
-config :flezha_ui, FlezhaUiWeb.Endpoint,
+config :flezha_console, FlezhaConsoleWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
-    formats: [html: FlezhaUiWeb.ErrorHTML, json: FlezhaUiWeb.ErrorJSON],
-    root_layout: [html: {FlezhaUiWeb.Layouts, :root}],
+    formats: [html: FlezhaConsoleWeb.ErrorHTML, json: FlezhaConsoleWeb.ErrorJSON],
+    root_layout: [html: {FlezhaConsoleWeb.Layouts, :root}],
     layout: false
   ],
-  pubsub_server: FlezhaUi.PubSub,
+  pubsub_server: FlezhaConsole.PubSub,
   live_view: [signing_salt: "Hv743/Pp"]
 
 # Configures the mailer
@@ -51,12 +51,12 @@ config :flezha_ui, FlezhaUiWeb.Endpoint,
 #
 # For production it's recommended to configure a different adapter
 # at the `config/runtime.exs`.
-config :flezha_ui, FlezhaUi.Mailer, adapter: Swoosh.Adapters.Local
+config :flezha_console, FlezhaConsole.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.17.11",
-  flezha_ui: [
+  flezha_console: [
     args:
       ~w(js/app.js --bundle --target=es2017 --outdir=../priv/static/assets --external:/fonts/* --external:/images/*),
     cd: Path.expand("../assets", __DIR__),
@@ -66,7 +66,7 @@ config :esbuild,
 # Configure tailwind (the version is required)
 config :tailwind,
   version: "3.4.3",
-  flezha_ui: [
+  flezha_console: [
     args: ~w(
       --config=tailwind.config.js
       --input=css/app.css

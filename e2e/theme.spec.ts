@@ -11,6 +11,7 @@ import type { Page } from '@playwright/test';
  * the right theme is applied either way. So the stored preference is written
  * before the first navigation and the document Phoenix sent is read as text.
  */
+const LOCKUP = 'flezha-console-badger-line-text-white.svg';
 const theme = (page: Page) => page.locator('html');
 const stored = (page: Page) => page.evaluate(() => localStorage.getItem('flezha-theme'));
 const token = (page: Page, name: string) =>
@@ -130,13 +131,13 @@ test.describe('Theme contract', () => {
 
       await expect(logo).toBeVisible();
       expect(await logo.evaluate((el) => getComputedStyle(el).maskImage)).toContain(
-        'flezha-ui-badger-line-text-white.svg',
+        LOCKUP,
       );
-      await expect(logo).toHaveAccessibleName('Flezha UI');
+      await expect(logo).toHaveAccessibleName('Flezha Console');
 
       // The proportions the served file declares, so the check follows a
       // regenerated lockup instead of a copied number.
-      const svg = await (await page.request.get('/images/flezha-ui-badger-line-text-white.svg')).text();
+      const svg = await (await page.request.get(`/images/${LOCKUP}`)).text();
       const [, width, height] = svg.match(/viewBox="\S+ \S+ (\S+) (\S+)"/)!;
       const box = await logo.boundingBox();
       expect(box?.height).toBeGreaterThan(0);
@@ -216,10 +217,10 @@ test.describe('Brand outside the shell', () => {
       await page.goto('/users/log-in');
       await expect(theme(page)).toHaveAttribute('data-theme', scheme);
 
-      const logo = page.locator('.fui-brand .fui-logo').first();
+      const logo = page.locator('.fcon-brand .fcon-logo').first();
       await expect(logo).toBeVisible();
       expect(await logo.evaluate((el) => getComputedStyle(el).maskImage)).toContain(
-        'flezha-ui-badger-line-text-white.svg',
+        LOCKUP,
       );
 
       expect(await logo.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(ink[scheme]);
@@ -233,7 +234,7 @@ test.describe('Brand outside the shell', () => {
       expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(4);
 
       // Heading and form stand one gap apart, as in any signed-out column.
-      const gaps = await page.locator('.fui-auth-form').evaluate((column) => {
+      const gaps = await page.locator('.fcon-auth-form').evaluate((column) => {
         const boxes = [...column.children].map((el) => el.getBoundingClientRect());
         return boxes.slice(1).map((b, i) => Math.round(b.top - boxes[i].bottom));
       });

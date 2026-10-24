@@ -13,7 +13,7 @@ import { test, expect, menuAction, choose } from './fixtures';
  * offers comes from a connected runner, a drop takes the runner from every
  * session on the stack, and the dev stack runs one controller node with
  * healthy runners, so these are covered in
- * `test/flezha_ui_web/live/cluster_live_test.exs` and `runner_drop_test.exs`.
+ * `test/flezha_console_web/live/cluster_live_test.exs` and `runner_drop_test.exs`.
  */
 test.describe('Cluster and fleet', () => {
   test('the overview counts the dev stack and leads to its problems', async ({ page, live }) => {

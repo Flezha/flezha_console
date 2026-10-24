@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: flezha_ui_web
-    hostname: flezha_ui_web
+    container_name: flezha_console_web
+    hostname: flezha_console_web
     ports:
       - "4000:4000"
     environment:
@@ -16,9 +16,9 @@ services:
       # flezha_agent_dev container the name becomes flezha@flezha_agent_dev.
       FLEZHA_NODE: flezha@flezha_agent_dev
     volumes:
-      - .:/flezha_ui
-      - deps:/flezha_ui/deps
-      - build:/flezha_ui/_build
+      - .:/flezha_console
+      - deps:/flezha_console/deps
+      - build:/flezha_console/_build
     networks:
       - flezha_network
 

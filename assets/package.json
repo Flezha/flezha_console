@@ -1,7 +1,7 @@
 {
-  "name": "flezha-ui-assets",
+  "name": "flezha-console-assets",
   "private": true,
-  "description": "Asset dependencies for flezha_ui. The stylebook is a sibling checkout, not a copy.",
+  "description": "Asset dependencies for flezha_console. The stylebook is a sibling checkout, not a copy.",
   "dependencies": {
     "@flezha/stylebook": "file:../../flezha_stylebook"
   }

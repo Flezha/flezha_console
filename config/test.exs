@@ -8,23 +8,23 @@ config :bcrypt_elixir, :log_rounds, 1
 # The MIX_TEST_PARTITION environment variable can be used
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
-config :flezha_ui, FlezhaUi.Repo,
+config :flezha_console, FlezhaConsole.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "flezha_ui_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: "flezha_console_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
-config :flezha_ui, FlezhaUiWeb.Endpoint,
+config :flezha_console, FlezhaConsoleWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "gO6QhiE+RBgz86hvUure0YWCrREZhKUhn2B9azL2AhAZa+ZLhJ+bm8SFvbw9JzWy",
   server: false
 
 # In test we don't send emails
-config :flezha_ui, FlezhaUi.Mailer, adapter: Swoosh.Adapters.Test
+config :flezha_console, FlezhaConsole.Mailer, adapter: Swoosh.Adapters.Test
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
@@ -41,21 +41,21 @@ config :phoenix_live_view,
 
 # Re-open an ended feed promptly, so a reconnect test does not wait out the
 # production backoff.
-config :flezha_ui, :event_feed_retry_interval_ms, 100
-config :flezha_ui, :event_feed_settle_interval_ms, 50
+config :flezha_console, :event_feed_retry_interval_ms, 100
+config :flezha_console, :event_feed_settle_interval_ms, 50
 
 # A test drives a screen's refresh by sending it the tick, so a timer must
 # never fire one in its place; a tap shows what it heard almost at once.
-config :flezha_ui, :refresh_interval_ms, :timer.hours(1)
-config :flezha_ui, :tap_flush_ms, 5
+config :flezha_console, :refresh_interval_ms, :timer.hours(1)
+config :flezha_console, :tap_flush_ms, 5
 
 # An event's read is made at once, so a test sees it without waiting out the
 # coalescing window.
-config :flezha_ui, :refresh_coalesce_ms, 0
+config :flezha_console, :refresh_coalesce_ms, 0
 
 # Retry a lost controller node promptly, for the same reason as the feed.
-config :flezha_ui, :node_connector_retry_interval_ms, 20
+config :flezha_console, :node_connector_retry_interval_ms, 20
 
 # Tests start their own feeds against a peer node; a supervised singleton
 # would tail that peer and race the test that owns it.
-config :flezha_ui, :start_event_feed, false
+config :flezha_console, :start_event_feed, false

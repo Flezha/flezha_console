@@ -1,4 +1,4 @@
-defmodule FlezhaUiWeb.LiveCase do
+defmodule FlezhaConsoleWeb.LiveCase do
   @moduledoc """
   Case template for LiveView tests that need a controller to answer them.
 
@@ -14,7 +14,7 @@ defmodule FlezhaUiWeb.LiveCase do
   Tagged `:distributed`, so `mix test --exclude distributed` still gives a fast
   inner loop with no peer boots.
 
-      use FlezhaUiWeb.LiveCase
+      use FlezhaConsoleWeb.LiveCase
 
       test "renders the namespaces", %{conn: conn, node: node} do
         FakeController.set_fleet(node, namespaces: ["default"])
@@ -27,11 +27,11 @@ defmodule FlezhaUiWeb.LiveCase do
 
   using do
     quote do
-      use FlezhaUiWeb.ConnCase, async: false
+      use FlezhaConsoleWeb.ConnCase, async: false
 
       import Phoenix.LiveViewTest
 
-      import FlezhaUiWeb.LiveCase,
+      import FlezhaConsoleWeb.LiveCase,
         only: [
           live_loaded: 2,
           open_section: 2,
@@ -45,8 +45,8 @@ defmodule FlezhaUiWeb.LiveCase do
           grant_operations: 3
         ]
 
-      alias FlezhaUi.PeerNode
-      alias FlezhaUi.Service.NodeManager
+      alias FlezhaConsole.PeerNode
+      alias FlezhaConsole.Service.NodeManager
 
       @moduletag :distributed
 
@@ -59,7 +59,7 @@ defmodule FlezhaUiWeb.LiveCase do
         # the next one's surprise.
         FakeController.reset(node)
 
-        user = FlezhaUi.AccountsFixtures.user_fixture()
+        user = FlezhaConsole.AccountsFixtures.user_fixture()
         %{conn: log_in_user(conn, user), user: user}
       end
     end
@@ -191,7 +191,7 @@ defmodule FlezhaUiWeb.LiveCase do
   def condition_value(html, testid, key) do
     row = ~s([data-testid="#{testid}-#{key}"])
 
-    case text_of(html, row <> " .fui-term") do
+    case text_of(html, row <> " .fcon-term") do
       "" -> text_of(html, row <> " dd")
       term -> term
     end
@@ -213,7 +213,7 @@ defmodule FlezhaUiWeb.LiveCase do
   """
   def enforce_operations(node, user, identity) do
     token = "flzt_#{System.unique_integer([:positive])}"
-    {:ok, _user} = FlezhaUi.Accounts.update_user_flezha_token(user, token)
+    {:ok, _user} = FlezhaConsole.Accounts.update_user_flezha_token(user, token)
     FakeController.set(node, {Flezha.AuthZ, :enforcement_posture}, :enforced)
 
     FakeController.set(

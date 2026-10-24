@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="csrf-token" content={get_csrf_token()} />
+    <.longpoll_fallback ms={Application.get_env(:flezha_console, :longpoll_fallback_ms)} />
+    <.live_title default={product_name()} suffix=" · Flezha">
+      {assigns[:page_title]}
+    </.live_title>
+    <%!-- Sets data-theme before first paint. Must stay ahead of the
+          stylesheet, and must stay a blocking classic script. --%>
+    <script>
+      <%= theme_hydrate() %>
+    </script>
+    <link
+      :for={face <- ~w(Inter-latin.woff2 SpaceGrotesk-latin.woff2 JetBrainsMono-latin.woff2)}
+      rel="preload"
+      href={~p"/fonts/#{face}"}
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <%!-- The badger without a background: dark on a light browser, white on a
+          dark one. The SVG follows the browser by itself; the PNGs are its
+          fallback. --%>
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href={~p"/images/favicon-mark-dark-32.png"}
+      media="(prefers-color-scheme: light)"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href={~p"/images/favicon-mark-white-32.png"}
+      media="(prefers-color-scheme: dark)"
+    />
+    <link rel="icon" type="image/svg+xml" href={~p"/favicon.svg"} />
+    <link phx-track-static rel="stylesheet" href={~p"/assets/app.css"} />
+    <script defer phx-track-static type="text/javascript" src={~p"/assets/app.js"}>
+    </script>
+  </head>
+  <body>
+    {@inner_content}
+  </body>
+</html>

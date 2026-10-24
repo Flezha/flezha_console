@@ -13,7 +13,7 @@ x-default-runner-credential: &default-runner-credential
   FLEZHA_RUNNER_TOKEN_FILE: /auth/runner.token
 
 # The Erlang distribution cookie, named once: the controller, the bootstrap
-# steps, the console and every helper node run inside fui_web read this value.
+# steps, the console and every helper node run inside fcon_web read this value.
 x-dev-cookie: &dev-cookie
   ERLANG_COOKIE: flezha_dev_cookie
 
@@ -77,13 +77,13 @@ services:
         sleep 3;
       done'
     volumes:
-      - fui_socket_data:/socket_data
+      - fcon_socket_data:/socket_data
       - ../flezha:/flezha
-      - fui_flezha_build:/flezha/_build
-      - fui_flezha_deps:/flezha/deps
-      - fui_flezha_cargo_target:/flezha/_build/.target
+      - fcon_flezha_build:/flezha/_build
+      - fcon_flezha_deps:/flezha/deps
+      - fcon_flezha_cargo_target:/flezha/_build/.target
     networks:
-      - fui_network
+      - fcon_network
 
   # Builds the flezha_http plugin package with the controller's toolchain and
   # places it, with a copy the loader refuses, in the plugin root the
@@ -92,17 +92,17 @@ services:
     build:
       context: ../flezha
       dockerfile: deploy/docker/dev/Dockerfile.toolchain
-    container_name: fui_plugin_packages
+    container_name: fcon_plugin_packages
     restart: "no"
-    command: ["sh", "/flezha_ui_dev/plugin_packages.sh"]
+    command: ["sh", "/flezha_console_dev/plugin_packages.sh"]
     volumes:
       - ../flezha:/flezha
-      - ./priv/dev:/flezha_ui_dev:ro
+      - ./priv/dev:/flezha_console_dev:ro
       # Mounted over a directory the image gives its build user, so the
       # volume is that user's too.
-      - fui_plugin_build:/home/flezha/_build
+      - fcon_plugin_build:/home/flezha/_build
     networks:
-      - fui_network
+      - fcon_network
 
   # The runner is its own service, mirroring flezha's deploy/docker/dev/docker-compose.yml.
   # It owns its process, so it survives a controller restart on the SDK's own
@@ -148,12 +148,12 @@ services:
         export FLEZHA_NAMESPACE_SECRET
         exec cargo run --quiet --manifest-path=/flezha/sdk/rust/test_app/Cargo.toml -- "$$FLEZHA_RUNNER_NAMESPACE"
     volumes:
-      - fui_auth_data:/auth:ro
-      - fui_socket_data:/socket_data
+      - fcon_auth_data:/auth:ro
+      - fcon_socket_data:/socket_data
       - ../flezha:/flezha
-      - fui_flezha_cargo_target:/flezha/_build/.target
+      - fcon_flezha_cargo_target:/flezha/_build/.target
     networks:
-      - fui_network
+      - fcon_network
 
   # A second runner, in a namespace of its own, running the Elixir project kept
   # in the git-ignored local_dev/sandbox_runners/elixir_runner. Started only with
@@ -162,7 +162,7 @@ services:
   sandbox_runner:
     extends:
       service: runner
-    container_name: fui_sandbox_runner
+    container_name: fcon_sandbox_runner
     profiles: [local-runner]
     depends_on:
       sandbox_bootstrap:
@@ -175,7 +175,7 @@ services:
       MIX_DEPS_PATH: /home/flezha/deps
     # At the same depth as on the host, so a path dependency on
     # ../../../../flezha/sdk/elixir resolves in both.
-    working_dir: /flezha_ui/local_dev/sandbox_runners/elixir_runner
+    working_dir: /flezha_console/local_dev/sandbox_runners/elixir_runner
     command:
       - sh
       - -c
@@ -188,11 +188,11 @@ services:
         export FLEZHA_NAMESPACE_SECRET
         mix deps.get && exec mix run --no-halt -- "$$FLEZHA_RUNNER_NAMESPACE"
     volumes:
-      - ./local_dev:/flezha_ui/local_dev
+      - ./local_dev:/flezha_console/local_dev
       # Mounted over directories the image gives its build user, so the
       # volumes are that user's too.
-      - fui_sandbox_build:/home/flezha/_build
-      - fui_sandbox_deps:/home/flezha/deps
+      - fcon_sandbox_build:/home/flezha/_build
+      - fcon_sandbox_deps:/home/flezha/deps
 
   # Claims the controller's authorization bootstrap and issues the token the UI
   # presents, once, after the controller is up. It has to be a step rather than
@@ -203,8 +203,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: fui_bootstrap
-    hostname: fui_bootstrap
+    container_name: fcon_bootstrap
+    hostname: fcon_bootstrap
     # Named volumes are created root-owned; this step has to write into one.
     user: root
     restart: "no"
@@ -215,26 +215,26 @@ services:
       <<: [*dev-cookie, *default-runner-credential]
       FLEZHA_NODE: flezha@flezha_controller
       FLEZHA_TOKEN_FILE: /auth/ui.token
-      FLEZHA_UI_PRINCIPAL: flezha-ui
+      FLEZHA_CONSOLE_PRINCIPAL: flezha-console
     volumes:
-      - .:/flezha_ui
-      - fui_auth_data:/auth
+      - .:/flezha_console
+      - fcon_auth_data:/auth
     networks:
-      - fui_network
+      - fcon_network
     # The script waits for the controller node itself, which is a better signal
     # than any file: a reachable node is one that can answer the claim.
     command:
       - sh
       - -c
-      - exec elixir --sname fui_bootstrap --hidden --cookie "$$ERLANG_COOKIE" /flezha_ui/priv/dev/bootstrap_authz.exs
+      - exec elixir --sname fcon_bootstrap --hidden --cookie "$$ERLANG_COOKIE" /flezha_console/priv/dev/bootstrap_authz.exs
 
   # The same script for the sandbox runner: it reuses the UI token `bootstrap`
   # wrote, creates the namespace and issues that runner's credential.
   sandbox_bootstrap:
     extends:
       service: bootstrap
-    container_name: fui_sandbox_bootstrap
-    hostname: fui_sandbox_bootstrap
+    container_name: fcon_sandbox_bootstrap
+    hostname: fcon_sandbox_bootstrap
     profiles: [local-runner]
     depends_on:
       bootstrap:
@@ -244,13 +244,13 @@ services:
 
   db:
     image: postgres:16
-    container_name: flezha_ui_db
-    hostname: flezha_ui_db
+    container_name: flezha_console_db
+    hostname: flezha_console_db
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: flezha_ui_db
+      POSTGRES_DB: flezha_console_db
     ports:
       - "5432:5432"
     healthcheck:
@@ -259,14 +259,14 @@ services:
       timeout: 5s
       retries: 10
     networks:
-      - fui_network
+      - fcon_network
 
   web:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: fui_web
-    hostname: fui_web
+    container_name: fcon_web
+    hostname: fcon_web
     ports:
       - "4000:4000"
     environment:
@@ -278,20 +278,20 @@ services:
       FLEZHA_TOKEN_FILE: /auth/ui.token
       # A config or dependency change stops the console, and the restart
       # policy below brings it back with the new configuration.
-      FLEZHA_UI_RESTART_ON_CONFIG_CHANGE: "true"
+      FLEZHA_CONSOLE_RESTART_ON_CONFIG_CHANGE: "true"
       # Every screen re-reads twice a second, so what a browser test caused
       # shows without waiting out a screen's own cadence.
-      FLEZHA_UI_REFRESH_INTERVAL_MS: "500"
+      FLEZHA_CONSOLE_REFRESH_INTERVAL_MS: "500"
     depends_on:
       db:
         condition: service_healthy
       bootstrap:
         condition: service_completed_successfully
     volumes:
-      - .:/flezha_ui
-      - fui_web_deps:/flezha_ui/deps
-      - fui_web_build:/flezha_ui/_build
-      - fui_auth_data:/auth:ro
+      - .:/flezha_console
+      - fcon_web_deps:/flezha_console/deps
+      - fcon_web_build:/flezha_console/_build
+      - fcon_auth_data:/auth:ro
       # The stylebook is an npm `file:` dependency, and npm writes a relative
       # symlink for one. From assets/node_modules/@flezha/ it walks up four
       # levels, which lands on the container root — so this path is the one
@@ -300,13 +300,13 @@ services:
       # renders unstyled.
       - ../flezha_stylebook:/flezha_stylebook:ro
     networks:
-      - fui_network
+      - fcon_network
     restart: unless-stopped
 
   zookeeper:
     image: zookeeper:3.9.3
-    container_name: fui_zookeeper
-    hostname: fui_zookeeper
+    container_name: fcon_zookeeper
+    hostname: fcon_zookeeper
     restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
@@ -320,18 +320,18 @@ services:
       retries: 5
       start_period: 15s
     networks:
-      - fui_network
+      - fcon_network
 
   kafka:
     image: confluentinc/cp-kafka:7.8.6
-    container_name: fui_kafka
-    hostname: fui_kafka
+    container_name: fcon_kafka
+    hostname: fcon_kafka
     restart: unless-stopped
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: fui_zookeeper:2181
+      KAFKA_ZOOKEEPER_CONNECT: fcon_zookeeper:2181
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://fui_kafka:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://fcon_kafka:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -347,35 +347,35 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - fui_network
+      - fcon_network
 
   kafka_ui:
     image: provectuslabs/kafka-ui:latest
-    container_name: fui_kafka_ui
+    container_name: fcon_kafka_ui
     ports:
       - "8081:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: fui_kafka:9092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: fui_zookeeper:2181
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: fcon_kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: fcon_zookeeper:2181
     depends_on:
       - kafka
       - zookeeper
     networks:
-      - fui_network
+      - fcon_network
 
 volumes:
-  fui_plugin_build:
-  fui_auth_data:
-  fui_socket_data:
-  fui_flezha_build:
-  fui_flezha_deps:
-  fui_flezha_cargo_target:
-  fui_web_deps:
-  fui_web_build:
-  fui_sandbox_build:
-  fui_sandbox_deps:
+  fcon_plugin_build:
+  fcon_auth_data:
+  fcon_socket_data:
+  fcon_flezha_build:
+  fcon_flezha_deps:
+  fcon_flezha_cargo_target:
+  fcon_web_deps:
+  fcon_web_build:
+  fcon_sandbox_build:
+  fcon_sandbox_deps:
 
 networks:
-  fui_network:
+  fcon_network:
     driver: bridge

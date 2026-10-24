@@ -18,7 +18,7 @@ import {
  * from the relay screen are made in a second page, so the listen keeps running
  * while the console's own controls cause the records it must show. Pausing,
  * clearing, filtering and the refused listen are covered in
- * `test/flezha_ui_web/live/listen_live_test.exs`.
+ * `test/flezha_console_web/live/listen_live_test.exs`.
  */
 const { id: ID } = ownRelay('pw_listen');
 const RELAY = `/namespaces/default/relays/${ID}`;

@@ -1,4 +1,4 @@
-defmodule FlezhaUi.PeerNode do
+defmodule FlezhaConsole.PeerNode do
   @moduledoc """
   Starts a real second BEAM node to stand in for the flezha controller.
 
@@ -12,9 +12,9 @@ defmodule FlezhaUi.PeerNode do
   or module that started it ends.
   """
 
-  alias FlezhaUi.TestEnv
+  alias FlezhaConsole.TestEnv
 
-  @cookie :flezha_ui_test_cookie
+  @cookie :flezha_console_test_cookie
 
   @doc """
   Ensures this VM is distributed, then starts a peer and returns `{peer, node}`.
@@ -141,7 +141,7 @@ defmodule FlezhaUi.PeerNode do
   @doc "Makes this VM a distributed node, if it is not one already."
   def ensure_distributed! do
     # Named per OS process, so two test runs on one host do not collide.
-    case :net_kernel.start([:"flezha_ui_test_#{System.pid()}@127.0.0.1", :longnames]) do
+    case :net_kernel.start([:"flezha_console_test_#{System.pid()}@127.0.0.1", :longnames]) do
       {:ok, _} -> :ok
       {:error, {:already_started, _}} -> :ok
     end
@@ -157,6 +157,6 @@ defmodule FlezhaUi.PeerNode do
   end
 
   defp app_path?(path) do
-    path |> List.to_string() |> String.contains?("/flezha_ui/ebin")
+    path |> List.to_string() |> String.contains?("/flezha_console/ebin")
   end
 end

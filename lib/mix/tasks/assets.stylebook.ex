@@ -3,7 +3,7 @@ defmodule Mix.Tasks.Assets.Stylebook do
 
   @moduledoc """
   Places the `flezha_stylebook` brand assets the console serves into
-  `priv/static`: the Flezha UI lockup, the favicons, the not-found mascot and
+  `priv/static`: the Flezha Console lockup, the favicons, the not-found mascot and
   the three typefaces flezha.com sets type in.
 
   The `web` container has no Node, so nothing can fetch them at boot — this
@@ -19,7 +19,8 @@ defmodule Mix.Tasks.Assets.Stylebook do
 
   @package "assets/node_modules/@flezha/stylebook"
   @images %{
-    "assets/logo/flezha-ui-badger-line-text-white.svg" => "flezha-ui-badger-line-text-white.svg",
+    "assets/logo/flezha-console-badger-line-text-white.svg" =>
+      "flezha-console-badger-line-text-white.svg",
     "assets/logo/flezha-favicon-badger-mark-dark-32.png" => "favicon-mark-dark-32.png",
     "assets/logo/flezha-favicon-badger-mark-white-32.png" => "favicon-mark-white-32.png",
     "assets/honey-badger/not-found.png" => "badger-not-found.png"

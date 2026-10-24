@@ -1,13 +1,13 @@
-defmodule FlezhaUi.AccountsFixtures do
+defmodule FlezhaConsole.AccountsFixtures do
   @moduledoc """
   This module defines test helpers for creating
-  users and tokens via the `FlezhaUi.Accounts` context.
+  users and tokens via the `FlezhaConsole.Accounts` context.
   """
 
   import Ecto.Query
 
-  alias FlezhaUi.Accounts
-  alias FlezhaUi.Accounts.Scope
+  alias FlezhaConsole.Accounts
+  alias FlezhaConsole.Accounts.Scope
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
   def valid_user_password, do: "hello world!"
@@ -23,7 +23,7 @@ defmodule FlezhaUi.AccountsFixtures do
   def unconfirmed_user_fixture(attrs \\ %{}) do
     %Accounts.User{}
     |> Accounts.User.email_changeset(valid_user_attributes(attrs))
-    |> FlezhaUi.Repo.insert!()
+    |> FlezhaConsole.Repo.insert!()
   end
 
   def user_fixture(attrs \\ %{}) do
@@ -63,7 +63,7 @@ defmodule FlezhaUi.AccountsFixtures do
   end
 
   def override_token_authenticated_at(token, authenticated_at) when is_binary(token) do
-    FlezhaUi.Repo.update_all(
+    FlezhaConsole.Repo.update_all(
       from(t in Accounts.UserToken,
         where: t.token == ^token
       ),
@@ -73,14 +73,14 @@ defmodule FlezhaUi.AccountsFixtures do
 
   def generate_user_magic_link_token(user) do
     {encoded_token, user_token} = Accounts.UserToken.build_email_token(user, "login")
-    FlezhaUi.Repo.insert!(user_token)
+    FlezhaConsole.Repo.insert!(user_token)
     {encoded_token, user_token.token}
   end
 
   def offset_user_token(token, amount_to_add, unit) do
     dt = DateTime.add(DateTime.utc_now(:second), amount_to_add, unit)
 
-    FlezhaUi.Repo.update_all(
+    FlezhaConsole.Repo.update_all(
       from(ut in Accounts.UserToken, where: ut.token == ^token),
       set: [inserted_at: dt, authenticated_at: dt]
     )

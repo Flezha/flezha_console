@@ -1,6 +1,6 @@
 {
   "tokens": "../../node_modules/@flezha/stylebook/css/tokens.css",
-  "ignore": ["--fui-"],
+  "ignore": ["--fcon-"],
   "exempt": ["tokens.css"],
   "parity": [],
   "surfaces": ["--surface-base", "--surface-raised", "--surface-hover"],

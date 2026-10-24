@@ -1,4 +1,4 @@
-defmodule FlezhaUi.Repo.Migrations.AddFlezhaTokenToUsers do
+defmodule FlezhaConsole.Repo.Migrations.AddFlezhaTokenToUsers do
   use Ecto.Migration
 
   def change do

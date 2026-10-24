@@ -6,7 +6,7 @@ import { test, expect, growListing, readFigure, type Page } from './fixtures';
  * Every assertion here is unconditional. `docker-compose.dev.yml` defaults
  * `FLEZHA_AUDIT_ENABLED` to `true`, so an unset flag is a broken stack, not a
  * reason to skip — the screen's disabled state, the statistics, the empty and
- * truncated reads are covered in `test/flezha_ui_web/live/audit_live_test.exs`,
+ * truncated reads are covered in `test/flezha_console_web/live/audit_live_test.exs`,
  * where they can be produced on demand.
  */
 

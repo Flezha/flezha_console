@@ -6,7 +6,7 @@ import { test, expect } from './fixtures';
  * Which problems a fleet has depends on the moment it is read, so this holds
  * the count and the list to one answer rather than naming a problem; what each
  * kind of problem says and offers, and their order, are asserted against
- * arranged fleets in `test/flezha_ui_web/live/problems_live_test.exs`.
+ * arranged fleets in `test/flezha_console_web/live/problems_live_test.exs`.
  */
 test.describe('Open problems', () => {
   test('the rail leads to the screen, and counts what it lists', async ({ page, live }) => {

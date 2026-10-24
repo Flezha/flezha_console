@@ -5,18 +5,18 @@
 #                             confirmed with PASSWORD
 #   delete EMAIL...           each user that exists, with its sessions
 #
-# Run inside `fui_web`, as a node of the dev stack:
+# Run inside `fcon_web`, as a node of the dev stack:
 #
 #     elixir --sname <unique> --cookie <cookie> priv/dev/console_users.exs delete a@example.com
 
 {:ok, host} = :inet.gethostname()
-console = :"flezha_ui@#{host}"
+console = :"flezha_console@#{host}"
 true = Node.connect(console)
 
 delete = fn email ->
-  case :erpc.call(console, FlezhaUi.Accounts, :get_user_by_email, [email]) do
+  case :erpc.call(console, FlezhaConsole.Accounts, :get_user_by_email, [email]) do
     nil -> :ok
-    user -> :erpc.call(console, FlezhaUi.Repo, :delete!, [user])
+    user -> :erpc.call(console, FlezhaConsole.Repo, :delete!, [user])
   end
 end
 
@@ -26,7 +26,7 @@ case System.argv() do
       delete.(email)
 
       {:ok, _user} =
-        :erpc.call(console, FlezhaUi.Accounts, :create_user, [
+        :erpc.call(console, FlezhaConsole.Accounts, :create_user, [
           %{email: email, password: password}
         ])
     end

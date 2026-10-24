@@ -1,6 +1,6 @@
 /*
  * The console's design tokens: the one place the kit's colours, sizes and
- * durations are written down. Everything the kit paints reads a `--fui-*`
+ * durations are written down. Everything the kit paints reads a `--fcon-*`
  * name from here, and `npm run tokens` grades the colour roles for contrast in
  * both themes.
  *
@@ -15,123 +15,123 @@
  * figure that just changed — and never states an outcome. Positive, warning
  * and negative state outcomes.
  *
- * Each fill role has a `-subtle` tint for a badge or a row, and an `--fui-on-*`
+ * Each fill role has a `-subtle` tint for a badge or a row, and an `--fcon-on-*`
  * ink for text laid on its solid fill.
  */
 
 :root {
   /* Type */
   /* Type: the stylebook's faces, the ones flezha.com sets */
-  --fui-font-display: var(--font-display);
-  --fui-font-sans: var(--font-body);
-  --fui-font-mono: var(--font-mono);
+  --fcon-font-display: var(--font-display);
+  --fcon-font-sans: var(--font-body);
+  --fcon-font-mono: var(--font-mono);
 
-  --fui-text-xs: 0.8125rem;
-  --fui-text-sm: 0.9375rem;
-  --fui-text-md: 0.96875rem;
-  --fui-text-lg: 1.0625rem;
-  --fui-text-xl: 1.25rem;
-  --fui-text-2xl: 1.625rem;
-  --fui-text-3xl: 2rem;
+  --fcon-text-xs: 0.8125rem;
+  --fcon-text-sm: 0.9375rem;
+  --fcon-text-md: 0.96875rem;
+  --fcon-text-lg: 1.0625rem;
+  --fcon-text-xl: 1.25rem;
+  --fcon-text-2xl: 1.625rem;
+  --fcon-text-3xl: 2rem;
 
-  --fui-leading-tight: 1.2;
-  --fui-leading-normal: 1.5;
+  --fcon-leading-tight: 1.2;
+  --fcon-leading-normal: 1.5;
 
   /* Spacing, on a 4 px base */
-  --fui-space-1: 0.25rem;
-  --fui-space-2: 0.5rem;
-  --fui-space-3: 0.75rem;
-  --fui-space-4: 1rem;
-  --fui-space-5: 1.25rem;
-  --fui-space-6: 1.5rem;
-  --fui-space-7: 2rem;
-  --fui-space-8: 2.5rem;
-  --fui-space-9: 3rem;
+  --fcon-space-1: 0.25rem;
+  --fcon-space-2: 0.5rem;
+  --fcon-space-3: 0.75rem;
+  --fcon-space-4: 1rem;
+  --fcon-space-5: 1.25rem;
+  --fcon-space-6: 1.5rem;
+  --fcon-space-7: 2rem;
+  --fcon-space-8: 2.5rem;
+  --fcon-space-9: 3rem;
 
   /* Radius: the stylebook's softened controls and square surfaces; round only
      for dots and the numbered step marks */
-  --fui-radius-control: var(--radius-control);
-  --fui-radius-surface: var(--radius-surface);
-  --fui-radius-round: 999px;
+  --fcon-radius-control: var(--radius-control);
+  --fcon-radius-surface: var(--radius-surface);
+  --fcon-radius-round: 999px;
 
   /* Sizes the shell is laid out on */
-  --fui-control-h: 2.5rem;
-  --fui-control-h-sm: 2.25rem;
-  --fui-drawer-w: 30rem;
+  --fcon-control-h: 2.5rem;
+  --fcon-control-h-sm: 2.25rem;
+  --fcon-drawer-w: 30rem;
   /* Clear of the stylebook's 64px topbar, for what floats just under it */
-  --fui-topbar-clear: 4rem;
+  --fcon-topbar-clear: 4rem;
   /* Clear of the stylebook's 56px phone bar, for what floats just over it */
-  --fui-tabbar-clear: 3.5rem;
+  --fcon-tabbar-clear: 3.5rem;
 
   /* Motion: one easing curve, three durations */
-  --fui-ease: cubic-bezier(0.2, 0, 0, 1);
-  --fui-fast: 120ms;
-  --fui-base: 200ms;
-  --fui-slow: 320ms;
+  --fcon-ease: cubic-bezier(0.2, 0, 0, 1);
+  --fcon-fast: 120ms;
+  --fcon-base: 200ms;
+  --fcon-slow: 320ms;
 
   /* Layers. An open menu is what the operator is acting on, so it sits above
      a passing toast. */
-  --fui-z-drawer: 50;
-  --fui-z-dialog: 60;
-  --fui-z-toast: 70;
-  --fui-z-popover: 80;
+  --fcon-z-drawer: 50;
+  --fcon-z-dialog: 60;
+  --fcon-z-toast: 70;
+  --fcon-z-popover: 80;
 
   /* Colour, by role, from the stylebook */
-  --fui-page: var(--surface-base);
-  --fui-canvas: var(--surface-sheet);
-  --fui-surface: var(--surface-raised);
-  --fui-raised: var(--surface-raised);
-  --fui-hover: var(--surface-hover);
-  --fui-line: var(--border-default);
-  --fui-line-strong: var(--field-border);
-  --fui-field: var(--field-bg);
-  --fui-scrim: var(--scrim);
+  --fcon-page: var(--surface-base);
+  --fcon-canvas: var(--surface-sheet);
+  --fcon-surface: var(--surface-raised);
+  --fcon-raised: var(--surface-raised);
+  --fcon-hover: var(--surface-hover);
+  --fcon-line: var(--border-default);
+  --fcon-line-strong: var(--field-border);
+  --fcon-field: var(--field-bg);
+  --fcon-scrim: var(--scrim);
 
-  --fui-ink-1: var(--text-primary);
-  --fui-ink-2: var(--text-secondary);
-  --fui-ink-3: var(--text-muted);
+  --fcon-ink-1: var(--text-primary);
+  --fcon-ink-2: var(--text-secondary);
+  --fcon-ink-3: var(--text-muted);
 
   /* flezha.com's accent: plum in light, gold in dark */
-  --fui-accent: var(--accent-solid);
-  --fui-accent-subtle: color-mix(in oklab, var(--fui-accent) 10%, var(--fui-surface));
-  --fui-on-accent: var(--text-on-accent);
+  --fcon-accent: var(--accent-solid);
+  --fcon-accent-subtle: color-mix(in oklab, var(--fcon-accent) 10%, var(--fcon-surface));
+  --fcon-on-accent: var(--text-on-accent);
 
-  --fui-positive: var(--positive);
-  --fui-positive-subtle: color-mix(in oklab, var(--fui-positive) 10%, var(--fui-surface));
-  --fui-on-positive: var(--text-on-positive);
+  --fcon-positive: var(--positive);
+  --fcon-positive-subtle: color-mix(in oklab, var(--fcon-positive) 10%, var(--fcon-surface));
+  --fcon-on-positive: var(--text-on-positive);
 
-  --fui-warning: var(--warning);
-  --fui-warning-subtle: color-mix(in oklab, var(--fui-warning) 10%, var(--fui-surface));
-  --fui-on-warning: var(--text-on-warning);
+  --fcon-warning: var(--warning);
+  --fcon-warning-subtle: color-mix(in oklab, var(--fcon-warning) 10%, var(--fcon-surface));
+  --fcon-on-warning: var(--text-on-warning);
 
-  --fui-negative: var(--negative);
-  --fui-negative-subtle: color-mix(in oklab, var(--fui-negative) 9%, var(--fui-surface));
-  --fui-negative-solid: var(--negative-solid);
-  --fui-on-negative: var(--text-on-negative);
+  --fcon-negative: var(--negative);
+  --fcon-negative-subtle: color-mix(in oklab, var(--fcon-negative) 9%, var(--fcon-surface));
+  --fcon-negative-solid: var(--negative-solid);
+  --fcon-on-negative: var(--text-on-negative);
 
-  --fui-logo: var(--logo-ink);
+  --fcon-logo: var(--logo-ink);
 
   /* What the stylebook has no token for */
-  --fui-signal: #8a580c;
-  --fui-signal-subtle: color-mix(in oklab, var(--fui-signal) 12%, var(--fui-surface));
-  --fui-on-signal: #ffffff;
-  --fui-shadow: #1714241f;
+  --fcon-signal: #8a580c;
+  --fcon-signal-subtle: color-mix(in oklab, var(--fcon-signal) 12%, var(--fcon-surface));
+  --fcon-on-signal: #ffffff;
+  --fcon-shadow: #1714241f;
 
   /* Six hues that tell a relay graph's neighbouring wires apart. They carry
      no meaning beyond that: what a wire is, is said in words. */
-  --fui-wire-0: #2d6aa8;
-  --fui-wire-1: #24764d;
-  --fui-wire-2: #6e56b8;
-  --fui-wire-3: #0f7378;
-  --fui-wire-4: #b03a5b;
-  --fui-wire-5: #55657a;
+  --fcon-wire-0: #2d6aa8;
+  --fcon-wire-1: #24764d;
+  --fcon-wire-2: #6e56b8;
+  --fcon-wire-3: #0f7378;
+  --fcon-wire-4: #b03a5b;
+  --fcon-wire-5: #55657a;
 }
 
 /* A finger needs a 44px target; every control is sized from these two. */
 @media (pointer: coarse) {
   :root {
-    --fui-control-h: 2.75rem;
-    --fui-control-h-sm: 2.75rem;
+    --fcon-control-h: 2.75rem;
+    --fcon-control-h-sm: 2.75rem;
   }
 }
 
@@ -140,17 +140,17 @@
  * laid on the console's light dark-theme fills, and its own colours, change.
  */
 [data-theme='dark'] {
-  --fui-accent-subtle: color-mix(in oklab, var(--fui-accent) 16%, var(--fui-surface));
+  --fcon-accent-subtle: color-mix(in oklab, var(--fcon-accent) 16%, var(--fcon-surface));
 
-  --fui-signal: var(--gold);
-  --fui-signal-subtle: color-mix(in oklab, var(--fui-signal) 14%, var(--fui-surface));
-  --fui-on-signal: var(--text-on-gold);
-  --fui-shadow: #00000099;
+  --fcon-signal: var(--gold);
+  --fcon-signal-subtle: color-mix(in oklab, var(--fcon-signal) 14%, var(--fcon-surface));
+  --fcon-on-signal: var(--text-on-gold);
+  --fcon-shadow: #00000099;
 
-  --fui-wire-0: #6ea8ec;
-  --fui-wire-1: #5cc48c;
-  --fui-wire-2: #a693ec;
-  --fui-wire-3: #4cc3c8;
-  --fui-wire-4: #ec7a98;
-  --fui-wire-5: #9aaabf;
+  --fcon-wire-0: #6ea8ec;
+  --fcon-wire-1: #5cc48c;
+  --fcon-wire-2: #a693ec;
+  --fcon-wire-3: #4cc3c8;
+  --fcon-wire-4: #ec7a98;
+  --fcon-wire-5: #9aaabf;
 }

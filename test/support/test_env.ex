@@ -1,4 +1,4 @@
-defmodule FlezhaUi.TestEnv do
+defmodule FlezhaConsole.TestEnv do
   @moduledoc """
   Changes a test makes to the VM's environment, each undone when the test
   ends. The environment is global to the VM, so only a serial test uses these.
@@ -13,10 +13,10 @@ defmodule FlezhaUi.TestEnv do
   @doc "Sets the application's `key` to `value` for the rest of the test."
   def put_app(key, value) do
     swap(
-      Application.fetch_env(:flezha_ui, key),
+      Application.fetch_env(:flezha_console, key),
       value,
-      &Application.put_env(:flezha_ui, key, &1),
-      fn -> Application.delete_env(:flezha_ui, key) end
+      &Application.put_env(:flezha_console, key, &1),
+      fn -> Application.delete_env(:flezha_console, key) end
     )
   end
 

@@ -1,5 +1,5 @@
 {
-  "name": "flezha-ui-e2e",
+  "name": "flezha-console-e2e",
   "private": true,
   "scripts": {
     "e2e": "playwright test",

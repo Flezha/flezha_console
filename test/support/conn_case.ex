@@ -1,4 +1,4 @@
-defmodule FlezhaUiWeb.ConnCase do
+defmodule FlezhaConsoleWeb.ConnCase do
   @moduledoc """
   This module defines the test case to be used by
   tests that require setting up a connection.
@@ -11,7 +11,7 @@ defmodule FlezhaUiWeb.ConnCase do
   we enable the SQL sandbox, so changes done to the database
   are reverted at the end of every test. If you are using
   PostgreSQL, you can even run database tests asynchronously
-  by setting `use FlezhaUiWeb.ConnCase, async: true`, although
+  by setting `use FlezhaConsoleWeb.ConnCase, async: true`, although
   this option is not recommended for other databases.
   """
 
@@ -20,19 +20,19 @@ defmodule FlezhaUiWeb.ConnCase do
   using do
     quote do
       # The default endpoint for testing
-      @endpoint FlezhaUiWeb.Endpoint
+      @endpoint FlezhaConsoleWeb.Endpoint
 
-      use FlezhaUiWeb, :verified_routes
+      use FlezhaConsoleWeb, :verified_routes
 
       # Import conveniences for testing with connections
       import Plug.Conn
       import Phoenix.ConnTest
-      import FlezhaUiWeb.ConnCase
+      import FlezhaConsoleWeb.ConnCase
     end
   end
 
   setup tags do
-    FlezhaUi.DataCase.setup_sandbox(tags)
+    FlezhaConsole.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 
@@ -45,8 +45,8 @@ defmodule FlezhaUiWeb.ConnCase do
   test context.
   """
   def register_and_log_in_user(%{conn: conn} = context) do
-    user = FlezhaUi.AccountsFixtures.user_fixture()
-    scope = FlezhaUi.Accounts.Scope.for_user(user)
+    user = FlezhaConsole.AccountsFixtures.user_fixture()
+    scope = FlezhaConsole.Accounts.Scope.for_user(user)
 
     opts =
       context
@@ -62,7 +62,7 @@ defmodule FlezhaUiWeb.ConnCase do
   It returns an updated `conn`.
   """
   def log_in_user(conn, user, opts \\ []) do
-    token = FlezhaUi.Accounts.generate_user_session_token(user)
+    token = FlezhaConsole.Accounts.generate_user_session_token(user)
 
     maybe_set_token_authenticated_at(token, opts[:token_authenticated_at])
 
@@ -74,6 +74,6 @@ defmodule FlezhaUiWeb.ConnCase do
   defp maybe_set_token_authenticated_at(_token, nil), do: nil
 
   defp maybe_set_token_authenticated_at(token, authenticated_at) do
-    FlezhaUi.AccountsFixtures.override_token_authenticated_at(token, authenticated_at)
+    FlezhaConsole.AccountsFixtures.override_token_authenticated_at(token, authenticated_at)
   end
 end

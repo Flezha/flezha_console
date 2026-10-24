@@ -1,0 +1,217 @@
+<.page_header eyebrow="Platform" title="Observability">
+  <:sentence>
+    <%= if @disabled? do %>
+      Observability is switched off on this controller.
+    <% else %>
+      Each part of the controller reports what it does as signals. See what each one said
+      recently, watch one live, or switch one off. {Words.count(
+        Enum.count(@sources, &NodeManager.source_enabled?/1),
+        "source"
+      )} of {length(@sources)} are on.
+    <% end %>
+  </:sentence>
+</.page_header>
+
+<.runtime_error error={@load_error} action="the observability listing" />
+
+<.notice :if={@disabled?} kind={:info} testid="observability-disabled">
+  Observability is switched off on this controller, so it emits no signals and there is nothing
+  to list or tail.
+</.notice>
+
+<.runtime_error error={@toggle_error} action="the source toggle" />
+
+<p :if={not @disabled? and @sinks != []} class="fcon-figures" data-testid="sinks-line">
+  Signals go to
+  <span
+    :for={{sink, index} <- Enum.with_index(@sinks)}
+    data-testid={"sink-#{sink[:name]}"}
+  >
+    <span class="fcon-num">{sink[:name]}</span>{if purpose = sink_purpose(sink),
+      do: " (#{purpose})"}<span
+      :if={!NodeManager.sink_running?(sink)}
+      class="fcon-badge fcon-badge--negative ml-1"
+      data-testid={"sink-stopped-#{sink[:name]}"}
+    >Not running</span>{if index == length(@sinks) - 1, do: ".", else: ", "}
+  </span>
+</p>
+
+<.section
+  :if={not @disabled?}
+  flush
+  testid="sources-panel"
+  help="A source is one part of the controller that reports on itself, such as the file sink plugin or the Erlang VM. Each row says what it is and what it said recently. Switch a source off to stop its signals; Tail shows its recent signals and then new ones as they arrive."
+>
+  <:title>Sources</:title>
+  <:actions>
+    <form phx-change="filter_sources" class="w-64" data-testid="source-filter-form">
+      <.input
+        type="search"
+        name="q"
+        value={@source_filter}
+        placeholder="Filter by name or description"
+        aria-label="Filter sources by name or description"
+        compact
+        phx-debounce="150"
+        data-testid="source-filter"
+      />
+    </form>
+  </:actions>
+  <.empty_state :if={@sources == []} icon="hero-signal">
+    A source is a part of the controller that reports on itself. This controller reports none.
+  </.empty_state>
+  <div class="space-y-8">
+    <div
+      :for={group <- groups(@sources, @source_filter)}
+      data-testid={"source-group-#{group.key}"}
+      class="space-y-2"
+    >
+      <h3 class="flex items-baseline gap-3">
+        <span class="font-medium">{group.label}</span>
+        <span class="fcon-figures" data-testid={"source-group-count-#{group.key}"}>
+          {group.enabled} of {group.total} on
+        </span>
+      </h3>
+      <p :if={group.sources == []} class="fcon-figures">No source in this area matches.</p>
+      <.grid
+        :if={group.sources != []}
+        paging={@paging}
+        id={"sources-#{group.key}"}
+        rows={group.sources}
+        row_testid={&"source-#{&1[:name]}"}
+      >
+        <:col :let={source} label="Source">
+          <span class="block space-y-1">
+            <span class="block fcon-label" data-testid={"source-title-#{source[:name]}"}>
+              {title(source)}
+            </span>
+            <span :if={tech_name(source)} class="block fcon-tech-name">{tech_name(source)}</span>
+            <span
+              :if={source[:description]}
+              class="block fcon-hint"
+              data-testid={"source-description-#{source[:name]}"}
+            >
+              {source[:description]}
+            </span>
+            <.activity_line source={source} />
+          </span>
+        </:col>
+        <:col :let={source} label="Emitting">
+          <span
+            data-testid={"source-enabled-#{source[:name]}"}
+            data-enabled={to_string(NodeManager.source_enabled?(source))}
+          >
+            <.switch
+              checked={NodeManager.source_enabled?(source)}
+              label={to_string(source[:name])}
+              show_label={false}
+              phx-click="toggle_source"
+              phx-value-source={source[:name]}
+              testid={"toggle-#{source[:name]}"}
+            />
+          </span>
+        </:col>
+        <:col :let={source} label="Live">
+          <.button
+            variant="secondary"
+            size="sm"
+            icon={if @tailing == source[:name], do: "hero-signal", else: "hero-play"}
+            phx-click={if @tailing == source[:name], do: "stop_tail", else: "start_tail"}
+            phx-value-source={source[:name]}
+            aria-pressed={to_string(@tailing == source[:name])}
+            data-testid={"tail-#{source[:name]}"}
+          >
+            {if @tailing == source[:name], do: "Stop tail", else: "Tail"}
+          </.button>
+        </:col>
+      </.grid>
+    </div>
+  </div>
+</.section>
+
+<%!-- A drawer, so the tail is in view the moment it starts, wherever the
+      source sat in the listing. Closing it stops the tail. --%>
+<.drawer
+  :if={@tailing || @tail_error}
+  id="tail-panel"
+  testid="tail-panel"
+  eyebrow="Live tail"
+  title={if @tail_source, do: title(@tail_source), else: to_string(@tailing || "Tail")}
+  subtitle={tech_name(@tail_source)}
+  on_close="stop_tail"
+>
+  <p :if={@tail_source[:description]} class="fcon-strong" data-testid="tail-lead">
+    {@tail_source[:description]}
+  </p>
+  <p class="fcon-eyebrow fcon-drawer-status" data-testid="tail-count">
+    <%= if @tail_records == [] do %>
+      Waiting for the first signal
+    <% else %>
+      Live · {Words.count(length(@tail_records), "signal")} · newest first
+    <% end %>
+  </p>
+
+  <.notice :if={pubsub_disabled?(@tail_error)} kind={:info} testid="pubsub-sink-disabled">
+    Live tailing is unavailable: the controller's pubsub sink is disabled. The signals it already
+    holds are shown below.
+  </.notice>
+  <.runtime_error
+    :if={@tail_error && !pubsub_disabled?(@tail_error)}
+    error={@tail_error}
+    action="the live tail"
+  />
+  <.runtime_error error={@history_error} action="the source's recent history" />
+  <.notice :if={@tail_reconnected?} kind={:info} testid="tail-reconnected">
+    The tail reconnected after its stream to the controller was cut — signals emitted while it was
+    down are not shown.
+  </.notice>
+
+  <div :if={@tailing && @tail_records == []} class="space-y-4" data-testid="tail-waiting">
+    <.empty_state icon="hero-signal" testid="tail-empty">
+      Nothing yet — this source speaks when something happens.
+    </.empty_state>
+    <.signal_meanings :if={@tail_source} source={@tail_source} />
+  </div>
+  <%!-- The open state is the reader's: a re-render on every signal must not fold it. --%>
+  <details
+    :if={@tail_records != [] && @tail_source[:signals] not in [nil, []]}
+    id={"tail-meanings-#{@tailing}"}
+    phx-mounted={JS.ignore_attributes(["open"])}
+    data-testid="tail-meanings-fold"
+  >
+    <summary class="fcon-eyebrow">What this source can say</summary>
+    <div class="pt-3"><.signal_meanings source={@tail_source} /></div>
+  </details>
+
+  <ol
+    :if={@tailing && @tail_records != []}
+    class="fcon-river-list fcon-tail"
+    aria-label="Signals, newest first"
+  >
+    <.tail_line
+      :for={signal <- Enum.reject(@tail_records, & &1[:history?])}
+      signal={signal}
+      source={@tail_source}
+      offset_us={@clock_offset_us}
+    />
+    <li
+      :if={Enum.any?(@tail_records, & &1[:history?])}
+      class="fcon-eyebrow pt-3 pb-1"
+      data-testid="tail-history-divider"
+    >
+      Before you opened the tail
+    </li>
+    <.tail_line
+      :for={signal <- Enum.filter(@tail_records, & &1[:history?])}
+      signal={signal}
+      source={@tail_source}
+      offset_us={@clock_offset_us}
+    />
+  </ol>
+
+  <:actions>
+    <.button variant="secondary" phx-click="stop_tail" data-testid="stop-tail" icon="hero-stop">
+      Stop tail
+    </.button>
+  </:actions>
+</.drawer>

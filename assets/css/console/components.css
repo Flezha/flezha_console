@@ -1,6 +1,6 @@
 /*
  * The console's component kit. One recipe per element, each drawn by exactly
- * one function component in `FlezhaUiWeb.CoreComponents`; a screen composes
+ * one function component in `FlezhaConsoleWeb.CoreComponents`; a screen composes
  * them and adds layout utilities, never a colour, a border or a radius of
  * its own. Every element is listed on the dev-only `/dev/kit` page.
  *
@@ -14,22 +14,22 @@
    (the shell itself — rail and topbar — is the stylebook's)
    ====================================================================== */
 
-.fui-brand {
+.fcon-brand {
   align-items: center;
-  color: var(--fui-ink-1);
+  color: var(--fcon-ink-1);
   display: inline-flex;
   flex: none;
 }
 
-.fui-brand:hover {
+.fcon-brand:hover {
   text-decoration: none;
 }
 
-.fui-brand--canvas {
-  color: var(--fui-logo);
+.fcon-brand--canvas {
+  color: var(--fcon-logo);
 }
 
-.fui-logo {
+.fcon-logo {
   background-color: currentColor;
   display: block;
   height: 2.75rem;
@@ -41,38 +41,38 @@
   -webkit-mask-size: contain;
 }
 
-.fui-count {
+.fcon-count {
   align-items: center;
-  border-radius: var(--fui-radius-control);
+  border-radius: var(--fcon-radius-control);
   display: inline-flex;
-  font-family: var(--fui-font-mono);
-  font-size: var(--fui-text-xs);
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-xs);
   font-weight: 500;
   height: 1.25rem;
   justify-content: center;
   min-width: 1.25rem;
-  padding: 0 var(--fui-space-1);
+  padding: 0 var(--fcon-space-1);
 }
 
-.fui-count--warning {
-  background: var(--fui-warning);
-  color: var(--fui-on-warning);
+.fcon-count--warning {
+  background: var(--fcon-warning);
+  color: var(--fcon-on-warning);
 }
 
-.fui-count--negative {
-  background: var(--fui-negative-solid);
-  color: var(--fui-on-negative);
+.fcon-count--negative {
+  background: var(--fcon-negative-solid);
+  color: var(--fcon-on-negative);
 }
 
-.fui-count--neutral {
-  background: var(--fui-hover);
-  color: var(--fui-ink-2);
+.fcon-count--neutral {
+  background: var(--fcon-hover);
+  color: var(--fcon-ink-2);
 }
 
 /* A namespace's health, as one strip of segments sized by count. */
-.fui-strip {
-  background: var(--fui-hover);
-  border-radius: var(--fui-radius-control);
+.fcon-strip {
+  background: var(--fcon-hover);
+  border-radius: var(--fcon-radius-control);
   display: flex;
   gap: 1px;
   grid-column: 1 / -1;
@@ -80,14 +80,14 @@
   overflow: hidden;
 }
 
-.fui-strip-part {
+.fcon-strip-part {
   min-width: 4px;
 }
 
-.fui-strip-part[data-tone="positive"] { background: var(--fui-positive); }
-.fui-strip-part[data-tone="warning"] { background: var(--fui-warning); }
-.fui-strip-part[data-tone="negative"] { background: var(--fui-negative); }
-.fui-strip-part[data-tone="neutral"] { background: var(--fui-ink-3); }
+.fcon-strip-part[data-tone="positive"] { background: var(--fcon-positive); }
+.fcon-strip-part[data-tone="warning"] { background: var(--fcon-warning); }
+.fcon-strip-part[data-tone="negative"] { background: var(--fcon-negative); }
+.fcon-strip-part[data-tone="neutral"] { background: var(--fcon-ink-3); }
 
 /* ======================================================================
    Page grammar: a header of kind, name, sentence, actions and tabs
@@ -95,207 +95,207 @@
 
 /* The actions sit beside the title while 20rem of it fits, and move under it
    rather than narrow it, whatever room the canvas has. */
-.fui-page-header {
+.fcon-page-header {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--fui-space-2) var(--fui-space-6);
-  margin-bottom: var(--fui-space-7);
+  gap: var(--fcon-space-2) var(--fcon-space-6);
+  margin-bottom: var(--fcon-space-7);
 }
 
-.fui-page-heading {
+.fcon-page-heading {
   flex: 1 1 20rem;
   min-width: 0;
 }
 
-.fui-crumbs {
+.fcon-crumbs {
   align-items: center;
-  color: var(--fui-ink-3);
+  color: var(--fcon-ink-3);
   display: flex;
   flex-basis: 100%;
   flex-wrap: wrap;
-  font-size: var(--fui-text-sm);
-  gap: var(--fui-space-2);
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-2);
 }
 
-.fui-crumbs a {
-  color: var(--fui-ink-2);
+.fcon-crumbs a {
+  color: var(--fcon-ink-2);
 }
 
-.fui-crumbs a:hover {
-  color: var(--fui-accent);
+.fcon-crumbs a:hover {
+  color: var(--fcon-accent);
 }
 
-.fui-crumbs [aria-current] {
-  color: var(--fui-ink-1);
+.fcon-crumbs [aria-current] {
+  color: var(--fcon-ink-1);
 }
 
-.fui-crumb-sep {
-  color: var(--fui-line-strong);
+.fcon-crumb-sep {
+  color: var(--fcon-line-strong);
 }
 
-.fui-eyebrow {
-  color: var(--fui-ink-3);
-  font-size: var(--fui-text-xs);
+.fcon-eyebrow {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.fui-title {
-  color: var(--fui-ink-1);
-  font-family: var(--fui-font-display);
-  font-size: var(--fui-text-3xl);
+.fcon-title {
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-3xl);
   font-weight: 600;
   letter-spacing: -0.02em;
-  line-height: var(--fui-leading-tight);
+  line-height: var(--fcon-leading-tight);
   overflow-wrap: anywhere;
 }
 
-.fui-sentence {
-  color: var(--fui-ink-2);
-  font-size: var(--fui-text-lg);
+.fcon-sentence {
+  color: var(--fcon-ink-2);
+  font-size: var(--fcon-text-lg);
   max-width: 72ch;
 }
 
-.fui-sentence--headline {
-  color: var(--fui-ink-1);
-  font-family: var(--fui-font-display);
-  font-size: var(--fui-text-2xl);
+.fcon-sentence--headline {
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-2xl);
   font-weight: 500;
   letter-spacing: -0.01em;
-  line-height: var(--fui-leading-tight);
+  line-height: var(--fcon-leading-tight);
 }
 
-.fui-figures {
-  color: var(--fui-ink-3);
-  font-size: var(--fui-text-md);
+.fcon-figures {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-md);
 }
 
-.fui-page-actions {
+.fcon-page-actions {
   align-items: flex-start;
   display: flex;
   flex: 0 1 auto;
   flex-wrap: wrap;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
 }
 
-.fui-page-header .fui-tabs {
+.fcon-page-header .fcon-tabs {
   flex-basis: 100%;
-  margin-top: var(--fui-space-3);
+  margin-top: var(--fcon-space-3);
 }
 
 @media (width <= 599px) {
-  .fui-title {
-    font-size: var(--fui-text-2xl);
+  .fcon-title {
+    font-size: var(--fcon-text-2xl);
   }
 }
 
 /* Scrolls sideways on a narrow screen; the tab's -1px overlap of the line
    must not make it scroll vertically too. */
-.fui-tabs {
-  border-bottom: 1px solid var(--fui-line);
+.fcon-tabs {
+  border-bottom: 1px solid var(--fcon-line);
   display: flex;
-  gap: var(--fui-space-1);
+  gap: var(--fcon-space-1);
   overflow-x: auto;
   overflow-y: hidden;
 }
 
-.fui-tab {
+.fcon-tab {
   border-bottom: 3px solid transparent;
-  color: var(--fui-ink-2);
-  font-size: var(--fui-text-lg);
+  color: var(--fcon-ink-2);
+  font-size: var(--fcon-text-lg);
   font-weight: 600;
   margin-bottom: -1px;
-  padding: var(--fui-space-3) var(--fui-space-4);
+  padding: var(--fcon-space-3) var(--fcon-space-4);
   white-space: nowrap;
 }
 
-.fui-tab:hover {
-  color: var(--fui-accent);
+.fcon-tab:hover {
+  color: var(--fcon-accent);
   text-decoration: none;
 }
 
-.fui-tab[aria-current] {
-  border-bottom-color: var(--fui-accent);
-  color: var(--fui-accent);
+.fcon-tab[aria-current] {
+  border-bottom-color: var(--fcon-accent);
+  color: var(--fcon-accent);
 }
 
 /* Sections: separated by space and a hairline, not drawn as cards. */
-.fui-section {
-  border-top: 1px solid var(--fui-line);
-  margin-top: var(--fui-space-8);
-  padding-top: var(--fui-space-5);
+.fcon-section {
+  border-top: 1px solid var(--fcon-line);
+  margin-top: var(--fcon-space-8);
+  padding-top: var(--fcon-space-5);
 }
 
-.fui-section--flush {
+.fcon-section--flush {
   border-top: 0;
   margin-top: 0;
   padding-top: 0;
 }
 
-.fui-section-head {
+.fcon-section-head {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--fui-space-2) var(--fui-space-4);
+  gap: var(--fcon-space-2) var(--fcon-space-4);
   justify-content: space-between;
-  min-height: var(--fui-control-h);
+  min-height: var(--fcon-control-h);
 }
 
-.fui-section-title {
+.fcon-section-title {
   align-items: baseline;
-  color: var(--fui-ink-1);
+  color: var(--fcon-ink-1);
   display: inline-flex;
   flex-wrap: wrap;
-  font-size: var(--fui-text-lg);
+  font-size: var(--fcon-text-lg);
   font-weight: 600;
-  gap: var(--fui-space-2) var(--fui-space-3);
+  gap: var(--fcon-space-2) var(--fcon-space-3);
 }
 
 /* An object's own name heading its section, after the eyebrow naming its kind. */
-.fui-section-name {
-  font-family: var(--fui-font-display);
+.fcon-section-name {
+  font-family: var(--fcon-font-display);
   overflow-wrap: anywhere;
 }
 
-.fui-section-digest {
-  color: var(--fui-ink-3);
-  font-size: var(--fui-text-sm);
+.fcon-section-digest {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-sm);
   font-weight: 400;
 }
 
-.fui-section-toggle {
+.fcon-section-toggle {
   align-items: center;
-  border-radius: var(--fui-radius-control);
+  border-radius: var(--fcon-radius-control);
   display: inline-flex;
-  gap: var(--fui-space-2);
-  margin-left: calc(-1 * var(--fui-space-1));
-  padding: 0 var(--fui-space-1);
+  gap: var(--fcon-space-2);
+  margin-left: calc(-1 * var(--fcon-space-1));
+  padding: 0 var(--fcon-space-1);
   text-align: left;
 }
 
-.fui-section-toggle:hover .fui-section-title {
-  color: var(--fui-accent);
+.fcon-section-toggle:hover .fcon-section-title {
+  color: var(--fcon-accent);
 }
 
-.fui-chevron {
-  color: var(--fui-ink-3);
-  transition: transform var(--fui-base) var(--fui-ease);
+.fcon-chevron {
+  color: var(--fcon-ink-3);
+  transition: transform var(--fcon-base) var(--fcon-ease);
 }
 
-[aria-expanded="true"] > .fui-chevron {
+[aria-expanded="true"] > .fcon-chevron {
   transform: rotate(90deg);
 }
 
-.fui-section-actions {
+.fcon-section-actions {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
 }
 
-.fui-section-body {
-  margin-top: var(--fui-space-4);
+.fcon-section-body {
+  margin-top: var(--fcon-space-4);
 }
 
 /* ======================================================================
@@ -316,30 +316,30 @@
 
 /* An icon-only control: a row's menu, a close, a dismiss. Its hit area is a
    full control's height, whatever the icon's size. */
-.fui-iconbtn {
+.fcon-iconbtn {
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-ink-2);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-2);
   cursor: pointer;
   display: inline-flex;
-  height: var(--fui-control-h);
+  height: var(--fcon-control-h);
   justify-content: center;
-  min-width: var(--fui-control-h);
-  padding: 0 var(--fui-space-1);
+  min-width: var(--fcon-control-h);
+  padding: 0 var(--fcon-space-1);
 }
 
-.fui-iconbtn:hover {
-  background: var(--fui-hover);
-  color: var(--fui-ink-1);
+.fcon-iconbtn:hover {
+  background: var(--fcon-hover);
+  color: var(--fcon-ink-1);
 }
 
 /* An action in flight answers at once, whatever it does next: the button
    dims, stops taking clicks and shows a spinner in place of its icon. */
 .phx-submit-loading .flz-button[type="submit"],
 .flz-button.phx-click-loading,
-.fui-iconbtn.phx-click-loading {
+.fcon-iconbtn.phx-click-loading {
   cursor: progress;
   opacity: 0.7;
   pointer-events: none;
@@ -347,7 +347,7 @@
 
 .flz-button.phx-click-loading::before,
 .phx-submit-loading .flz-button[type="submit"]::before {
-  animation: fui-spin 0.9s linear infinite;
+  animation: fcon-spin 0.9s linear infinite;
   border: 2px solid currentColor;
   border-radius: 50%;
   border-right-color: transparent;
@@ -357,14 +357,14 @@
   width: 1em;
 }
 
-/* A result just brought into view by `fui:reveal`: its edge glows once in the
+/* A result just brought into view by `fcon:reveal`: its edge glows once in the
    accent, then fades. */
-.fui-revealed {
-  animation: fui-reveal 1.6s var(--fui-ease);
+.fcon-revealed {
+  animation: fcon-reveal 1.6s var(--fcon-ease);
 }
 
-@keyframes fui-reveal {
-  from { box-shadow: 0 0 0 3px var(--fui-accent); }
+@keyframes fcon-reveal {
+  from { box-shadow: 0 0 0 3px var(--fcon-accent); }
   to { box-shadow: 0 0 0 3px transparent; }
 }
 
@@ -374,296 +374,296 @@
   display: none;
 }
 
-.fui-spin {
-  animation: fui-spin 0.9s linear infinite;
+.fcon-spin {
+  animation: fcon-spin 0.9s linear infinite;
 }
 
-@keyframes fui-spin {
+@keyframes fcon-spin {
   to { transform: rotate(360deg); }
 }
 
 /* ---- Fields ---- */
-.fui-field {
+.fcon-field {
   display: flex;
   flex-direction: column;
-  gap: var(--fui-space-1);
+  gap: var(--fcon-space-1);
 }
 
-.fui-label {
-  color: var(--fui-ink-1);
-  font-size: var(--fui-text-md);
+.fcon-label {
+  color: var(--fcon-ink-1);
+  font-size: var(--fcon-text-md);
   font-weight: 600;
 }
 
-.fui-hint {
-  color: var(--fui-ink-2);
-  font-size: var(--fui-text-sm);
+.fcon-hint {
+  color: var(--fcon-ink-2);
+  font-size: var(--fcon-text-sm);
 }
 
-.fui-error {
+.fcon-error {
   align-items: center;
-  color: var(--fui-negative);
+  color: var(--fcon-negative);
   display: flex;
-  font-size: var(--fui-text-xs);
-  gap: var(--fui-space-1);
+  font-size: var(--fcon-text-xs);
+  gap: var(--fcon-space-1);
 }
 
-.fui-input--mono {
-  font-family: var(--fui-font-mono);
+.fcon-input--mono {
+  font-family: var(--fcon-font-mono);
 }
 
-.fui-input--compact {
-  font-size: var(--fui-text-sm);
-  min-height: var(--fui-control-h-sm);
+.fcon-input--compact {
+  font-size: var(--fcon-text-sm);
+  min-height: var(--fcon-control-h-sm);
 }
 
 /* Outranks base.css's phone rule, so it keeps the 16 px floor itself. */
 @media (width <= 599px) {
-  .fui-input--compact {
-    font-size: max(16px, var(--fui-text-sm));
+  .fcon-input--compact {
+    font-size: max(16px, var(--fcon-text-sm));
   }
 }
 
-.fui-check {
+.fcon-check {
   align-items: center;
-  color: var(--fui-ink-1);
+  color: var(--fcon-ink-1);
   cursor: pointer;
   display: inline-flex;
-  font-size: var(--fui-text-md);
-  gap: var(--fui-space-2);
+  font-size: var(--fcon-text-md);
+  gap: var(--fcon-space-2);
 }
 
 /* A switch is a button with `role="switch"`; its state is `aria-checked`. */
-.fui-switch {
+.fcon-switch {
   align-items: center;
   cursor: pointer;
   display: inline-flex;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
 }
 
-.fui-switch-track {
-  background: var(--fui-line-strong);
-  border-radius: var(--fui-radius-control);
+.fcon-switch-track {
+  background: var(--fcon-line-strong);
+  border-radius: var(--fcon-radius-control);
   display: inline-block;
   flex: none;
   height: 1.125rem;
   position: relative;
-  transition: background-color var(--fui-fast) var(--fui-ease);
+  transition: background-color var(--fcon-fast) var(--fcon-ease);
   width: 2rem;
 }
 
-.fui-switch-track::after {
-  background: var(--fui-surface);
-  border-radius: var(--fui-radius-control);
-  box-shadow: 0 1px 2px var(--fui-shadow);
+.fcon-switch-track::after {
+  background: var(--fcon-surface);
+  border-radius: var(--fcon-radius-control);
+  box-shadow: 0 1px 2px var(--fcon-shadow);
   content: "";
   height: 0.875rem;
   left: 2px;
   position: absolute;
   top: 2px;
-  transition: transform var(--fui-fast) var(--fui-ease);
+  transition: transform var(--fcon-fast) var(--fcon-ease);
   width: 0.875rem;
 }
 
-.fui-switch[aria-checked="true"] .fui-switch-track {
-  background: var(--fui-accent);
+.fcon-switch[aria-checked="true"] .fcon-switch-track {
+  background: var(--fcon-accent);
 }
 
-.fui-switch[aria-checked="true"] .fui-switch-track::after {
+.fcon-switch[aria-checked="true"] .fcon-switch-track::after {
   transform: translateX(0.875rem);
 }
 
-.fui-switch:disabled {
+.fcon-switch:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
 
-.fui-switch-label {
-  color: var(--fui-ink-1);
-  font-size: var(--fui-text-sm);
+.fcon-switch-label {
+  color: var(--fcon-ink-1);
+  font-size: var(--fcon-text-sm);
 }
 
 /* ---- Segmented control ---- */
-.fui-segmented {
-  background: var(--fui-canvas);
-  border: 1px solid var(--fui-line);
-  border-radius: var(--fui-radius-control);
+.fcon-segmented {
+  background: var(--fcon-canvas);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-control);
   display: inline-flex;
   flex-wrap: wrap;
   gap: 2px;
   padding: 2px;
 }
 
-.fui-segment {
+.fcon-segment {
   align-items: center;
-  border-radius: calc(var(--fui-radius-control) - 2px);
-  color: var(--fui-ink-2);
+  border-radius: calc(var(--fcon-radius-control) - 2px);
+  color: var(--fcon-ink-2);
   display: inline-flex;
-  font-size: var(--fui-text-sm);
+  font-size: var(--fcon-text-sm);
   font-weight: 500;
-  gap: var(--fui-space-1);
-  height: var(--fui-control-h-sm);
-  padding: 0 var(--fui-space-3);
+  gap: var(--fcon-space-1);
+  height: var(--fcon-control-h-sm);
+  padding: 0 var(--fcon-space-3);
 }
 
-.fui-segment:hover {
-  color: var(--fui-accent);
+.fcon-segment:hover {
+  color: var(--fcon-accent);
   text-decoration: none;
 }
 
-.fui-segment[aria-pressed="true"],
-.fui-segment[aria-current] {
-  background: var(--fui-surface);
-  box-shadow: 0 1px 2px var(--fui-shadow);
-  color: var(--fui-ink-1);
+.fcon-segment[aria-pressed="true"],
+.fcon-segment[aria-current] {
+  background: var(--fcon-surface);
+  box-shadow: 0 1px 2px var(--fcon-shadow);
+  color: var(--fcon-ink-1);
 }
 
 /* ---- Popover, menu and combobox ---- */
-.fui-pop {
+.fcon-pop {
   display: inline-block;
   position: relative;
 }
 
-.fui-popover {
-  background: var(--fui-raised);
-  border: 1px solid var(--fui-line);
-  border-radius: var(--fui-radius-surface);
-  box-shadow: 0 12px 32px var(--fui-shadow);
-  margin-top: var(--fui-space-1);
+.fcon-popover {
+  background: var(--fcon-raised);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-surface);
+  box-shadow: 0 12px 32px var(--fcon-shadow);
+  margin-top: var(--fcon-space-1);
   max-height: min(28rem, 70vh);
   min-width: 12rem;
   overflow: auto;
-  padding: var(--fui-space-1);
+  padding: var(--fcon-space-1);
   position: absolute;
   top: 100%;
-  z-index: var(--fui-z-popover);
+  z-index: var(--fcon-z-popover);
 }
 
 /* The technical name beside a plain one: small and quiet like a stream's
    time, and never cut off. */
-.fui-tech-name {
+.fcon-tech-name {
   overflow-wrap: anywhere;
 }
 
 /* A drawer's status line, set off from what follows by a rule. */
-.fui-drawer-status {
-  border-bottom: 1px solid var(--fui-line);
-  padding-bottom: var(--fui-space-2);
+.fcon-drawer-status {
+  border-bottom: 1px solid var(--fcon-line);
+  padding-bottom: var(--fcon-space-2);
 }
 
 /* A live tail fills the drawer it opens in. Its lines are event rows whose
    detail takes the drawer's whole width under the time and the name. */
-.fui-tail {
+.fcon-tail {
   max-height: calc(100vh - 16rem);
   overflow-y: auto;
 }
 
-.fui-tail .fui-river-event {
+.fcon-tail .fcon-river-event {
   grid-template-columns: 6.5rem minmax(0, 1fr);
 }
 
-.fui-tail .fui-river-event > :last-child {
+.fcon-tail .fcon-river-event > :last-child {
   grid-column: 1 / -1;
 }
 
 /* A review before an action: each fact on its own row, the term on the left,
    what will happen on the right, with a quieter line explaining it. */
-.fui-review {
-  border: 1px solid var(--fui-line);
-  border-radius: var(--fui-radius-surface);
+.fcon-review {
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-surface);
   display: grid;
 }
 
-.fui-review-row {
+.fcon-review-row {
   display: grid;
-  gap: var(--fui-space-1) var(--fui-space-4);
+  gap: var(--fcon-space-1) var(--fcon-space-4);
   grid-template-columns: minmax(7rem, 9rem) 1fr;
-  padding: var(--fui-space-3) var(--fui-space-4);
+  padding: var(--fcon-space-3) var(--fcon-space-4);
 }
 
-.fui-review-row + .fui-review-row {
-  border-top: 1px solid var(--fui-line);
+.fcon-review-row + .fcon-review-row {
+  border-top: 1px solid var(--fcon-line);
 }
 
-.fui-review-row > dt {
-  color: var(--fui-ink-2);
+.fcon-review-row > dt {
+  color: var(--fcon-ink-2);
   font-weight: 600;
 }
 
-.fui-review-row > dd {
+.fcon-review-row > dd {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.fui-review-note {
-  color: var(--fui-ink-2);
+.fcon-review-note {
+  color: var(--fcon-ink-2);
   display: block;
-  font-size: var(--fui-text-sm);
+  font-size: var(--fcon-text-sm);
 }
 
-.fui-review-values {
+.fcon-review-values {
   display: grid;
-  gap: var(--fui-space-1);
+  gap: var(--fcon-space-1);
 }
 
-.fui-review-values > div {
+.fcon-review-values > div {
   display: flex;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
 }
 
-.fui-review-values dt::after {
+.fcon-review-values dt::after {
   content: ":";
 }
 
 @media (width <= 599px) {
-  .fui-review-row {
+  .fcon-review-row {
     grid-template-columns: 1fr;
   }
 }
 
 /* A row's own name, linking to its page: underlined so it reads as a link
    inside a row that also opens an inspector. */
-.fui-row-link {
+.fcon-row-link {
   font-weight: 600;
   text-decoration: underline;
-  text-decoration-color: var(--fui-line-strong);
+  text-decoration-color: var(--fcon-line-strong);
   text-underline-offset: 3px;
 }
 
-.fui-row-members {
+.fcon-row-members {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--fui-space-1) var(--fui-space-3);
-  margin-top: var(--fui-space-1);
+  gap: var(--fcon-space-1) var(--fcon-space-3);
+  margin-top: var(--fcon-space-1);
 }
 
 /* A partition listed under its open group. */
-.fui-row-partition {
-  border-left: 2px solid var(--fui-line-strong);
+.fcon-row-partition {
+  border-left: 2px solid var(--fcon-line-strong);
   display: inline-flex;
   flex-direction: column;
-  margin-left: var(--fui-space-2);
-  padding-left: var(--fui-space-3);
+  margin-left: var(--fcon-space-2);
+  padding-left: var(--fcon-space-3);
 }
 
-.fui-row-partition .fui-figures,
-.fui-rate-figures .fui-figures {
-  font-size: var(--fui-text-xs);
+.fcon-row-partition .fcon-figures,
+.fcon-rate-figures .fcon-figures {
+  font-size: var(--fcon-text-xs);
 }
 
-.fui-row-link:hover {
-  color: var(--fui-accent);
+.fcon-row-link:hover {
+  color: var(--fcon-accent);
   text-decoration-color: currentColor;
 }
 
 /* The "?" that explains what sits beside it. Muted until pointed at, so a
    screen with many of them still reads as its content. */
-.fui-help-tip {
+.fcon-help-tip {
   align-items: center;
   background: transparent;
   border: 0;
-  color: var(--fui-ink-3);
+  color: var(--fcon-ink-3);
   cursor: pointer;
   display: inline-flex;
   justify-content: center;
@@ -673,240 +673,240 @@
 
 /* Controls drawn smaller than a control still give a finger a full one. */
 @media (pointer: coarse) {
-  .fui-switch,
-  .fui-section-toggle,
-  .fui-help-tip,
-  button.fui-chip {
+  .fcon-switch,
+  .fcon-section-toggle,
+  .fcon-help-tip,
+  button.fcon-chip {
     justify-content: center;
-    min-height: var(--fui-control-h);
-    min-width: var(--fui-control-h);
+    min-height: var(--fcon-control-h);
+    min-width: var(--fcon-control-h);
   }
 
-  .fui-check > input[type="checkbox"] {
-    height: var(--fui-control-h);
+  .fcon-check > input[type="checkbox"] {
+    height: var(--fcon-control-h);
   }
 }
 
-.fui-help-tip:hover,
-.fui-help-tip[aria-expanded="true"] {
-  color: var(--fui-accent);
+.fcon-help-tip:hover,
+.fcon-help-tip[aria-expanded="true"] {
+  color: var(--fcon-accent);
 }
 
-.fui-help-panel {
-  color: var(--fui-ink-2);
-  font-family: var(--fui-font-sans);
-  font-size: var(--fui-text-md);
+.fcon-help-panel {
+  color: var(--fcon-ink-2);
+  font-family: var(--fcon-font-sans);
+  font-size: var(--fcon-text-md);
   font-weight: 400;
   letter-spacing: normal;
-  line-height: var(--fui-leading-normal);
-  padding: var(--fui-space-3) var(--fui-space-4);
+  line-height: var(--fcon-leading-normal);
+  padding: var(--fcon-space-3) var(--fcon-space-4);
   text-transform: none;
   white-space: normal;
   width: min(24rem, 80vw);
 }
 
-.fui-popover--end {
+.fcon-popover--end {
   right: 0;
 }
 
-.fui-popover--start {
+.fcon-popover--start {
   left: 0;
 }
 
-.fui-menu-item {
+.fcon-menu-item {
   align-items: center;
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-ink-1);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
   display: flex;
-  font-size: var(--fui-text-md);
-  gap: var(--fui-space-2);
-  padding: var(--fui-space-2) var(--fui-space-3);
+  font-size: var(--fcon-text-md);
+  gap: var(--fcon-space-2);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
   text-align: left;
   white-space: nowrap;
   width: 100%;
 }
 
-a.fui-menu-item:hover,
-button.fui-menu-item:hover,
-.fui-menu-item:focus-visible {
-  background: var(--fui-accent-subtle);
-  color: var(--fui-ink-1);
+a.fcon-menu-item:hover,
+button.fcon-menu-item:hover,
+.fcon-menu-item:focus-visible {
+  background: var(--fcon-accent-subtle);
+  color: var(--fcon-ink-1);
   text-decoration: none;
 }
 
-.fui-menu-item--danger,
-a.fui-menu-item--danger:hover,
-button.fui-menu-item--danger:hover {
-  color: var(--fui-negative);
+.fcon-menu-item--danger,
+a.fcon-menu-item--danger:hover,
+button.fcon-menu-item--danger:hover {
+  color: var(--fcon-negative);
 }
 
-button.fui-menu-item--danger:hover {
-  background: var(--fui-negative-subtle);
+button.fcon-menu-item--danger:hover {
+  background: var(--fcon-negative-subtle);
 }
 
-.fui-menu-note {
-  color: var(--fui-ink-3);
-  font-size: var(--fui-text-xs);
-  padding: var(--fui-space-2) var(--fui-space-3);
+.fcon-menu-note {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
 }
 
-.fui-menu-sep {
+.fcon-menu-sep {
   border: 0;
-  border-top: 1px solid var(--fui-line);
-  margin: var(--fui-space-1) 0;
+  border-top: 1px solid var(--fcon-line);
+  margin: var(--fcon-space-1) 0;
 }
 
-.fui-combobox {
+.fcon-combobox {
   display: block;
   position: relative;
 }
 
-.fui-combobox-trigger {
+.fcon-combobox-trigger {
   align-items: center;
-  background: var(--fui-surface);
-  border: 1px solid var(--fui-line-strong);
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-ink-1);
+  background: var(--fcon-surface);
+  border: 1px solid var(--fcon-line-strong);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
   display: flex;
-  font-size: var(--fui-text-md);
-  gap: var(--fui-space-2);
-  min-height: var(--fui-control-h);
-  padding: 0 var(--fui-space-2) 0 var(--fui-space-3);
+  font-size: var(--fcon-text-md);
+  gap: var(--fcon-space-2);
+  min-height: var(--fcon-control-h);
+  padding: 0 var(--fcon-space-2) 0 var(--fcon-space-3);
   width: 100%;
 }
 
-.fui-combobox-trigger:hover {
-  border-color: var(--fui-ink-3);
+.fcon-combobox-trigger:hover {
+  border-color: var(--fcon-ink-3);
 }
 
-.fui-combobox-trigger:disabled {
-  background: var(--fui-canvas);
-  color: var(--fui-ink-3);
+.fcon-combobox-trigger:disabled {
+  background: var(--fcon-canvas);
+  color: var(--fcon-ink-3);
   cursor: not-allowed;
 }
 
-.fui-combobox .fui-popover {
+.fcon-combobox .fcon-popover {
   left: 0;
   min-width: 100%;
 }
 
-.fui-combobox-search {
-  margin-bottom: var(--fui-space-1);
+.fcon-combobox-search {
+  margin-bottom: var(--fcon-space-1);
 }
 
-.fui-option {
+.fcon-option {
   align-items: center;
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-ink-1);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
   display: flex;
-  font-size: var(--fui-text-md);
-  gap: var(--fui-space-2);
-  padding: var(--fui-space-2) var(--fui-space-3);
+  font-size: var(--fcon-text-md);
+  gap: var(--fcon-space-2);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
   text-align: left;
   width: 100%;
 }
 
-.fui-option:hover,
-.fui-option:focus-visible {
-  background: var(--fui-accent-subtle);
+.fcon-option:hover,
+.fcon-option:focus-visible {
+  background: var(--fcon-accent-subtle);
 }
 
-.fui-option-check {
-  color: var(--fui-accent);
+.fcon-option-check {
+  color: var(--fcon-accent);
   visibility: hidden;
 }
 
-.fui-option[aria-checked="true"] .fui-option-check {
+.fcon-option[aria-checked="true"] .fcon-option-check {
   visibility: visible;
 }
 
-.fui-option[aria-checked="true"] {
+.fcon-option[aria-checked="true"] {
   font-weight: 600;
 }
 
 /* ---- Chip ---- */
-.fui-chip {
+.fcon-chip {
   align-items: center;
-  background: var(--fui-surface);
-  border: 1px solid var(--fui-line);
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-ink-2);
+  background: var(--fcon-surface);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-2);
   display: inline-flex;
-  font-size: var(--fui-text-xs);
-  gap: var(--fui-space-1);
+  font-size: var(--fcon-text-xs);
+  gap: var(--fcon-space-1);
   height: 1.375rem;
   max-width: 100%;
   overflow: hidden;
-  padding: 0 var(--fui-space-2);
+  padding: 0 var(--fcon-space-2);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.fui-chip--mono {
-  font-family: var(--fui-font-mono);
+.fcon-chip--mono {
+  font-family: var(--fcon-font-mono);
 }
 
 /* "Live": a solid signal tag on a live canvas. */
-.fui-live {
+.fcon-live {
   align-items: center;
-  background: var(--fui-signal);
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-on-signal);
+  background: var(--fcon-signal);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-on-signal);
   display: inline-flex;
-  font-size: var(--fui-text-xs);
+  font-size: var(--fcon-text-xs);
   font-weight: 600;
-  gap: var(--fui-space-1);
+  gap: var(--fcon-space-1);
   letter-spacing: 0.06em;
-  padding: 0 var(--fui-space-2);
+  padding: 0 var(--fcon-space-2);
   text-transform: uppercase;
 }
 
 /* ---- State badge: words, a tone, and a shape per value ---- */
-.fui-badge {
+.fcon-badge {
   align-items: center;
-  background: var(--fui-hover);
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-ink-2);
+  background: var(--fcon-hover);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-2);
   display: inline-flex;
   flex: none;
-  font-size: var(--fui-text-xs);
+  font-size: var(--fcon-text-xs);
   font-weight: 500;
-  gap: var(--fui-space-1);
+  gap: var(--fcon-space-1);
   min-height: 1.375rem;
-  padding: 0 var(--fui-space-2);
+  padding: 0 var(--fcon-space-2);
   white-space: nowrap;
 }
 
 /* On a phone a label longer than its column wraps rather than widen the page. */
 @media (width <= 599px) {
-  .fui-badge {
+  .fcon-badge {
     max-width: 100%;
     white-space: normal;
   }
 }
 
-.fui-badge--positive {
-  background: var(--fui-positive-subtle);
-  color: var(--fui-positive);
+.fcon-badge--positive {
+  background: var(--fcon-positive-subtle);
+  color: var(--fcon-positive);
 }
 
-.fui-badge--warning {
-  background: var(--fui-warning-subtle);
-  color: var(--fui-warning);
+.fcon-badge--warning {
+  background: var(--fcon-warning-subtle);
+  color: var(--fcon-warning);
 }
 
-.fui-badge--negative {
-  background: var(--fui-negative-subtle);
-  color: var(--fui-negative);
+.fcon-badge--negative {
+  background: var(--fcon-negative-subtle);
+  color: var(--fcon-negative);
 }
 
-.fui-badge-count {
-  font-family: var(--fui-font-mono);
+.fcon-badge-count {
+  font-family: var(--fcon-font-mono);
   font-weight: 600;
 }
 
 /* A shape per value, so state is never colour alone. */
-.fui-shape {
+.fcon-shape {
   background: currentColor;
   display: inline-block;
   flex: none;
@@ -914,54 +914,54 @@ button.fui-menu-item--danger:hover {
   width: 0.5rem;
 }
 
-.fui-shape[data-shape="dot"] { border-radius: 50%; }
-.fui-shape[data-shape="ring"] { background: transparent; border: 1.5px solid currentColor; border-radius: 50%; }
-.fui-shape[data-shape="triangle"] { clip-path: polygon(50% 0, 100% 100%, 0 100%); height: 0.5625rem; width: 0.625rem; }
-.fui-shape[data-shape="diamond"] { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); height: 0.625rem; width: 0.625rem; }
-.fui-shape[data-shape="square"] { border-radius: 1px; }
-.fui-shape[data-shape="cross"] { clip-path: polygon(20% 0, 50% 30%, 80% 0, 100% 20%, 70% 50%, 100% 80%, 80% 100%, 50% 70%, 20% 100%, 0 80%, 30% 50%, 0 20%); height: 0.5625rem; width: 0.5625rem; }
-.fui-shape[data-shape="bars"] { background: linear-gradient(90deg, currentColor 0 35%, transparent 35% 65%, currentColor 65% 100%); }
-.fui-shape[data-shape="half"] { background: linear-gradient(90deg, currentColor 0 50%, transparent 50% 100%); border: 1.5px solid currentColor; border-radius: 50%; }
+.fcon-shape[data-shape="dot"] { border-radius: 50%; }
+.fcon-shape[data-shape="ring"] { background: transparent; border: 1.5px solid currentColor; border-radius: 50%; }
+.fcon-shape[data-shape="triangle"] { clip-path: polygon(50% 0, 100% 100%, 0 100%); height: 0.5625rem; width: 0.625rem; }
+.fcon-shape[data-shape="diamond"] { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); height: 0.625rem; width: 0.625rem; }
+.fcon-shape[data-shape="square"] { border-radius: 1px; }
+.fcon-shape[data-shape="cross"] { clip-path: polygon(20% 0, 50% 30%, 80% 0, 100% 20%, 70% 50%, 100% 80%, 80% 100%, 50% 70%, 20% 100%, 0 80%, 30% 50%, 0 20%); height: 0.5625rem; width: 0.5625rem; }
+.fcon-shape[data-shape="bars"] { background: linear-gradient(90deg, currentColor 0 35%, transparent 35% 65%, currentColor 65% 100%); }
+.fcon-shape[data-shape="half"] { background: linear-gradient(90deg, currentColor 0 50%, transparent 50% 100%); border: 1.5px solid currentColor; border-radius: 50%; }
 
 /* Ink levels for running text, and mono figures. */
-.fui-strong { color: var(--fui-ink-1); }
-.fui-quiet { color: var(--fui-ink-2); }
-.fui-muted { color: var(--fui-ink-3); }
+.fcon-strong { color: var(--fcon-ink-1); }
+.fcon-quiet { color: var(--fcon-ink-2); }
+.fcon-muted { color: var(--fcon-ink-3); }
 
-.fui-num {
-  font-family: var(--fui-font-mono);
+.fcon-num {
+  font-family: var(--fcon-font-mono);
 }
 
 /* Tone as ink, for a word in a sentence rather than a badge. */
-.fui-tone-positive { color: var(--fui-positive); }
-.fui-tone-warning { color: var(--fui-warning); }
-.fui-tone-negative { color: var(--fui-negative); }
-.fui-tone-neutral { color: var(--fui-ink-2); }
+.fcon-tone-positive { color: var(--fcon-positive); }
+.fcon-tone-warning { color: var(--fcon-warning); }
+.fcon-tone-negative { color: var(--fcon-negative); }
+.fcon-tone-neutral { color: var(--fcon-ink-2); }
 
 /* ======================================================================
    Data display
    ====================================================================== */
 
-.fui-grid-wrap {
+.fcon-grid-wrap {
   overflow-x: auto;
   position: relative;
   width: 100%;
 }
 
-.fui-grid {
+.fcon-grid {
   border-collapse: separate;
   border-spacing: 0;
-  font-size: var(--fui-text-sm);
+  font-size: var(--fcon-text-sm);
   width: 100%;
 }
 
-.fui-grid th {
-  background: var(--fui-canvas);
-  border-bottom: 1px solid var(--fui-line-strong);
-  color: var(--fui-ink-3);
-  font-size: var(--fui-text-xs);
+.fcon-grid th {
+  background: var(--fcon-canvas);
+  border-bottom: 1px solid var(--fcon-line-strong);
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
   font-weight: 500;
-  padding: var(--fui-space-2) var(--fui-space-3);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
   position: sticky;
   text-align: left;
   top: 0;
@@ -969,118 +969,118 @@ button.fui-menu-item--danger:hover {
   z-index: 1;
 }
 
-.fui-grid td {
-  border-bottom: 1px solid var(--fui-line);
-  color: var(--fui-ink-1);
-  padding: var(--fui-space-2) var(--fui-space-3);
+.fcon-grid td {
+  border-bottom: 1px solid var(--fcon-line);
+  color: var(--fcon-ink-1);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
   vertical-align: middle;
 }
 
-.fui-grid tbody tr:hover td {
-  background: var(--fui-hover);
+.fcon-grid tbody tr:hover td {
+  background: var(--fcon-hover);
 }
 
-.fui-grid tbody tr[aria-selected="true"] td {
-  background: var(--fui-accent-subtle);
+.fcon-grid tbody tr[aria-selected="true"] td {
+  background: var(--fcon-accent-subtle);
 }
 
-.fui-grid tr[data-activate] {
+.fcon-grid tr[data-activate] {
   cursor: pointer;
 }
 
 /* The health edge bar: a row's tone on its leading edge. */
-.fui-grid tr[data-tone] td:first-child {
-  box-shadow: inset 3px 0 0 var(--fui-line-strong);
+.fcon-grid tr[data-tone] td:first-child {
+  box-shadow: inset 3px 0 0 var(--fcon-line-strong);
 }
 
-.fui-grid tr[data-tone="positive"] td:first-child { box-shadow: inset 3px 0 0 var(--fui-positive); }
-.fui-grid tr[data-tone="warning"] td:first-child { box-shadow: inset 3px 0 0 var(--fui-warning); }
-.fui-grid tr[data-tone="negative"] td:first-child { box-shadow: inset 3px 0 0 var(--fui-negative); }
+.fcon-grid tr[data-tone="positive"] td:first-child { box-shadow: inset 3px 0 0 var(--fcon-positive); }
+.fcon-grid tr[data-tone="warning"] td:first-child { box-shadow: inset 3px 0 0 var(--fcon-warning); }
+.fcon-grid tr[data-tone="negative"] td:first-child { box-shadow: inset 3px 0 0 var(--fcon-negative); }
 
-.fui-grid .fui-cell-num {
-  font-family: var(--fui-font-mono);
+.fcon-grid .fcon-cell-num {
+  font-family: var(--fcon-font-mono);
   text-align: right;
   white-space: nowrap;
 }
 
-.fui-grid th.fui-cell-num {
+.fcon-grid th.fcon-cell-num {
   font-family: inherit;
 }
 
-.fui-grid .fui-cell-menu {
+.fcon-grid .fcon-cell-menu {
   text-align: right;
   width: 1%;
 }
 
-.fui-grid-foot {
+.fcon-grid-foot {
   align-items: center;
-  color: var(--fui-ink-3);
+  color: var(--fcon-ink-3);
   display: flex;
   flex-wrap: wrap;
-  font-size: var(--fui-text-xs);
-  gap: var(--fui-space-2) var(--fui-space-4);
+  font-size: var(--fcon-text-xs);
+  gap: var(--fcon-space-2) var(--fcon-space-4);
   justify-content: space-between;
-  padding: var(--fui-space-2) var(--fui-space-3);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
 }
 
 /* Audit records: one line each — when, from where, what, who, with what
    outcome — that opens in place to the whole record. */
-.fui-records {
-  border-top: 1px solid var(--fui-line);
+.fcon-records {
+  border-top: 1px solid var(--fcon-line);
 }
 
-.fui-records > li {
-  border-bottom: 1px solid var(--fui-line);
+.fcon-records > li {
+  border-bottom: 1px solid var(--fcon-line);
 }
 
-.fui-record-head {
+.fcon-record-head {
   align-items: baseline;
-  color: var(--fui-ink-1);
+  color: var(--fcon-ink-1);
   display: grid;
-  font-size: var(--fui-text-sm);
-  gap: var(--fui-space-1) var(--fui-space-4);
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-1) var(--fcon-space-4);
   grid-template-columns: 15rem 9rem minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-  min-height: var(--fui-control-h);
-  padding: var(--fui-space-2) var(--fui-space-3);
+  min-height: var(--fcon-control-h);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
   text-align: left;
   width: 100%;
 }
 
-.fui-record-head > span {
+.fcon-record-head > span {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 @media (width <= 899px) {
-  .fui-record-cols {
+  .fcon-record-cols {
     display: none;
   }
 }
 
-button.fui-record-head:hover,
-.fui-record-head[aria-expanded="true"] {
-  background: var(--fui-hover);
+button.fcon-record-head:hover,
+.fcon-record-head[aria-expanded="true"] {
+  background: var(--fcon-hover);
 }
 
-.fui-records pre {
-  margin: 0 var(--fui-space-3) var(--fui-space-3);
+.fcon-records pre {
+  margin: 0 var(--fcon-space-3) var(--fcon-space-3);
 }
 
 @media (width <= 899px) {
-  .fui-record-head {
+  .fcon-record-head {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }
 
 /* Grows a listing by a page; the count beside it says how much is left. */
-.fui-more {
-  color: var(--fui-accent);
-  font-size: var(--fui-text-sm);
+.fcon-more {
+  color: var(--fcon-accent);
+  font-size: var(--fcon-text-sm);
   font-weight: 600;
-  min-height: var(--fui-control-h-sm);
+  min-height: var(--fcon-control-h-sm);
 }
 
-.fui-more:hover {
+.fcon-more:hover {
   text-decoration: underline;
 }
 
@@ -1088,11 +1088,11 @@ button.fui-record-head:hover,
    right, and the other cells captioned by their column, several to a line.
    The header stays for a screen reader. */
 @media (width <= 599px) {
-  .fui-grid {
+  .fcon-grid {
     display: block;
   }
 
-  .fui-grid thead {
+  .fcon-grid thead {
     clip-path: inset(50%);
     height: 1px;
     overflow: hidden;
@@ -1101,40 +1101,40 @@ button.fui-record-head:hover,
     width: 1px;
   }
 
-  .fui-grid tbody {
+  .fcon-grid tbody {
     display: grid;
-    gap: var(--fui-space-3);
+    gap: var(--fcon-space-3);
   }
 
-  .fui-grid tr {
-    border: 1px solid var(--fui-line);
-    border-radius: var(--fui-radius-surface);
+  .fcon-grid tr {
+    border: 1px solid var(--fcon-line);
+    border-radius: var(--fcon-radius-surface);
     display: flex;
     flex-wrap: wrap;
-    gap: var(--fui-space-3) var(--fui-space-5);
-    padding: var(--fui-space-3) var(--fui-space-4);
+    gap: var(--fcon-space-3) var(--fcon-space-5);
+    padding: var(--fcon-space-3) var(--fcon-space-4);
     position: relative;
   }
 
-  .fui-grid tr[data-tone] { box-shadow: inset 3px 0 0 var(--fui-line-strong); }
-  .fui-grid tr[data-tone="positive"] { box-shadow: inset 3px 0 0 var(--fui-positive); }
-  .fui-grid tr[data-tone="warning"] { box-shadow: inset 3px 0 0 var(--fui-warning); }
-  .fui-grid tr[data-tone="negative"] { box-shadow: inset 3px 0 0 var(--fui-negative); }
+  .fcon-grid tr[data-tone] { box-shadow: inset 3px 0 0 var(--fcon-line-strong); }
+  .fcon-grid tr[data-tone="positive"] { box-shadow: inset 3px 0 0 var(--fcon-positive); }
+  .fcon-grid tr[data-tone="warning"] { box-shadow: inset 3px 0 0 var(--fcon-warning); }
+  .fcon-grid tr[data-tone="negative"] { box-shadow: inset 3px 0 0 var(--fcon-negative); }
 
-  .fui-grid tbody tr[aria-selected="true"] {
-    background: var(--fui-accent-subtle);
+  .fcon-grid tbody tr[aria-selected="true"] {
+    background: var(--fcon-accent-subtle);
   }
 
   @media (hover: hover) {
-    .fui-grid tbody tr:hover {
-      background: var(--fui-hover);
+    .fcon-grid tbody tr:hover {
+      background: var(--fcon-hover);
     }
   }
 
-  .fui-grid td,
-  .fui-grid tbody tr:hover td,
-  .fui-grid tbody tr[aria-selected="true"] td,
-  .fui-grid tr[data-tone] td:first-child {
+  .fcon-grid td,
+  .fcon-grid tbody tr:hover td,
+  .fcon-grid tbody tr[aria-selected="true"] td,
+  .fcon-grid tr[data-tone] td:first-child {
     background: none;
     border: 0;
     box-shadow: none;
@@ -1143,249 +1143,249 @@ button.fui-record-head:hover,
     padding: 0;
   }
 
-  .fui-grid td:first-child {
+  .fcon-grid td:first-child {
     flex-basis: 100%;
     font-weight: 600;
   }
 
-  .fui-grid tr:has(> .fui-cell-menu) td:first-child {
-    padding-right: calc(var(--fui-control-h) + var(--fui-space-2));
+  .fcon-grid tr:has(> .fcon-cell-menu) td:first-child {
+    padding-right: calc(var(--fcon-control-h) + var(--fcon-space-2));
   }
 
-  .fui-grid td:not(:first-child)[data-label]::before {
-    color: var(--fui-ink-3);
+  .fcon-grid td:not(:first-child)[data-label]::before {
+    color: var(--fcon-ink-3);
     content: attr(data-label);
     display: block;
-    font-family: var(--fui-font-sans);
-    font-size: var(--fui-text-xs);
+    font-family: var(--fcon-font-sans);
+    font-size: var(--fcon-text-xs);
     font-weight: 500;
   }
 
-  .fui-grid .fui-cell-num {
+  .fcon-grid .fcon-cell-num {
     text-align: left;
   }
 
-  .fui-grid .fui-cell-menu {
+  .fcon-grid .fcon-cell-menu {
     position: absolute;
-    right: var(--fui-space-2);
-    top: var(--fui-space-1);
+    right: var(--fcon-space-2);
+    top: var(--fcon-space-1);
     width: auto;
   }
 }
 
 /* Facts: a definition list of labelled figures. */
-.fui-facts {
+.fcon-facts {
   display: grid;
-  gap: var(--fui-space-4) var(--fui-space-6);
+  gap: var(--fcon-space-4) var(--fcon-space-6);
   grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
 }
 
-.fui-fact dt {
-  color: var(--fui-ink-3);
-  font-size: var(--fui-text-xs);
+.fcon-fact dt {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
   overflow-wrap: anywhere;
 }
 
-.fui-fact dd {
-  color: var(--fui-ink-1);
-  font-size: var(--fui-text-md);
+.fcon-fact dd {
+  color: var(--fcon-ink-1);
+  font-size: var(--fcon-text-md);
   margin-top: 2px;
   overflow-wrap: anywhere;
 }
 
-.fui-figure {
-  color: var(--fui-ink-1);
-  font-family: var(--fui-font-display);
-  font-size: var(--fui-text-2xl);
+.fcon-figure {
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-2xl);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
 
 /* A figure that just changed, marked for a moment by the client. */
 [data-changed] {
-  animation: fui-changed 1.6s var(--fui-ease) 1;
+  animation: fcon-changed 1.6s var(--fcon-ease) 1;
   border-radius: 3px;
 }
 
-@keyframes fui-changed {
-  0% { background: var(--fui-signal-subtle); box-shadow: 0 0 0 2px var(--fui-signal-subtle); }
+@keyframes fcon-changed {
+  0% { background: var(--fcon-signal-subtle); box-shadow: 0 0 0 2px var(--fcon-signal-subtle); }
   100% { background: transparent; box-shadow: 0 0 0 2px transparent; }
 }
 
-.fui-spark {
+.fcon-spark {
   display: inline-block;
   flex: none;
   overflow: visible;
   vertical-align: middle;
 }
 
-.fui-spark polyline {
+.fcon-spark polyline {
   fill: none;
   vector-effect: non-scaling-stroke;
-  stroke: var(--fui-signal);
+  stroke: var(--fcon-signal);
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.5;
 }
 
-.fui-rate {
-  color: var(--fui-signal);
-  font-family: var(--fui-font-mono);
-  font-size: var(--fui-text-sm);
+.fcon-rate {
+  color: var(--fcon-signal);
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-sm);
   white-space: nowrap;
 }
 
 /* Sized for the widest figure a relay reaches, so a listing's rate column
    keeps its width as the traffic changes. */
-.fui-rate-cell {
+.fcon-rate-cell {
   align-items: center;
   display: inline-flex;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
 }
 
-.fui-rate-figures {
+.fcon-rate-figures {
   display: inline-flex;
   flex-direction: column;
-  font-family: var(--fui-font-mono);
-  font-size: var(--fui-text-sm);
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-sm);
   font-variant-numeric: tabular-nums;
-  line-height: var(--fui-leading-tight);
+  line-height: var(--fcon-leading-tight);
   white-space: nowrap;
   width: 14ch;
 }
 
 /* Held open before a line has two samples to draw. */
-.fui-rate-spark {
+.fcon-rate-spark {
   display: inline-flex;
   flex: none;
   width: 56px;
 }
 
-.fui-rate-figures > * {
+.fcon-rate-figures > * {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.fui-meter {
-  background: var(--fui-hover);
-  border-radius: var(--fui-radius-control);
+.fcon-meter {
+  background: var(--fcon-hover);
+  border-radius: var(--fcon-radius-control);
   display: block;
   height: 6px;
   overflow: hidden;
   width: 100%;
 }
 
-.fui-meter-fill {
-  background: var(--fui-accent);
+.fcon-meter-fill {
+  background: var(--fcon-accent);
   border-radius: inherit;
   display: block;
   height: 100%;
 }
 
-.fui-meter[data-tone="warning"] .fui-meter-fill { background: var(--fui-warning); }
-.fui-meter[data-tone="negative"] .fui-meter-fill { background: var(--fui-negative); }
+.fcon-meter[data-tone="warning"] .fcon-meter-fill { background: var(--fcon-warning); }
+.fcon-meter[data-tone="negative"] .fcon-meter-fill { background: var(--fcon-negative); }
 
-.fui-code {
-  background: var(--fui-canvas);
-  border: 1px solid var(--fui-line);
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-ink-1);
-  font-family: var(--fui-font-mono);
-  font-size: var(--fui-text-sm);
+.fcon-code {
+  background: var(--fcon-canvas);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-sm);
   max-height: 28rem;
   overflow: auto;
   overflow-wrap: anywhere;
-  padding: var(--fui-space-3);
+  padding: var(--fcon-space-3);
   white-space: pre-wrap;
 }
 
-.fui-kbd {
-  background: var(--fui-surface);
-  border: 1px solid var(--fui-line-strong);
+.fcon-kbd {
+  background: var(--fcon-surface);
+  border: 1px solid var(--fcon-line-strong);
   border-bottom-width: 2px;
   border-radius: 4px;
-  color: var(--fui-ink-2);
+  color: var(--fcon-ink-2);
   display: inline-block;
-  font-family: var(--fui-font-mono);
-  font-size: var(--fui-text-xs);
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-xs);
   line-height: 1.4;
   min-width: 1.25rem;
-  padding: 0 var(--fui-space-1);
+  padding: 0 var(--fcon-space-1);
   text-align: center;
 }
 
 /* An identifier: shortened past 16 characters, copied whole on activation. */
-.fui-ident {
-  color: var(--fui-ink-1);
-  font-family: var(--fui-font-mono);
+.fcon-ident {
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-mono);
   font-size: 0.95em;
   overflow-wrap: anywhere;
 }
 
-button.fui-ident {
-  border-bottom: 1px dotted var(--fui-ink-3);
+button.fcon-ident {
+  border-bottom: 1px dotted var(--fcon-ink-3);
   cursor: copy;
 }
 
-button.fui-ident:hover {
-  color: var(--fui-accent);
+button.fcon-ident:hover {
+  color: var(--fcon-accent);
 }
 
-button.fui-ident[data-copied]::after {
-  color: var(--fui-positive);
+button.fcon-ident[data-copied]::after {
+  color: var(--fcon-positive);
   content: " copied";
-  font-family: var(--fui-font-sans);
-  font-size: var(--fui-text-xs);
+  font-family: var(--fcon-font-sans);
+  font-size: var(--fcon-text-xs);
 }
 
 /* A flezha term, explained in place on hover and focus. */
-.fui-term {
-  border-bottom: 1px dotted var(--fui-ink-3);
+.fcon-term {
+  border-bottom: 1px dotted var(--fcon-ink-3);
   cursor: help;
 }
 
-.fui-tip-host {
+.fcon-tip-host {
   display: inline;
   position: relative;
 }
 
-.fui-tooltip {
-  background: var(--fui-raised);
-  border: 1px solid var(--fui-line);
-  border-radius: var(--fui-radius-control);
-  bottom: calc(100% + var(--fui-space-2));
-  box-shadow: 0 12px 32px var(--fui-shadow);
-  color: var(--fui-ink-1);
-  font-family: var(--fui-font-sans);
-  font-size: var(--fui-text-sm);
+.fcon-tooltip {
+  background: var(--fcon-raised);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-control);
+  bottom: calc(100% + var(--fcon-space-2));
+  box-shadow: 0 12px 32px var(--fcon-shadow);
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-sans);
+  font-size: var(--fcon-text-sm);
   font-weight: 400;
   left: 0;
   letter-spacing: 0;
-  line-height: var(--fui-leading-normal);
+  line-height: var(--fcon-leading-normal);
   /* Out of the layout until shown, so a term near the edge cannot widen the
      page. */
   display: none;
-  padding: var(--fui-space-2) var(--fui-space-3);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
   pointer-events: none;
   position: absolute;
   text-transform: none;
   white-space: normal;
   width: max-content;
   max-width: min(20rem, 80vw);
-  z-index: var(--fui-z-popover);
+  z-index: var(--fcon-z-popover);
 }
 
 /* Not on a touch screen, which leaves a tapped tooltip half shown; a tap on
    a term opens the help that explains it. */
 @media (hover: hover) {
-  .fui-tip-host:hover > .fui-tooltip,
-  .fui-tip-host:focus-within > .fui-tooltip {
+  .fcon-tip-host:hover > .fcon-tooltip,
+  .fcon-tip-host:focus-within > .fcon-tooltip {
     display: block;
   }
 }
 
-.fui-tooltip-term {
-  color: var(--fui-ink-1);
+.fcon-tooltip-term {
+  color: var(--fcon-ink-1);
   display: block;
   font-weight: 600;
 }
@@ -1394,96 +1394,96 @@ button.fui-ident[data-copied]::after {
    Statements: notes, empty states, skeletons
    ====================================================================== */
 
-.fui-note {
+.fcon-note {
   align-items: flex-start;
-  background: var(--fui-surface);
-  border: 1px solid var(--fui-line);
-  border-left: 3px solid var(--fui-accent);
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-ink-1);
+  background: var(--fcon-surface);
+  border: 1px solid var(--fcon-line);
+  border-left: 3px solid var(--fcon-accent);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
   display: flex;
-  font-size: var(--fui-text-sm);
-  gap: var(--fui-space-3);
-  padding: var(--fui-space-3) var(--fui-space-4);
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-3);
+  padding: var(--fcon-space-3) var(--fcon-space-4);
 }
 
-.fui-note--error {
-  background: var(--fui-negative-subtle);
-  border-color: var(--fui-negative);
+.fcon-note--error {
+  background: var(--fcon-negative-subtle);
+  border-color: var(--fcon-negative);
 }
 
-.fui-note-icon {
-  color: var(--fui-accent);
+.fcon-note-icon {
+  color: var(--fcon-accent);
   flex: none;
   margin-top: 1px;
 }
 
-.fui-note--error .fui-note-icon {
-  color: var(--fui-negative);
+.fcon-note--error .fcon-note-icon {
+  color: var(--fcon-negative);
 }
 
-.fui-note a {
+.fcon-note a {
   color: inherit;
   text-decoration: underline;
 }
 
-.fui-note-title {
-  font-size: var(--fui-text-md);
+.fcon-note-title {
+  font-size: var(--fcon-text-md);
 }
 
-.fui-note-meta {
+.fcon-note-meta {
   align-items: baseline;
-  color: var(--fui-ink-2);
+  color: var(--fcon-ink-2);
   display: flex;
   flex-wrap: wrap;
-  font-size: var(--fui-text-xs);
-  gap: var(--fui-space-1) var(--fui-space-4);
+  font-size: var(--fcon-text-xs);
+  gap: var(--fcon-space-1) var(--fcon-space-4);
 }
 
-.fui-note-meta code {
-  font-family: var(--fui-font-mono);
+.fcon-note-meta code {
+  font-family: var(--fcon-font-mono);
 }
 
-.fui-empty {
-  border: 1px dashed var(--fui-line-strong);
-  border-radius: var(--fui-radius-surface);
+.fcon-empty {
+  border: 1px dashed var(--fcon-line-strong);
+  border-radius: var(--fcon-radius-surface);
   display: grid;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
   justify-items: start;
-  padding: var(--fui-space-6);
+  padding: var(--fcon-space-6);
 }
 
-.fui-empty-icon {
-  color: var(--fui-ink-3);
+.fcon-empty-icon {
+  color: var(--fcon-ink-3);
 }
 
-.fui-empty-text {
-  color: var(--fui-ink-2);
-  font-size: var(--fui-text-md);
+.fcon-empty-text {
+  color: var(--fcon-ink-2);
+  font-size: var(--fcon-text-md);
   max-width: 64ch;
 }
 
-.fui-empty-actions {
+.fcon-empty-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--fui-space-2);
-  margin-top: var(--fui-space-2);
+  gap: var(--fcon-space-2);
+  margin-top: var(--fcon-space-2);
 }
 
-.fui-skeleton {
-  animation: fui-shimmer 1.4s ease-in-out infinite;
-  background: var(--fui-hover);
-  border-radius: var(--fui-radius-control);
+.fcon-skeleton {
+  animation: fcon-shimmer 1.4s ease-in-out infinite;
+  background: var(--fcon-hover);
+  border-radius: var(--fcon-radius-control);
   display: block;
   height: 0.875rem;
 }
 
-.fui-skeleton-rows {
+.fcon-skeleton-rows {
   display: grid;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
 }
 
-@keyframes fui-shimmer {
+@keyframes fcon-shimmer {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }
@@ -1492,73 +1492,73 @@ button.fui-ident[data-copied]::after {
    Overlays: drawer, dialog, toast
    ====================================================================== */
 
-.fui-scrim {
-  background: var(--fui-scrim);
+.fcon-scrim {
+  background: var(--fcon-scrim);
   inset: 0;
   position: fixed;
 }
 
-.fui-drawer {
+.fcon-drawer {
   inset: 0;
   position: fixed;
-  z-index: var(--fui-z-drawer);
+  z-index: var(--fcon-z-drawer);
 }
 
-.fui-drawer .fui-scrim {
+.fcon-drawer .fcon-scrim {
   background: transparent;
 }
 
-.fui-drawer-panel {
-  animation: fui-slide-in var(--fui-slow) var(--fui-ease) 1;
-  background: var(--fui-raised);
-  border-left: 1px solid var(--fui-line);
+.fcon-drawer-panel {
+  animation: fcon-slide-in var(--fcon-slow) var(--fcon-ease) 1;
+  background: var(--fcon-raised);
+  border-left: 1px solid var(--fcon-line);
   bottom: 0;
-  box-shadow: 0 12px 32px var(--fui-shadow);
+  box-shadow: 0 12px 32px var(--fcon-shadow);
   display: flex;
   flex-direction: column;
   max-width: 100vw;
   position: absolute;
   right: 0;
   top: 0;
-  width: var(--fui-drawer-w);
+  width: var(--fcon-drawer-w);
 }
 
-.fui-drawer-head {
+.fcon-drawer-head {
   align-items: flex-start;
-  border-bottom: 1px solid var(--fui-line);
+  border-bottom: 1px solid var(--fcon-line);
   display: flex;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
   justify-content: space-between;
-  padding: var(--fui-space-4) var(--fui-space-5);
+  padding: var(--fcon-space-4) var(--fcon-space-5);
 }
 
-.fui-drawer-title {
-  font-family: var(--fui-font-display);
-  font-size: var(--fui-text-xl);
+.fcon-drawer-title {
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-xl);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
 
-.fui-drawer-body {
+.fcon-drawer-body {
   display: grid;
   flex: 1;
-  gap: var(--fui-space-5);
+  gap: var(--fcon-space-5);
   align-content: start;
   overflow-y: auto;
-  padding: var(--fui-space-5);
+  padding: var(--fcon-space-5);
 }
 
-@keyframes fui-slide-in {
-  from { opacity: 0; transform: translateX(var(--fui-space-7)); }
+@keyframes fcon-slide-in {
+  from { opacity: 0; transform: translateX(var(--fcon-space-7)); }
   to { opacity: 1; transform: translateX(0); }
 }
 
 @media (width <= 599px) {
-  .fui-drawer .fui-scrim {
-    background: var(--fui-scrim);
+  .fcon-drawer .fcon-scrim {
+    background: var(--fcon-scrim);
   }
 
-  .fui-drawer-panel {
+  .fcon-drawer-panel {
     border-left: 0;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     width: 100vw;
@@ -1568,364 +1568,364 @@ button.fui-ident[data-copied]::after {
 /* Below desk width the page itself scrolls, and holds still behind an
    overlay. */
 @media (width <= 1023px) {
-  html:has(.fui-dialog, .fui-drawer, dialog[open]) {
+  html:has(.fcon-dialog, .fcon-drawer, dialog[open]) {
     overflow: hidden;
   }
 }
 
-.fui-dialog {
+.fcon-dialog {
   display: grid;
   inset: 0;
   overflow-y: auto;
-  padding: var(--fui-space-9) var(--fui-space-4);
+  padding: var(--fcon-space-9) var(--fcon-space-4);
   place-items: start center;
   position: fixed;
-  z-index: var(--fui-z-dialog);
+  z-index: var(--fcon-z-dialog);
 }
 
-.fui-dialog-panel {
-  animation: fui-rise var(--fui-base) var(--fui-ease) 1;
-  background: var(--fui-raised);
-  border: 1px solid var(--fui-line);
-  border-radius: var(--fui-radius-surface);
-  box-shadow: 0 12px 32px var(--fui-shadow);
+.fcon-dialog-panel {
+  animation: fcon-rise var(--fcon-base) var(--fcon-ease) 1;
+  background: var(--fcon-raised);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-surface);
+  box-shadow: 0 12px 32px var(--fcon-shadow);
   position: relative;
   width: 100%;
 }
 
-.fui-dialog-panel--confirm { max-width: 28rem; }
-.fui-dialog-panel--form { max-width: 38rem; }
-.fui-dialog-panel--wide { max-width: 52rem; }
+.fcon-dialog-panel--confirm { max-width: 28rem; }
+.fcon-dialog-panel--form { max-width: 38rem; }
+.fcon-dialog-panel--wide { max-width: 52rem; }
 
-.fui-dialog-head {
+.fcon-dialog-head {
   align-items: flex-start;
   display: flex;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
   justify-content: space-between;
-  padding: var(--fui-space-5) var(--fui-space-5) 0;
+  padding: var(--fcon-space-5) var(--fcon-space-5) 0;
 }
 
-.fui-dialog-title {
-  font-family: var(--fui-font-display);
-  font-size: var(--fui-text-xl);
+.fcon-dialog-title {
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-xl);
   font-weight: 600;
 }
 
-.fui-dialog-body {
-  color: var(--fui-ink-1);
+.fcon-dialog-body {
+  color: var(--fcon-ink-1);
   display: grid;
-  gap: var(--fui-space-4);
-  padding: var(--fui-space-5);
+  gap: var(--fcon-space-4);
+  padding: var(--fcon-space-5);
 }
 
-.fui-dialog-foot {
+.fcon-dialog-foot {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
   justify-content: flex-end;
-  padding: 0 var(--fui-space-5) var(--fui-space-5);
+  padding: 0 var(--fcon-space-5) var(--fcon-space-5);
 }
 
 /* On a phone, upright or on its side, a dialog is a sheet risen from the
    bottom edge, within thumb reach: its body scrolls, while its title and its
    actions stay in view. Help is a native dialog with the same panel. */
 @media (width <= 599px), (height <= 500px) {
-  .fui-dialog {
+  .fcon-dialog {
     overflow: hidden;
     padding: env(safe-area-inset-top) 0 0;
     place-items: end stretch;
   }
 
-  .fui-dialog > .fui-dialog-panel,
-  dialog.fui-dialog-panel[open] {
-    animation-name: fui-sheet;
+  .fcon-dialog > .fcon-dialog-panel,
+  dialog.fcon-dialog-panel[open] {
+    animation-name: fcon-sheet;
     border-bottom: 0;
-    border-radius: var(--fui-radius-surface) var(--fui-radius-surface) 0 0;
+    border-radius: var(--fcon-radius-surface) var(--fcon-radius-surface) 0 0;
     display: flex;
     flex-direction: column;
-    max-height: calc(100dvh - env(safe-area-inset-top) - var(--fui-space-4));
+    max-height: calc(100dvh - env(safe-area-inset-top) - var(--fcon-space-4));
     max-width: none;
   }
 
-  dialog.fui-dialog-panel[open] {
+  dialog.fcon-dialog-panel[open] {
     inset: auto 0 0;
     margin: 0;
     position: fixed;
     width: 100%;
   }
 
-  :is(.fui-dialog > .fui-dialog-panel, dialog.fui-dialog-panel) > .fui-dialog-body {
+  :is(.fcon-dialog > .fcon-dialog-panel, dialog.fcon-dialog-panel) > .fcon-dialog-body {
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
   }
 
-  :is(.fui-dialog > .fui-dialog-panel, dialog.fui-dialog-panel) > :last-child {
-    padding-bottom: calc(var(--fui-space-5) + env(safe-area-inset-bottom));
+  :is(.fcon-dialog > .fcon-dialog-panel, dialog.fcon-dialog-panel) > :last-child {
+    padding-bottom: calc(var(--fcon-space-5) + env(safe-area-inset-bottom));
   }
 
-  .fui-dialog-foot {
-    border-top: 1px solid var(--fui-line);
-    padding-top: var(--fui-space-4);
+  .fcon-dialog-foot {
+    border-top: 1px solid var(--fcon-line);
+    padding-top: var(--fcon-space-4);
   }
 
   /* A stepped form's controls, or a form's closing row of buttons, are the
      sheet's actions. */
-  .fui-dialog .fui-steps-foot,
-  .fui-dialog-body form > :last-child:has([type="submit"]) {
-    background: var(--fui-raised);
-    bottom: calc(-1 * var(--fui-space-5));
-    padding-bottom: var(--fui-space-4);
+  .fcon-dialog .fcon-steps-foot,
+  .fcon-dialog-body form > :last-child:has([type="submit"]) {
+    background: var(--fcon-raised);
+    bottom: calc(-1 * var(--fcon-space-5));
+    padding-bottom: var(--fcon-space-4);
     position: sticky;
   }
 }
 
-@keyframes fui-sheet {
+@keyframes fcon-sheet {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
 }
 
-@keyframes fui-rise {
-  from { opacity: 0; transform: translateY(var(--fui-space-2)); }
+@keyframes fcon-rise {
+  from { opacity: 0; transform: translateY(var(--fcon-space-2)); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 /* Top right, just under the topbar, where the eye already is after a click
    in the header or a section's actions. */
-.fui-toasts {
-  top: var(--fui-topbar-clear);
+.fcon-toasts {
+  top: var(--fcon-topbar-clear);
   display: flex;
   flex-direction: column;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
   max-width: min(26rem, 100vw);
-  padding: var(--fui-space-4);
+  padding: var(--fcon-space-4);
   pointer-events: none;
   position: fixed;
   right: 0;
-  z-index: var(--fui-z-toast);
+  z-index: var(--fcon-z-toast);
 }
 
 /* A phone's topbar is one row of controls, so a toast rises from the bottom
    edge instead, clear of the bar when there is one. */
 @media (width <= 599px) {
-  .fui-toasts {
+  .fcon-toasts {
     bottom: env(safe-area-inset-bottom);
     left: 0;
     max-width: none;
     top: auto;
   }
 
-  body:has(.flz-tabbar) .fui-toasts {
-    bottom: calc(var(--fui-tabbar-clear) + env(safe-area-inset-bottom));
+  body:has(.flz-tabbar) .fcon-toasts {
+    bottom: calc(var(--fcon-tabbar-clear) + env(safe-area-inset-bottom));
   }
 }
 
-.fui-toast {
+.fcon-toast {
   align-items: flex-start;
-  animation: fui-rise var(--fui-base) var(--fui-ease) 1;
-  background: var(--fui-raised);
-  border: 1px solid var(--fui-line);
-  border-left: 3px solid var(--fui-positive);
-  border-radius: var(--fui-radius-control);
-  box-shadow: 0 12px 32px var(--fui-shadow);
-  color: var(--fui-ink-1);
+  animation: fcon-rise var(--fcon-base) var(--fcon-ease) 1;
+  background: var(--fcon-raised);
+  border: 1px solid var(--fcon-line);
+  border-left: 3px solid var(--fcon-positive);
+  border-radius: var(--fcon-radius-control);
+  box-shadow: 0 12px 32px var(--fcon-shadow);
+  color: var(--fcon-ink-1);
   display: flex;
-  font-size: var(--fui-text-sm);
-  gap: var(--fui-space-3);
-  padding: var(--fui-space-3) var(--fui-space-3) var(--fui-space-3) var(--fui-space-4);
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-3);
+  padding: var(--fcon-space-3) var(--fcon-space-3) var(--fcon-space-3) var(--fcon-space-4);
   pointer-events: auto;
 }
 
-.fui-toast--error {
-  border-left-color: var(--fui-negative);
+.fcon-toast--error {
+  border-left-color: var(--fcon-negative);
 }
 
-.fui-toast-icon {
-  color: var(--fui-positive);
+.fcon-toast-icon {
+  color: var(--fcon-positive);
   flex: none;
   margin-top: 1px;
 }
 
-.fui-toast--error .fui-toast-icon {
-  color: var(--fui-negative);
+.fcon-toast--error .fcon-toast-icon {
+  color: var(--fcon-negative);
 }
 
-.fui-toast-title {
+.fcon-toast-title {
   font-weight: 600;
 }
 
 /* The help overlay is a native dialog: the browser keeps its focus and
    closes it on Escape. */
 /* In the top layer, so it is placed against the viewport rather than the page. */
-dialog.fui-dialog-panel {
-  color: var(--fui-ink-1);
+dialog.fcon-dialog-panel {
+  color: var(--fcon-ink-1);
   inset: 0 0 auto;
   margin: 10vh auto 0;
   position: fixed;
   max-height: 80vh;
   overflow-y: auto;
   padding: 0;
-  width: calc(100% - 2 * var(--fui-space-4));
+  width: calc(100% - 2 * var(--fcon-space-4));
 }
 
-dialog.fui-dialog-panel::backdrop {
-  background: var(--fui-scrim);
+dialog.fcon-dialog-panel::backdrop {
+  background: var(--fcon-scrim);
 }
 
 /* ======================================================================
    Flows: steps
    ====================================================================== */
 
-.fui-steps {
-  counter-reset: fui-step;
+.fcon-steps {
+  counter-reset: fcon-step;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--fui-space-2) var(--fui-space-5);
+  gap: var(--fcon-space-2) var(--fcon-space-5);
   list-style: none;
 }
 
-.fui-step {
+.fcon-step {
   align-items: center;
-  color: var(--fui-ink-3);
-  counter-increment: fui-step;
+  color: var(--fcon-ink-3);
+  counter-increment: fcon-step;
   display: inline-flex;
-  font-size: var(--fui-text-sm);
+  font-size: var(--fcon-text-sm);
   font-weight: 500;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
 }
 
-.fui-step::before {
+.fcon-step::before {
   align-items: center;
   border: 1.5px solid currentColor;
-  border-radius: var(--fui-radius-round);
-  content: counter(fui-step);
+  border-radius: var(--fcon-radius-round);
+  content: counter(fcon-step);
   display: inline-flex;
-  font-family: var(--fui-font-mono);
-  font-size: var(--fui-text-xs);
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-xs);
   height: 1.375rem;
   justify-content: center;
   width: 1.375rem;
 }
 
-.fui-step[aria-current="step"] {
-  color: var(--fui-accent);
+.fcon-step[aria-current="step"] {
+  color: var(--fcon-accent);
 }
 
-.fui-step[data-done] {
-  color: var(--fui-ink-2);
+.fcon-step[data-done] {
+  color: var(--fcon-ink-2);
 }
 
-.fui-step[data-done]::before {
-  background: var(--fui-positive);
-  border-color: var(--fui-positive);
-  color: var(--fui-on-positive);
+.fcon-step[data-done]::before {
+  background: var(--fcon-positive);
+  border-color: var(--fcon-positive);
+  color: var(--fcon-on-positive);
   content: "✓";
 }
 
-.fui-steps-body {
+.fcon-steps-body {
   display: grid;
-  gap: var(--fui-space-4);
-  margin-top: var(--fui-space-5);
+  gap: var(--fcon-space-4);
+  margin-top: var(--fcon-space-5);
 }
 
-.fui-steps-foot {
+.fcon-steps-foot {
   align-items: center;
-  border-top: 1px solid var(--fui-line);
+  border-top: 1px solid var(--fcon-line);
   display: flex;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
   justify-content: space-between;
-  margin-top: var(--fui-space-5);
-  padding-top: var(--fui-space-4);
+  margin-top: var(--fcon-space-5);
+  padding-top: var(--fcon-space-4);
 }
 
 /* A choice drawn as a card: a factory in the start flow. */
-.fui-choice {
+.fcon-choice {
   align-items: start;
-  border: 1px solid var(--fui-line);
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-ink-1);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
   display: grid;
-  gap: var(--fui-space-1);
-  padding: var(--fui-space-3) var(--fui-space-4);
+  gap: var(--fcon-space-1);
+  padding: var(--fcon-space-3) var(--fcon-space-4);
   text-align: left;
   width: 100%;
 }
 
-.fui-choice:hover:not(:disabled) {
-  border-color: var(--fui-accent);
+.fcon-choice:hover:not(:disabled) {
+  border-color: var(--fcon-accent);
 }
 
-.fui-choice[aria-pressed="true"],
-.fui-choice:has(input:checked) {
-  background: var(--fui-accent-subtle);
-  border-color: var(--fui-accent);
+.fcon-choice[aria-pressed="true"],
+.fcon-choice:has(input:checked) {
+  background: var(--fcon-accent-subtle);
+  border-color: var(--fcon-accent);
 }
 
 /* A card holding a radio: the radio beside the text, the whole card the
    label that picks it. */
-.fui-choice:has(> input[type="radio"]) {
+.fcon-choice:has(> input[type="radio"]) {
   cursor: pointer;
-  gap: var(--fui-space-1) var(--fui-space-3);
+  gap: var(--fcon-space-1) var(--fcon-space-3);
   grid-template-columns: auto minmax(0, 1fr);
 }
 
-.fui-choice > input[type="radio"] {
+.fcon-choice > input[type="radio"] {
   margin-top: 0.15rem;
 }
 
-.fui-choice:disabled {
-  background: var(--fui-canvas);
-  color: var(--fui-ink-3);
+.fcon-choice:disabled {
+  background: var(--fcon-canvas);
+  color: var(--fcon-ink-3);
   cursor: not-allowed;
 }
 
-.fui-choices {
+.fcon-choices {
   display: grid;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
   max-height: 22rem;
   overflow-y: auto;
 }
 
 /* A card laid out as a row: a glyph, the text, and a mark at the end that
    turns to a check once chosen. */
-.fui-choice--row {
+.fcon-choice--row {
   align-items: center;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
   grid-template-columns: auto minmax(0, 1fr) auto;
-  transition: border-color var(--fui-fast) var(--fui-ease), background var(--fui-fast) var(--fui-ease);
+  transition: border-color var(--fcon-fast) var(--fcon-ease), background var(--fcon-fast) var(--fcon-ease);
 }
 
-.fui-choice-mark {
-  color: var(--fui-ink-3);
+.fcon-choice-mark {
+  color: var(--fcon-ink-3);
   opacity: 0;
-  transition: opacity var(--fui-fast) var(--fui-ease), transform var(--fui-fast) var(--fui-ease);
+  transition: opacity var(--fcon-fast) var(--fcon-ease), transform var(--fcon-fast) var(--fcon-ease);
 }
 
-.fui-choice--row:hover:not(:disabled) .fui-choice-mark,
-.fui-choice--row:focus-visible .fui-choice-mark {
+.fcon-choice--row:hover:not(:disabled) .fcon-choice-mark,
+.fcon-choice--row:focus-visible .fcon-choice-mark {
   opacity: 1;
   transform: translateX(2px);
 }
 
-.fui-choice[aria-pressed="true"] .fui-choice-mark {
-  color: var(--fui-accent);
+.fcon-choice[aria-pressed="true"] .fcon-choice-mark {
+  color: var(--fcon-accent);
   opacity: 1;
   transform: none;
 }
 
 /* A card holding a checkbox reads as a card holding a radio. */
-.fui-choice:has(> input[type="checkbox"]) {
+.fcon-choice:has(> input[type="checkbox"]) {
   cursor: pointer;
-  gap: var(--fui-space-1) var(--fui-space-3);
+  gap: var(--fcon-space-1) var(--fcon-space-3);
   grid-template-columns: auto minmax(0, 1fr);
 }
 
-.fui-choice > input[type="checkbox"] {
+.fcon-choice > input[type="checkbox"] {
   margin-top: 0.15rem;
 }
 
 /* Choices side by side, as many as fit: a provider's hooks. */
-.fui-choices--tiles {
+.fcon-choices--tiles {
   grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
   max-height: none;
   overflow: visible;
@@ -1933,10 +1933,10 @@ dialog.fui-dialog-panel::backdrop {
 
 /* A role or a run told apart by one of the wire hues; what it is, is said in
    words beside it. */
-.fui-glyph {
+.fcon-glyph {
   align-items: center;
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-ink-2);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-2);
   display: inline-flex;
   flex: none;
   height: 2.25rem;
@@ -1944,45 +1944,45 @@ dialog.fui-dialog-panel::backdrop {
   width: 2.25rem;
 }
 
-.fui-glyph--lg {
+.fcon-glyph--lg {
   height: 3rem;
   width: 3rem;
 }
 
-.fui-glyph[data-tone="0"] { background: color-mix(in oklab, var(--fui-wire-0) 13%, var(--fui-surface)); color: var(--fui-wire-0); }
-.fui-glyph[data-tone="1"] { background: color-mix(in oklab, var(--fui-wire-1) 13%, var(--fui-surface)); color: var(--fui-wire-1); }
-.fui-glyph[data-tone="2"] { background: color-mix(in oklab, var(--fui-wire-2) 13%, var(--fui-surface)); color: var(--fui-wire-2); }
-.fui-glyph[data-tone="3"] { background: color-mix(in oklab, var(--fui-wire-3) 13%, var(--fui-surface)); color: var(--fui-wire-3); }
-.fui-glyph[data-tone="4"] { background: color-mix(in oklab, var(--fui-wire-4) 13%, var(--fui-surface)); color: var(--fui-wire-4); }
-.fui-glyph[data-tone="5"] { background: color-mix(in oklab, var(--fui-wire-5) 13%, var(--fui-surface)); color: var(--fui-wire-5); }
-.fui-glyph[data-tone="positive"] { background: var(--fui-positive-subtle); color: var(--fui-positive); }
-.fui-glyph[data-tone="warning"] { background: var(--fui-warning-subtle); color: var(--fui-warning); }
-.fui-glyph[data-tone="negative"] { background: var(--fui-negative-subtle); color: var(--fui-negative); }
-.fui-glyph[data-tone="neutral"] { background: var(--fui-hover); }
+.fcon-glyph[data-tone="0"] { background: color-mix(in oklab, var(--fcon-wire-0) 13%, var(--fcon-surface)); color: var(--fcon-wire-0); }
+.fcon-glyph[data-tone="1"] { background: color-mix(in oklab, var(--fcon-wire-1) 13%, var(--fcon-surface)); color: var(--fcon-wire-1); }
+.fcon-glyph[data-tone="2"] { background: color-mix(in oklab, var(--fcon-wire-2) 13%, var(--fcon-surface)); color: var(--fcon-wire-2); }
+.fcon-glyph[data-tone="3"] { background: color-mix(in oklab, var(--fcon-wire-3) 13%, var(--fcon-surface)); color: var(--fcon-wire-3); }
+.fcon-glyph[data-tone="4"] { background: color-mix(in oklab, var(--fcon-wire-4) 13%, var(--fcon-surface)); color: var(--fcon-wire-4); }
+.fcon-glyph[data-tone="5"] { background: color-mix(in oklab, var(--fcon-wire-5) 13%, var(--fcon-surface)); color: var(--fcon-wire-5); }
+.fcon-glyph[data-tone="positive"] { background: var(--fcon-positive-subtle); color: var(--fcon-positive); }
+.fcon-glyph[data-tone="warning"] { background: var(--fcon-warning-subtle); color: var(--fcon-warning); }
+.fcon-glyph[data-tone="negative"] { background: var(--fcon-negative-subtle); color: var(--fcon-negative); }
+.fcon-glyph[data-tone="neutral"] { background: var(--fcon-hover); }
 
 /* ---- A guided flow down a rail ----
  * The steps stand in a rail beside the body, under a bar of how far the flow
  * has come; each step says what was chosen there. The dialog holding it keeps
  * one height, so moving between steps never makes it jump.
  */
-.fui-dialog-panel--flow {
+.fcon-dialog-panel--flow {
   display: flex;
   flex-direction: column;
-  height: min(48rem, calc(100dvh - 2 * var(--fui-space-9)));
+  height: min(48rem, calc(100dvh - 2 * var(--fcon-space-9)));
   max-width: 68rem;
 }
 
-.fui-dialog-panel--flow > .fui-dialog-head {
-  padding-bottom: var(--fui-space-4);
+.fcon-dialog-panel--flow > .fcon-dialog-head {
+  padding-bottom: var(--fcon-space-4);
 }
 
-.fui-dialog-panel--flow > .fui-dialog-body {
+.fcon-dialog-panel--flow > .fcon-dialog-body {
   flex: 1;
   min-height: 0;
   padding: 0;
 }
 
-.fui-flow {
+.fcon-flow {
   display: grid;
   grid-template-areas:
     "bar bar"
@@ -1993,59 +1993,59 @@ dialog.fui-dialog-panel::backdrop {
   min-height: 0;
 }
 
-.fui-flow-progress {
-  background: var(--fui-line);
+.fcon-flow-progress {
+  background: var(--fcon-line);
   grid-area: bar;
   height: 3px;
 }
 
-.fui-flow-progress > span {
-  background: var(--fui-accent);
+.fcon-flow-progress > span {
+  background: var(--fcon-accent);
   display: block;
   height: 100%;
-  transition: width var(--fui-slow) var(--fui-ease);
+  transition: width var(--fcon-slow) var(--fcon-ease);
 }
 
-.fui-flow-rail {
-  background: var(--fui-canvas);
-  border-right: 1px solid var(--fui-line);
+.fcon-flow-rail {
+  background: var(--fcon-canvas);
+  border-right: 1px solid var(--fcon-line);
   display: flex;
   flex-direction: column;
-  gap: var(--fui-space-5);
+  gap: var(--fcon-space-5);
   grid-area: rail;
   overflow-y: auto;
-  padding: var(--fui-space-5) var(--fui-space-4);
+  padding: var(--fcon-space-5) var(--fcon-space-4);
 }
 
-.fui-flow-rail > .fui-steps {
+.fcon-flow-rail > .fcon-steps {
   flex-direction: column;
   flex-wrap: nowrap;
   gap: 0;
 }
 
-.fui-flow-rail .fui-step {
+.fcon-flow-rail .fcon-step {
   align-items: start;
   display: grid;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
   grid-template-columns: 1.75rem minmax(0, 1fr);
   min-height: 4.25rem;
   position: relative;
 }
 
-.fui-flow-rail .fui-step::before {
-  background: var(--fui-raised);
-  border-color: var(--fui-line-strong);
+.fcon-flow-rail .fcon-step::before {
+  background: var(--fcon-raised);
+  border-color: var(--fcon-line-strong);
   height: 1.75rem;
   position: relative;
-  transition: background var(--fui-base) var(--fui-ease), border-color var(--fui-base) var(--fui-ease);
+  transition: background var(--fcon-base) var(--fcon-ease), border-color var(--fcon-base) var(--fcon-ease);
   width: 1.75rem;
   z-index: 1;
 }
 
 /* The line from one step to the next, filled once the step is done. */
-.fui-flow-rail .fui-step:not(:last-child)::after {
-  background: var(--fui-line);
-  bottom: var(--fui-space-1);
+.fcon-flow-rail .fcon-step:not(:last-child)::after {
+  background: var(--fcon-line);
+  bottom: var(--fcon-space-1);
   content: "";
   left: calc(0.875rem - 1px);
   position: absolute;
@@ -2053,299 +2053,299 @@ dialog.fui-dialog-panel::backdrop {
   width: 2px;
 }
 
-.fui-flow-rail .fui-step[data-done]::after {
-  background: var(--fui-positive);
+.fcon-flow-rail .fcon-step[data-done]::after {
+  background: var(--fcon-positive);
 }
 
-.fui-flow-rail .fui-step[data-done]::before {
-  background: var(--fui-positive);
-  border-color: var(--fui-positive);
-  color: var(--fui-on-positive);
+.fcon-flow-rail .fcon-step[data-done]::before {
+  background: var(--fcon-positive);
+  border-color: var(--fcon-positive);
+  color: var(--fcon-on-positive);
 }
 
-.fui-flow-rail .fui-step[aria-current="step"]::before {
-  animation: fui-pulse 1.8s var(--fui-ease) infinite;
-  background: var(--fui-accent);
-  border-color: var(--fui-accent);
-  color: var(--fui-on-accent);
+.fcon-flow-rail .fcon-step[aria-current="step"]::before {
+  animation: fcon-pulse 1.8s var(--fcon-ease) infinite;
+  background: var(--fcon-accent);
+  border-color: var(--fcon-accent);
+  color: var(--fcon-on-accent);
 }
 
-/* A ripple out of whatever it marks, in `--fui-pulse` (the accent unless set). */
-@keyframes fui-pulse {
-  from { box-shadow: 0 0 0 0 color-mix(in oklab, var(--fui-pulse, var(--fui-accent)) 45%, transparent); }
+/* A ripple out of whatever it marks, in `--fcon-pulse` (the accent unless set). */
+@keyframes fcon-pulse {
+  from { box-shadow: 0 0 0 0 color-mix(in oklab, var(--fcon-pulse, var(--fcon-accent)) 45%, transparent); }
   to { box-shadow: 0 0 0 0.5rem transparent; }
 }
 
-.fui-step-text {
+.fcon-step-text {
   color: inherit;
   display: grid;
   min-width: 0;
   text-align: left;
 }
 
-.fui-flow-rail .fui-step-label {
-  color: var(--fui-ink-2);
+.fcon-flow-rail .fcon-step-label {
+  color: var(--fcon-ink-2);
   font-weight: 600;
   padding-top: 0.2rem;
 }
 
-.fui-flow-rail .fui-step[aria-current="step"] .fui-step-label {
-  color: var(--fui-ink-1);
+.fcon-flow-rail .fcon-step[aria-current="step"] .fcon-step-label {
+  color: var(--fcon-ink-1);
 }
 
-button.fui-step-text:hover .fui-step-label {
+button.fcon-step-text:hover .fcon-step-label {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
-.fui-step-summary {
-  color: var(--fui-ink-3);
+.fcon-step-summary {
+  color: var(--fcon-ink-3);
   display: block;
-  font-size: var(--fui-text-xs);
+  font-size: var(--fcon-text-xs);
   font-weight: 400;
   line-height: 1.35;
   margin-top: 2px;
   overflow-wrap: anywhere;
 }
 
-.fui-step[data-done] .fui-step-summary {
-  color: var(--fui-ink-2);
-  font-family: var(--fui-font-mono);
+.fcon-step[data-done] .fcon-step-summary {
+  color: var(--fcon-ink-2);
+  font-family: var(--fcon-font-mono);
 }
 
-.fui-flow-note {
-  border: 1px dashed var(--fui-line-strong);
-  color: var(--fui-ink-2);
-  font-size: var(--fui-text-xs);
+.fcon-flow-note {
+  border: 1px dashed var(--fcon-line-strong);
+  color: var(--fcon-ink-2);
+  font-size: var(--fcon-text-xs);
   line-height: 1.45;
   margin-top: auto;
-  padding: var(--fui-space-3);
+  padding: var(--fcon-space-3);
 }
 
-.fui-flow > .fui-steps-body {
+.fcon-flow > .fcon-steps-body {
   align-content: start;
-  animation: fui-step-in var(--fui-slow) var(--fui-ease);
+  animation: fcon-step-in var(--fcon-slow) var(--fcon-ease);
   grid-area: body;
   margin-top: 0;
   overflow-y: auto;
-  padding: var(--fui-space-5) var(--fui-space-6);
+  padding: var(--fcon-space-5) var(--fcon-space-6);
 }
 
-@keyframes fui-step-in {
-  from { opacity: 0; transform: translateX(var(--fui-space-4)); }
+@keyframes fcon-step-in {
+  from { opacity: 0; transform: translateX(var(--fcon-space-4)); }
   to { opacity: 1; transform: translateX(0); }
 }
 
-.fui-flow > .fui-steps-foot {
-  background: var(--fui-raised);
+.fcon-flow > .fcon-steps-foot {
+  background: var(--fcon-raised);
   grid-area: foot;
   margin-top: 0;
-  padding: var(--fui-space-3) var(--fui-space-6);
+  padding: var(--fcon-space-3) var(--fcon-space-6);
 }
 
 /* The first control of the foot (Cancel) stands apart from the rest. */
-.fui-flow > .fui-steps-foot > :first-child {
+.fcon-flow > .fcon-steps-foot > :first-child {
   margin-right: auto;
 }
 
-.fui-flow-form,
-.fui-flow-section {
+.fcon-flow-form,
+.fcon-flow-section {
   display: grid;
-  gap: var(--fui-space-5);
+  gap: var(--fcon-space-5);
 }
 
-.fui-flow-section[hidden] {
+.fcon-flow-section[hidden] {
   display: none;
 }
 
-.fui-flow-group {
+.fcon-flow-group {
   display: grid;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
 }
 
-.fui-flow-fields {
+.fcon-flow-fields {
   display: grid;
-  gap: var(--fui-space-4) var(--fui-space-5);
+  gap: var(--fcon-space-4) var(--fcon-space-5);
   grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
 }
 
-.fui-flow-fields > .fui-field:has(textarea) {
+.fcon-flow-fields > .fcon-field:has(textarea) {
   grid-column: 1 / -1;
 }
 
 /* A typed value's check, stated under its field as it is typed. */
-.fui-flow-check {
+.fcon-flow-check {
   align-items: center;
-  color: var(--fui-ink-2);
+  color: var(--fcon-ink-2);
   display: flex;
   flex-wrap: wrap;
-  font-size: var(--fui-text-xs);
-  gap: var(--fui-space-1);
-  margin-top: var(--fui-space-2);
+  font-size: var(--fcon-text-xs);
+  gap: var(--fcon-space-1);
+  margin-top: var(--fcon-space-2);
 }
 
 /* A section folded away until it is wanted. */
-.fui-disclosure {
-  border-top: 1px solid var(--fui-line);
-  padding-top: var(--fui-space-3);
+.fcon-disclosure {
+  border-top: 1px solid var(--fcon-line);
+  padding-top: var(--fcon-space-3);
 }
 
-.fui-disclosure > summary,
-.fui-disclosure-toggle {
+.fcon-disclosure > summary,
+.fcon-disclosure-toggle {
   align-items: baseline;
   cursor: pointer;
   display: flex;
   flex-wrap: wrap;
-  font-family: var(--fui-font-display);
+  font-family: var(--fcon-font-display);
   font-weight: 600;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
   text-align: left;
 }
 
-.fui-disclosure-mark {
+.fcon-disclosure-mark {
   align-self: center;
-  transition: transform var(--fui-fast) var(--fui-ease);
+  transition: transform var(--fcon-fast) var(--fcon-ease);
 }
 
-.fui-disclosure-toggle[aria-expanded="true"] .fui-disclosure-mark {
+.fcon-disclosure-toggle[aria-expanded="true"] .fcon-disclosure-mark {
   transform: rotate(90deg);
 }
 
-.fui-flow-fields[hidden] {
+.fcon-flow-fields[hidden] {
   display: none;
 }
 
-:is(.fui-disclosure > summary, .fui-disclosure-toggle) .fui-muted {
-  font-family: var(--fui-font-sans);
-  font-size: var(--fui-text-xs);
+:is(.fcon-disclosure > summary, .fcon-disclosure-toggle) .fcon-muted {
+  font-family: var(--fcon-font-sans);
+  font-size: var(--fcon-text-xs);
   font-weight: 400;
 }
 
 /* ---- Choosing from a list, with the choice described beside it ---- */
-.fui-pick {
+.fcon-pick {
   display: grid;
-  gap: var(--fui-space-4);
+  gap: var(--fcon-space-4);
 }
 
-.fui-pick-tools {
+.fcon-pick-tools {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
 }
 
-.fui-pick-tools > input[type="search"] {
+.fcon-pick-tools > input[type="search"] {
   flex: 1 1 14rem;
 }
 
-.fui-pick-split {
+.fcon-pick-split {
   align-items: start;
   display: grid;
-  gap: var(--fui-space-5);
+  gap: var(--fcon-space-5);
   grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
 }
 
-.fui-pick-list {
+.fcon-pick-list {
   display: grid;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
 }
 
-.fui-pick-group {
+.fcon-pick-group {
   display: grid;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
 }
 
-.fui-pick-group + .fui-pick-group {
-  margin-top: var(--fui-space-3);
+.fcon-pick-group + .fcon-pick-group {
+  margin-top: var(--fcon-space-3);
 }
 
 /* A group whose every item the filter hid says nothing. */
-.fui-pick-group:not(:has([data-fui-item]:not([hidden]))) {
+.fcon-pick-group:not(:has([data-fcon-item]:not([hidden]))) {
   display: none;
 }
 
-.fui-pane {
-  animation: fui-step-in var(--fui-base) var(--fui-ease);
-  background: var(--fui-canvas);
-  border: 1px solid var(--fui-line);
+.fcon-pane {
+  animation: fcon-step-in var(--fcon-base) var(--fcon-ease);
+  background: var(--fcon-canvas);
+  border: 1px solid var(--fcon-line);
   display: grid;
-  gap: var(--fui-space-4);
-  padding: var(--fui-space-5);
+  gap: var(--fcon-space-4);
+  padding: var(--fcon-space-5);
   position: sticky;
   top: 0;
 }
 
-.fui-pane--empty {
-  color: var(--fui-ink-3);
-  font-size: var(--fui-text-sm);
+.fcon-pane--empty {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-sm);
   justify-items: center;
-  padding: var(--fui-space-8) var(--fui-space-5);
+  padding: var(--fcon-space-8) var(--fcon-space-5);
   text-align: center;
 }
 
-.fui-pane-head {
+.fcon-pane-head {
   align-items: center;
   display: flex;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
 }
 
-.fui-pane-title {
-  font-family: var(--fui-font-display);
-  font-size: var(--fui-text-xl);
+.fcon-pane-title {
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-xl);
   font-weight: 600;
-  line-height: var(--fui-leading-tight);
+  line-height: var(--fcon-leading-tight);
   overflow-wrap: anywhere;
 }
 
-.fui-pane-needs {
+.fcon-pane-needs {
   display: grid;
-  font-size: var(--fui-text-sm);
-  gap: var(--fui-space-2);
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-2);
 }
 
-.fui-pane-needs dt {
+.fcon-pane-needs dt {
   font-weight: 500;
 }
 
 /* A command that does what the flow will, ready to copy. */
-.fui-command {
+.fcon-command {
   display: grid;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
 }
 
-.fui-command-head {
+.fcon-command-head {
   align-items: center;
   display: flex;
   justify-content: space-between;
 }
 
 .flz-button[data-copied] {
-  border-color: var(--fui-positive);
-  color: var(--fui-positive);
+  border-color: var(--fcon-positive);
+  color: var(--fcon-positive);
 }
 
 /* What a flow did, once it is done. */
-.fui-done {
+.fcon-done {
   display: grid;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
   justify-items: center;
-  padding: var(--fui-space-5) 0;
+  padding: var(--fcon-space-5) 0;
   text-align: center;
 }
 
-.fui-done-mark {
+.fcon-done-mark {
   align-items: center;
-  animation: fui-pop var(--fui-slow) var(--fui-ease);
-  background: var(--fui-positive-subtle);
-  border-radius: var(--fui-radius-round);
-  color: var(--fui-positive);
+  animation: fcon-pop var(--fcon-slow) var(--fcon-ease);
+  background: var(--fcon-positive-subtle);
+  border-radius: var(--fcon-radius-round);
+  color: var(--fcon-positive);
   display: inline-flex;
   height: 4.5rem;
   justify-content: center;
   width: 4.5rem;
 }
 
-@keyframes fui-pop {
+@keyframes fcon-pop {
   0% { opacity: 0; transform: scale(0.4); }
   70% { transform: scale(1.1); }
   100% { opacity: 1; transform: scale(1); }
@@ -2354,66 +2354,66 @@ button.fui-step-text:hover .fui-step-label {
 /* Below desk width the list and its description stack, the description
    first once there is one; on a phone the rail lies across the top. */
 @media (width <= 899px) {
-  .fui-pick-split {
+  .fcon-pick-split {
     grid-template-columns: 1fr;
   }
 
-  .fui-pane {
+  .fcon-pane {
     order: -1;
     position: static;
   }
 
-  .fui-pane--empty {
+  .fcon-pane--empty {
     display: none;
   }
 }
 
 @media (width <= 699px) {
-  .fui-dialog-panel--flow {
+  .fcon-dialog-panel--flow {
     height: auto;
   }
 
-  .fui-flow {
+  .fcon-flow {
     grid-template-areas: "bar" "rail" "body" "foot";
     grid-template-columns: 1fr;
     grid-template-rows: auto auto auto auto;
   }
 
-  .fui-flow-rail {
-    border-bottom: 1px solid var(--fui-line);
+  .fcon-flow-rail {
+    border-bottom: 1px solid var(--fcon-line);
     border-right: 0;
-    padding: var(--fui-space-3) var(--fui-space-4);
+    padding: var(--fcon-space-3) var(--fcon-space-4);
   }
 
-  .fui-flow-rail > .fui-steps {
+  .fcon-flow-rail > .fcon-steps {
     flex-direction: row;
-    gap: var(--fui-space-4);
+    gap: var(--fcon-space-4);
   }
 
-  .fui-flow-rail .fui-step {
+  .fcon-flow-rail .fcon-step {
     min-height: 0;
   }
 
   /* Across a phone only the current step is named; the others are their
      dots, which still say done or to come. */
-  .fui-flow-rail .fui-step::after,
-  .fui-flow-rail .fui-step-summary,
-  .fui-flow-rail .fui-step:not([aria-current]) .fui-step-text,
-  .fui-flow-note {
+  .fcon-flow-rail .fcon-step::after,
+  .fcon-flow-rail .fcon-step-summary,
+  .fcon-flow-rail .fcon-step:not([aria-current]) .fcon-step-text,
+  .fcon-flow-note {
     display: none;
   }
 
-  .fui-flow-rail .fui-step:not([aria-current]) {
+  .fcon-flow-rail .fcon-step:not([aria-current]) {
     grid-template-columns: 1.75rem;
   }
 
-  .fui-flow > .fui-steps-body {
+  .fcon-flow > .fcon-steps-body {
     overflow: visible;
-    padding: var(--fui-space-4);
+    padding: var(--fcon-space-4);
   }
 
-  .fui-dialog .fui-flow > .fui-steps-foot {
-    padding: var(--fui-space-3) var(--fui-space-4);
+  .fcon-dialog .fcon-flow > .fcon-steps-foot {
+    padding: var(--fcon-space-3) var(--fcon-space-4);
   }
 }
 
@@ -2423,124 +2423,124 @@ button.fui-step-text:hover .fui-step-label {
 
 /* A condition as labelled rows: the label on the left, the fact on the
    right, one line each; a phone stacks them. */
-.fui-state-summary {
+.fcon-state-summary {
   display: grid;
-  font-size: var(--fui-text-sm);
-  gap: var(--fui-space-2);
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-2);
 }
 
-.fui-state-summary > div {
+.fcon-state-summary > div {
   display: grid;
-  gap: var(--fui-space-1) var(--fui-space-4);
+  gap: var(--fcon-space-1) var(--fcon-space-4);
   grid-template-columns: 9rem minmax(0, 1fr);
 }
 
-.fui-state-summary dt {
+.fcon-state-summary dt {
   padding-top: 2px;
 }
 
-.fui-state-summary dd {
-  color: var(--fui-ink-1);
+.fcon-state-summary dd {
+  color: var(--fcon-ink-1);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.fui-state-summary dd.fui-condition-said {
+.fcon-state-summary dd.fcon-condition-said {
   align-items: center;
   display: flex;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
 }
 
-.fui-state-summary > div:first-child dd {
+.fcon-state-summary > div:first-child dd {
   font-weight: 600;
 }
 
 @media (width <= 599px) {
-  .fui-state-summary > div {
+  .fcon-state-summary > div {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
-.fui-problems {
+.fcon-problems {
   display: grid;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
 }
 
-.fui-problem {
-  border: 1px solid var(--fui-line);
-  border-left: 3px solid var(--fui-warning);
-  border-radius: var(--fui-radius-control);
+.fcon-problem {
+  border: 1px solid var(--fcon-line);
+  border-left: 3px solid var(--fcon-warning);
+  border-radius: var(--fcon-radius-control);
   display: grid;
-  gap: var(--fui-space-1) var(--fui-space-4);
+  gap: var(--fcon-space-1) var(--fcon-space-4);
   grid-template-columns: minmax(0, 1fr) auto;
-  padding: var(--fui-space-3) var(--fui-space-4);
+  padding: var(--fcon-space-3) var(--fcon-space-4);
 }
 
-.fui-problem--negative {
-  border-left-color: var(--fui-negative);
+.fcon-problem--negative {
+  border-left-color: var(--fcon-negative);
 }
 
-.fui-problem-what {
+.fcon-problem-what {
   align-items: center;
-  color: var(--fui-ink-1);
+  color: var(--fcon-ink-1);
   display: flex;
   flex-wrap: wrap;
   font-weight: 600;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
 }
 
-.fui-problem > .fui-state-summary {
+.fcon-problem > .fcon-state-summary {
   grid-column: 1;
 }
 
-.fui-problem-meta {
-  color: var(--fui-ink-3);
-  font-size: var(--fui-text-xs);
+.fcon-problem-meta {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
   grid-column: 1;
 }
 
-.fui-problem-actions {
+.fcon-problem-actions {
   align-items: flex-start;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
   grid-column: 2;
   grid-row: 1 / span 3;
   justify-content: flex-end;
 }
 
-.fui-problem-detail {
+.fcon-problem-detail {
   grid-column: 1 / -1;
-  margin-top: var(--fui-space-2);
+  margin-top: var(--fcon-space-2);
 }
 
 @media (width <= 599px) {
-  .fui-problem {
+  .fcon-problem {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .fui-problem-actions {
+  .fcon-problem-actions {
     grid-column: 1;
     grid-row: auto;
     justify-content: flex-start;
   }
 }
 
-.fui-river {
+.fcon-river {
   display: grid;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
 }
 
-.fui-river-track {
-  background: var(--fui-hover);
-  border-radius: var(--fui-radius-control);
+.fcon-river-track {
+  background: var(--fcon-hover);
+  border-radius: var(--fcon-radius-control);
   height: 0.5rem;
   position: relative;
 }
 
-.fui-river-mark {
-  background: var(--fui-signal);
-  border-radius: var(--fui-radius-round);
+.fcon-river-mark {
+  background: var(--fcon-signal);
+  border-radius: var(--fcon-radius-round);
   height: 0.5rem;
   position: absolute;
   top: 0;
@@ -2548,51 +2548,51 @@ button.fui-step-text:hover .fui-step-label {
   width: 3px;
 }
 
-.fui-river-mark[data-tone="warning"] { background: var(--fui-warning); }
-.fui-river-mark[data-tone="negative"] { background: var(--fui-negative); }
-.fui-river-mark[data-tone="positive"] { background: var(--fui-positive); }
+.fcon-river-mark[data-tone="warning"] { background: var(--fcon-warning); }
+.fcon-river-mark[data-tone="negative"] { background: var(--fcon-negative); }
+.fcon-river-mark[data-tone="positive"] { background: var(--fcon-positive); }
 
-.fui-river-scale {
-  color: var(--fui-ink-3);
+.fcon-river-scale {
+  color: var(--fcon-ink-3);
   display: flex;
-  font-size: var(--fui-text-xs);
+  font-size: var(--fcon-text-xs);
   justify-content: space-between;
 }
 
-.fui-river-list {
+.fcon-river-list {
   display: grid;
 }
 
-.fui-river-event {
+.fcon-river-event {
   align-items: baseline;
-  border-bottom: 1px solid var(--fui-line);
+  border-bottom: 1px solid var(--fcon-line);
   display: grid;
-  font-size: var(--fui-text-sm);
-  gap: var(--fui-space-1) var(--fui-space-3);
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-1) var(--fcon-space-3);
   grid-template-columns: 5.5rem minmax(0, 12rem) minmax(0, 1fr);
-  padding: var(--fui-space-2) 0;
+  padding: var(--fcon-space-2) 0;
 }
 
-.fui-river-time,
-.fui-tech-name {
-  color: var(--fui-ink-3);
-  font-family: var(--fui-font-mono);
-  font-size: var(--fui-text-xs);
+.fcon-river-time,
+.fcon-tech-name {
+  color: var(--fcon-ink-3);
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-xs);
 }
 
-.fui-river-object {
-  font-family: var(--fui-font-mono);
+.fcon-river-object {
+  font-family: var(--fcon-font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 @media (width <= 599px) {
-  .fui-river-event {
+  .fcon-river-event {
     grid-template-columns: 4.5rem minmax(0, 1fr);
   }
 
-  .fui-river-event > :last-child {
+  .fcon-river-event > :last-child {
     grid-column: 1 / -1;
   }
 }
@@ -2601,27 +2601,27 @@ button.fui-step-text:hover .fui-step-label {
    Tiles: a namespace, a source, a provider
    ====================================================================== */
 
-.fui-tiles {
+.fcon-tiles {
   display: grid;
-  gap: var(--fui-space-4);
+  gap: var(--fcon-space-4);
   grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
 }
 
 /* A tile's surface, edge, hover and focus are the stylebook's `.flz-tile`.
    Its fixed rows belong to an indicator; a tile in a list of objects stacks
    what it holds from the top. */
-.fui-tile {
-  gap: var(--fui-space-3);
+.fcon-tile {
+  gap: var(--fcon-space-3);
 }
 
-.fui-tiles > .fui-tile {
+.fcon-tiles > .fcon-tile {
   align-content: start;
   grid-template-rows: none;
 }
 
-.fui-tile-title {
-  font-family: var(--fui-font-display);
-  font-size: var(--fui-text-xl);
+.fcon-tile-title {
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-xl);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -2629,127 +2629,127 @@ button.fui-step-text:hover .fui-step-label {
 /* Indicators: a row of figures, each under its label. */
 /* Every row of indicators shares one minimum height, so two rows on a screen
    stand level whatever each tile holds. */
-.fui-indicators {
+.fcon-indicators {
   display: grid;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
   grid-auto-rows: minmax(16rem, auto);
   grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
 }
 
 /* Doubled up: the stylebook's `.flz-tile` loads after this sheet. */
-.flz-tile.fui-indicator {
-  gap: var(--fui-space-3);
+.flz-tile.fcon-indicator {
+  gap: var(--fcon-space-3);
 }
 
 /* The glyph and the verdict pill carry the tone, so the tile's tone
    edge would only say it a third time. */
-.flz-tile.fui-indicator::before {
+.flz-tile.fcon-indicator::before {
   content: none;
 }
 
-.fui-indicator-head {
+.fcon-indicator-head {
   align-items: center;
   display: flex;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
   min-width: 0;
 }
 
 /* A figure re-read every few seconds: a slow ripple in the live signal's
    colour. Positioned, it takes no cell of the tile's grid. */
-.fui-indicator-pulse {
-  --fui-pulse: var(--fui-signal);
+.fcon-indicator-pulse {
+  --fcon-pulse: var(--fcon-signal);
 
-  animation: fui-pulse 2s var(--fui-ease) infinite;
-  background: var(--fui-signal);
+  animation: fcon-pulse 2s var(--fcon-ease) infinite;
+  background: var(--fcon-signal);
   border-radius: 50%;
   height: 0.5rem;
   position: absolute;
-  right: var(--fui-space-3);
-  top: var(--fui-space-3);
+  right: var(--fcon-space-3);
+  top: var(--fcon-space-3);
   width: 0.5rem;
 }
 
 /* Digits that keep changing hold their width, so the figure does not jitter. */
-.fui-indicator--live .fui-figure {
-  font-family: var(--fui-font-mono);
+.fcon-indicator--live .fcon-figure {
+  font-family: var(--fcon-font-mono);
 }
 
 /* The end row: an edge-to-edge chart, then the foot. */
-.fui-indicator-end {
+.fcon-indicator-end {
   align-content: end;
   display: grid;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
 }
 
-.fui-indicator .fui-indicator-end > .fui-spark {
+.fcon-indicator .fcon-indicator-end > .fcon-spark {
   height: 2.5rem;
-  margin: 0 calc(-1 * var(--fui-space-4));
-  width: calc(100% + 2 * var(--fui-space-4));
+  margin: 0 calc(-1 * var(--fcon-space-4));
+  width: calc(100% + 2 * var(--fcon-space-4));
 }
 
-.fui-spark-area {
-  fill: var(--fui-signal-subtle);
+.fcon-spark-area {
+  fill: var(--fcon-signal-subtle);
 }
 
 /* A tile's body and its meters: one column that never outgrows the tile. */
-.fui-indicator-body,
-.fui-indicator-meters {
+.fcon-indicator-body,
+.fcon-indicator-meters {
   align-content: start;
   display: grid;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
   grid-template-columns: minmax(0, 1fr);
 }
 
-.fui-indicator-foot {
+.fcon-indicator-foot {
   align-items: center;
-  border-top: 1px solid var(--fui-line);
-  color: var(--fui-ink-3);
+  border-top: 1px solid var(--fcon-line);
+  color: var(--fcon-ink-3);
   display: flex;
-  gap: var(--fui-space-2);
+  gap: var(--fcon-space-2);
   justify-content: space-between;
-  padding-top: var(--fui-space-2);
+  padding-top: var(--fcon-space-2);
 }
 
-.fui-indicator-foot-text {
+.fcon-indicator-foot-text {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 /* A live tile's foot is a shaded strip across its bottom, under the chart. */
-.fui-indicator--live .fui-indicator-foot {
-  background: var(--fui-page);
-  border-radius: 0 0 var(--fui-radius-surface) var(--fui-radius-surface);
+.fcon-indicator--live .fcon-indicator-foot {
+  background: var(--fcon-page);
+  border-radius: 0 0 var(--fcon-radius-surface) var(--fcon-radius-surface);
   border-top: 0;
-  margin: 0 calc(-1 * var(--fui-space-4)) calc(-1 * var(--fui-space-3));
-  padding: var(--fui-space-2) var(--fui-space-4);
+  margin: 0 calc(-1 * var(--fcon-space-4)) calc(-1 * var(--fcon-space-3));
+  padding: var(--fcon-space-2) var(--fcon-space-4);
 }
 
 /* Scoped past the icon utility, which sets its own size. */
-.fui-indicator .fui-indicator-go {
-  color: var(--fui-ink-3);
+.fcon-indicator .fcon-indicator-go {
+  color: var(--fcon-ink-3);
   flex: none;
   height: 1rem;
-  transition: color var(--fui-fast), transform var(--fui-fast);
+  transition: color var(--fcon-fast), transform var(--fcon-fast);
   width: 1rem;
 }
 
-a.fui-indicator:hover .fui-indicator-go {
-  color: var(--fui-accent);
+a.fcon-indicator:hover .fcon-indicator-go {
+  color: var(--fcon-accent);
   transform: translateX(3px);
 }
 
 /* Inside a tile a sparkline takes the tile's width, never its own. */
-.fui-indicator .fui-spark {
+.fcon-indicator .fcon-spark {
   display: block;
   width: 100%;
 }
 
 /* The micro-label over a figure, a fact or a column. */
-.fui-indicator-label,
-.fui-state-summary dt,
-.fui-record-cols {
-  color: var(--fui-ink-3);
-  font-size: var(--fui-text-xs);
+.fcon-indicator-label,
+.fcon-state-summary dt,
+.fcon-record-cols {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2758,34 +2758,34 @@ a.fui-indicator:hover .fui-indicator-go {
 /* The figure and its verdict pill share a line while both fit; on a narrow
    tile the pill drops under the figure. Doubled up to win over the
    stylebook's `.flz-figure-fit`, which loads after this sheet. */
-.fui-indicator .fui-indicator-figure {
+.fcon-indicator .fcon-indicator-figure {
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--fui-space-1) var(--fui-space-2);
+  gap: var(--fcon-space-1) var(--fcon-space-2);
   min-height: 2.25rem;
 }
 
-.fui-indicator .flz-figure-value {
-  font-size: clamp(var(--fui-text-xl), 20cqi, var(--fui-text-3xl));
+.fcon-indicator .flz-figure-value {
+  font-size: clamp(var(--fcon-text-xl), 20cqi, var(--fcon-text-3xl));
 }
 
-.fui-indicator .fui-figures {
+.fcon-indicator .fcon-figures {
   overflow-wrap: anywhere;
 }
 
-.fui-indicator-links {
+.fcon-indicator-links {
   display: flex;
   flex-wrap: wrap;
-  font-size: var(--fui-text-xs);
-  gap: var(--fui-space-1) var(--fui-space-3);
+  font-size: var(--fcon-text-xs);
+  gap: var(--fcon-space-1) var(--fcon-space-3);
 }
 
-.fui-indicator-meters {
-  font-size: var(--fui-text-xs);
+.fcon-indicator-meters {
+  font-size: var(--fcon-text-xs);
 }
 
 @media (width <= 599px) {
-  .fui-indicators {
+  .fcon-indicators {
     grid-auto-rows: minmax(12rem, auto);
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2795,80 +2795,80 @@ a.fui-indicator:hover .fui-indicator-go {
    The command palette and help
    ====================================================================== */
 
-.fui-palette .fui-dialog-panel {
+.fcon-palette .fcon-dialog-panel {
   max-width: 40rem;
   overflow: hidden;
 }
 
-.fui-palette form {
+.fcon-palette form {
   align-items: center;
-  border-bottom: 1px solid var(--fui-line);
+  border-bottom: 1px solid var(--fcon-line);
   display: flex;
 }
 
-.fui-palette-input {
+.fcon-palette-input {
   background: transparent;
   border: 0;
   border-radius: 0;
   flex: 1 1 auto;
-  font-size: var(--fui-text-lg);
+  font-size: var(--fcon-text-lg);
   min-height: 3.25rem;
   min-width: 0;
-  padding: 0 var(--fui-space-5);
+  padding: 0 var(--fcon-space-5);
 }
 
-.fui-palette-input:focus-visible {
+.fcon-palette-input:focus-visible {
   box-shadow: none;
 }
 
-.fui-palette-cancel {
+.fcon-palette-cancel {
   display: none;
 }
 
-.fui-palette-list {
+.fcon-palette-list {
   max-height: min(26rem, 60vh);
   overflow-y: auto;
-  padding: var(--fui-space-2);
+  padding: var(--fcon-space-2);
 }
 
-.fui-palette-option {
+.fcon-palette-option {
   align-items: center;
-  border-radius: var(--fui-radius-control);
-  color: var(--fui-ink-1);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
   display: flex;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
   justify-content: space-between;
-  padding: var(--fui-space-2) var(--fui-space-3);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
   text-align: left;
   width: 100%;
 }
 
-.fui-palette-option:hover,
-.fui-palette-option:focus-visible {
-  background: var(--fui-accent-subtle);
+.fcon-palette-option:hover,
+.fcon-palette-option:focus-visible {
+  background: var(--fcon-accent-subtle);
   text-decoration: none;
 }
 
-.fui-palette-meta {
-  color: var(--fui-ink-3);
-  font-size: var(--fui-text-xs);
+.fcon-palette-meta {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
 }
 
-.fui-palette-note {
-  color: var(--fui-ink-3);
-  font-size: var(--fui-text-sm);
-  padding: var(--fui-space-4) var(--fui-space-5);
+.fcon-palette-note {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-sm);
+  padding: var(--fcon-space-4) var(--fcon-space-5);
 }
 
 /* A phone's palette fills the screen, input on top, so the keyboard never
    covers what it found. */
 @media (width <= 599px), (height <= 500px) {
-  .fui-palette.fui-dialog {
+  .fcon-palette.fcon-dialog {
     padding: 0;
     place-items: stretch;
   }
 
-  .fui-palette .fui-dialog-panel {
+  .fcon-palette .fcon-dialog-panel {
     border: 0;
     border-radius: 0;
     height: 100dvh;
@@ -2876,52 +2876,52 @@ a.fui-indicator:hover .fui-indicator-go {
     padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
   }
 
-  .fui-palette-list {
+  .fcon-palette-list {
     flex: 1 1 auto;
     max-height: none;
     min-height: 0;
   }
 
-  .fui-palette-input {
+  .fcon-palette-input {
     outline-offset: -2px;
   }
 
-  .fui-palette-cancel {
-    color: var(--fui-accent);
+  .fcon-palette-cancel {
+    color: var(--fcon-accent);
     display: block;
     font-weight: 600;
-    min-height: var(--fui-control-h);
-    padding: 0 var(--fui-space-4);
+    min-height: var(--fcon-control-h);
+    padding: 0 var(--fcon-space-4);
   }
 }
 
-.fui-shortcuts {
+.fcon-shortcuts {
   display: grid;
-  gap: var(--fui-space-2) var(--fui-space-4);
+  gap: var(--fcon-space-2) var(--fcon-space-4);
   grid-template-columns: max-content 1fr;
 }
 
-.fui-shortcuts dt {
+.fcon-shortcuts dt {
   display: flex;
-  gap: var(--fui-space-1);
+  gap: var(--fcon-space-1);
 }
 
-.fui-shortcuts dd {
-  color: var(--fui-ink-2);
+.fcon-shortcuts dd {
+  color: var(--fcon-ink-2);
 }
 
-.fui-glossary {
+.fcon-glossary {
   display: grid;
-  gap: var(--fui-space-3);
+  gap: var(--fcon-space-3);
 }
 
-.fui-glossary dt {
+.fcon-glossary dt {
   font-weight: 600;
 }
 
-.fui-glossary dd {
-  color: var(--fui-ink-2);
-  font-size: var(--fui-text-sm);
+.fcon-glossary dd {
+  color: var(--fcon-ink-2);
+  font-size: var(--fcon-text-sm);
 }
 
 /* ======================================================================
@@ -2929,43 +2929,43 @@ a.fui-indicator:hover .fui-indicator-go {
    centred column
    ====================================================================== */
 
-.fui-auth {
+.fcon-auth {
   display: grid;
   grid-template-rows: auto 1fr;
   min-height: 100vh;
 }
 
-.fui-auth-bar {
+.fcon-auth-bar {
   align-items: center;
-  border-bottom: 1px solid var(--fui-line);
+  border-bottom: 1px solid var(--fcon-line);
   display: flex;
   justify-content: space-between;
-  padding: var(--fui-space-2) var(--fui-space-5);
+  padding: var(--fcon-space-2) var(--fcon-space-5);
 }
 
-.fui-auth-bar .fui-logo {
+.fcon-auth-bar .fcon-logo {
   height: 2rem;
 }
 
-.fui-auth-main {
+.fcon-auth-main {
   align-items: center;
   display: grid;
   grid-template-columns: minmax(0, 28rem);
   justify-content: center;
-  padding: var(--fui-space-9) var(--fui-space-6);
+  padding: var(--fcon-space-9) var(--fcon-space-6);
 }
 
-.fui-auth-form {
+.fcon-auth-form {
   display: grid;
-  gap: var(--fui-space-5);
+  gap: var(--fcon-space-5);
 }
 
 /* The column's gap spaces its blocks; a console header's own margin would double it. */
-.fui-auth-form > .fui-page-header {
+.fcon-auth-form > .fcon-page-header {
   margin-bottom: 0;
 }
 
-.fui-auth-mascot {
+.fcon-auth-mascot {
   height: auto;
   justify-self: center;
   max-width: 16rem;
@@ -2973,32 +2973,32 @@ a.fui-indicator:hover .fui-indicator-go {
 
 /* The shell sizes its own chrome buttons for a finger; this bar sits outside it. */
 @media (pointer: coarse) {
-  .fui-auth .flz-chrome-icon-btn {
-    min-height: var(--fui-control-h);
-    min-width: var(--fui-control-h);
+  .fcon-auth .flz-chrome-icon-btn {
+    min-height: var(--fcon-control-h);
+    min-width: var(--fcon-control-h);
   }
 }
 
 @media (width <= 599px) {
-  .fui-auth-main {
-    padding: var(--fui-space-7) var(--fui-space-4);
+  .fcon-auth-main {
+    padding: var(--fcon-space-7) var(--fcon-space-4);
   }
 }
 
 /* A sampled series drawn as bars, a missing sample as a gap. */
-.fui-bars {
+.fcon-bars {
   align-items: flex-end;
   display: flex;
   gap: 1px;
   height: 3rem;
 }
 
-.fui-bar {
-  background: var(--fui-signal);
+.fcon-bar {
+  background: var(--fcon-signal);
   border-radius: 1px;
   width: 4px;
 }
 
-.fui-bar[data-gap] {
+.fcon-bar[data-gap] {
   background: transparent;
 }

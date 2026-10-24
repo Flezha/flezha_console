@@ -141,7 +141,7 @@ defmodule FakeController do
   this VM cached from earlier answers, so one test cannot leak into the next.
   """
   def reset(node) do
-    :ets.delete_all_objects(:flezha_ui_authz_cache)
+    :ets.delete_all_objects(:flezha_console_authz_cache)
     :erpc.call(node, __MODULE__, :clear, [])
   end
 

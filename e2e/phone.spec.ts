@@ -175,7 +175,7 @@ test.describe('The console on a phone', () => {
     const sheet = page.getByTestId('start-modal');
     await sheet.locator('[data-testid="factory-choices"]').evaluate((el) => {
       el.scrollTop = el.scrollHeight;
-      el.closest('.fui-dialog-body')!.scrollTop = 1e6;
+      el.closest('.fcon-dialog-body')!.scrollTop = 1e6;
     });
 
     await expect(sheet.getByRole('heading', { name: 'Start a relay' })).toBeInViewport();
@@ -211,7 +211,7 @@ test.describe('The console on a phone', () => {
       const small = await page.evaluate(() =>
         [
           ...document.querySelectorAll(
-            'button:not(.fui-term, .fui-ident), select, input:not([type="hidden"]), textarea, .fui-segment, .flz-button',
+            'button:not(.fcon-term, .fcon-ident), select, input:not([type="hidden"]), textarea, .fcon-segment, .flz-button',
           ),
         ]
           .filter((el) => {

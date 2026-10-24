@@ -6,7 +6,7 @@ import type { Locator } from '@playwright/test';
  * the real controller.
  *
  * Toggling a source is controller-wide and asks for no confirmation, so it is
- * covered in `test/flezha_ui_web/live/observability_live_test.exs` alone, as is
+ * covered in `test/flezha_console_web/live/observability_live_test.exs` alone, as is
  * how the tail renders what it receives. A tail's records are this page's
  * own, so its first record is read without regard to other workers.
  */
@@ -57,7 +57,7 @@ test.describe('Observability', () => {
     // The tail opens beside the listing at once, wherever the source sat.
     const panel = page.getByTestId('tail-panel');
     await expect(panel).toBeInViewport();
-    await expect(panel.locator('.fui-drawer-title')).toHaveText('Controller memory and load');
+    await expect(panel.locator('.fcon-drawer-title')).toHaveText('Controller memory and load');
     await expect(page.getByTestId('tail-panel-subtitle')).toHaveText('beam_vm');
     await expect(button).toHaveAttribute('aria-pressed', 'true');
     await expect(button).toContainText('Stop tail');
@@ -78,11 +78,11 @@ test.describe('Observability', () => {
     const details = page.locator(`#${id}`);
     const line = page.getByTestId('tail-record').filter({ has: details });
     await expect(line.getByTestId('tail-sentence')).toHaveText(/The VM holds \S+ bytes in all/);
-    await expect(details.locator('.fui-tech-name')).toBeHidden();
+    await expect(details.locator('.fcon-tech-name')).toBeHidden();
     // Dispatched, not clicked: each VM poll moves the line down, and a pointer
     // click waits for it to stand still.
     await details.locator('summary').dispatchEvent('click');
-    await expect(details.locator('.fui-tech-name')).toContainText(/value \S+/);
+    await expect(details.locator('.fcon-tech-name')).toContainText(/value \S+/);
     const count = page.getByTestId('tail-count');
     const before = await count.textContent();
     await expect(count).not.toHaveText(before ?? '');
@@ -106,13 +106,13 @@ test.describe('Observability', () => {
     await expect(failures).toContainText('When something goes wrong');
     await expect(failures).toContainText('Correction refused');
     await expect(failures).toContainText('⚠ Failure');
-    await expect(failures.locator('.fui-tech-name')).toHaveText('refused');
+    await expect(failures.locator('.fcon-tech-name')).toHaveText('refused');
 
     const looks = [
       await look(page.getByTestId('tail-lead')),
       await look(page.getByTestId('tail-count')),
-      await look(panel.locator('.fui-empty-text')),
-      await look(failures.locator('.fui-hint').first()),
+      await look(panel.locator('.fcon-empty-text')),
+      await look(failures.locator('.fcon-hint').first()),
     ];
     expect(new Set(looks).size).toBe(looks.length);
   });

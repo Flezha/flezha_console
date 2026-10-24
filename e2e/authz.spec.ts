@@ -6,7 +6,7 @@ import { test, expect, clearStoredToken, openSettings } from './fixtures';
  * The dev stack claims its own bootstrap and issues a `_system` service token,
  * so an enforced posture with a bound principal is the state to assert rather
  * than to arrange. The other postures, and the token never reaching the page,
- * are covered in `test/flezha_ui_web/live/authz_posture_test.exs`.
+ * are covered in `test/flezha_console_web/live/authz_posture_test.exs`.
  */
 test('the service token binds the principal the top bar names, on an enforced controller', async ({
   page,

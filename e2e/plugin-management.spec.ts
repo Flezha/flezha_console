@@ -21,7 +21,7 @@ import {
  * which the loader refuses. Every relay plugin is bound to relays this file
  * starts, and every plugin a test enables it disables in `finally`. The
  * option checks, the cancelled confirmations and the transient option's
- * password field are asserted in `test/flezha_ui_web/live/plugin_live_test.exs`.
+ * password field are asserted in `test/flezha_console_web/live/plugin_live_test.exs`.
  */
 const PLUGINS_URL = '/namespaces/default/plugins';
 
@@ -41,9 +41,9 @@ async function enable(
 
 /** The hint shown on an option's field. */
 const optionHint = (page: Page, option: string) =>
-  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.fui-hint');
+  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.fcon-hint');
 
-const RECEIVER = 'http://fui_web:4000/dev/null';
+const RECEIVER = 'http://fcon_web:4000/dev/null';
 
 const { id: RELAY } = ownRelay('pw_pm');
 const { id: FURTHER } = ownRelay('pw_pm2');
@@ -103,7 +103,7 @@ test.describe('Plugin writes', () => {
 
       // The required option is checked before the review opens.
       await page.getByTestId('attach-next-btn').click();
-      await expect(page.getByTestId('input-option-url').locator('xpath=..').locator('.fui-error')).toContainText(
+      await expect(page.getByTestId('input-option-url').locator('xpath=..').locator('.fcon-error')).toContainText(
         'is required',
       );
       await page.getByTestId('input-option-url').fill(RECEIVER);

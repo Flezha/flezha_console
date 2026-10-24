@@ -6,7 +6,7 @@
 # one door request, `Flezha.Service.Cli.call(name, args_json, opts)`, evaluated
 # on the controller node; this script sends that request over `:erpc`.
 #
-# Run as an Erlang node on the controller's network, e.g. inside `fui_web`:
+# Run as an Erlang node on the controller's network, e.g. inside `fcon_web`:
 #
 #     elixir --sname <unique> --cookie <cookie> priv/dev/cli_call.exs \
 #       Relay.call_channel '["default","orders","place",{"pair":"BTC-EUR","amount":1},{}]'

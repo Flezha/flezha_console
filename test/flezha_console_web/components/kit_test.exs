@@ -1,0 +1,610 @@
+defmodule FlezhaConsoleWeb.KitTest do
+  @moduledoc """
+  The console's component kit, element by element: what each renders, the
+  accessible names and states it carries, and the markings its client
+  behaviour and the browser tests read.
+  """
+
+  use FlezhaConsoleWeb.ConnCase, async: true
+
+  import Phoenix.Component
+  import Phoenix.LiveViewTest
+  import FlezhaConsoleWeb.CoreComponents
+
+  alias FlezhaConsole.Format
+  alias Phoenix.LiveView.JS
+
+  defp parse(html), do: LazyHTML.from_fragment(html)
+  defp q(html, selector), do: html |> parse() |> LazyHTML.query(selector)
+
+  defp attr_of(html, selector, name),
+    do: html |> q(selector) |> LazyHTML.attribute(name) |> List.first()
+
+  test "the kit page is a dev route: without dev routes it answers 404", %{conn: conn} do
+    conn = log_in_user(conn, FlezhaConsole.AccountsFixtures.user_fixture())
+
+    refute Application.get_env(:flezha_console, :dev_routes)
+    assert get(conn, "/dev/kit").status == 404
+  end
+
+  describe "the kit page" do
+    # Mounted on its own: the route exists only with dev routes.
+    setup %{conn: conn} do
+      {:ok, view, _html} = live_isolated(conn, FlezhaConsoleWeb.KitLive)
+      %{view: view}
+    end
+
+    test "shows a problem card of every kind, each with the same rows", %{view: view} do
+      html = render(view)
+
+      ids =
+        html
+        |> LazyHTML.from_document()
+        |> LazyHTML.query("li.fcon-problem")
+        |> LazyHTML.attribute("data-testid")
+
+      for kind <- ~w(relay factory group quota dead_letters rpo stall bootstrap skew) do
+        assert Enum.any?(ids, &String.starts_with?(&1, "problem-#{kind}")), "no #{kind} card"
+      end
+
+      for id <- ids do
+        labels =
+          html
+          |> LazyHTML.from_document()
+          |> LazyHTML.query(
+            ~s([data-testid="#{String.replace(id, "problem-", "problem-state-")}"] dt)
+          )
+          |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
+
+        assert labels -- ["Runner"] == ["State", "Cause", "Impact", "Handled by", "Next step"],
+               id
+      end
+
+      assert html =~ ~s(data-testid="kit-condition")
+    end
+
+    test "its switch, segmented control and combobox answer", %{view: view} do
+      assert view |> element(~s([data-testid="kit-switch"])) |> render_click() =~
+               ~s(aria-checked="false")
+
+      html =
+        view
+        |> element(~s(button[phx-click="kit_segment"][value="three"]))
+        |> render_click(%{"value" => "three"})
+
+      assert html |> q(~s([data-testid="kit-segmented"] [aria-pressed="true"])) |> LazyHTML.text() =~
+               "Three"
+
+      html =
+        view
+        |> element(~s(form[phx-change="kit_pick"]))
+        |> render_change(%{"kit" => %{"pick" => "e"}})
+
+      assert attr_of(html, "#kit-combobox-value", "value") == "e"
+    end
+
+    test "its drawer, dialog and toasts open and close", %{view: view} do
+      assert view |> element(~s([data-testid="kit-open-drawer"])) |> render_click() =~
+               ~s(id="kit-drawer")
+
+      refute view |> element(~s(#kit-drawer [data-testid="inspector-close"])) |> render_click() =~
+               ~s(id="kit-drawer")
+
+      assert view |> element(~s([data-testid="kit-open-dialog"])) |> render_click() =~
+               ~s(data-testid="kit-dialog")
+
+      refute view
+             |> element(~s([data-testid="kit-dialog"] button[phx-click="kit_dialog"]), "Cancel")
+             |> render_click() =~ ~s(data-testid="kit-dialog")
+
+      assert view |> element(~s([data-testid="kit-toast-info"])) |> render_click() =~
+               "An info toast."
+
+      assert view |> element(~s([data-testid="kit-toast-error"])) |> render_click() =~
+               "An error toast."
+    end
+  end
+
+  describe "page_header/1" do
+    test "marks the page being read in its crumbs and its tabs" do
+      assigns = %{
+        crumbs: [%{label: "default", path: "/namespaces/default"}, %{label: "orders", path: nil}],
+        tabs: [
+          %{label: "Live", path: "/a", current?: true, testid: "tab-live"},
+          %{label: "State", path: "/b"}
+        ]
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <.page_header eyebrow="Relay" title="orders" crumbs={@crumbs} tabs={@tabs}></.page_header>
+        """)
+
+      assert attr_of(html, ~s([data-testid="breadcrumb"] [aria-current="page"]), "aria-current") ==
+               "page"
+
+      assert attr_of(html, ~s([data-testid="tab-live"]), "aria-current") == "page"
+    end
+  end
+
+  describe "section/1" do
+    test "a folded section states what it holds and reports its state" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.section fold="journal" open={false} digest="3 committed">
+          <:title>Journal</:title>folded-away
+        </.section>
+        """)
+
+      assert attr_of(html, ~s([data-testid="section-toggle-journal"]), "aria-expanded") == "false"
+      assert html |> q(~s([data-testid="section-digest"])) |> LazyHTML.text() == "3 committed"
+      refute html =~ "folded-away"
+      assert attr_of(html, "section", "phx-hook") == "FlzSection"
+    end
+
+    test "an open section shows its body, and one with no fold has no hook" do
+      assigns = %{}
+
+      html = rendered_to_string(~H"<.section><:title>Plain</:title>body</.section>")
+
+      assert html =~ "body"
+      refute html =~ "phx-hook"
+    end
+  end
+
+  describe "button/1" do
+    test "a button that navigates is a link" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.button variant="danger" size="sm">Stop</.button>
+        <.button variant="ghost" navigate="/cluster">Open</.button>
+        """)
+
+      assert html |> q("button") |> Enum.count() == 1
+      assert attr_of(html, "a", "href") == "/cluster"
+    end
+  end
+
+  describe "state_badge/1" do
+    test "health in words, in its tone, with a shape per verdict" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.state_badge value={:suspended} />
+        <.state_badge value={:failed} count={2} />
+        """)
+
+      badges = q(html, ~s([data-testid="health-badge"]))
+      assert LazyHTML.attribute(badges, "data-health") == ~w(suspended failed)
+      assert html =~ "Suspended"
+      assert html =~ "fcon-badge--warning"
+      assert html =~ "fcon-badge--negative"
+      assert html |> q(".fcon-shape") |> LazyHTML.attribute("data-shape") == ~w(bars cross)
+      assert html |> q(".fcon-badge-count") |> LazyHTML.text() == "2"
+    end
+
+    test "health is never told by colour alone: every verdict has its own shape" do
+      shapes =
+        for health <- FlezhaConsole.Service.NodeManager.health_verdicts(),
+            do: FlezhaConsoleWeb.Words.say(:health, health).shape
+
+      assert length(Enum.uniq(shapes)) == length(shapes)
+    end
+
+    test "any other kind is said in its words" do
+      assigns = %{}
+
+      html = rendered_to_string(~H|<.state_badge kind={:readiness} value={:ready} />|)
+
+      assert html =~ "Ready"
+      assert html =~ "fcon-badge--positive"
+      refute html =~ "data-health"
+    end
+  end
+
+  describe "ident/1" do
+    test "past sixteen characters it reads as its last seven, copyable whole" do
+      assigns = %{}
+
+      html = rendered_to_string(~H|<.ident value="default_58efe7505741" />|)
+
+      assert html |> q("button.fcon-ident") |> LazyHTML.text() |> String.trim() == "…7505741"
+      assert attr_of(html, "button", "aria-label") == "default_58efe7505741"
+      assert attr_of(html, "button", "data-fcon-copy") == "default_58efe7505741"
+    end
+
+    test "a short id, or one kept whole, is plain text" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.ident value="orders" /><.ident value="a_very_long_relay_identifier" full />
+        """)
+
+      refute html =~ "<button"
+      assert html =~ "a_very_long_relay_identifier"
+    end
+  end
+
+  describe "sparkline/1" do
+    test "draws the samples, oldest first, and nothing for fewer than two" do
+      assigns = %{}
+
+      html = rendered_to_string(~H|<.sparkline samples={[1, 4, 2]} />|)
+      assert attr_of(html, "svg", "data-samples") == "3"
+      assert attr_of(html, "svg", "aria-label") =~ "peak 4 msgs/s"
+
+      assert rendered_to_string(~H|<.sparkline samples={[3]} />|) |> String.trim() == ""
+    end
+
+    test "reads maps at their key" do
+      assert FlezhaConsoleWeb.CoreComponents.spark_points([0, 10], 10, 10) == "0.0,9.0 10.0,1.0"
+    end
+  end
+
+  describe "tile/1" do
+    test "states its figure and condition, its tone as a shape too" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.tile testid="t" label="Relays" value={8} tone={:warning} condition="1 suspended" />
+        """)
+
+      assert attr_of(html, "div.fcon-tile", "data-tone") == "warning"
+      assert attr_of(html, ".fcon-shape", "data-shape") == "triangle"
+      assert html |> q(~s([data-testid="t-value"])) |> LazyHTML.text() == "8"
+      assert html |> q(~s([data-testid="t-condition"])) |> LazyHTML.text() =~ "1 suspended"
+    end
+
+    test "with a link the whole tile navigates, and with no figure none is drawn" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.tile testid="t" label="Flow" href="/dlq" condition="Measuring" />
+        """)
+
+      assert attr_of(html, "a.fcon-tile", "href") == "/dlq"
+      # A neutral tile states no verdict, so it draws no shape; its foot points on.
+      refute html =~ "fcon-shape"
+      assert html |> q(".fcon-indicator-foot .fcon-indicator-go") |> Enum.count() == 1
+      refute html =~ ~s(data-testid="t-value")
+    end
+
+    test "an icon, a verdict pill carrying the tone's shape, and a live tile's edge chart" do
+      assigns = %{samples: [1, 3, 2]}
+
+      html =
+        rendered_to_string(~H"""
+        <.tile
+          testid="t"
+          icon="hero-cpu-chip"
+          label="Relays"
+          value={8}
+          tone={:warning}
+          verdict="1 suspended"
+          live
+        >
+          <:edge><.sparkline samples={@samples} area /></:edge>
+        </.tile>
+        """)
+
+      assert attr_of(html, ".fcon-glyph", "data-tone") == "warning"
+      assert attr_of(html, ".fcon-glyph > span", "class") =~ "hero-cpu-chip"
+      assert html |> q(~s([data-testid="t-verdict"])) |> LazyHTML.text() =~ "1 suspended"
+      assert attr_of(html, ~s([data-testid="t-verdict"]), "class") =~ "fcon-badge--warning"
+      # The pill carries the shape, so none stands beside the figure.
+      assert attr_of(html, ".fcon-shape", "data-shape") == "triangle"
+      assert html |> q(".fcon-shape") |> Enum.count() == 1
+      assert attr_of(html, "div.fcon-tile", "class") =~ "fcon-indicator--live"
+      assert html |> q(".fcon-indicator-pulse") |> Enum.count() == 1
+      assert attr_of(html, ".fcon-indicator-end > svg .fcon-spark-area", "points") =~ ~r/^0,20 /
+    end
+
+    test "a large figure is compact, with its unit apart and its exact value as the title" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.tile testid="t" label="Flow" value={123_456.7} unit="msgs/s">
+          <:foot><a href="/relays">Relays</a></:foot>
+        </.tile>
+        """)
+
+      assert html |> q(~s([data-testid="t-value"])) |> LazyHTML.text() == "123.5k"
+      assert attr_of(html, ~s([data-testid="t-value"]), "title") == "123456.7 msgs/s"
+      assert html |> q(".flz-figure-unit") |> LazyHTML.text() == "msgs/s"
+      assert attr_of(html, ".fcon-indicator-foot a", "href") == "/relays"
+    end
+  end
+
+  describe "compact figures" do
+    test "stay as written below 10 000 and shorten from there" do
+      assert Format.compact(9_999) == "9999"
+      assert Format.compact(12.5) == "12.5"
+      assert Format.compact(10_000) == "10.0k"
+      assert Format.compact(999_949) == "999.9k"
+      assert Format.compact(999_999) == "1.0M"
+      assert Format.compact(1_000_000) == "1.0M"
+      assert Format.compact(2_500_000_000) == "2.5G"
+      assert Format.compact("64%") == "64%"
+      # Never in exponent form, whatever the float.
+      assert Format.compact(1500.0) == "1500.0"
+    end
+
+    test "a rate past 10 000 messages a second reads compact" do
+      assert FlezhaConsoleWeb.Topology.rate_label(12_345.0) == "12.3k msgs/s"
+      assert FlezhaConsoleWeb.Topology.rate_label(4.04) == "4.0 msgs/s"
+    end
+  end
+
+  describe "controls" do
+    test "a switch is a labelled button reporting its state" do
+      assigns = %{}
+
+      html = rendered_to_string(~H|<.switch checked={true} label="beam_vm" show_label={false} />|)
+
+      assert attr_of(html, "button", "role") == "switch"
+      assert attr_of(html, "button", "aria-checked") == "true"
+      assert attr_of(html, "button", "aria-label") == "beam_vm"
+    end
+
+    test "a segmented control marks its choice" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.segmented label="Scope">
+          <:option patch="/relays" current={true}>All</:option>
+          <:option click="pick" value="one">One</:option>
+        </.segmented>
+        """)
+
+      assert attr_of(html, "a", "aria-current") == "true"
+      assert attr_of(html, "button", "aria-pressed") == "false"
+      # Sent as the button's own value, which a browser click carries and
+      # which would override a `phx-value-value`.
+      assert attr_of(html, "button", "value") == "one"
+    end
+
+    test "a combobox keeps its value in a hidden input and filters a long list" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.combobox id="pick" name="f[x]" value="b" testid="pick">
+          <:option :for={v <- ~w(a b c d e f g h i)} value={v}>{v}</:option>
+        </.combobox>
+        """)
+
+      assert attr_of(html, ~s(input[type="hidden"]), "value") == "b"
+      assert attr_of(html, ~s([data-testid="pick-b"]), "aria-checked") == "true"
+      assert html =~ "data-fcon-filter"
+      assert attr_of(html, "[data-fcon-pop-panel]", "hidden") == ""
+    end
+
+    test "a meter states its share, painted in its tone" do
+      assigns = %{}
+
+      html = rendered_to_string(~H|<.meter value={8} max={10} tone={:warning} label="8 of 10" />|)
+
+      assert attr_of(html, ".fcon-meter", "aria-valuenow") == "8"
+      assert attr_of(html, ".fcon-meter", "data-tone") == "warning"
+      assert attr_of(html, ".fcon-meter-fill", "style") =~ "80%"
+    end
+  end
+
+  describe "a paged grid" do
+    defp paged(paging, count) do
+      assigns = %{paging: paging, rows: Enum.to_list(1..count)}
+
+      rendered_to_string(~H"""
+      <.grid id="g" rows={@rows} paging={@paging} row_testid={&"r-#{&1}"}>
+        <:col :let={n} label="N">{n}</:col>
+      </.grid>
+      """)
+    end
+
+    defp rows_in(html), do: html |> q(~s(tr[data-testid^="r-"])) |> Enum.count()
+
+    test "shows its first page and says how many more there are" do
+      html = paged(%{}, 25)
+
+      assert rows_in(html) == 20
+      assert html |> q(~s([data-testid="g-more"])) |> LazyHTML.text() =~ "Show 5 more · 20 of 25"
+      assert attr_of(html, ~s([data-testid="g-more"]), "phx-click") == "grid_more"
+    end
+
+    test "a grown listing shows every row and no control" do
+      html = paged(%{"g" => 40}, 25)
+
+      assert rows_in(html) == 25
+      refute html =~ ~s(data-testid="g-more")
+    end
+
+    test "a short listing and an unpaged one show every row" do
+      assert rows_in(paged(%{}, 7)) == 7
+      refute paged(%{}, 7) =~ ~s(data-testid="g-more")
+      assert rows_in(paged(nil, 25)) == 25
+    end
+  end
+
+  describe "grid/1 and row_menu/1" do
+    test "rows carry their tone, activate on click and Enter, and keep actions in a menu" do
+      assigns = %{rows: [%{id: "a", tone: "warning"}]}
+
+      html =
+        rendered_to_string(~H"""
+        <.grid
+          id="g"
+          rows={@rows}
+          row_tone={& &1.tone}
+          row_activate={&JS.push("inspect", value: %{id: &1.id})}
+          row_label={&"Inspect #{&1.id}"}
+        >
+          <:col :let={row} label="Id">{row.id}</:col>
+          <:col :let={_row} label="Rate" num>1</:col>
+          <:menu :let={row}>
+            <.row_menu id={"m-#{row.id}"} label="Actions">
+              <:item click="inspect" values={%{id: row.id}}>Inspect</:item>
+              <:item click="stop" danger testid="stop-a">Stop</:item>
+            </.row_menu>
+          </:menu>
+        </.grid>
+        """)
+
+      row = q(html, "tbody tr")
+      assert LazyHTML.attribute(row, "data-tone") == ["warning"]
+      assert LazyHTML.attribute(row, "tabindex") == ["0"]
+      assert LazyHTML.attribute(row, "phx-key") == ["Enter"]
+      assert LazyHTML.attribute(row, "aria-label") == ["Inspect a"]
+      assert html |> q("td.fcon-cell-num") |> Enum.count() == 1
+      assert attr_of(html, "[data-fcon-pop-trigger]", "aria-label") == "Actions"
+    end
+
+    test "every cell names its column, and the table keeps its roles when laid out as cards" do
+      assigns = %{rows: [%{id: "a"}]}
+
+      html =
+        rendered_to_string(~H"""
+        <.grid id="g" rows={@rows}>
+          <:col :let={row} label="Relay">{row.id}</:col>
+          <:col :let={_row} label="Rate" num>1</:col>
+          <:menu :let={row}>
+            <.row_menu id={"m-#{row.id}"}>
+              <:item click="stop">Stop</:item>
+            </.row_menu>
+          </:menu>
+        </.grid>
+        """)
+
+      assert html |> q("td[data-label]") |> LazyHTML.attribute("data-label") == ["Relay", "Rate"]
+      assert attr_of(html, "table", "role") == "table"
+      assert html |> q("thead, tbody") |> LazyHTML.attribute("role") == ["rowgroup", "rowgroup"]
+      assert html |> q("tr") |> LazyHTML.attribute("role") == ["row", "row"]
+      assert html |> q("th") |> LazyHTML.attribute("role") |> Enum.uniq() == ["columnheader"]
+      assert html |> q("td") |> LazyHTML.attribute("role") == ["cell", "cell", "cell"]
+    end
+  end
+
+  describe "overlays" do
+    test "a drawer is a named modal dialog that closes on Escape and returns focus" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.drawer id="inspector" eyebrow="Relay" title="orders" on_close="inspect_close">body</.drawer>
+        """)
+
+      assert attr_of(html, "#inspector", "role") == "dialog"
+      assert attr_of(html, "#inspector", "aria-labelledby") == "inspector-title"
+      assert attr_of(html, "#inspector", "phx-window-keydown") == "inspect_close"
+      assert attr_of(html, "#inspector", "phx-key") == "Escape"
+      assert attr_of(html, "#inspector", "phx-hook") == "FlzFocus"
+    end
+
+    test "a confirmation's destructive action is the solid danger button" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.confirm_dialog title="Stop?" confirm_label="Stop" on_confirm="stop" on_cancel="cancel">
+          Sure?
+        </.confirm_dialog>
+        """)
+
+      assert html =~ "flz-button--danger"
+      assert attr_of(html, ".fcon-dialog", "phx-window-keydown") == "cancel"
+    end
+
+    test "a popover's panel starts hidden and keeps its open state across patches" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.popover id="p" label="More"><:trigger>…</:trigger>item</.popover>
+        """)
+
+      assert attr_of(html, "[data-fcon-pop-panel]", "hidden") == ""
+      assert attr_of(html, "[data-fcon-pop-panel]", "phx-mounted") =~ "ignore_attrs"
+      assert attr_of(html, "[data-fcon-pop-trigger]", "aria-expanded") == "false"
+    end
+
+    test "an info toast is timed, an error toast is an alert" do
+      assigns = %{flash: %{"info" => "Saved.", "error" => "Refused."}}
+
+      html = rendered_to_string(~H|<.flash_group flash={@flash} />|)
+
+      assert attr_of(html, ~s([data-testid="toast-info"]), "role") == "status"
+      assert attr_of(html, ~s([data-testid="toast-info"]), "phx-hook") == "FlzToast"
+      assert attr_of(html, ~s([data-testid="toast-error"]), "role") == "alert"
+    end
+  end
+
+  describe "live activity" do
+    test "a changing figure is marked by the client, whose mark the patch leaves alone" do
+      assigns = %{}
+
+      html = rendered_to_string(~H|<.live_value id="parked" value={3} />|)
+
+      assert attr_of(html, "#parked", "phx-hook") == "FlzChange"
+      assert attr_of(html, "#parked", "data-value") == "3"
+      assert attr_of(html, "#parked", "phx-mounted") =~ "data-changed"
+    end
+  end
+
+  describe "statements" do
+    test "a skeleton is busy, never an empty table" do
+      assigns = %{}
+
+      html = rendered_to_string(~H|<.skeleton rows={3} />|)
+
+      assert attr_of(html, "div", "aria-busy") == "true"
+      assert html |> q(".fcon-skeleton") |> Enum.count() == 3
+      refute html =~ "<table"
+    end
+
+    test "a term shows its definition as its description and opens help" do
+      assigns = %{}
+
+      html = rendered_to_string(~H|<.term key="runner" />|)
+
+      assert attr_of(html, "button", "aria-describedby") == "term-runner"
+      assert html |> q("#term-runner") |> LazyHTML.text() =~ "SDK-side process"
+      assert attr_of(html, "button", "data-fcon-help-open") == ""
+    end
+
+    test "steps mark the current step and the ones done" do
+      assigns = %{}
+
+      html = rendered_to_string(~H|<.steps steps={~w(Factory Details Review)} current={1} />|)
+
+      assert html |> q("[data-done]") |> LazyHTML.text() =~ "Factory"
+      assert html |> q(~s([aria-current="step"])) |> LazyHTML.text() =~ "Details"
+    end
+
+    test "a code block wraps rather than scrolling sideways" do
+      css = File.read!("assets/css/console/components.css")
+      [rule] = Regex.run(~r/\.fcon-code \{[^}]*\}/, css)
+
+      assert rule =~ "white-space: pre-wrap"
+      assert rule =~ "overflow-wrap: anywhere"
+    end
+
+    test "a strip sizes each verdict by its count, in its tone" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H|<.strip counts={[{:healthy, 6}, {:failed, 1}, {:degraded, 0}]} />|)
+
+      assert html |> q(".fcon-strip-part") |> LazyHTML.attribute("data-tone") ==
+               ~w(positive negative)
+    end
+  end
+end

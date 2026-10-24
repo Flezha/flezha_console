@@ -7,7 +7,7 @@ import { test, expect } from './fixtures';
  * one asserted; a controller reporting another one is a changed stack. A
  * breached RPO and a shutdown in progress cannot be arranged against a
  * controller that is meant to keep serving; both are covered in
- * `test/flezha_ui_web/live/controller_live_test.exs`, as is a shipper retry,
+ * `test/flezha_console_web/live/controller_live_test.exs`, as is a shipper retry,
  * which only a remote tier has.
  */
 test.describe('Controller health', () => {
@@ -49,7 +49,7 @@ test.describe('Controller health', () => {
     // The answer is brought into view and announced, never left below the fold.
     const captured = page.getByTestId('memory-captured-at');
     await expect(captured).toBeInViewport();
-    await expect(page.locator('.fui-toast').filter({ hasText: 'Memory snapshot taken.' })).toBeVisible();
+    await expect(page.locator('.fcon-toast').filter({ hasText: 'Memory snapshot taken.' })).toBeVisible();
     await expect(captured).toContainText('Captured at');
     await expect(page.getByTestId('memory-top-processes')).toBeVisible();
     // Each process reads with its queue and how it was started, named when it

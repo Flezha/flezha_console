@@ -1,4 +1,4 @@
-defmodule FlezhaUi.ControllerShapes do
+defmodule FlezhaConsole.ControllerShapes do
   @moduledoc """
   The shapes of the controller's answers to the published reads the console
   makes: tuple tags, map keys and value types, never values.

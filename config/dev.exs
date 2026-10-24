@@ -1,11 +1,11 @@
 import Config
 
 # Configure your database
-config :flezha_ui, FlezhaUi.Repo,
+config :flezha_console, FlezhaConsole.Repo,
   username: "postgres",
   password: "postgres",
-  hostname: "flezha_ui_db",
-  database: "flezha_ui_db",
+  hostname: "flezha_console_db",
+  database: "flezha_console_db",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
@@ -16,7 +16,7 @@ config :flezha_ui, FlezhaUi.Repo,
 # The watchers configuration can be used to run external
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
-config :flezha_ui, FlezhaUiWeb.Endpoint,
+config :flezha_console, FlezhaConsoleWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {0, 0, 0, 0}, port: 4000],
@@ -25,8 +25,8 @@ config :flezha_ui, FlezhaUiWeb.Endpoint,
   debug_errors: true,
   secret_key_base: "3ndwgIlQjEUvbvfpTzNRfv5r6MlporW9zEU4tzJZKY2pov53DYp5NSvlg45gVRtq",
   watchers: [
-    esbuild: {Esbuild, :install_and_run, [:flezha_ui, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:flezha_ui, ~w(--watch)]}
+    esbuild: {Esbuild, :install_and_run, [:flezha_console, ~w(--sourcemap=inline --watch)]},
+    tailwind: {Tailwind, :install_and_run, [:flezha_console, ~w(--watch)]}
   ]
 
 # ## SSL Support
@@ -53,17 +53,17 @@ config :flezha_ui, FlezhaUiWeb.Endpoint,
 # different ports.
 
 # Watch static and templates for browser reloading.
-config :flezha_ui, FlezhaUiWeb.Endpoint,
+config :flezha_console, FlezhaConsoleWeb.Endpoint,
   live_reload: [
     patterns: [
       ~r"priv/static/(?!uploads/).*(js|css|png|jpeg|jpg|gif|svg)$",
       ~r"priv/gettext/.*(po)$",
-      ~r"lib/flezha_ui_web/(controllers|live|components)/.*(ex|heex)$"
+      ~r"lib/flezha_console_web/(controllers|live|components)/.*(ex|heex)$"
     ]
   ]
 
 # Enable dev routes for dashboard and mailbox
-config :flezha_ui, dev_routes: true
+config :flezha_console, dev_routes: true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"
@@ -86,20 +86,20 @@ config :phoenix_live_view,
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
 
-# Only `fui_web` sets this: there a restart is the container's, while a
+# Only `fcon_web` sets this: there a restart is the container's, while a
 # `mix phx.server` on the host would just stop under the developer.
-config :flezha_ui,
-  restart_on_config_change: System.get_env("FLEZHA_UI_RESTART_ON_CONFIG_CHANGE") == "true"
+config :flezha_console,
+  restart_on_config_change: System.get_env("FLEZHA_CONSOLE_RESTART_ON_CONFIG_CHANGE") == "true"
 
 # The dev stack serves localhost, where a slow answer means a busy machine
 # rather than a blocking proxy. A page that fell back to long polling would
 # outlive a dropped connection by seconds, so the dev stack never falls back.
-config :flezha_ui, :longpoll_fallback_ms, nil
+config :flezha_console, :longpoll_fallback_ms, nil
 
 # One refresh cadence for every screen, when set: the dev stack runs them fast,
 # so a browser test sees a tick land within a second of what it caused.
-if interval = System.get_env("FLEZHA_UI_REFRESH_INTERVAL_MS") do
-  config :flezha_ui, :refresh_interval_ms, String.to_integer(interval)
+if interval = System.get_env("FLEZHA_CONSOLE_REFRESH_INTERVAL_MS") do
+  config :flezha_console, :refresh_interval_ms, String.to_integer(interval)
 end
 
 # A websocket source subscribed to the testnet's `trade` generator for one pair,
@@ -153,7 +153,7 @@ showcase_plugins = [
     provider: "relay_http_poll",
     hooks: ["on_terminate"],
     opts: %{
-      "url" => "http://fui_kafka_ui:8080/actuator/health",
+      "url" => "http://fcon_kafka_ui:8080/actuator/health",
       "interval_ms" => 5000,
       "timeout_ms" => 2000,
       "channel" => "quotes"
@@ -179,9 +179,9 @@ showcase_plugins = [
 # ids from the controller's `Fleet.providers/1`. Each plugin is enabled by name
 # and bound to its relay in one call. The websocket provider is a source: it
 # feeds the relay on its own and binds `on_terminate` only to tear down.
-config :flezha_ui, :dev_setup,
+config :flezha_console, :dev_setup,
   # Off when the console is attached to another stack's controller.
-  enabled: System.get_env("FLEZHA_UI_DEV_SETUP", "true") == "true",
+  enabled: System.get_env("FLEZHA_CONSOLE_DEV_SETUP", "true") == "true",
   namespace: "default",
   # Overrides only: the controller merges these over its own defaults, so a
   # quota left out here keeps whatever the controller ships.
@@ -219,7 +219,7 @@ config :flezha_ui, :dev_setup,
         relay_id: nil,
         provider: "hook_webhook",
         hooks: ["on_relay_started", "on_relay_stopped"],
-        opts: %{"url" => "http://fui_web:4000/dev/null"}
+        opts: %{"url" => "http://fcon_web:4000/dev/null"}
       }
     ] ++
       Enum.map(

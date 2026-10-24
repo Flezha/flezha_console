@@ -5,7 +5,7 @@ import { test, expect } from './fixtures';
  *
  * The dev stack seeds the `default` namespace, so its presence is asserted
  * rather than discovered. How the counts are made, and the empty state, are
- * covered in `test/flezha_ui_web/live/namespace_live_test.exs`.
+ * covered in `test/flezha_console_web/live/namespace_live_test.exs`.
  */
 test.describe('Namespaces', () => {
   test('lists the seeded namespace with its counts, and opens it', async ({ page, live }) => {

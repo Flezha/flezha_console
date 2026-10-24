@@ -32,12 +32,12 @@ export async function sendRecords(
 }
 
 /**
- * Creates a confirmed console user through `mix flezha_ui.create_user`, the
+ * Creates a confirmed console user through `mix flezha_console.create_user`, the
  * only way an account is made, so a test that needs one runs the operator's
  * own command.
  */
 export function createConsoleUser(email: string, password: string): void {
-  inConsole(`creating ${email}`, ['mix', 'flezha_ui.create_user', email, '--password', password]);
+  inConsole(`creating ${email}`, ['mix', 'flezha_console.create_user', email, '--password', password]);
 }
 
 /**
@@ -46,7 +46,7 @@ export function createConsoleUser(email: string, password: string): void {
  * it here. Safe from `finally`: an email with no user is left alone.
  */
 export function deleteConsoleUser(email: string): void {
-  devElixir(`deleting ${email}`, ['/flezha_ui/priv/dev/console_users.exs', 'delete', email]);
+  devElixir(`deleting ${email}`, ['/flezha_console/priv/dev/console_users.exs', 'delete', email]);
 }
 
 /**
@@ -481,7 +481,7 @@ export async function fillPluginForm(page: Page, opener: string, fields: PluginF
 
 /** The error shown on a plugin option's field, inside the field's own container. */
 export const optionError = (page: Page, option: string) =>
-  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.fui-error');
+  page.getByTestId(`input-option-${option}`).locator('xpath=..').locator('.fcon-error');
 
 /**
  * Unbinds `name` from every relay and then disables it, from the plugins

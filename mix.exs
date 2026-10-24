@@ -1,9 +1,9 @@
-defmodule FlezhaUi.MixProject do
+defmodule FlezhaConsole.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :flezha_ui,
+      app: :flezha_console,
       version: "0.1.0",
       elixir: "~> 1.14",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -20,7 +20,7 @@ defmodule FlezhaUi.MixProject do
   # Type `mix help compile.app` for more information.
   def application do
     [
-      mod: {FlezhaUi.Application, []},
+      mod: {FlezhaConsole.Application, []},
       extra_applications: [:logger, :runtime_tools]
     ]
   end
@@ -86,11 +86,11 @@ defmodule FlezhaUi.MixProject do
         "tailwind.install --if-missing",
         "esbuild.install --if-missing"
       ],
-      "assets.build": ["assets.stylebook", "tailwind flezha_ui", "esbuild flezha_ui"],
+      "assets.build": ["assets.stylebook", "tailwind flezha_console", "esbuild flezha_console"],
       "assets.deploy": [
         "assets.stylebook",
-        "tailwind flezha_ui --minify",
-        "esbuild flezha_ui --minify",
+        "tailwind flezha_console --minify",
+        "esbuild flezha_console --minify",
         "phx.digest"
       ]
     ]

@@ -48,17 +48,20 @@ export function workerNamespace(index: number, run = process.env.E2E_RUN_ID): st
   return `e2e-w${index}-${run}`;
 }
 
+/** The dev stack's console container, where every helper node and CLI call runs. */
+const CONSOLE_CONTAINER = 'fcon_web';
+
 /** A run id's form: `Date.now()` in base 36, 8 characters until 2059. */
 const RUN_ID = /[0-9a-z]{8}/.source;
 const WORKER_NAMESPACE = new RegExp(`^e2e-w\\d+-(${RUN_ID})$`);
 
 /**
- * Runs `argv` inside `fui_web` and answers its output. Throws with that output
+ * Runs `argv` inside `fcon_web` and answers its output. Throws with that output
  * when it fails.
  */
 export function inConsole(what: string, argv: string[]): string {
   try {
-    return execFileSync('docker', ['exec', 'fui_web', ...argv], { encoding: 'utf8', stdio: 'pipe' });
+    return execFileSync('docker', ['exec', CONSOLE_CONTAINER, ...argv], { encoding: 'utf8', stdio: 'pipe' });
   } catch (error) {
     throw failed(what, error);
   }
@@ -67,7 +70,7 @@ export function inConsole(what: string, argv: string[]): string {
 /** `inConsole`, without holding the caller up while it runs. */
 async function inConsoleAsync(what: string, argv: string[]): Promise<string> {
   try {
-    return (await promisify(execFile)('docker', ['exec', 'fui_web', ...argv], { encoding: 'utf8' })).stdout;
+    return (await promisify(execFile)('docker', ['exec', CONSOLE_CONTAINER, ...argv], { encoding: 'utf8' })).stdout;
   } catch (error) {
     throw failed(what, error);
   }
@@ -96,7 +99,7 @@ export const elixirArgv = (args: string[]) => [
 ];
 
 /**
- * The runs with a node up in `fui_web`, read from its epmd. Global setup keeps
+ * The runs with a node up in `fcon_web`, read from its epmd. Global setup keeps
  * its CLI node until its teardown, so a run is listed for as long as it holds
  * the stack, however long that is, and not once its process has gone.
  */
@@ -105,7 +108,7 @@ function liveRuns(): Set<string> {
   return new Set([...names.matchAll(new RegExp(`^name pw_(${RUN_ID})_`, 'gm'))].map(([, run]) => run));
 }
 
-/** Runs `elixir` with `args` inside `fui_web` and answers its output. */
+/** Runs `elixir` with `args` inside `fcon_web` and answers its output. */
 export function devElixir(what: string, args: string[]): string {
   return inConsole(what, elixirArgv(args));
 }
@@ -116,15 +119,15 @@ let cliNode: CliNode | undefined;
 
 /**
  * Sends `requests` to `door` through this process's CLI node: one
- * `priv/dev/cli_call.exs --serve` inside `fui_web`, booted on the first call
+ * `priv/dev/cli_call.exs --serve` inside `fcon_web`, booted on the first call
  * and kept for the process's life, since a node boot costs over a CPU-second.
  * Answers what the door printed; rejects with the door's error.
  */
 export function viaCliNode(what: string, door: string, requests: unknown[][]): Promise<string> {
   if (!cliNode) {
     // `docker exec -i`: the node serves until its stdin closes.
-    const argv = elixirArgv(['/flezha_ui/priv/dev/cli_call.exs', '--serve']);
-    const child = spawn('docker', ['exec', '-i', 'fui_web', ...argv], { stdio: 'pipe' });
+    const argv = elixirArgv(['/flezha_console/priv/dev/cli_call.exs', '--serve']);
+    const child = spawn('docker', ['exec', '-i', CONSOLE_CONTAINER, ...argv], { stdio: 'pipe' });
     const waiting: Waiting[] = [];
     let stderr = '';
 
@@ -403,13 +406,13 @@ async function globalSetup(config: FullConfig) {
       logins.push(
         inConsoleAsync(
           "checking the controller's answer shapes",
-          elixirArgv(['/flezha_ui/priv/dev/record_shapes.exs', '--check']),
+          elixirArgv(['/flezha_console/priv/dev/record_shapes.exs', '--check']),
         ).then(() => undefined),
       );
 
       // Made afresh each run, so nothing a previous run left on a user reaches this one.
       devElixir('creating the worker users', [
-        '/flezha_ui/priv/dev/console_users.exs',
+        '/flezha_console/priv/dev/console_users.exs',
         'renew',
         WORKER_PASSWORD,
         ...workers.map((i) => workerUser(i).email),

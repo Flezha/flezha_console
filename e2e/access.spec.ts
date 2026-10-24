@@ -69,7 +69,7 @@ test.describe('Tokens', () => {
       await expect(page.getByTestId(`token-issued-${id}`)).toContainText(/now|s ago/);
       await expect(page.getByTestId(`token-issuer-${id}`)).not.toHaveText('—');
       await expect(page.getByTestId(`token-expires-${id}`)).toContainText(/in \d+[hm]/);
-      await expect(page.getByTestId(`token-expires-${id}`).locator('.fui-tone-warning')).toHaveCount(1);
+      await expect(page.getByTestId(`token-expires-${id}`).locator('.fcon-tone-warning')).toHaveCount(1);
 
       await revokeToken(id);
       revoked = true;

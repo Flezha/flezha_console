@@ -1,12 +1,12 @@
-# FlezhaUi
+# Flezha Console
 
-A Phoenix LiveView control panel for a [flezha](../flezha) controller. It holds
+The Phoenix LiveView console for a [flezha](../flezha) controller. It holds
 no domain state of its own — every screen is a projection of a remote call over
 Erlang distribution.
 
 ## Vocabulary
 
-The UI uses the controller's terms exactly. If a name here disagrees with
+The console uses the controller's terms exactly. If a name here disagrees with
 `flezha`, this app is the one that is wrong.
 
 | Term | What it is |
@@ -34,7 +34,7 @@ The UI uses the controller's terms exactly. If a name here disagrees with
 | **Hook** | A point a plugin is bound on: `on_input`, `on_output`, `on_interval`, `on_message`, `on_snapshot`, `on_terminate`, `on_relay_init`. |
 | **Hub** | The per-namespace supervision root, placed on one or more cluster nodes. |
 | **Posture** | The controller's authorization stance: `open`, `bootstrap_pending`, or `enforced`. |
-| **Principal** | The identity a call is made as. The UI's comes only from a verified flezha token — never from a form field. |
+| **Principal** | The identity a call is made as. The console's comes only from a verified flezha token — never from a form field. |
 | **Role** | What a principal may do in a namespace: `viewer`, `app`, `ops`, `admin`, `runner`, `spawner`, `stopper`. "Operator" in this README means the person using the console. |
 | **Quota** | A per-namespace limit (`max_relays`, `max_runners`, state bytes, …) paired with a live counter. |
 | **Partition group** | A set of relays that split one keyspace between them, each owning a *key-group* range. |
@@ -110,7 +110,7 @@ namespace and some are not, and it says which is which.
   arrive when the read answers. One read is in flight at a time; a tick due
   meanwhile is skipped, and an operator's action is always followed by a read
   that started after it. A read that fails keeps the last figures and says why.
-- **Scope lives in the URL, never in the session.** `FlezhaUiWeb.Layouts`
+- **Scope lives in the URL, never in the session.** `FlezhaConsoleWeb.Layouts`
   reads it back out of the path on every navigation, so the rail, the picker
   and the screen cannot disagree, and a pasted link opens the scope it names.
 - **The topbar's namespace picker means one thing everywhere**: show me this
@@ -167,7 +167,7 @@ still scrolled into view.
 
 ## Dev setup
 
-The compose file brings up the controller, a Rust runner, this UI, Postgres,
+The compose file brings up the controller, a Rust runner, this console, Postgres,
 and Kafka in one command. It expects two sibling checkouts alongside this one:
 
 | Path | Why |
@@ -188,8 +188,8 @@ Without the stylebook, `mix assets.stylebook` stops with a message naming it
 and where it is expected, rather than producing an unstyled build.
 
 Saving `config/config.exs`, `config/dev.exs`, `mix.exs` or `mix.lock` restarts
-the `web` container by itself (`FLEZHA_UI_RESTART_ON_CONFIG_CHANGE` on
-`fui_web`), so the console picks up the change instead of showing Phoenix's "You
+the `web` container by itself (`FLEZHA_CONSOLE_RESTART_ON_CONFIG_CHANGE` on
+`fcon_web`), so the console picks up the change instead of showing Phoenix's "You
 must restart your server" page. Only the VM serving the console watches: an
 `iex -S mix` in the container, or a `mix phx.server` on the host, is never
 stopped this way.
@@ -197,12 +197,12 @@ stopped this way.
 The controller enforces authorization by default, so the stack claims its own
 bootstrap: a one-shot `bootstrap` service waits for the controller node, claims
 the bootstrap, issues a `_system` token and writes it to a shared volume. The
-UI reads it through `FLEZHA_TOKEN_FILE` — a file rather than an env var because
+console reads it through `FLEZHA_TOKEN_FILE` — a file rather than an env var because
 the token does not exist until the controller has booted. A restart reuses the
 token already written; nothing is re-claimed.
 
 `FLEZHA_AUTHZ_ENABLED` is set to `true` on the controller deliberately. A dev
-stack that switched enforcement off would leave the UI's whole identity path —
+stack that switched enforcement off would leave the console's whole identity path —
 token, principal, refusals — untested locally.
 
 A signed-in user may store their own flezha token under **Settings**, which then
@@ -221,13 +221,13 @@ The seed runs only in dev. There is no registration page: an operator makes
 every other account with
 
 ```bash
-docker exec -it fui_web mix flezha_ui.create_user someone@example.com
+docker exec -it fcon_web mix flezha_console.create_user someone@example.com
 ```
 
 which asks for a password of 12 to 72 characters (or takes `--password`) and
 creates the account confirmed, ready to log in.
 
-In dev the UI seeds testnet relays — flow and steps, `orders`, the runner's
+In dev the console seeds testnet relays — flow and steps, `orders`, the runner's
 relay API fixture, and `testnet_showcase`, whose graph holds every shape the
 relay graph draws, with its sources, an input filter and output plugins —
 websocket plugins and a `hook_webhook` controller plugin once the controller is
@@ -244,14 +244,14 @@ refuses, so the plugin screens show a loaded and a refused package
 Controller state written by an older controller is not migrated. To start over
 — this **discards all dev controller state**: relays, plugins, schedules,
 dead letters, the audit log and the authorization bootstrap — stop the stack,
-clear the controller's durable state, drop the UI's token volume so the
+clear the controller's durable state, drop the console's token volume so the
 bootstrap is claimed again, and bring the stack up:
 
 ```bash
 docker compose -f docker-compose.dev.yml down
 ../flezha/_build/.target/release/flz reset --yes --include-dlq --include-schedules \
   --include-auth --include-audit --storage-root ../flezha/storage
-docker volume rm flezha_ui_fui_auth_data
+docker volume rm flezha_console_fcon_auth_data
 docker compose -f docker-compose.dev.yml up
 ```
 
@@ -261,12 +261,12 @@ A cold start then seeds cleanly in the current vocabulary.
 
 | Container | Role |
 | --- | --- |
-| `fui_plugin_packages` | One-shot: builds and places the plugin packages the controller loads at boot. Any `docker compose up`, even of one service, runs it again, and the controller lists the re-placed packages as pending until `docker restart flezha_controller` |
+| `fcon_plugin_packages` | One-shot: builds and places the plugin packages the controller loads at boot. Any `docker compose up`, even of one service, runs it again, and the controller lists the re-placed packages as pending until `docker restart flezha_controller` |
 | `flezha_controller` | The controller, built from `../flezha/deploy/docker/dev/Dockerfile.toolchain` |
 | `flezha_rust_runner` | `test/apps/rust_runner`, waits for the control socket then connects |
-| `fui_bootstrap` | One-shot: claims the authorization bootstrap and issues the UI's token |
-| `fui_web` | This app |
-| `flezha_ui_db` | Postgres |
+| `fcon_bootstrap` | One-shot: claims the authorization bootstrap and issues the console's token |
+| `fcon_web` | This app |
+| `flezha_console_db` | Postgres |
 
 ### Distribution over TLS
 
@@ -279,9 +279,9 @@ every link over TLS instead, layer the overlay on:
 docker compose -f docker-compose.dev.yml -f docker-compose.dev-tls.yml up
 ```
 
-A one-shot `fui_dist_tls_certs` (`priv/dev/dist_tls_certs.sh`) makes a private
+A one-shot `fcon_dist_tls_certs` (`priv/dev/dist_tls_certs.sh`) makes a private
 CA, and a key, certificate and option file per distributed host, into the
-`fui_dist_tls` volume. Later runs keep them, and remake only what is missing,
+`fcon_dist_tls` volume. Later runs keep them, and remake only what is missing,
 expires within 30 days, or was signed by an earlier CA. Each node then starts
 with `ELIXIR_ERL_OPTIONS="-proto_dist inet_tls -ssl_dist_optfile
 /dist_tls/<host>.conf"`.
@@ -304,19 +304,19 @@ with `ELIXIR_ERL_OPTIONS="-proto_dist inet_tls -ssl_dist_optfile
   `ELIXIR_ERL_OPTIONS`.
 
 `docker compose … down` followed by `up` without the overlay goes back to plain
-TCP. `docker volume rm flezha_ui_fui_dist_tls` discards the CA and the
+TCP. `docker volume rm flezha_console_fcon_dist_tls` discards the CA and the
 certificates, and the next overlay `up` makes new ones.
-| `fui_kafka`, `fui_zookeeper`, `fui_kafka_ui` | Kafka, for the Kafka provider |
+| `fcon_kafka`, `fcon_zookeeper`, `fcon_kafka_ui` | Kafka, for the Kafka provider |
 
 Useful commands:
 
 ```bash
-docker exec fui_web mix compile                      # after editing .ex files
-docker logs fui_web 2>&1 | grep EventFeed            # signal feed status
-docker logs fui_web 2>&1 | grep ConfigWatcher        # why the console restarted itself
+docker exec fcon_web mix compile                      # after editing .ex files
+docker logs fcon_web 2>&1 | grep EventFeed            # signal feed status
+docker logs fcon_web 2>&1 | grep ConfigWatcher        # why the console restarted itself
 docker attach flezha_controller                      # controller iex (detach: Ctrl+P Ctrl+Q)
-docker exec fui_web sh -c 'exec elixir --sname cli1 --cookie "$ERLANG_COOKIE" "$@"' _ \
-  /flezha_ui/priv/dev/cli_call.exs Relay.call_channel \
+docker exec fcon_web sh -c 'exec elixir --sname cli1 --cookie "$ERLANG_COOKIE" "$@"' _ \
+  /flezha_console/priv/dev/cli_call.exs Relay.call_channel \
   '["default","orders","place",{"pair":"BTC-EUR","amount":1},{}]'   # call as flz does
 ```
 
@@ -372,7 +372,7 @@ from the dev controller, which every browser run re-checks.
 
 Every browser test also fails on a broken page, whatever it asserted, and
 `mix test` fails when an event in `lib/` is driven through its markup by no test
-(`test/flezha_ui/coverage_ledger_test.exs`).
+(`test/flezha_console/coverage_ledger_test.exs`).
 
 See [docs/testing.md](docs/testing.md) for the rules a new test follows: which
 layer it belongs to, how it causes what it asserts, the state it owns, the
@@ -384,9 +384,9 @@ The colours, the shell and the brand come from
 [`flezha_stylebook`](../flezha_stylebook), the Flezha group's design system;
 the content of every screen is drawn with the console's own component kit.
 
-- **Colour has one source.** The kit reads colour only through `--fui-*` roles
+- **Colour has one source.** The kit reads colour only through `--fcon-*` roles
   in `assets/css/console/tokens.css`, and each role names the stylebook token it
-  takes — `--fui-ink-1` is `--text-primary`, `--fui-canvas` is
+  takes — `--fcon-ink-1` is `--text-primary`, `--fcon-canvas` is
   `--surface-sheet` — so the palette and both themes are the stylebook's. The
   console adds only a signal colour for live data, and the overlay scrim and
   shadow.
@@ -399,7 +399,7 @@ the content of every screen is drawn with the console's own component kit.
   into the chrome, the only part that scrolls.
 - **The content kit** is `assets/css/console/` (`tokens.css`, `base.css`,
   `components.css`) with one function component per element in
-  `FlezhaUiWeb.CoreComponents`: buttons, fields, switches, segmented controls,
+  `FlezhaConsoleWeb.CoreComponents`: buttons, fields, switches, segmented controls,
   comboboxes, chips, state badges, grids with row menus, sections with digests,
   the page header, tabs, drawers, dialogs, popovers, tooltips, toasts,
   sparklines, meters, skeletons, code blocks, steps and identifiers. A screen
@@ -410,7 +410,7 @@ the content of every screen is drawn with the console's own component kit.
   hover and fixed rows so a row of them stands level, and figures that shrink
   to fit (`.flz-figure-fit`) rather than spill. Every listing shows 20 rows
   and grows by a page on request, its count kept by the server
-  (`FlezhaUiWeb.Live.Sections`). In dev, `/dev/kit` shows every component in
+  (`FlezhaConsoleWeb.Live.Sections`). In dev, `/dev/kit` shows every component in
   every state.
 - **Type**: flezha.com's faces — Space Grotesk for display, Inter for the
   interface and JetBrains Mono for identifiers and figures — from the
@@ -421,7 +421,7 @@ the content of every screen is drawn with the console's own component kit.
   pages, with flezha.com's sun and moon.
 - **The relay pipeline graph** draws nodes and wires with the stylebook's
   relay-graph recipe (`.flz-graph-*`); the console's own `topo-*` rules add
-  the relay's edge, nets in six hues (`--fui-wire-0` to `--fui-wire-5`, both
+  the relay's edge, nets in six hues (`--fcon-wire-0` to `--fcon-wire-5`, both
   themes; a channel keeps its hue through its port), halos and junction dots, ports and their taps, badges, focus, the
   view controls, the Cell sheet, the flow sentence and the timeline.
   `Topology.pipeline/1` places every node on abstract ranks and orders — sources
@@ -457,9 +457,9 @@ the content of every screen is drawn with the console's own component kit.
   unused token, a contrast pairing below WCAG AA in either theme, or a hex,
   `rgb()` or `hsl()` colour written outside a token file.
 
-## How the UI talks to the controller
+## How the console talks to the controller
 
-Every remote call goes through `FlezhaUi.Service.NodeManager`, which is the
+Every remote call goes through `FlezhaConsole.Service.NodeManager`, which is the
 only module that names a `Flezha.*` module, and every call is an operation on
 core's **published consumer API**: a `Flezha.Service.*` function listed in
 core's `docs/internal/api/consumers/published.txt`, run through core's one door,
@@ -469,7 +469,7 @@ go without a context, because a context is built from them:
 The door keeps the operations core does not let the network reach — issuing,
 revoking and binding, deleting a namespace, claiming the bootstrap and stopping
 the controller — away from the console; `flz` makes them.
-`test/flezha_ui/service/published_surface_test.exs` holds the console to that
+`test/flezha_console/service/published_surface_test.exs` holds the console to that
 with core's own extractor and list (`FLEZHA_CORE_PATH`, default `../flezha`).
 
 The controller is the node `FLEZHA_NODE` names, and only that one:
@@ -497,7 +497,7 @@ posture is `:open`, renders every control; either way the controller still
 judges each call.
 
 Identity works the way the controller's own CLI does it: a principal comes
-*only* from `Flezha.Service.Admin.context/2`. A name typed into this UI is
+*only* from `Flezha.Service.Admin.context/2`. A name typed into this console is
 never placed in a caller context, because that context is what the controller's
 audit log records. Verifications are cached briefly, and never for a transient
 `authz.registry_unavailable`. A refused
@@ -507,21 +507,21 @@ verification the token store cannot answer is reported as that failure; the
 call is never made unbound.
 
 Behaviour shared across screens is a `use`-able module rather than a copied
-block: `FlezhaUiWeb.Live.Refresh` (the tick, the forwarded runner events —
+block: `FlezhaConsoleWeb.Live.Refresh` (the tick, the forwarded runner events —
 ignored by a screen scoped to another namespace — what a screen says about
 its own currency and, for a screen declaring `background: true`, reading off
-the LiveView process), `FlezhaUiWeb.Live.Tail` (a live
-tail), `FlezhaUiWeb.Topology` (the pipeline graph and fleet summary),
-`FlezhaUiWeb.Live.Launcher` (starting a relay, rendered by both
-`/namespaces/:ns` and `/relays`), `FlezhaUiWeb.Live.PluginForm` (enabling,
+the LiveView process), `FlezhaConsoleWeb.Live.Tail` (a live
+tail), `FlezhaConsoleWeb.Topology` (the pipeline graph and fleet summary),
+`FlezhaConsoleWeb.Live.Launcher` (starting a relay, rendered by both
+`/namespaces/:ns` and `/relays`), `FlezhaConsoleWeb.Live.PluginForm` (enabling,
 binding and updating a plugin, from a relay's screen and the plugins screen),
-`FlezhaUiWeb.Live.Target` (the namespace and
+`FlezhaConsoleWeb.Live.Target` (the namespace and
 factory a write is aimed at, shared by the launcher and the schedule form) and
-`FlezhaUiWeb.Live.Sections` (which of a long screen's panels are open). A write
+`FlezhaConsoleWeb.Live.Sections` (which of a long screen's panels are open). A write
 path implemented twice drifts, and the half that drifts is the one nobody is
 looking at.
 
-Live data rides `FlezhaUi.Service.EventFeed`, and **no code of this
+Live data rides `FlezhaConsole.Service.EventFeed`, and **no code of this
 application runs on the controller**. A feed holds one published stream
 operation — `Observability.tail/2`, `AuditLog.tail/2` or `Relay.listen/5` —
 open with `:erpc.send_request/4`, passing its own pid as the caller context's
@@ -544,9 +544,9 @@ and a retrying feed reports a reconnect only once its re-opened stream is held.
 # Controller, from the flezha repo
 iex --name flezha@flezha_controller.flezha_network --cookie "$ERLANG_COOKIE" -S mix
 
-# UI: connects to the node FLEZHA_NODE names, and calls no other
+# Console: connects to the node FLEZHA_NODE names, and calls no other
 FLEZHA_NODE=flezha@flezha_controller.flezha_network \
-  iex --name flezha_ui@flezha_ui_web.flezha_network --cookie "$ERLANG_COOKIE" --hidden -S mix phx.server
+  iex --name flezha_console@flezha_console_web.flezha_network --cookie "$ERLANG_COOKIE" --hidden -S mix phx.server
 ```
 
 Both nodes take the same cookie, one you choose: nothing falls back to a
