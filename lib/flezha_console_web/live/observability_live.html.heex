@@ -15,8 +15,7 @@
 <.runtime_error error={@load_error} action="the observability listing" />
 
 <.notice :if={@disabled?} kind={:info} testid="observability-disabled">
-  Observability is switched off on this controller, so it emits no signals and there is nothing
-  to list or tail.
+  It emits no signals, so there is nothing to list or tail.
 </.notice>
 
 <.runtime_error error={@toggle_error} action="the source toggle" />
@@ -166,7 +165,11 @@
     down are not shown.
   </.notice>
 
-  <div :if={@tailing && @tail_records == []} class="space-y-4" data-testid="tail-waiting">
+  <div
+    :if={@tailing && @tail_records == [] && !pubsub_disabled?(@tail_error)}
+    class="space-y-4"
+    data-testid="tail-waiting"
+  >
     <.empty_state icon="hero-signal" testid="tail-empty">
       Nothing yet — this source speaks when something happens.
     </.empty_state>
@@ -208,10 +211,4 @@
       offset_us={@clock_offset_us}
     />
   </ol>
-
-  <:actions>
-    <.button variant="secondary" phx-click="stop_tail" data-testid="stop-tail" icon="hero-stop">
-      Stop tail
-    </.button>
-  </:actions>
 </.drawer>

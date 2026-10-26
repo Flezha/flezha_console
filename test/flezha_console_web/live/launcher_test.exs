@@ -199,7 +199,7 @@ defmodule FlezhaConsoleWeb.LauncherTest do
       assert text_of(html, ~s([data-testid="start-steps-step-0"])) =~ "store_input · flow"
       refute html =~ ~s(id="start-details")
 
-      html = click(view, "factory-use-btn")
+      html = click(view, "start-next-btn")
       assert html =~ ~s(id="start-details")
     end
 

@@ -88,7 +88,7 @@ test.describe('Observability', () => {
     await expect(count).not.toHaveText(before ?? '');
     await expect(details).toHaveAttribute('open', '');
 
-    await page.getByTestId('stop-tail').click();
+    await page.getByTestId('tail-panel').getByTestId('inspector-close').click();
     await expect(panel).toHaveCount(0);
     await expect(records).toHaveCount(0);
     await expect(button).toHaveAttribute('aria-pressed', 'false');

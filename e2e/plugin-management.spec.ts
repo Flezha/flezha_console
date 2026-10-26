@@ -91,7 +91,7 @@ test.describe('Plugin writes', () => {
       await expect(detail).toContainText('Controller plugins');
       await expect(detail).toContainText('on_relay_started');
       await expect(detail).toContainText('url');
-      await page.getByTestId('provider-use-btn').click();
+      await page.getByTestId('attach-next-btn').click();
 
       // A controller plugin runs on controllers, so no relay is asked for.
       await expect(page.getByTestId('input-plugin-relay')).toHaveCount(0);
@@ -144,7 +144,7 @@ test.describe('Plugin writes', () => {
       await expect(page.getByTestId(`plugin-relays-${name}`)).toContainText(RELAY);
 
       // Bind
-      await menuAction(page, `plugin-menu-${name}`, `plugin-bind-${name}`);
+      await page.getByTestId(`plugin-bind-${name}`).click();
       await page.getByTestId('input-plugin-relay').selectOption(FURTHER);
       await page.getByTestId('input-hook-on_output').check();
       await page.getByTestId('attach-submit-btn').click();

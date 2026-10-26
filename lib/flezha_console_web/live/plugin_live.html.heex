@@ -113,6 +113,24 @@
     <span data-testid={"plugin-relays-#{plugin.name}"} class="fcon-num">
       {join_or_dash(plugin[:relays])}
     </span>
+    <.button
+      :if={
+        not controller_plugin?(plugin, @available_providers) and
+          NodeManager.granted?(@operations, "PluginManager.bind")
+      }
+      variant="ghost"
+      size="sm"
+      icon="hero-plus-mini"
+      phx-click="plugin_form_open"
+      phx-value-mode="bind"
+      phx-value-name={plugin.name}
+      phx-value-provider={provider_id(plugin)}
+      phx-value-namespace={plugin.namespace}
+      phx-value-hooks={Enum.join(plugin[:hooks] || [], ",")}
+      data-testid={"plugin-bind-#{plugin.name}"}
+    >
+      Bind relay
+    </.button>
   </:col>
   <:col :let={plugin} label="Runs on">
     <span class="fcon-num" data-testid={"plugin-controllers-#{plugin.name}"}>
@@ -139,24 +157,6 @@
         testid={"plugin-inspect-#{plugin.name}"}
       >
         Inspect
-      </:item>
-      <:item
-        :if={
-          not controller_plugin?(plugin, @available_providers) and
-            NodeManager.granted?(@operations, "PluginManager.bind")
-        }
-        click="plugin_form_open"
-        values={
-          %{
-            mode: "bind",
-            name: plugin.name,
-            provider: provider_id(plugin),
-            namespace: plugin.namespace
-          }
-        }
-        testid={"plugin-bind-#{plugin.name}"}
-      >
-        Bind to a relay
       </:item>
       <:item
         :if={NodeManager.granted?(@operations, "PluginManager.update")}
@@ -245,6 +245,19 @@
           <summary class="fcon-label cursor-pointer">Implementation</summary>
           <p class="fcon-num text-xs mt-1">{provider.module}</p>
         </details>
+        <.button
+          :if={NodeManager.granted?(@operations, "PluginManager.enable")}
+          variant="secondary"
+          size="sm"
+          icon="hero-plus-mini"
+          phx-click="plugin_form_open"
+          phx-value-mode="enable"
+          phx-value-provider={provider.id}
+          phx-value-namespace={@scoped_namespace}
+          data-testid={"provider-enable-#{provider.id}"}
+        >
+          Enable
+        </.button>
       </div>
     </div>
   </.paged>
@@ -254,7 +267,7 @@
 
 <.confirm_dialog
   :if={@confirm_disable}
-  title="Disable Plugin?"
+  title="Disable plugin?"
   confirm_label="Disable"
   on_confirm="disable_plugin"
   on_cancel="cancel_disable"
@@ -269,7 +282,7 @@
 
 <.confirm_dialog
   :if={@confirm_unbind}
-  title="Unbind relay?"
+  title="Unbind plugin?"
   confirm_label="Unbind"
   on_confirm="unbind_plugin"
   on_cancel="cancel_unbind"
@@ -284,8 +297,8 @@
   cancel_testid="plugin-unbind-cancel"
   confirm_testid="plugin-unbind-confirm"
 >
-  Unbind <span class="fcon-ident">{@confirm_unbind.relay}</span>
-  from plugin <span class="fcon-ident">{@confirm_unbind.name}</span>? The plugin stays enabled; this relay stops
+  Unbind plugin <span class="fcon-ident">{@confirm_unbind.name}</span>
+  from <span class="fcon-ident">{@confirm_unbind.relay}</span>? The plugin stays enabled; this relay stops
   using it.
 </.confirm_dialog>
 

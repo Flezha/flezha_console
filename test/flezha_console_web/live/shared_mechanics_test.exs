@@ -693,7 +693,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         route: "/observability",
         tail: {Observability, :tail},
         start: "tail-flezha_health",
-        stop: "stop-tail"
+        stop: "inspector-close"
       }
     ]
 

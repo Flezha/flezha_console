@@ -197,13 +197,18 @@ After a plugin is enabled, the UI SHALL show whether it was enabled or was alrea
 
 ### Requirement: Bindings and options are changed apart from enabling
 
-Each enabled plugin SHALL offer a control to change its options and, for a controller plugin, its hooks (`Flezha.Service.PluginManager.update/3`). Each enabled relay plugin SHALL additionally offer controls to bind it to a further relay with hooks and a channel (`bind/3`) and to unbind it from a relay while it stays enabled (`unbind/3`). These controls SHALL reuse the enable form's fields and provider help. Unbinding SHALL require an explicit confirmation. An update SHALL report whether it was applied live, by restarting the plugin's copies, or changed nothing, and the relays bound to it.
+Each enabled plugin SHALL offer a control to change its options and, for a controller plugin, its hooks (`Flezha.Service.PluginManager.update/3`). Each enabled relay plugin SHALL additionally offer controls to bind it to a further relay with hooks and a channel (`bind/3`) and to unbind it from a relay while it stays enabled (`unbind/3`). These controls SHALL reuse the enable form's fields and provider help, and a bind SHALL start with the plugin's own hooks ticked. The plugins screen SHALL show the bind control beside each relay plugin's bound relays, and each provider SHALL offer Enable, which opens the enable flow with that provider chosen. Attaching from a relay screen SHALL also offer, beside the providers, the relay plugins already enabled in that namespace that the relay does not hold; choosing one binds it to that relay through `bind/3` instead of enabling another plugin. Unbinding SHALL require an explicit confirmation. An update SHALL report whether it was applied live, by restarting the plugin's copies, or changed nothing, and the relays bound to it.
 
 #### Scenario: Binding to another relay
 
 - **WHEN** an operator binds an enabled plugin to a relay
 - **THEN** `bind/3` is called with the plugin's name and the relay, hooks and channel chosen
 - **AND** the relay appears among the plugin's bound relays on the next read
+
+#### Scenario: Binding an enabled plugin from the relay screen
+
+- **WHEN** an operator attaches a plugin on a relay screen and chooses one already enabled in the namespace
+- **THEN** `bind/3` is called for that relay with the plugin's hooks, and `enable/3` is not called
 
 #### Scenario: The relay is already bound
 

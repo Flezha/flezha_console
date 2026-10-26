@@ -3,7 +3,8 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
   Every write that configures a plugin — enable, bind and update — as one form.
 
   Reachable from two screens: a relay's detail page, where enabling binds the
-  new plugin to that relay, and the plugins screen, where a plugin is enabled
+  new plugin to that relay and a plugin already enabled in the namespace can be
+  bound to it instead, and the plugins screen, where a plugin is enabled
   into a namespace and an enabled one is bound to a further relay or given new
   options. One form because the fields, the provider's help and the call
   shapes are the same, and a write path implemented twice drifts.
@@ -45,11 +46,12 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
   alias FlezhaConsole.Service.NodeManager
   alias FlezhaConsoleWeb.Live.Target
   alias FlezhaConsoleWeb.Live.TypedFields
+  alias FlezhaConsoleWeb.PluginLive
 
   # Named exactly and namespaced, so a host's own events are never swallowed.
   @events ~w(plugin_form_open plugin_form_close plugin_form_provider plugin_form_change
              plugin_form_submit plugin_form_step plugin_form_role plugin_form_rename
-             plugin_form_fold)
+             plugin_form_fold plugin_form_bind)
 
   # The enable flow's steps: Provider, Placement, Options, Review.
   @placement 1
@@ -93,6 +95,7 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
       target: target,
       providers: [],
       providers_error: nil,
+      enabled: [],
       provider: nil,
       options: nil,
       relays: [],
@@ -114,9 +117,11 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
     }
 
     form =
-      if mode == :enable,
-        do: load_providers(form, token),
-        else: choose(form, params["provider"], token)
+      cond do
+        mode != :enable -> choose(form, params["provider"], token)
+        params["provider"] in [nil, ""] -> form |> load_providers(token) |> load_enabled(socket)
+        true -> form |> load_providers(token) |> choose(params["provider"], token) |> goto(1)
+      end
 
     assign(socket, plugin_form: form)
   end
@@ -141,6 +146,30 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
     end)
   end
 
+  # Attaching a plugin that is already enabled binds it, so the form becomes
+  # the bind form, with the plugin's own hooks ticked.
+  def handle_event(_module, "plugin_form_bind", %{"name" => name}, socket) do
+    update(socket, :plugin_form, fn form ->
+      case Enum.find(form.enabled, &(&1.name == name)) do
+        nil ->
+          form
+
+        plugin ->
+          fields = %{
+            form.fields
+            | "name" => name,
+              "hooks" => Enum.map(plugin[:hooks] || [], &to_string/1)
+          }
+
+          choose(
+            %{form | mode: :bind, fields: fields},
+            PluginLive.provider_id(plugin),
+            socket.assigns.flezha_token
+          )
+      end
+    end)
+  end
+
   def handle_event(_module, "plugin_form_step", %{"step" => step}, socket) do
     case Integer.parse(to_string(step)) do
       {step, ""} -> update(socket, :plugin_form, &goto(&1, step))
@@ -149,7 +178,7 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
   end
 
   def handle_event(_module, "plugin_form_role", params, socket) do
-    role = Enum.find(~w(source tap controller)a, &(Atom.to_string(&1) == params["value"]))
+    role = Enum.find(~w(source tap controller enabled)a, &(Atom.to_string(&1) == params["value"]))
     update(socket, :plugin_form, &%{&1 | role: role})
   end
 
@@ -301,6 +330,30 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
       {:error, reason} -> %{form | providers_error: reason}
     end
   end
+
+  # The relay plugins enabled in the attaching relay's namespace that it does
+  # not hold yet, offered beside the providers so one can be bound as it is.
+  defp load_enabled(%{relay: relay} = form, socket) when is_binary(relay) do
+    if NodeManager.granted?(socket.assigns[:operations], "PluginManager.bind") do
+      case NodeManager.plugins(form.namespace, socket.assigns.flezha_token) do
+        {:ok, plugins} ->
+          enabled =
+            Enum.reject(plugins, fn plugin ->
+              relay in Enum.map(plugin[:relays] || [], &to_string/1) or
+                PluginLive.controller_plugin?(plugin, form.providers)
+            end)
+
+          %{form | enabled: Enum.sort_by(enabled, & &1.name)}
+
+        {:error, _reason} ->
+          form
+      end
+    else
+      form
+    end
+  end
+
+  defp load_enabled(form, _socket), do: form
 
   # The provider's own description — its help, its type, the hooks it
   # supports and its options — read once on selection rather than on every
@@ -701,7 +754,7 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
               :if={@form.step == 3}
               type="submit"
               form="plugin-form"
-              phx-disable-with="Enabling…"
+              phx-disable-with={if @form.relay, do: "Attaching…", else: "Enabling…"}
               icon="hero-check-mini"
               data-testid="attach-submit-btn"
             >
@@ -809,6 +862,16 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
           >
             {info.heading} <span class="fcon-count fcon-count--neutral">{@counts[role]}</span>
           </:option>
+          <:option
+            :if={@form.enabled != []}
+            click="plugin_form_role"
+            value="enabled"
+            current={@form.role == :enabled}
+            testid="provider-role-enabled"
+          >
+            Already enabled
+            <span class="fcon-count fcon-count--neutral">{length(@form.enabled)}</span>
+          </:option>
         </.segmented>
       </:tools>
       <section :for={{role, providers} <- @groups} class="fcon-pick-group">
@@ -823,6 +886,22 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
         >
           <span class="block font-medium">{Format.humanize(provider.id)}</span>
           <span class="fcon-num fcon-muted text-xs">{provider.id}</span>
+        </.pick_choice>
+      </section>
+      <section :if={@form.enabled != [] and @form.role in [nil, :enabled]} class="fcon-pick-group">
+        <h3 class="fcon-eyebrow">Already enabled in {@form.namespace}</h3>
+        <.pick_choice
+          :for={plugin <- @form.enabled}
+          chosen={false}
+          glyph={{"hero-link", 3}}
+          phx-click="plugin_form_bind"
+          phx-value-name={plugin.name}
+          data-testid={"enabled-btn-#{plugin.name}"}
+        >
+          <span class="block font-medium fcon-num">{plugin.name}</span>
+          <span class="fcon-muted text-xs">
+            {Format.humanize(PluginLive.provider_id(plugin))} · bind it as it is
+          </span>
         </.pick_choice>
       </section>
       <:detail><.provider_detail form={@form} /></:detail>
@@ -895,16 +974,6 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
           </div>
         </dl>
       </div>
-      <:action>
-        <.button
-          phx-click="plugin_form_step"
-          phx-value-step="1"
-          icon_right="hero-arrow-right-mini"
-          data-testid="provider-use-btn"
-        >
-          Use {Format.humanize(@provider.id)}
-        </.button>
-      </:action>
     </.pick_pane>
     """
   end
@@ -1310,6 +1379,9 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
   defp option_text(value) when is_binary(value), do: value
   defp option_text(value) when is_list(value) or is_map(value), do: Jason.encode!(value)
   defp option_text(value), do: to_string(value)
+
+  defp title(%{mode: :bind, relay: relay, fields: fields}) when is_binary(relay),
+    do: "Bind #{fields["name"]} to #{relay}"
 
   defp title(%{mode: :bind, fields: fields}), do: "Bind #{fields["name"]}"
   defp title(%{mode: :update, fields: fields}), do: "Update #{fields["name"]}"

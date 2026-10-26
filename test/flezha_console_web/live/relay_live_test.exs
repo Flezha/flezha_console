@@ -498,6 +498,64 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
                "Plugin out_1 was already enabled; this relay is bound to it."
     end
 
+    test "offers the namespace's enabled plugins it does not hold and binds one as it is", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Fleet, :providers},
+        {:ok,
+         %{
+           providers: [
+             %{id: "relay_stdout", module: "Flezha.Plugin.Provider.StdOut", type: :io},
+             %{id: "hook_webhook", module: "Flezha.Plugin.Provider.Webhook", type: :controller}
+           ],
+           refused: 0
+         }}
+      )
+
+      enabled = fn name, provider, relays ->
+        %{
+          name: name,
+          provider: provider,
+          provider_id: provider,
+          relays: relays,
+          hooks: ["on_output"]
+        }
+      end
+
+      FakeController.set(
+        node,
+        {PluginManager, :enabled},
+        {:ok,
+         [
+           enabled.("out_1", "relay_stdout", ["relay_b"]),
+           enabled.("out_2", "relay_stdout", ["relay_a"]),
+           enabled.("hooks_1", "hook_webhook", [])
+         ]}
+      )
+
+      {:ok, view, _html} = live(conn, @url)
+      html = open_attach(view)
+
+      assert html =~ ~s(data-testid="enabled-btn-out_1")
+      refute html =~ ~s(data-testid="enabled-btn-out_2")
+      refute html =~ ~s(data-testid="enabled-btn-hooks_1")
+
+      html = view |> element(~s([data-testid="enabled-btn-out_1"])) |> render_click()
+      assert html =~ "Bind out_1 to relay_a"
+      assert has_element?(view, ~s([data-testid="input-hook-on_output"][checked]))
+      refute has_element?(view, ~s([data-testid="input-plugin-relay"]))
+
+      assert submit_plugin_form(view, %{}) =~ "Plugin out_1 bound to relay_a."
+
+      assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :bind})
+      assert fields[:relay_id] == "relay_a"
+      assert fields[:hooks] == ["on_output"]
+      assert FakeController.calls(node, {PluginManager, :enable}) == []
+    end
+
     test "a rejected plugin states the controller's error on the form", %{
       conn: conn,
       node: node

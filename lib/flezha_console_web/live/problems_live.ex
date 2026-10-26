@@ -55,8 +55,7 @@ defmodule FlezhaConsoleWeb.ProblemsLive do
       icon="hero-check-circle"
       testid="problems-clear"
     >
-      All clear: no relay, partition group, quota or dead-letter queue needs anything from you,
-      as of {Format.time_of_day(@shell_pulse.checked_at)}.
+      All clear: no relay, partition group, quota or dead-letter queue needs anything from you.
     </.empty_state>
 
     <.problem_list

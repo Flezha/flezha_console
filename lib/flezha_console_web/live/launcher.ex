@@ -612,7 +612,7 @@ defmodule FlezhaConsoleWeb.Live.Launcher do
             Back
           </.button>
           <.button
-            :if={@launcher.step == 0}
+            :if={@launcher.step == 0 and is_nil(Target.catalog_error(@launcher.target))}
             phx-click="launcher_next"
             disabled={is_nil(@factory)}
             icon_right="hero-arrow-right-mini"
@@ -710,15 +710,6 @@ defmodule FlezhaConsoleWeb.Live.Launcher do
           <.chip :for={runner <- @factory.runners || []} mono>{runner}</.chip>
         </div>
       </div>
-      <:action>
-        <.button
-          phx-click="launcher_next"
-          icon_right="hero-arrow-right-mini"
-          data-testid="factory-use-btn"
-        >
-          Use {@factory.id}
-        </.button>
-      </:action>
     </.pick_pane>
     """
   end

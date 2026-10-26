@@ -508,7 +508,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       assert text_of(html, ~s([data-testid="plugin-steps-step-0"])) =~ "Relay Stdout"
       assert has_element?(view, ~s([data-testid="plugin-placement"][hidden]))
 
-      view |> element(~s([data-testid="provider-use-btn"])) |> render_click()
+      view |> element(~s([data-testid="attach-next-btn"])) |> render_click()
       refute has_element?(view, ~s([data-testid="plugin-placement"][hidden]))
 
       assert has_element?(
@@ -683,6 +683,26 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       assert fields[:channel] == "out"
       assert fields[:namespace] == "default"
       assert html =~ "Plugin out_1 bound to relay_b."
+    end
+
+    test "a bind starts from the plugin's own hooks", %{conn: conn, node: node} do
+      {:ok, view, _html} = live(conn, ~p"/plugins")
+      view |> element(~s([data-testid="plugin-bind-out_1"])) |> render_click()
+
+      assert has_element?(view, ~s([data-testid="input-hook-on_output"][checked]))
+      submit_plugin_form(view, %{"relay_id" => "relay_b"})
+
+      assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :bind})
+      assert fields[:hooks] == ["on_output"]
+    end
+
+    test "a provider's Enable opens the flow on its placement", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/plugins")
+      open_section(view, "providers")
+      view |> element(~s([data-testid="provider-enable-relay_stdout"])) |> render_click()
+
+      assert text_of(render(view), ~s([data-testid="plugin-steps-step-0"])) =~ "Relay Stdout"
+      refute has_element?(view, ~s([data-testid="plugin-placement"][hidden]))
     end
 
     test "a relay already holding the binding is said so", %{conn: conn, node: node} do

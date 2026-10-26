@@ -2351,9 +2351,8 @@ defmodule FlezhaConsoleWeb.CoreComponents do
 
   @doc """
   The pane of a `picker/1` describing the chosen item: its glyph, title and
-  subtitle, what the caller says of it, and the `:action` that moves on.
-  With `empty`, an icon name, nothing is chosen yet and the inner block says
-  what choosing will show.
+  subtitle, and what the caller says of it. With `empty`, an icon name,
+  nothing is chosen yet and the inner block says what choosing will show.
   """
   attr :testid, :string, required: true
   attr :empty, :string, default: nil
@@ -2362,7 +2361,6 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   attr :subtitle, :string, default: nil
   attr :mono, :atom, default: nil, values: [nil, :title, :subtitle], doc: "which is an identifier"
   slot :inner_block, required: true
-  slot :action
 
   def pick_pane(%{empty: icon} = assigns) when is_binary(icon) do
     ~H"""
@@ -2386,7 +2384,6 @@ defmodule FlezhaConsoleWeb.CoreComponents do
         </div>
       </div>
       {render_slot(@inner_block)}
-      {render_slot(@action)}
     </aside>
     """
   end

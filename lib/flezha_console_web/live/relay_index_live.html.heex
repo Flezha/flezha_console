@@ -110,7 +110,10 @@
     <% true -> %>
       A relay is started from a factory a runner serves. None is running in any namespace you can reach.
   <% end %>
-  <:action :if={NodeManager.granted?(@operations, "Relay.start")}>
+  <:action :if={
+    NodeManager.granted?(@operations, "Relay.start") and
+      not filtered?(@filters, @scoped_namespace)
+  }>
     <.button size="sm" phx-click="launcher_open" data-testid="start-relay-empty-btn">
       Start relay
     </.button>

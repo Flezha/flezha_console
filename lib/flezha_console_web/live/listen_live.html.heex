@@ -59,7 +59,8 @@
   </form>
   <span data-testid="listen-count" class="ml-auto fcon-figures self-center">
     <.live_value id="listen-count-value" value={@message_count} />
-    messages received{if @paused, do: " (paused)"}
+    {if @message_count == 1, do: "message", else: "messages"} received{if @paused,
+      do: " (paused)"}
   </span>
 </div>
 
