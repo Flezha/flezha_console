@@ -509,7 +509,11 @@ defmodule FlezhaConsoleWeb.Topology do
         skew: skew,
         verdicts: verdicts,
         stall_notice: stall_notice,
-        dlq: rows |> Enum.map(&to_string(&1.id)) |> parked_in(token),
+        dlq:
+          token
+          |> FlezhaConsole.DeadLetters.stats()
+          |> NodeManager.ok_or([])
+          |> parked_in(Enum.map(rows, &to_string(&1.id))),
         read_at: read_at
       }
     else
@@ -724,28 +728,25 @@ defmodule FlezhaConsoleWeb.Topology do
 
   # The dead-letter statistics are kept per relay class across the cluster; a
   # namespace's share is its own relays' classes.
-  defp parked_in(relay_ids, token) do
+  defp parked_in(stats, relay_ids) do
     classes = MapSet.new(relay_ids, &to_string/1)
-
-    token
-    |> NodeManager.dlq_stats()
-    |> NodeManager.ok_or([])
-    |> Enum.filter(&(to_string(Map.get(&1, :relay_class)) in classes))
+    Enum.filter(stats, &(to_string(Map.get(&1, :relay_class)) in classes))
   end
 
   # The relay class's parked entries, and each tasklet's share of them.
   defp parked_for(facts, token) do
-    stats = parked_in([facts.relay_class], token)
+    stats =
+      token |> NodeManager.dlq_stats() |> NodeManager.ok_or([]) |> parked_in([facts.relay_class])
 
     by_tasklet =
       stats
       |> Enum.group_by(&to_string(Map.get(&1, :tasklet_id)))
-      |> Map.new(fn {tasklet, rows} -> {tasklet, entries(rows)} end)
+      |> Map.new(fn {tasklet, rows} -> {tasklet, total(rows, :entries)} end)
 
-    {entries(stats), by_tasklet}
+    {total(stats, :entries), by_tasklet}
   end
 
-  defp entries(stats), do: Enum.reduce(stats, 0, &(&2 + Map.get(&1, :entries, 0)))
+  defp total(stats, key), do: Enum.reduce(stats, 0, &(&2 + Map.get(&1, key, 0)))
 
   @doc """
   Recent stall verdicts, and why there are none when there are none.
@@ -3279,7 +3280,8 @@ defmodule FlezhaConsoleWeb.Topology do
         Enum.filter(input.runners, fn runner ->
           channels |> Map.get(runner, []) |> Enum.any?(&credit_exhausted?/1)
         end),
-      parked: entries(input.dlq),
+      parked: total(input.dlq, :entries),
+      parked_seen: total(input.dlq, :seen),
       stall: List.first(input.verdicts),
       busiest: busiest,
       skew: input.skew
@@ -3296,6 +3298,7 @@ defmodule FlezhaConsoleWeb.Topology do
         runner_count: 0,
         backpressured: [],
         parked: 0,
+        parked_seen: 0,
         stall: nil,
         stall_notice: nil,
         health: [],

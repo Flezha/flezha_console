@@ -1,7 +1,8 @@
 defmodule FlezhaConsoleWeb.ControllerLive do
   @moduledoc """
-  "Is this controller healthy?" — durability posture, RPO breaches, the
-  shipper, shutdown and boot state, and the authorization posture.
+  "Is this controller healthy?" — the controllers connected with it,
+  durability posture, RPO breaches, the shipper, shutdown and boot state, and
+  the authorization posture.
 
   Everything here is a controller-wide fact rather than a namespace one, which
   is why it is its own screen rather than a panel on another.
@@ -70,9 +71,12 @@ defmodule FlezhaConsoleWeb.ControllerLive do
     {status, status_error} = NodeManager.ok_or_error(NodeManager.controller_status(token), nil)
     {boot, boot_error} = NodeManager.ok_or_error(NodeManager.boot_status(token), nil)
     {shipper, shipper_error} = NodeManager.ok_or_error(NodeManager.durability_status(token), [])
+    {controllers, controllers_error} = NodeManager.ok_or_error(NodeManager.controllers(token), [])
 
     socket
     |> assign(
+      controllers: controllers,
+      controllers_error: controllers_error,
       status: status,
       status_error: status_error,
       breaches: token |> NodeManager.durability_breaches() |> NodeManager.ok_or([]),
@@ -83,6 +87,38 @@ defmodule FlezhaConsoleWeb.ControllerLive do
       authz: NodeManager.authz_status(token)
     )
   end
+
+  @doc """
+  "2 controllers connected: rpi5 and raspberrypi4", naming the machine each
+  runs on, from `NodeManager.controllers/1`'s rows; nothing for none. With `link`, it leads to the Controller screen.
+  """
+  attr :controllers, :any, required: true
+  attr :link, :boolean, default: false
+  attr :testid, :string, default: "controllers-connected"
+
+  def connected(assigns) do
+    ~H"""
+    <span :if={@controllers != []} data-testid={@testid}>
+      <.link :if={@link} navigate={~p"/controller"}>{connected_words(@controllers)}</.link>
+      <span :if={!@link}>{connected_words(@controllers)}</span>
+    </span>
+    """
+  end
+
+  defp connected_words(rows) do
+    machines =
+      Enum.map(rows, fn row ->
+        machine(row) <>
+          if(row.reachable?, do: "", else: " (not answering)")
+      end)
+
+    "#{Words.count(length(rows), "controller")} connected: #{Words.join(machines)}"
+  end
+
+  @doc "The machine a `NodeManager.controllers/1` row runs on, or its host when it does not say."
+  def machine(%{host_node: "" <> machine}), do: machine
+  def machine(%{host: "" <> host}), do: host
+  def machine(%{node: node}), do: node |> to_string() |> String.split("@") |> List.last()
 
   @doc "A backend name in words, whether it is an atom or a `{module, opts}` pair."
   def backend_label({module, _opts}), do: Words.humanize(module)

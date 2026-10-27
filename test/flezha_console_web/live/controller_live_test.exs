@@ -60,6 +60,89 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
     )
   end
 
+  describe "controllers" do
+    test "one controller is listed with its machine, and marked as this console's", %{
+      conn: conn
+    } do
+      {:ok, _view, html} = live(conn, ~p"/controller")
+
+      row = text_of(html, ~s([data-testid="controller-flezha@node-a"]))
+      assert row =~ "node-a"
+      assert row =~ "0.1.2"
+      assert row =~ "1h 0m"
+      assert text_of(html, ~s([data-testid="controller-local-flezha@node-a"])) == "Connected here"
+    end
+
+    test "two controllers are both listed, each on its machine, the asked one marked", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Controller, :controllers},
+        {:ok,
+         [
+           FakeController.controller_row("rpi5", %{host_node: "rpi5-board"}),
+           FakeController.controller_row("rpi4", %{
+             host_node: "rpi4-board",
+             local?: false,
+             runners: 3
+           })
+         ]}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/controller")
+
+      assert text_of(html, ~s([data-testid="controller-flezha@rpi5"])) =~ "rpi5-board"
+      assert text_of(html, ~s([data-testid="controller-flezha@rpi4"])) =~ "rpi4-board"
+      assert html =~ ~s(data-testid="controller-local-flezha@rpi5")
+      refute html =~ ~s(data-testid="controller-local-flezha@rpi4")
+    end
+
+    test "a peer that does not answer is listed as such and the rest renders", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Controller, :controllers},
+        {:ok,
+         [
+           FakeController.controller_row("rpi5"),
+           %{node: :flezha@rpi4, local?: false, reachable?: false}
+         ]}
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/controller")
+
+      assert text_of(html, ~s([data-testid="controller-unreachable-flezha@rpi4"])) ==
+               "Not answering"
+
+      assert text_of(html, ~s([data-testid="controller-flezha@rpi4"])) =~ "rpi4"
+      assert html =~ ~s(data-testid="boot-panel")
+      assert html =~ ~s(data-testid="durability-panel")
+    end
+
+    test "a controller that cannot list its peers says so on the panel alone", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Controller, :controllers},
+        FakeController.error("authz.role_insufficient")
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/controller")
+
+      assert text_of(html, ~s([data-testid="controllers-panel"] [data-testid="runtime-error"])) =~
+               "the controller listing"
+
+      refute html =~ ~s(data-testid="controllers-table")
+      assert html =~ ~s(data-testid="boot-panel")
+    end
+  end
+
   describe "durability" do
     test "a remote tier shows backend, breaches and superseded shipments", %{
       conn: conn,

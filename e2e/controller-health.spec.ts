@@ -17,6 +17,9 @@ test.describe('Controller health', () => {
   }) => {
     await live('/controller');
 
+    // The controller this console reached is one of those listed, and marked.
+    await expect(page.locator('[data-testid^="controller-local-"]')).toHaveText('Connected here');
+
     // local_only ships nowhere, so it has no backend and nothing to breach.
     await expect(page.getByTestId('durability-backend')).toHaveText('None');
     await expect(
@@ -57,5 +60,27 @@ test.describe('Controller health', () => {
     const table = page.getByTestId('memory-top-processes');
     await expect(table.locator('th')).toContainText(['Process', 'Memory', 'Queue', 'Started as']);
     await expect(table.locator('tbody td[data-label="Process"]').filter({ hasNotText: '<0.' })).not.toHaveCount(0);
+  });
+
+  test('a term pins its own definition, and only the clicked term is open', async ({ page, live }) => {
+    await live('/controller');
+    const role = page.getByTestId('term-role');
+    const principal = page.getByTestId('term-principal');
+
+    await role.click();
+    await expect(role).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByTestId('term-panel-role')).toBeVisible();
+    await expect(page.getByTestId('term-panel-role')).toContainText('What a principal may do in a namespace');
+    await expect(page.getByTestId('help-overlay')).not.toBeVisible();
+
+    await principal.click();
+    await expect(principal).toHaveAttribute('aria-expanded', 'true');
+    await expect(role).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('term-panel-principal')).toContainText('The identity a call is made as');
+    await expect(page.getByTestId('term-panel-role')).toBeHidden();
+
+    await page.keyboard.press('Escape');
+    await expect(principal).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('term-panel-principal')).toBeHidden();
   });
 });

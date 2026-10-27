@@ -48,6 +48,7 @@ defmodule FlezhaConsole.ControllerShapes do
       {"Controller.status", Flezha.Service.Controller, :status, []},
       {"Controller.boot_status", Flezha.Service.Controller, :boot_status, []},
       {"Controller.cluster_status", Flezha.Service.Controller, :cluster_status, ["default"]},
+      {"Controller.controllers", Flezha.Service.Controller, :controllers, []},
       {"Controller.durability_breaches", Flezha.Service.Controller, :durability_breaches, []},
       {"Controller.liveness_counters", Flezha.Service.Controller, :liveness_counters, []}
     ]

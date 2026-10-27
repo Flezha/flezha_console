@@ -353,3 +353,12 @@ SHALL show the existing load-error state, and the next tick SHALL try again.
 - **AND** the load error is shown
 - **AND** the following tick reads again
 
+### Requirement: Home names the connected controllers
+
+Home SHALL say how many controllers are connected and name the machine each runs on, linking to the Controller screen.
+
+#### Scenario: Two controllers
+
+- **WHEN** two controllers are connected
+- **THEN** Home reads "2 controllers connected" with both machine names and a link to Controller
+

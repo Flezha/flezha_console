@@ -267,28 +267,37 @@
         id={"cells-#{tasklet}"}
         rows={cells}
         row_testid={&"cell-#{&1.key}"}
-        row_tone={&(lagging?(&1) && "warning")}
+        row_tone={&(lagging?(@history[&1.key]) && "warning")}
         row_selected={&(&1.key == @selected)}
+        menu_help={["read history", "rotate", "delete cell"]}
       >
-        <:col :let={cell} label="Cell">
+        <:col :let={cell} label="Cell" help={["cell", "lagging"]}>
           <%!-- A tasklet holding one unkeyed cell reports an empty key;
                 naming it is clearer than rendering nothing. --%>
           <span class="fcon-num">
             {if cell.cell_key == "", do: "(unkeyed)", else: cell.cell_key}
           </span>
           <span
-            :if={lagging?(cell)}
+            :if={lagging?(@history[cell.key])}
             data-testid={"cell-lagging-#{cell.key}"}
             class="fcon-badge fcon-badge--warning ml-1"
           >
             Lagging
           </span>
         </:col>
-        <:col :let={cell} label="WAL seq" num>{cell.counters[:wal_seq]}</:col>
-        <:col :let={cell} label="Snapshot seq" num>{cell.counters[:snapshot_seq]}</:col>
-        <:col :let={cell} label="Flush p99" num>{cell.counters[:flush_latency_ms_p99]}</:col>
-        <:col :let={cell} label="Fsync lag" num>{cell.counters[:fsync_durability_lag_ms]}</:col>
-        <:col :let={cell} label="Dedup drops" num>{cell.counters[:dedup_drops_total]}</:col>
+        <:col :let={cell} label="WAL seq" num help={["wal seq"]}>{cell.counters[:wal_seq]}</:col>
+        <:col :let={cell} label="Snapshot seq" num help={["snapshot seq"]}>
+          {cell.counters[:snapshot_seq]}
+        </:col>
+        <:col :let={cell} label="Flush p99" num help={["flush p99"]}>
+          {cell.counters[:flush_latency_ms_p99]}
+        </:col>
+        <:col :let={cell} label="Fsync lag" num help={["fsync lag"]}>
+          {cell.counters[:fsync_durability_lag_ms]}
+        </:col>
+        <:col :let={cell} label="Dedup drops" num help={["dedup drops"]}>
+          {cell.counters[:dedup_drops_total]}
+        </:col>
         <:menu :let={cell}>
           <.row_menu
             id={"cell-menu-#{cell.key}"}

@@ -6,8 +6,45 @@
   </:sentence>
 </.page_header>
 
+<%!-- Every controller of the cluster --%>
+<.section
+  flush
+  testid="controllers-panel"
+  help="Every controller connected in this cluster, the machine it runs on and how many runners it serves. The console reads them through the controller marked as this console's."
+>
+  <:title>Controllers</:title>
+  <.runtime_error error={@controllers_error} action="the controller listing" />
+  <.grid
+    :if={@controllers != []}
+    paging={@paging}
+    id="controllers"
+    rows={@controllers}
+    testid="controllers-table"
+    row_testid={&"controller-#{&1.node}"}
+    row_tone={&(!&1.reachable? && "warning")}
+  >
+    <:col :let={row} label="Machine">
+      <span class="fcon-num font-medium">{machine(row)}</span>
+      <span
+        :if={!row.reachable?}
+        class="fcon-badge fcon-badge--warning ml-1"
+        data-testid={"controller-unreachable-#{row.node}"}
+      >
+        Not answering
+      </span>
+    </:col>
+    <:col :let={row} label="Address"><span class="fcon-num">{row.node}</span></:col>
+    <:col :let={row} label="Version"><span class="fcon-num">{row[:version] || "—"}</span></:col>
+    <:col :let={row} label="Uptime" num>{Format.duration(row[:uptime_ms])}</:col>
+    <:col :let={row} label="Runners" num>{row[:runners] || "—"}</:col>
+    <:col :let={row} label="This console">
+      <span :if={row.local?} data-testid={"controller-local-#{row.node}"}>Connected here</span>
+    </:col>
+  </.grid>
+</.section>
+
 <%!-- Readiness --%>
-<.section flush testid="boot-panel">
+<.section testid="boot-panel">
   <:title>Readiness</:title>
   <.runtime_error error={@boot_error} action="the boot status" />
   <p :if={@boot} data-testid="boot-readiness" class="mb-3">

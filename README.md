@@ -45,7 +45,11 @@ The console uses the controller's terms exactly. If a name here disagrees with
 | **Failed** | A relay whose runner is gone past its grace; the Convergence Loop rebinds it. |
 | **Recovering** | An unbound or failed relay still inside its grace. |
 | **Degraded** | A relay that runs but not as declared; the Convergence Loop repairs it in place. |
-| **Dead letter** | A record a tasklet could not process, kept in the dead-letter queue to be inspected, replayed or dropped. |
+| **Dead letter** | A record a tasklet could not process, kept in the dead-letter queue to be inspected, replayed or dropped. An operator can mark one *seen*: it stays in the queue but is no longer an open problem, until it parks again under a new generation. |
+| **WAL seq** | The sequence number of the last change a cell wrote to its write-ahead log. |
+| **Snapshot seq** | The change a cell's newest snapshot covers; the gap to WAL seq is what a restart replays. |
+| **Fsync lag** | How long a cell's changes waited before a disk sync made them durable. |
+| **Lagging** | A cell whose fsync lag is above one second and still rising between the State screen's readings. |
 | **Health** | How the Convergence Loop classified a relay: `healthy`, `unknown` (not observed yet), `suspended`, `degraded`, `recovering`, `unbound`, `failed` or `halted`. Suspension is a health value, not a separate flag — which is what makes it readable one call per namespace. |
 | **Handled by** | Who acts next on a condition: *Nobody* (planned), *Flezha* (the system is fixing it) or *You* (an operator has to act). Only a condition Flezha or you handle is an open problem. |
 
@@ -59,8 +63,8 @@ scope switch moves between the two forms.
 | Route | Shows |
 | --- | --- |
 | `/` | Redirects to the Home of the namespace last worked in, then to the first reachable one, then to `/namespaces` |
-| `/namespaces/:ns` | **Home** — a headline sentence and the namespace's figures, indicator tiles for everything the token reaches (namespaces, controller nodes, runners, relays by health, open problems, controller health) and for the namespace (relays by health with a link per verdict, runners, plugins, schedules, dead letters, inbound flow with its history, the two fullest limits), its open problems below them (three, then a link), what happened while the screen was open, and as sections that fold: quotas, access (role bindings with when and by whom each was bound, and tokens with their issue, expiry and revoke times, filtered by status), partition groups, finished relays (run, error, finish time and how long each is kept) and runners; drop a runner and readmit its process |
-| `/problems` | **Open problems** in every reachable namespace, worst first — only what Flezha is fixing or you have to act on — each card with the same rows (state, cause, impact, handled by, next step) and the action that fixes it; relays that wait only on a missing runner fold into one card for their factory |
+| `/namespaces/:ns` | **Home** — a headline sentence and the namespace's figures with the connected controllers, indicator tiles for everything the token reaches (namespaces, controller nodes, runners, relays by health, open problems, controller health) and for the namespace (relays by health with a link per verdict, runners, plugins, schedules, dead letters, inbound flow with its history, the two fullest limits), its open problems below them (three, then a link), what happened while the screen was open, and as sections that fold: quotas, access (role bindings with when and by whom each was bound, and tokens with their issue, expiry and revoke times, filtered by status), partition groups, finished relays (run, error, finish time and how long each is kept) and runners; drop a runner and readmit its process |
+| `/problems` | **Open problems** in every reachable namespace, worst first — only what Flezha is fixing or you have to act on, so not a dead letter marked seen — each card with the same rows (state, cause, impact, handled by, next step) and the action that fixes it; relays that wait only on a missing runner fold into one card for their factory |
 | `/namespaces` | Declared and running namespaces as tiles, with a health strip, counts and quota breaches |
 | `/namespaces/:ns/relays` | That namespace's relays: health, run, node, runner, plugins and the measured rate — messages a second, and bytes where the controller counts them — with its recent history; a relay's name and its Open button go to its page, a partition group links each member, a row opens in an inspector, and its menu opens, inspects or stops it |
 | `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update, with a typed field for each option the provider declares |
@@ -68,13 +72,13 @@ scope switch moves between the two forms.
 | `/relays` | The Relays screen's **All namespaces** switch — every relay across every reachable namespace, filterable by namespace, health, run and runner; starts one into any of them; what happened while the screen was open |
 | `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph — its sources, input filters, entry channels, tasklets, output channels and the plugins and called relays they end at, in one layout drawn left to right or top to bottom and fitted to its panel, records moving in the order they pass, what each channel carries beside its name, each tasklet's input rate, backlog, shed and dead-letter badges and a table of its Cells, a payload tap opened from any channel port, and a sentence and timeline of what the relay is doing — and as sections that fold: its condition — state, cause, impact, runner, handled by, next step and, on request, the diagnosis — the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema — Send stays open when no runner serves its factory, saying what will happen to the message, while Call waits for a runner; a partition member's menu opens any partition of its group on the same view, here and on Listen and State |
 | `/namespaces/:ns/relays/:id/listen` | **Listen** — the relay's live outputs or inputs |
-| `/namespaces/:ns/relays/:id/state` | **State** — steps facts as sentences, the task journal and input log, SDK state, and durable cells with their sequences and lag; point-in-time reads, a cell's outbox, replay, rotate, delete; retention, the history one settable |
+| `/namespaces/:ns/relays/:id/state` | **State** — steps facts as sentences, the task journal and input log, SDK state, and durable cells with their sequences and lag, each column and row action explained beside it; point-in-time reads, a cell's outbox, replay, rotate, delete; retention, the history one settable |
 | `/plugins` | Enabled plugins per namespace, the providers on offer, and the packages installed on the controller with why one was refused |
-| `/cluster` | Cluster nodes, per-node health rollup, hub recovery per node (a notice only while a hub is recovering), runners — each with its node, connection time, last contact (late ones flagged and listed first), relay count and what it serves, with a summary, a filter, a node choice, "Late only" and a sort — and which runners serve a factory; drop a runner and readmit its process |
+| `/cluster` | How many controllers are connected and on which machines, cluster nodes, per-node health rollup, hub recovery per node (a notice only while a hub is recovering), runners — each with its node, connection time, last contact (late ones flagged and listed first), relay count and what it serves, with a summary, a filter, a node choice, "Late only" and a sort — and which runners serve a factory; drop a runner and readmit its process |
 | `/observability` | Every source the controller reports through, grouped by area and headed by its plain title, each saying what it is, whether anything failed in the last 15 minutes (failing sources first) and what else it said, with a filter, an on/off switch, the sinks in one line, and a tail that opens with the source's recent history, tells each signal as a sentence about its subject with its raw fields behind Details, and lists what the source can say, failures first |
-| `/controller` | Readiness, authorization and durability in one sentence; durability posture, RPO breaches and the shipper with the time left to each retry, shutdown and boot state, memory hot spots by name with their queue and initial call |
+| `/controller` | Readiness, authorization and durability in one sentence; every connected controller with its machine, address, version, uptime and runners, the one this console reached marked; durability posture, RPO breaches and the shipper with the time left to each retry, shutdown and boot state, memory hot spots by name with their queue and initial call |
 | `/schedules` | Cron schedules with their status (active, inactive or dormant), creation time, last fire with its outcome and the relay it started, and the next fire the job is armed for; run one now, after a confirmation |
-| `/dlq` | Dead letters grouped by tasklet, each with when it was dead-lettered, its attempts, size and whether it waits or is replaying, and the queue's total size; inspect an entry's payload in place, replay, drop |
+| `/dlq` | Dead letters grouped by tasklet, each with when it was dead-lettered, its attempts, size and whether it waits or is replaying, and the queue's total size; inspect an entry's payload in place, replay, drop, or mark one or a whole tasklet's seen — seen ones are listed only with "Show seen" and raise no problem |
 | `/audit` | Audit file catalog with the file being written first — open any file to read its records — filtered reads as rows that open to the whole record, Read more past the limit, live tail, rotation |
 
 Starting a relay is a guided flow: choose a factory (each says what it is, how
@@ -131,7 +135,8 @@ namespace and some are not, and it says which is which.
 - **`?` explains the screen** — what it shows, the terms on it and the
   keyboard shortcuts — as does the topbar's help control. `g` then `h`, `r`,
   `p` or `c` goes to Home, Relays, Problems or Cluster. Every flezha term on
-  screen shows its definition on hover or focus, from one glossary.
+  screen shows its definition on hover or focus, from one glossary, and a
+  click pins that definition beside it until Escape or a click elsewhere.
 - **A long screen opens on what it is for** and folds the rest away, each
   folded section stating what it holds. The viewer's last choice is restored
   from `localStorage`; a breached quota opens its section regardless.
@@ -156,10 +161,10 @@ The shell has three modes, by width alone:
 
 The drawer closes on Escape, a tap beside it, or following a link, and the page
 behind it takes no focus while it is open. On a phone a table reads as cards,
-each value under its column's name, and a dialog rises as a sheet whose title
-and actions stay in view. Every control a finger meets is at least 44 px tall.
-A touch screen shows no hover tooltips; a tap on a term opens the help that
-explains it.
+each value under its column's name — a table whose columns are explained keeps
+their names and "?"s in one line above the cards — and a dialog rises as a
+sheet whose title and actions stay in view. Every control a finger meets is at least 44 px tall.
+A touch screen shows no hover tooltips; a tap on a term pins its definition.
 
 iOS Safari ignores `interactive-widget=resizes-content`, so there the keyboard
 covers the bottom of a sheet rather than pushing it up. The focused field is

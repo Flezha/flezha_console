@@ -294,6 +294,27 @@ defmodule FakeController do
   end
 
   @doc """
+  A controller row shaped as `Flezha.Service.Controller.controllers/1`
+  answers one for the answering controller `flezha@<host>`, with `overrides`
+  applied.
+  """
+  def controller_row(host, overrides \\ %{}) do
+    Map.merge(
+      %{
+        node: :"flezha@#{host}",
+        host: host,
+        host_node: nil,
+        version: "0.1.2",
+        uptime_ms: 3_600_000,
+        runners: 1,
+        local?: true,
+        reachable?: true
+      },
+      overrides
+    )
+  end
+
+  @doc """
   A runner row shaped as `Flezha.Service.Fleet.runners/2` answers one, with
   `overrides` applied: connected two hours ago, heard from three seconds ago.
   """
@@ -810,6 +831,8 @@ defmodule Flezha.Service.Controller do
          leader: :"flezha@node-a",
          local_node: :"flezha@node-a"
        }}
+
+  defstub controllers(%{source: :ui} = ctx), do: {:ok, [FakeController.controller_row("node-a")]}
 
   defstub durability_breaches(%{source: :ui} = ctx), do: {:ok, []}
   defstub mem_top(%{source: :ui} = ctx), do: {:ok, %{}}

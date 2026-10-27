@@ -132,7 +132,7 @@ instead (`phone`), so it does not run last on one worker. `ownRelay(prefix,
 opts)` gives a file a relay of its own: started through the controller under a
 run-unique id before its tests and stopped after them. `dlq.spec.ts` parks its one entry the same
 way — the controller keys an entry on its payload, so a relay parks `poison`
-once — and its tests read, replay and drop that entry in turn.
+once — and its tests read, mark seen, replay and drop that entry in turn.
 
 Global setup makes one console user per worker, afresh each run
 (`pw-worker-<n>@flezha.test`, through `priv/dev/console_users.exs`), logs each

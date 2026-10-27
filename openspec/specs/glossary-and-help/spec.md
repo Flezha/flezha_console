@@ -116,3 +116,13 @@ reachable by clicking.
 - **WHEN** an operator types `g` then `h` into a filter field
 - **THEN** both characters are typed and no navigation happens
 
+### Requirement: Activating a term pins its own definition
+
+Activating a term marker SHALL open a panel next to it with that term's own glossary definition, the same text its hover shows. The term SHALL be marked active and expanded while the panel is open. Clicking outside or pressing Escape SHALL close it. Activating a term SHALL NOT open the screen's help.
+
+#### Scenario: Two terms, two definitions
+
+- **WHEN** an operator clicks "role" and then "principal" on the Controller screen
+- **THEN** the first panel shows the definition of role, and the second shows the definition of principal
+- **AND** only the clicked term is marked active
+

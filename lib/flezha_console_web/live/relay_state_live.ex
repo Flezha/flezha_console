@@ -534,8 +534,16 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
   defp confirm_variant("rotate"), do: "primary"
   defp confirm_variant(_action), do: "danger"
 
-  @doc "A cell is lagging when its most recent sample carries any fsync lag."
-  def lagging?(cell), do: (Map.get(cell.counters, :fsync_durability_lag_ms) || 0) > 0
+  @doc """
+  A cell is lagging while its newest fsync lag, of `samples` newest first, is
+  above a second and higher than the sample before: a few milliseconds is a
+  disk's normal pace.
+  """
+  def lagging?([%{lag_ms: now}, %{lag_ms: before} | _older])
+      when is_integer(now) and is_integer(before),
+      do: now > 1_000 and now > before
+
+  def lagging?(_samples), do: false
 
   @doc "Why a point-in-time read was not made or was refused."
   def travel_reason(:invalid_target),

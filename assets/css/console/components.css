@@ -700,6 +700,7 @@
   letter-spacing: normal;
   line-height: var(--fcon-leading-normal);
   padding: var(--fcon-space-3) var(--fcon-space-4);
+  text-align: start;
   text-transform: none;
   white-space: normal;
   width: min(24rem, 80vw);
@@ -1101,6 +1102,46 @@ button.fcon-record-head:hover,
     width: 1px;
   }
 
+  /* A header that explains its columns stays, as one line of the captions
+     that have an explanation, each with its "?". */
+  .fcon-grid thead[data-explained] {
+    clip-path: none;
+    display: block;
+    height: auto;
+    margin-bottom: var(--fcon-space-2);
+    overflow: visible;
+    position: static;
+    white-space: normal;
+    width: auto;
+  }
+
+  .fcon-grid thead[data-explained] tr {
+    border: 0;
+    gap: 0 var(--fcon-space-3);
+    padding: 0;
+  }
+
+  .fcon-grid thead[data-explained] th {
+    background: none;
+    border: 0;
+    padding: 0;
+    position: static;
+  }
+
+  .fcon-grid thead[data-explained] th:not(:has(.fcon-help-tip)) {
+    display: none;
+  }
+
+  .fcon-grid thead[data-explained] .fcon-cell-menu .sr-only {
+    clip: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    position: static;
+    white-space: nowrap;
+    width: auto;
+  }
+
   .fcon-grid tbody {
     display: grid;
     gap: var(--fcon-space-3);
@@ -1376,12 +1417,24 @@ button.fcon-ident[data-copied]::after {
 }
 
 /* Not on a touch screen, which leaves a tapped tooltip half shown; a tap on
-   a term opens the help that explains it. */
+   a term pins its definition instead. */
 @media (hover: hover) {
   .fcon-tip-host:hover > .fcon-tooltip,
   .fcon-tip-host:focus-within > .fcon-tooltip {
     display: block;
   }
+}
+
+/* A pinned definition: the term reads as the one open, and its hover copy
+   steps aside for the panel. */
+.fcon-term[aria-expanded="true"] {
+  border-bottom-style: solid;
+  border-bottom-color: var(--fcon-accent);
+  color: var(--fcon-accent);
+}
+
+.fcon-tip-host:has(> .fcon-term[aria-expanded="true"]) > .fcon-tooltip {
+  display: none;
 }
 
 .fcon-tooltip-term {

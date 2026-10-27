@@ -1873,6 +1873,16 @@ defmodule FlezhaConsole.Service.NodeManager do
   end
 
   @doc """
+  Every connected controller, the one asked first: `%{node:, host:, host_node:,
+  version:, uptime_ms:, runners:, local?:, reachable?: true}`, or `%{node:,
+  local?: false, reachable?: false}` for one that did not answer in time.
+  `host_node` is the machine it runs on, nil when the controller is not told.
+  """
+  def controllers(token) do
+    authorized_list_call(token, Flezha.Service.Controller, :controllers, [])
+  end
+
+  @doc """
   The controller's always-on data-plane counters: `%{channels: [...],
   relays: [...]}`, every value a monotonic count and each relay entry keyed by
   `relay_id`. Rates are the caller's business.

@@ -1,25 +1,41 @@
 <.page_header eyebrow="Problems" title="Dead-letter queue">
   <:sentence>
+    <% hidden = length(@entries) - length(@shown) %>
     <%= cond do %>
       <% @entries == [] and @filter in [nil, ""] -> %>
         No dead letters: every record reached its tasklet.
       <% @entries == [] -> %>
         No dead letters for {@filter}.
+      <% @shown == [] -> %>
+        {hidden_seen(hidden, "dead letter")}
       <% true -> %>
-        {Words.count(length(@entries), "record")} could not be processed and wait here as <.term key="dead letter">dead letters</.term>, to be replayed or dropped.
+        {Words.count(length(@shown), "record")} could not be processed and wait here as <.term key="dead letter">dead letters</.term>, to be replayed or dropped.
+        <span :if={hidden > 0} data-testid="dlq-hidden-seen">
+          {hidden_seen(hidden, "more", "more")}
+        </span>
     <% end %>
   </:sentence>
   <:actions>
-    <form phx-change="filter" class="w-64">
+    <form phx-change="filter" class="flex flex-wrap items-center gap-3">
+      <div class="w-64">
+        <.input
+          type="text"
+          name="filter[relay_class]"
+          value={@filter}
+          placeholder="Filter by relay class"
+          aria-label="Filter by relay class"
+          compact
+          phx-debounce="300"
+          data-testid="dlq-filter"
+        />
+      </div>
       <.input
-        type="text"
-        name="filter[relay_class]"
-        value={@filter}
-        placeholder="Filter by relay class"
-        aria-label="Filter by relay class"
-        compact
-        phx-debounce="300"
-        data-testid="dlq-filter"
+        type="checkbox"
+        name="filter[show_seen]"
+        id="dlq-show-seen"
+        label="Show seen"
+        checked={@show_seen?}
+        data-testid="dlq-show-seen"
       />
     </form>
   </:actions>
@@ -61,31 +77,44 @@
   </.stat>
 </dl>
 
-<.empty_state :if={@entries == []} icon="hero-check-circle" testid="dlq-empty">
-  A record a tasklet cannot process waits here as a dead letter, so it can be inspected, replayed or dropped. {if @filter in [
-                                                                                                                    nil,
-                                                                                                                    ""
-                                                                                                                  ],
-                                                                                                                  do:
-                                                                                                                    "The queue is empty.",
-                                                                                                                  else:
-                                                                                                                    "None waits for that relay class."}
+<.empty_state :if={@shown == []} icon="hero-check-circle" testid="dlq-empty">
+  A record a tasklet cannot process waits here as a dead letter, so it can be inspected, replayed or dropped.
+  <%= cond do %>
+    <% @entries != [] -> %>
+      Every one waiting here is marked seen; Show seen lists them.
+    <% @filter in [nil, ""] -> %>
+      The queue is empty.
+    <% true -> %>
+      None waits for that relay class.
+  <% end %>
 </.empty_state>
 
-<div :if={@entries != []} class="space-y-8">
+<div :if={@shown != []} class="space-y-8">
   <div
     :for={group <- @groups}
     data-testid={"dlq-group-#{group.relay_class}-#{group.tasklet_id}"}
     class="space-y-2"
   >
-    <h3 class="flex items-center gap-3">
+    <h3 class="flex flex-wrap items-center gap-3">
       <span class="fcon-num font-medium">{group.relay_class}/{group.tasklet_id}</span>
       <span
         data-testid={"dlq-group-count-#{group.relay_class}-#{group.tasklet_id}"}
         class="fcon-figures"
       >
-        {Words.count(group.parked, "dead letter")}
+        {Words.count(group.parked, "dead letter")}{if group.seen > 0, do: ", #{group.seen} seen"}
       </span>
+      <.button
+        :if={group.seen < group.parked}
+        variant="ghost"
+        size="sm"
+        icon="hero-eye-slash"
+        phx-click="mark_group_seen"
+        phx-value-class={group.relay_class}
+        phx-value-tasklet={group.tasklet_id}
+        data-testid={"dlq-group-seen-#{group.relay_class}-#{group.tasklet_id}"}
+      >
+        Mark all seen
+      </.button>
     </h3>
     <.grid
       paging={@paging}
@@ -113,6 +142,9 @@
         <span data-testid={"dlq-state-#{entry.ref}"}>
           {if entry.replaying?, do: "Replaying", else: "Waiting"}
         </span>
+        <span :if={entry.seen?} class="fcon-badge ml-1" data-testid={"dlq-seen-#{entry.ref}"}>
+          Seen
+        </span>
       </:col>
       <:col :let={entry} label="Error">
         <code class="block max-w-xs truncate" title={entry.error}>{entry.error || "—"}</code>
@@ -130,6 +162,15 @@
             testid={"dlq-inspect-#{entry.ref}"}
           >
             Inspect
+          </:item>
+          <:item
+            :if={not entry.seen?}
+            click="mark_seen"
+            values={%{ref: entry.ref}}
+            icon="hero-eye-slash"
+            testid={"dlq-mark-seen-#{entry.ref}"}
+          >
+            Mark seen
           </:item>
           <:item
             :if={NodeManager.granted?(@operations, "Dlq.replay")}

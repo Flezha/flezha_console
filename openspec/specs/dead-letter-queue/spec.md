@@ -120,3 +120,18 @@ Entries SHALL be grouped by tasklet, matching how the controller stores and ship
 - **WHEN** no dead letter is waiting
 - **THEN** an empty state states that the dead-letter queue is empty
 
+### Requirement: A dead letter can be marked seen
+
+An operator SHALL be able to mark a dead letter, or every dead letter of a tasklet, as seen. A seen dead letter SHALL stay in the queue and in the listing with a "Seen" badge. The listing SHALL hide seen dead letters unless "Show seen" is on. Seen SHALL be recorded in the console's database per entry reference and generation, with the operator who marked it.
+
+#### Scenario: Marking one dead letter seen
+
+- **WHEN** an operator marks a dead letter seen
+- **THEN** it leaves the default listing, and with "Show seen" on it is listed with a "Seen" badge
+- **AND** the controller's queue still holds it
+
+#### Scenario: A seen dead letter is re-parked
+
+- **WHEN** a seen dead letter is replayed and re-parked with a new generation
+- **THEN** it is no longer seen
+

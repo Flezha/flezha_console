@@ -362,4 +362,134 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       assert html =~ ~s(data-testid="dlq-empty")
     end
   end
+
+  describe "seen" do
+    alias FlezhaConsole.DeadLetters
+    alias FlezhaConsole.DeadLetters.Acknowledgement
+    alias FlezhaConsole.Repo
+
+    defp mark(view, ref),
+      do: view |> element(~s([data-testid="dlq-mark-seen-#{ref}"])) |> render_click()
+
+    defp parked(node, entries) do
+      with_entries(node, entries)
+
+      stats =
+        entries
+        |> Enum.group_by(&{&1["relay_class"], &1["tasklet_id"]})
+        |> Enum.map(fn {{class, tasklet}, rows} ->
+          %{relay_class: class, tasklet_id: tasklet, entries: length(rows), bytes: 0}
+        end)
+
+      FakeController.set(node, {Dlq, :stats}, {:ok, stats})
+    end
+
+    test "a seen dead letter leaves the listing, and Show seen lists it badged", %{
+      conn: conn,
+      node: node,
+      user: user
+    } do
+      parked(node, [entry(), entry(%{"id" => "18"})])
+      {:ok, view, _html} = live(conn, ~p"/dlq")
+
+      html = mark(view, @ref)
+
+      refute html =~ ~s(data-testid="dlq-row-#{@ref}")
+      assert html =~ ~s(data-testid="dlq-row-orders/charge/18")
+
+      assert text_of(html, ~s([data-testid="dlq-hidden-seen"])) ==
+               "1 more is marked seen and hidden."
+
+      assert html =~
+               ~r/data-testid="dlq-group-count-orders-charge"[^>]*>\s*2 dead letters, 1 seen/
+
+      assert [%{generation: 2, relay_class: "orders", acknowledged_by: email}] =
+               Repo.all(Acknowledgement)
+
+      assert email == user.email
+      # Seen is the console's own record: the controller's queue is not touched.
+      assert FakeController.calls(node, {Dlq, :drop}) == []
+
+      view
+      |> element(~s(form[phx-change="filter"]))
+      |> render_change(%{"filter" => %{"relay_class" => "", "show_seen" => "true"}})
+
+      assert_patch(view, ~p"/dlq?seen=shown")
+      html = render(view)
+      assert text_of(html, ~s([data-testid="dlq-seen-#{@ref}"])) == "Seen"
+      refute html =~ ~s(data-testid="dlq-mark-seen-#{@ref}")
+      refute html =~ ~s(data-testid="dlq-seen-orders/charge/18")
+    end
+
+    test "a tasklet's dead letters are marked seen at once", %{conn: conn, node: node} do
+      parked(node, [entry(), entry(%{"id" => "18"}), entry("refunds", "settle", "1", %{})])
+      {:ok, view, _html} = live(conn, ~p"/dlq")
+
+      html =
+        view
+        |> element(~s([data-testid="dlq-group-seen-orders-charge"]))
+        |> render_click()
+
+      refute html =~ ~s(data-testid="dlq-group-orders-charge")
+      assert html =~ ~s(data-testid="dlq-row-refunds/settle/1")
+
+      assert text_of(html, ~s([data-testid="dlq-hidden-seen"])) ==
+               "2 more are marked seen and hidden."
+
+      assert Repo.aggregate(Acknowledgement, :count) == 2
+    end
+
+    test "every dead letter seen says so instead of an empty queue", %{conn: conn, node: node} do
+      parked(node, [entry()])
+      {:ok, view, _html} = live(conn, ~p"/dlq")
+
+      html = mark(view, @ref)
+
+      assert html =~ "1 dead letter is marked seen and hidden."
+      assert text_of(html, ~s([data-testid="dlq-empty"])) =~ "Show seen lists them"
+    end
+
+    test "a seen dead letter that parks again under a new generation is unseen", %{
+      conn: conn,
+      node: node
+    } do
+      parked(node, [entry()])
+      {:ok, view, _html} = live(conn, ~p"/dlq")
+      mark(view, @ref)
+
+      parked(node, [entry(%{"generation" => 3})])
+      send(view.pid, :refresh)
+
+      assert render(view) =~ ~s(data-testid="dlq-row-#{@ref}")
+      assert {:ok, [%{seen: 0}]} = DeadLetters.stats(nil)
+      # The mark of the generation that left is forgotten.
+      assert Repo.all(Acknowledgement) == []
+    end
+
+    test "the rail, Open problems and Home leave a seen dead letter out", %{
+      conn: conn,
+      node: node,
+      user: user
+    } do
+      FakeController.set_fleet(node, rows: %{"default" => [FakeController.relay_row("orders")]})
+      parked(node, [entry()])
+
+      {_view, html} = live_loaded(conn, ~p"/problems")
+      assert html =~ ~s(data-testid="problem-dead_letters:orders")
+
+      DeadLetters.mark_seen([%{ref: @ref, generation: 2, relay_class: "orders"}], user.email)
+
+      {_view, html} = live_loaded(conn, ~p"/problems")
+      assert html =~ ~s(data-testid="problems-clear")
+      refute html =~ ~s(data-testid="problems-count")
+
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
+
+      assert text_of(html, ~s([data-testid="home-headline"])) ==
+               "Nothing in default needs attention."
+
+      assert text_of(html, ~s([data-testid="ns-parked-value"])) == "1"
+      assert text_of(html, ~s([data-testid="ns-parked-verdict"])) == "Seen"
+    end
+  end
 end

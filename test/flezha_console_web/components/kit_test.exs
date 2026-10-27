@@ -570,14 +570,40 @@ defmodule FlezhaConsoleWeb.KitTest do
       refute html =~ "<table"
     end
 
-    test "a term shows its definition as its description and opens help" do
+    test "a term describes itself and pins its own definition, not the screen's help" do
       assigns = %{}
 
       html = rendered_to_string(~H|<.term key="runner" />|)
 
       assert attr_of(html, "button", "aria-describedby") == "term-runner"
       assert html |> q("#term-runner") |> LazyHTML.text() =~ "SDK-side process"
-      assert attr_of(html, "button", "data-fcon-help-open") == ""
+      assert attr_of(html, "[data-fcon-pop] > button", "data-fcon-pop-trigger") == ""
+      assert attr_of(html, "button", "aria-expanded") == "false"
+      assert attr_of(html, "button", "aria-haspopup") == "dialog"
+      assert attr_of(html, "[data-fcon-pop-panel]", "hidden") == ""
+
+      assert html |> q(~s([data-testid="term-panel-runner"])) |> LazyHTML.text() =~
+               "SDK-side process"
+
+      assert html |> q("[data-fcon-help-open]") |> Enum.count() == 0
+    end
+
+    test "a column and a row menu explain themselves from the glossary" do
+      assigns = %{rows: [%{id: "a"}]}
+
+      html =
+        rendered_to_string(~H"""
+        <.grid id="cells" rows={@rows} menu_help={["rotate"]}>
+          <:col :let={row} label="WAL seq" help={["wal seq"]}>{row.id}</:col>
+          <:col :let={row} label="Plain">{row.id}</:col>
+          <:menu><span>menu</span></:menu>
+        </.grid>
+        """)
+
+      assert html |> q(~s([data-testid="cells-help-0"])) |> Enum.count() == 1
+      assert html |> q(~s([data-testid="cells-help-1"])) |> Enum.count() == 0
+      assert html |> q("#cells-help-0 dl") |> LazyHTML.text() =~ "write-ahead log on disk"
+      assert html |> q("#cells-help-menu dl") |> LazyHTML.text() =~ "The cell's state is kept."
     end
 
     test "steps mark the current step and the ones done" do

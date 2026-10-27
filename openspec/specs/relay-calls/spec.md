@@ -308,3 +308,12 @@ While runner availability is unknown, nothing SHALL be disabled and no note show
 - **WHEN** a runner serving the factory connects while the relay screen is open
 - **THEN** Call becomes enabled and the note leaves, without a reload
 
+### Requirement: A refused listen is shown as one error statement
+
+When a listen on a relay's outputs, inputs or calls is refused, the Listen tab and the Calls panel SHALL show the refusal as the console's shared error statement: its message, its next step and a link to its reference, with no extra spacing.
+
+#### Scenario: The listen is refused
+
+- **WHEN** the controller refuses a listen with an error code
+- **THEN** the screen shows one error statement with the message, the next step and the reference link
+

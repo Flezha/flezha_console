@@ -518,9 +518,13 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
 
   defp flow_said(_rate), do: {:neutral, nil, "Nothing arrived since the last reading"}
 
-  defp parked_said(0), do: {:positive, "Clear", "Every record reached its tasklet"}
+  defp parked_said(0, _seen), do: {:positive, "Clear", "Every record reached its tasklet"}
 
-  defp parked_said(_parked),
+  # Seen dead letters still wait in the queue, but an operator has looked.
+  defp parked_said(parked, parked),
+    do: {:neutral, "Seen", "Every one is marked seen, still waiting for a replay or a drop"}
+
+  defp parked_said(_parked, _seen),
     do:
       {:warning, "Waiting", "Records a tasklet could not process, waiting for a replay or a drop"}
 

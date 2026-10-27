@@ -15,8 +15,9 @@ import {
  * history retention.
  *
  * Every write lands on a relay this spec starts and stops itself, fed one
- * input so it has a cell. Its class is its run-unique id, so the retention it
- * sets reaches no other relay, and is put back all the same.
+ * input so it has a cell: a flow relay, and a steps relay whose tasklet takes
+ * a JSON string on its entry channel `in`. Its class is its run-unique id, so
+ * the retention it sets reaches no other relay, and is put back all the same.
  */
 /** The cell row of the relay's one cell, once it has been persisted. */
 function cellRow(page: Page) {
@@ -25,9 +26,18 @@ function cellRow(page: Page) {
     .first();
 }
 
+/** The cell's id, from its row's test id. */
+async function cellOf(page: Page): Promise<string> {
+  const row = cellRow(page);
+  await expect(row).toBeVisible();
+  return (await row.getAttribute('data-testid'))!.slice('cell-'.length);
+}
+
 const { id } = ownRelay('pw_state', { run: 'flow' });
+const steps = ownRelay('pw_state_steps', { run: 'steps' });
 
 test.beforeAll(() => sendRecords(id, ['state tools input']));
+test.beforeAll(() => sendRecords(steps.id, ['"state tools turn"'], 'in'));
 
 test.describe('Relay state tools', () => {
   test.beforeEach(async ({ live }) => {
@@ -57,10 +67,18 @@ test.describe('Relay state tools', () => {
   });
 
   test('a cell is inspected, rotated, replayed and deleted', async ({ page }) => {
-    const row = cellRow(page);
-    await expect(row).toBeVisible();
-    const cell = (await row.getAttribute('data-testid'))!.slice('cell-'.length);
-    const walSeq = (await row.locator('td').nth(1).innerText()).trim();
+    const cell = await cellOf(page);
+    const walSeq = (await cellRow(page).locator('td').nth(1).innerText()).trim();
+
+    // What each row action does is explained over the actions.
+    const actions = page.locator('[data-testid$="-help-menu"]').first();
+    await actions.click();
+    await expect(actions).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('[data-fcon-pop-panel]:visible')).toContainText(
+      "Asks the cell's runner for a fresh snapshot and compacts the cell's write-ahead log behind it. The cell's state is kept.",
+    );
+    await page.keyboard.press('Escape');
+    await expect(actions).toHaveAttribute('aria-expanded', 'false');
 
     // Selecting it reads its outbox.
     await menuAction(page, `cell-menu-${cell}`, `select-${cell}`);
@@ -98,5 +116,30 @@ test.describe('Relay state tools', () => {
       await expect(shown).toContainText(`${hours} hours`);
     }
     await expect(page.getByTestId('retention-form')).toContainText('until the controller next boots');
+  });
+});
+
+test.describe('Relay state tools on a steps cell', () => {
+  test('a steps cell is read where its history stands, rotated and deleted', async ({ page, live }) => {
+    await live(`/namespaces/default/relays/${steps.id}/state`);
+    const cell = await cellOf(page);
+    const walSeq = (await cellRow(page).locator('td').nth(1).innerText()).trim();
+
+    await menuAction(page, `cell-menu-${cell}`, `select-${cell}`);
+    await expect(page.getByTestId('outbox').getByTestId('outbox-durable-seq')).toContainText(/\d+/);
+    await choose(page, 'travel-kind', 'seq');
+    await page.getByTestId('travel-value').fill(walSeq);
+    await page.getByTestId('travel-submit').click();
+    await expect(page.getByTestId('travel-seq')).toHaveText(new RegExp(`\\b${walSeq}\\b`));
+    // A steps relay is replayed by rewinding it, not from a cell.
+    await expect(page.getByTestId('replay-open')).toHaveCount(0);
+
+    await menuAction(page, `cell-menu-${cell}`, `rotate-${cell}`);
+    await page.getByTestId('state-confirm-btn').click();
+    await expect(page.getByText(`Compaction requested for ${cell}.`)).toBeVisible();
+
+    await menuAction(page, `cell-menu-${cell}`, `delete-${cell}`);
+    await page.getByTestId('state-confirm-btn').click();
+    await expect(page.getByTestId(`cell-${cell}`)).toHaveCount(0);
   });
 });

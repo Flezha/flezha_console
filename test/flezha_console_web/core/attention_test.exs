@@ -205,6 +205,20 @@ defmodule FlezhaConsoleWeb.AttentionTest do
     assert [%{navigate: "/dlq?class=orders"}] = item.actions
   end
 
+  test "seen dead letters are no problem, and only the unseen are counted" do
+    [item] =
+      Attention.derive(%{
+        dlq: [
+          %{relay_class: "orders", tasklet_id: "t1", entries: 2, seen: 1},
+          %{relay_class: "orders", tasklet_id: "t2", entries: 1, seen: 1},
+          %{relay_class: "prices", tasklet_id: "t", entries: 3, seen: 3}
+        ]
+      })
+
+    assert item.what == "1 dead letter for orders"
+    assert text(item, "cause") == "Tasklet t1 could not process 1 record"
+  end
+
   test "dead letters belong to the namespace whose relay rows hold their class" do
     items =
       Attention.derive(%{

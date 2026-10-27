@@ -15,6 +15,9 @@
       This console holds no connection to a controller node.
     </span>
   </:sentence>
+  <:figures :if={@shell_pulse && @shell_pulse.controllers != []}>
+    <FlezhaConsoleWeb.ControllerLive.connected controllers={@shell_pulse.controllers} link />
+  </:figures>
 </.page_header>
 
 <.runtime_error error={@load_error} />

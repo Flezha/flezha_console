@@ -181,6 +181,36 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
       assert html =~ ~s(data-testid="calls-reopen")
       assert html =~ ~s(data-testid="diagnose-btn")
     end
+
+    test "a refusal is one error statement with its next step and reference", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        @listen,
+        {:error,
+         Flezha.Error.new(
+           "relay.not_running",
+           "relay 'orders' is not running",
+           "flz relay list --namespace default"
+         )}
+      )
+
+      {:ok, view, _html} = live(conn, @url)
+      open_section(view, "calls")
+      assert shows?(view, ~s(data-testid="calls-error"))
+      html = render(view)
+
+      statement = ~s([data-testid="calls-error"] [data-testid="runtime-error"])
+      assert html |> LazyHTML.from_fragment() |> LazyHTML.query(statement) |> Enum.count() == 1
+
+      assert text_of(html, ~s(#{statement} [data-testid="runtime-error-hint"])) ==
+               "flz relay list --namespace default"
+
+      assert text_of(html, ~s(#{statement} [data-testid="runtime-error-code"])) ==
+               "relay.not_running"
+    end
   end
 
   describe "pairing calls with their outcomes" do

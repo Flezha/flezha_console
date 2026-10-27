@@ -152,3 +152,17 @@ the panel.
 - **THEN** the panel states that shipper status is unavailable, with the error's code,
   and still shows posture and breaches
 
+### Requirement: The connected controllers are listed
+
+The Controller screen SHALL list every connected controller from `Flezha.Service.Controller.controllers/1`: its machine, address, version, uptime and runner count. It SHALL mark the controller the console is connected to. A controller that does not answer SHALL be listed as unreachable.
+
+#### Scenario: Two controllers
+
+- **WHEN** the console is connected to one of two controllers
+- **THEN** both are listed with their machines, and the connected one is marked
+
+#### Scenario: A peer does not answer
+
+- **WHEN** one controller is unreachable
+- **THEN** it is listed as unreachable and the rest of the screen renders
+

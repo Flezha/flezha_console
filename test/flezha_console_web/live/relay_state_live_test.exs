@@ -134,12 +134,65 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
       assert html =~ "This relay has none persisted yet."
     end
 
-    test "a lagging cell is marked as lagging", %{conn: conn, node: node} do
-      cells(node, [cell("orders", "k1", %{fsync_durability_lag_ms: 250})])
+    test "a lag of tens of milliseconds is a disk's normal pace, not lagging", %{
+      conn: conn,
+      node: node
+    } do
+      cells(node, [cell("orders", "k1", %{fsync_durability_lag_ms: 20})])
+      {:ok, view, _html} = live(conn, @url)
+
+      cells(node, [cell("orders", "k1", %{fsync_durability_lag_ms: 40})])
+      send(view.pid, :refresh)
+
+      refute render(view) =~ ~s(data-testid="cell-lagging-relay_a/orders/k1")
+    end
+
+    test "a lag above a second that rises between readings is lagging", %{
+      conn: conn,
+      node: node
+    } do
+      cells(node, [cell("orders", "k1", %{fsync_durability_lag_ms: 1_200})])
+      {:ok, view, html} = live(conn, @url)
+
+      # One reading has nothing to rise from.
+      refute html =~ ~s(data-testid="cell-lagging-relay_a/orders/k1")
+
+      cells(node, [cell("orders", "k1", %{fsync_durability_lag_ms: 1_800})])
+      send(view.pid, :refresh)
+      assert render(view) =~ ~s(data-testid="cell-lagging-relay_a/orders/k1")
+
+      cells(node, [cell("orders", "k1", %{fsync_durability_lag_ms: 1_500})])
+      send(view.pid, :refresh)
+      refute render(view) =~ ~s(data-testid="cell-lagging-relay_a/orders/k1")
+    end
+
+    test "each column and the row actions are explained in place", %{conn: conn, node: node} do
+      cells(node, [cell("orders", "k1")])
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert html =~ ~s(data-testid="cell-lagging-relay_a/orders/k1")
+      explained = fn testid ->
+        text_of(html, ~s([data-testid="#{testid}"] + [data-fcon-pop-panel]))
+      end
+
+      for {index, words} <- [
+            {0, "Lagging"},
+            {1, "write-ahead log on disk"},
+            {2, "what a restart replays"},
+            {3, "slowest one in a hundred"},
+            {4, "normal pace"},
+            {5, "already written them"}
+          ] do
+        assert explained.("cells-orders-help-#{index}") =~ words
+      end
+
+      actions = explained.("cells-orders-help-menu")
+      assert actions =~ "Read where its history stands"
+
+      assert actions =~
+               "Asks the cell's runner for a fresh snapshot and compacts the cell's write-ahead log behind it. The cell's state is kept."
+
+      assert actions =~ "It cannot be undone."
     end
 
     test "a steps relay states both retentions, each under its own label", %{

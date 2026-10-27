@@ -9,6 +9,14 @@
     <span data-testid="home-figures">
       {figures(@topology || %{}, @rows, inbound)}
     </span>
+    <span :if={@shell_pulse && @shell_pulse.controllers != []}>
+      ·
+      <FlezhaConsoleWeb.ControllerLive.connected
+        controllers={@shell_pulse.controllers}
+        link
+        testid="home-controllers"
+      />
+    </span>
   </:figures>
   <:actions>
     <.button
@@ -117,7 +125,11 @@
           >
             <:foot :if={@schedules != []}>{schedules_armed(@schedules)}</:foot>
           </.tile>
-          <% {parked_tone, parked_verdict, parked_condition} = parked_said(@topology.parked) %>
+          <% {parked_tone, parked_verdict, parked_condition} =
+            parked_said(
+              @topology.parked,
+              @topology.parked_seen
+            ) %>
           <.tile
             testid="ns-parked"
             icon="hero-inbox-stack"

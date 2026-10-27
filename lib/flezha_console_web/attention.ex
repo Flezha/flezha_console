@@ -81,7 +81,8 @@ defmodule FlezhaConsoleWeb.Attention do
       `serving` mapping each factory `waiting_factories/1` names to how many
       runners serve it;
     * `:dlq` — the dead-letter statistics, each class's items placed in the
-      namespace whose `rows` hold that relay;
+      namespace whose `rows` hold that relay; a row's `:seen` entries, as
+      `FlezhaConsole.DeadLetters.stats/1` counts them, are no problem;
     * `:breaches` — references past their RPO target;
     * `:verdicts` — recent stall verdicts, as `FlezhaConsoleWeb.Topology.stall/1` answers;
     * `:authz` — the `NodeManager.authz_status/1` map;
@@ -325,7 +326,8 @@ defmodule FlezhaConsoleWeb.Attention do
     stats
     |> Enum.group_by(&to_string(Map.get(&1, :relay_class)))
     |> Enum.flat_map(fn {class, rows} ->
-      entries = Enum.reduce(rows, 0, &(&2 + (Map.get(&1, :entries) || 0)))
+      rows = Enum.filter(rows, &(unseen(&1) > 0))
+      entries = rows |> Enum.map(&unseen/1) |> Enum.sum()
       tasklets = rows |> Enum.map(&to_string(Map.get(&1, :tasklet_id))) |> Enum.uniq()
 
       if entries > 0 do
@@ -355,6 +357,8 @@ defmodule FlezhaConsoleWeb.Attention do
     end)
     |> Enum.sort_by(& &1.object.id)
   end
+
+  defp unseen(row), do: (Map.get(row, :entries) || 0) - (Map.get(row, :seen) || 0)
 
   defp tasklet_phrase([one]), do: "Tasklet #{one}"
   defp tasklet_phrase(many), do: "Tasklets #{Words.join(many)}"

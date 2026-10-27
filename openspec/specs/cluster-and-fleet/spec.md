@@ -302,3 +302,12 @@ while open.
 - **THEN** the detail shows the error with its code and hint, and the rest of the
   cluster screen still renders
 
+### Requirement: Cluster counts the connected controllers
+
+The Cluster screen SHALL say how many controllers are connected and name the machine each runs on.
+
+#### Scenario: Two controllers
+
+- **WHEN** two controllers are connected
+- **THEN** Cluster reads "2 controllers connected" and names both machines
+

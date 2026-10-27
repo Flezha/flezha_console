@@ -157,6 +157,45 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
     end
   end
 
+  describe "connected controllers" do
+    test "counts the controllers and names the machine each runs on", %{conn: conn, node: node} do
+      one_namespace(node, [])
+
+      FakeController.set(
+        node,
+        {Controller, :controllers},
+        {:ok,
+         [
+           FakeController.controller_row("rpi5", %{host_node: "rpi5-board"}),
+           FakeController.controller_row("rpi4", %{local?: false}),
+           %{node: :flezha@rpi3, local?: false, reachable?: false}
+         ]}
+      )
+
+      {_view, html} = live_loaded(conn, ~p"/cluster")
+
+      assert text_of(html, ~s([data-testid="controllers-connected"])) ==
+               "3 controllers connected: rpi5-board, rpi4 and rpi3 (not answering)"
+
+      assert attrs(html, ~s([data-testid="controllers-connected"] a), "href") == ["/controller"]
+    end
+
+    test "says nothing of controllers it could not list", %{conn: conn, node: node} do
+      one_namespace(node, [])
+
+      FakeController.set(
+        node,
+        {Controller, :controllers},
+        FakeController.error("authz.role_insufficient")
+      )
+
+      {_view, html} = live_loaded(conn, ~p"/cluster")
+
+      refute html =~ ~s(data-testid="controllers-connected")
+      assert html =~ ~s(data-testid="cluster-connected")
+    end
+  end
+
   describe "namespaces and their fleets" do
     test "renders hub placement and the runners serving a namespace", %{conn: conn, node: node} do
       one_namespace(node,

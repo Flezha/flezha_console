@@ -112,6 +112,36 @@ defmodule FlezhaConsoleWeb.ListenLiveTest do
       assert html =~ "viewers may not listen"
     end
 
+    test "a refusal is one error statement, outside the feed, with its next step and reference",
+         %{conn: conn, node: node} do
+      FakeController.set(
+        node,
+        @listen,
+        {:error,
+         Flezha.Error.new(
+           "relay.not_running",
+           "relay 'orders' is not running",
+           "flz relay list --namespace default"
+         )}
+      )
+
+      {:ok, view, _html} = live(conn, @url)
+      html = eventually_renders(view, ~s(data-testid="listen-error"))
+
+      statement = ~s([data-testid="listen-error"] [data-testid="runtime-error"])
+      assert html |> LazyHTML.from_document() |> LazyHTML.query(statement) |> Enum.count() == 1
+      assert text_of(html, statement) =~ "relay orders is not running"
+
+      assert text_of(html, ~s(#{statement} [data-testid="runtime-error-hint"])) ==
+               "flz relay list --namespace default"
+
+      assert text_of(html, ~s(#{statement} [data-testid="runtime-error-code"])) ==
+               "relay.not_running"
+
+      assert html =~ ~r{href="[^"]*/errors\.html#relay"}
+      refute html =~ ~s(data-testid="listen-feed")
+    end
+
     test "states that the listen is over when the relay ends", %{conn: conn, node: node} do
       view = listening(conn)
 

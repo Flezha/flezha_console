@@ -144,3 +144,26 @@ Selecting a cell on the state screen SHALL read its outbox through `Flezha.Servi
 - **THEN** the controls it is not granted are not rendered
 - **AND** the read-only facts are still shown
 
+### Requirement: Lagging means a lag that is large and rising
+
+A cell SHALL be marked lagging only while its latest `fsync_durability_lag_ms` is above one second and higher than the sample before it. A lag of a few milliseconds SHALL NOT mark a cell lagging.
+
+#### Scenario: A normal fsync lag
+
+- **WHEN** a cell's fsync lag holds at tens of milliseconds
+- **THEN** it is not marked lagging
+
+#### Scenario: A rising lag
+
+- **WHEN** a cell's fsync lag rises from 1,200 ms to 1,800 ms between samples
+- **THEN** it is marked lagging
+
+### Requirement: The state screen explains its columns and actions
+
+Each column of the cell listing (WAL seq, Snapshot seq, Flush p99, Fsync lag, Dedup drops) and each row action (Read where its history stands, Rotate, Delete) SHALL carry an explanation in place from the glossary.
+
+#### Scenario: Asking what Rotate does
+
+- **WHEN** an operator opens the explanation beside Rotate
+- **THEN** it says that rotate asks the runner for a fresh snapshot and compacts the cell's write-ahead log behind it, and that the cell's state is kept
+

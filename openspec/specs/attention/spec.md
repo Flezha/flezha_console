@@ -240,3 +240,12 @@ to the first three items, with a link to the rest.
 - **THEN** the section titled "2 relays need attention" renders after the namespace
   tiles and before "What happened"
 
+### Requirement: A seen dead letter raises no problem
+
+The derivation SHALL leave out dead letters whose reference and generation are marked seen. The rail count, the Open problems screen, Home's problem list, headline and tiles SHALL agree on that set.
+
+#### Scenario: The only dead letter is seen
+
+- **WHEN** the only open problem is a dead letter and an operator marks it seen
+- **THEN** the rail shows no count, Open problems lists nothing, and Home's headline says nothing needs attention
+

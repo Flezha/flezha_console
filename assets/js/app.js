@@ -141,6 +141,10 @@ document.addEventListener("keydown", event => {
   if (!pop) { return }
 
   if (event.target.matches("[data-fcon-pop-trigger]")) {
+    // A panel with nothing to focus, such as a definition, leaves focus here.
+    if (event.key === "Escape" && popOpen(pop)) {
+      event.preventDefault(); event.stopPropagation(); closePop(pop); return
+    }
     const at = {ArrowDown: 0, ArrowUp: -1}[event.key]
     if (at !== undefined) { event.preventDefault(); openPop(pop, at) }
     return

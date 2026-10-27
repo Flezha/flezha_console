@@ -601,7 +601,8 @@ defmodule FlezhaConsoleWeb.Layouts do
   One pulse's reads, as a function to run off the screen's process: the
   namespaces the socket's token reaches, each one's relay rows, partition
   groups and quotas, and the fleet-wide stall verdicts, durability breaches,
-  dead-letter stats and authorization posture. `pulse_apply/2` takes its answer.
+  dead-letter stats, authorization posture and connected controllers.
+  `pulse_apply/2` takes its answer.
   """
   def pulse_read(socket) do
     token = FlezhaConsole.Accounts.Scope.flezha_token(socket.assigns[:current_scope])
@@ -638,15 +639,16 @@ defmodule FlezhaConsoleWeb.Layouts do
       reads: reads,
       verdicts: verdicts,
       breaches: NodeManager.ok_or(NodeManager.durability_breaches(token), []),
-      dlq: NodeManager.ok_or(NodeManager.dlq_stats(token), []),
-      authz: NodeManager.authz_status(token)
+      dlq: NodeManager.ok_or(FlezhaConsole.DeadLetters.stats(token), []),
+      authz: NodeManager.authz_status(token),
+      controllers: NodeManager.ok_or(NodeManager.controllers(token), [])
     }
   end
 
   @doc """
   Assigns one pulse's answer as `:shell_pulse`:
 
-      %{items:, checked_at:, error:, fleet:, serving:}
+      %{items:, checked_at:, error:, fleet:, serving:, controllers:}
 
   Items keep the time they were first seen across pulses. `error` is why the
   namespaces could not be listed, so no problem list stands for an all-clear.
@@ -654,7 +656,8 @@ defmodule FlezhaConsoleWeb.Layouts do
   `fleet` counts what the pulse's reads already answer: the relays' `health`
   across every reachable namespace as `NodeManager.health_counts/1` pairs, and
   the durability `breaches`. `serving` is each namespace's runner counts per
-  waiting factory. A pulse that died keeps the last one.
+  waiting factory. `controllers` are `NodeManager.controllers/1`'s rows, none
+  when they could not be read. A pulse that died keeps the last one.
   """
   def pulse_apply(socket, {:exit, _reason}), do: socket
 
@@ -689,7 +692,8 @@ defmodule FlezhaConsoleWeb.Layouts do
         health: pulse.reads |> Enum.flat_map(& &1.rows) |> NodeManager.health_counts(),
         breaches: length(pulse.breaches)
       },
-      serving: Map.new(reads, &{&1.namespace, &1.serving})
+      serving: Map.new(reads, &{&1.namespace, &1.serving}),
+      controllers: pulse.controllers
     })
   end
 

@@ -64,8 +64,15 @@
   </span>
 </div>
 
+<%!-- Outside the feed's code box, whose preserved whitespace would pull the
+     statement apart. --%>
+<div :if={@status == :error} data-testid="listen-error">
+  <.runtime_error error={@error} action={"listening to this relay's #{@direction}s"} />
+</div>
+
 <%!-- Message feed --%>
 <div
+  :if={@status != :error}
   data-testid="listen-feed"
   id="listen-feed"
   phx-hook="ScrollBottom"
@@ -76,10 +83,6 @@
       <p data-testid="listen-connecting" class="fcon-muted">
         Attaching a listener to the relay's {@direction}s…
       </p>
-    <% :error -> %>
-      <div data-testid="listen-error">
-        <.runtime_error error={@error} action={"listening to this relay's #{@direction}s"} />
-      </div>
     <% :ended -> %>
       <p data-testid="listen-ended" class="fcon-muted">The relay ended, so the listen is over.</p>
     <% :connected -> %>

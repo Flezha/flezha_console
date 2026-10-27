@@ -1368,6 +1368,30 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert figures(html) =~ "records/s in"
     end
 
+    test "names the connected controllers, linking to the Controller screen", %{
+      conn: conn,
+      node: node
+    } do
+      stack(node)
+
+      FakeController.set(
+        node,
+        {Controller, :controllers},
+        {:ok,
+         [
+           FakeController.controller_row("rpi5"),
+           FakeController.controller_row("rpi4", %{host_node: "raspberrypi4", local?: false})
+         ]}
+      )
+
+      {view, html} = live_loaded(conn, ~p"/namespaces/default")
+
+      assert text_of(html, ~s([data-testid="home-controllers"])) ==
+               "2 controllers connected: rpi5 and raspberrypi4"
+
+      assert has_element?(view, ~s([data-testid="home-controllers"] a[href="/controller"]))
+    end
+
     test "healthy and still reads as quiet", %{conn: conn, node: node} do
       stack(node)
       snapshot(node, [{"relay_a", 1, 1}])
@@ -2058,6 +2082,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       |> element("#home-visibility")
       |> render_hook("refresh_visibility", %{"hidden" => false})
 
+      render_async(view)
       assert length(FakeController.calls(node, {Relay, :relay_plugins})) == before + 1
     end
 

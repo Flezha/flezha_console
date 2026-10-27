@@ -872,10 +872,15 @@ defmodule FlezhaConsoleWeb.CoreComponents do
     default: nil,
     doc: "fn row -> the rows drawn under it; a page counts only the rows it expands"
 
+  attr :menu_help, :list,
+    default: [],
+    doc: "glossary keys explaining the row menu's actions, as a \"?\" over it"
+
   slot :col, required: true do
     attr :label, :string
     attr :num, :boolean
     attr :class, :string
+    attr :help, :list, doc: "glossary keys explaining the column, as a \"?\" beside its label"
   end
 
   slot :menu, doc: "the row's menu, in the last column"
@@ -906,13 +911,34 @@ defmodule FlezhaConsoleWeb.CoreComponents do
       <%!-- The roles are explicit because a phone lays the rows out as cards,
             and a table part whose display changes can lose its role. --%>
       <table class="fcon-grid" role="table" data-testid={@testid}>
-        <thead role="rowgroup">
+        <thead
+          role="rowgroup"
+          data-explained={(@menu_help != [] or Enum.any?(@col, & &1[:help])) && "true"}
+        >
           <tr role="row">
-            <th :for={col <- @col} role="columnheader" class={col[:num] && "fcon-cell-num"}>
+            <th
+              :for={{col, index} <- Enum.with_index(@col)}
+              role="columnheader"
+              class={col[:num] && "fcon-cell-num"}
+            >
               {col[:label]}
+              <.help_tip
+                :if={col[:help]}
+                id={"#{@id}-help-#{index}"}
+                label={"What #{col[:label]} means"}
+                align={(col[:num] && "end") || "start"}
+                terms={col.help}
+              />
             </th>
             <th :if={@menu != []} role="columnheader" class="fcon-cell-menu">
               <span class="sr-only">Actions</span>
+              <.help_tip
+                :if={@menu_help != []}
+                id={"#{@id}-help-menu"}
+                label="What the row actions do"
+                align="end"
+                terms={@menu_help}
+              />
             </th>
           </tr>
         </thead>
@@ -1492,7 +1518,8 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   @doc """
   A flezha term where a screen first uses it: dotted, with its glossary
   definition shown on hover and on keyboard focus, as its accessible
-  description. Activating it opens the screen's help.
+  description. Activating it pins the same definition beside it, through the
+  console's popover behaviour, and marks the term expanded until it closes.
 
       <.term key="runner" />          <%!-- renders "runner" --%>
       <.term key="relay">relays</.term>
@@ -1511,16 +1538,27 @@ defmodule FlezhaConsoleWeb.CoreComponents do
 
     ~H"""
     <%!-- Inline in a sentence: whitespace inside would show before its punctuation. --%>
-    <span class="fcon-tip-host" phx-no-format><button
+    <span class="fcon-tip-host" data-fcon-pop phx-no-format><button
         type="button"
         class="fcon-term"
         aria-describedby={@tip_id}
-        data-fcon-help-open
+        aria-haspopup="dialog"
+        aria-expanded="false"
+        data-fcon-pop-trigger
         data-testid={"term-#{@entry.key}"}
+        phx-mounted={JS.ignore_attributes(["aria-expanded"])}
       >{if @inner_block != [], do: render_slot(@inner_block), else: @entry.key}</button><span
         role="tooltip"
         id={@tip_id}
         class="fcon-tooltip"
+      ><span class="fcon-tooltip-term">{@entry.name}</span>{@entry.definition}</span><span
+        class="fcon-popover fcon-popover--start fcon-help-panel"
+        role="dialog"
+        aria-label={@entry.name}
+        data-fcon-pop-panel
+        data-testid={"term-panel-#{@entry.key}"}
+        hidden
+        phx-mounted={JS.ignore_attributes(["hidden", "style"])}
       ><span class="fcon-tooltip-term">{@entry.name}</span>{@entry.definition}</span></span>
     """
   end
@@ -1602,18 +1640,23 @@ defmodule FlezhaConsoleWeb.CoreComponents do
 
   @doc """
   A "?" beside a heading or a control that explains it in plain words when
-  clicked, and stays open while it is read.
+  clicked, and stays open while it is read. `terms` explains glossary terms,
+  each by its name and definition, after anything the block says.
 
       <.help_tip id="help-quotas" label="What quotas are">
         A quota caps how many relays the namespace may run.
       </.help_tip>
+      <.help_tip id="help-lag" terms={["fsync lag"]} />
   """
   attr :id, :string, required: true
   attr :label, :string, default: "What is this?"
   attr :align, :string, default: "start", values: ~w(start end)
-  slot :inner_block, required: true
+  attr :terms, :list, default: [], doc: "glossary keys whose definitions it explains"
+  slot :inner_block
 
   def help_tip(assigns) do
+    assigns = assign(assigns, :entries, Enum.map(assigns.terms, &Glossary.term!/1))
+
     ~H"""
     <.popover
       id={@id}
@@ -1626,6 +1669,12 @@ defmodule FlezhaConsoleWeb.CoreComponents do
     >
       <:trigger><.icon name="hero-question-mark-circle" class="w-5 h-5" /></:trigger>
       {render_slot(@inner_block)}
+      <dl :if={@entries != []} class="space-y-2">
+        <div :for={entry <- @entries}>
+          <dt class="fcon-tooltip-term">{entry.name}</dt>
+          <dd>{entry.definition}</dd>
+        </div>
+      </dl>
     </.popover>
     """
   end

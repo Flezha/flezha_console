@@ -20,8 +20,9 @@ import {
  * change every later run. One relay under a run-unique id holds the file's
  * entry: without the effectively-once tier the controller keys an entry on its
  * channel and payload, so a relay can park `poison` once. Each test filters
- * the queue to that relay class; the entry is replayed before it is dropped,
- * and whatever is left is dropped before the relay is stopped.
+ * the queue to that relay class, listing seen entries too; the entry is marked
+ * seen, then replayed, which parks it unseen as its next generation, before
+ * it is dropped, and whatever is left is dropped before the relay is stopped.
  */
 const TASKLET = 'poison_probe_tasklet';
 
@@ -45,8 +46,9 @@ async function listedRefs(page: Page): Promise<string[]> {
     );
 }
 
-async function openQueue(page: Page): Promise<void> {
-  await visitLive(page, '/dlq');
+/** The queue filtered to the relay, seen entries listed too unless `seen` is false. */
+async function openQueue(page: Page, { seen = true } = {}): Promise<void> {
+  await visitLive(page, seen ? '/dlq?seen=shown' : '/dlq');
   await page.getByTestId('dlq-filter').fill(relay);
 }
 
@@ -111,6 +113,18 @@ test.describe('Dead-letter queue', () => {
     await expect(page.getByTestId('inspector-entry')).toHaveCount(0);
   });
 
+  test('a dead letter marked seen leaves the listing, and Show seen lists it badged', async ({ page }) => {
+    await openQueue(page, { seen: false });
+    await menuAction(page, `dlq-menu-${ref}`, `dlq-mark-seen-${ref}`);
+    await expect(page.getByTestId(`dlq-row-${ref}`)).toHaveCount(0);
+    await expect(page.getByTestId('dlq-empty')).toContainText('Show seen lists them');
+
+    await page.getByTestId('dlq-show-seen').check();
+    await expect(page).toHaveURL(/seen=shown/);
+    await expect(page.getByTestId(`dlq-seen-${ref}`)).toHaveText('Seen');
+    await expect(groupCount(page)).toHaveText('1 dead letter, 1 seen');
+  });
+
   test('a replay is confirm-gated, and one that fails again is a dead letter of the next generation', async ({
     page,
   }) => {
@@ -124,6 +138,8 @@ test.describe('Dead-letter queue', () => {
     await menuAction(page, `dlq-menu-${ref}`, `dlq-replay-${ref}`);
     await page.getByTestId('dlq-confirm-submit').click();
     await expect(page.getByTestId('replay-reparked')).toContainText('generation 2');
+    // A new generation is not the one marked seen.
+    await expect(page.getByTestId(`dlq-seen-${ref}`)).toHaveCount(0);
   });
 
   test('a drop is confirm-gated, and confirming removes the entry for good', async ({ page }) => {
