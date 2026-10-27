@@ -15,6 +15,7 @@ defmodule FlezhaConsoleWeb.ListenLive do
   alias FlezhaConsoleWeb.RelayState
 
   @max_messages 200
+  @record_kinds [:output, :input, :part, :dead_lettered]
 
   @impl true
   def mount(%{"ns" => ns, "id" => relay_id}, _session, socket) do
@@ -102,14 +103,9 @@ defmodule FlezhaConsoleWeb.ListenLive do
     {:noreply, assign(socket, status: :connected)}
   end
 
-  def handle_info({:feed_event, :listen, {kind, payload, meta}}, socket)
-      when kind in [:output, :input, :part] do
-    {:noreply, add(socket, Map.put(Format.frame(payload, meta), :kind, kind))}
-  end
-
-  def handle_info({:feed_event, :listen, {:dead_lettered, error, meta}}, socket) do
-    frame = %{Format.frame("", meta) | message: NodeManager.error(error).message}
-    {:noreply, add(socket, Map.put(frame, :kind, :dead_lettered))}
+  def handle_info({:feed_event, :listen, {kind, _, _}} = record, socket)
+      when kind in @record_kinds do
+    {:noreply, add(socket, queued([record]))}
   end
 
   def handle_info({:feed_event, :listen, _other}, socket), do: {:noreply, socket}
@@ -131,16 +127,37 @@ defmodule FlezhaConsoleWeb.ListenLive do
     assign(socket, feed: feed, status: :connecting, error: nil)
   end
 
-  defp add(socket, frame) do
-    count = socket.assigns.message_count + 1
+  # Every record already waiting is taken in the same pass, newest first, so a
+  # busy relay costs one render per pass instead of one per record, which would
+  # fall behind and queue without bound.
+  defp queued(records) do
+    receive do
+      {:feed_event, :listen, {kind, _, _}} = record when kind in @record_kinds ->
+        queued([record | records])
+    after
+      0 -> records
+    end
+  end
+
+  defp add(socket, records) do
+    count = socket.assigns.message_count + length(records)
 
     if socket.assigns.paused do
       assign(socket, message_count: count)
     else
-      messages = Enum.take([frame | socket.assigns.messages], @max_messages)
+      frames = records |> Enum.take(@max_messages) |> Enum.map(&frame/1)
+      messages = Enum.take(frames ++ socket.assigns.messages, @max_messages)
       assign(socket, messages: messages, message_count: count)
     end
   end
+
+  defp frame({:feed_event, :listen, {:dead_lettered, error, meta}}) do
+    frame = %{Format.frame("", meta) | message: NodeManager.error(error).message}
+    Map.put(frame, :kind, :dead_lettered)
+  end
+
+  defp frame({:feed_event, :listen, {kind, payload, meta}}),
+    do: Map.put(Format.frame(payload, meta), :kind, kind)
 
   # Compiled once per change, so an invalid pattern is reported once and a
   # valid one is not recompiled for every record that arrives.

@@ -172,6 +172,36 @@ defmodule FlezhaConsoleWeb.ListenLiveTest do
       assert html =~ received(1)
     end
 
+    test "a burst of records renders once, keeping the newest", %{view: view} do
+      lv = view.pid
+      test_pid = self()
+      handler = "listen-burst-#{inspect(test_pid)}"
+
+      :telemetry.attach(
+        handler,
+        [:phoenix, :live_view, :render, :stop],
+        fn _event, _measurements, _meta, _config ->
+          if self() == lv, do: send(test_pid, :rendered)
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      # Held while the burst queues, as a busy relay outpaces the screen.
+      :sys.suspend(lv)
+      for i <- 1..500, do: send(lv, {:feed_event, :listen, {:output, "burst #{i}", %{}}})
+      :sys.resume(lv)
+
+      html = eventually_renders(view, received(500))
+      assert html =~ ~r/burst 500\b/
+      assert html =~ ~r/burst 301\b/
+      refute html =~ ~r/burst 300\b/
+
+      renders = Stream.repeatedly(fn -> receive do: (:rendered -> 1), after: (0 -> nil) end)
+      assert renders |> Enum.take_while(& &1) |> length() <= 2
+    end
+
     test "a dead-letter notice is shown with the error's message", %{view: view, node: node} do
       FakeController.emit(
         node,
