@@ -18,6 +18,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
   alias Flezha.Service.Observability
   alias Flezha.Service.Relay
   alias FlezhaConsole.TestEnv
+  alias FlezhaConsoleWeb.Glossary
 
   @relay "/namespaces/default/relays/relay_a"
   @listen {Relay, :listen}
@@ -1777,6 +1778,26 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
                "Records arriving each second"
 
       assert html =~ ~s(data-testid="ns-flow-spark")
+    end
+
+    test "the relays, flow and limits tiles explain their labels in place", %{
+      conn: conn,
+      node: node
+    } do
+      stack(node, relays: ["relay_a"])
+
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
+
+      for {tile, key, label} <- [
+            {"ns-relays", "relay", "Relays"},
+            {"ns-flow", "flow in", "Flow in"},
+            {"ns-limits", "quota", "Limits"}
+          ] do
+        assert text_of(html, ~s([data-testid="#{tile}"] [data-testid="term-#{key}"])) == label
+
+        assert text_of(html, ~s([data-testid="#{tile}"] [data-testid="term-panel-#{key}"])) =~
+                 Glossary.term(key).definition
+      end
     end
 
     test "the namespace's own dead letters open the dead-letter screen", %{

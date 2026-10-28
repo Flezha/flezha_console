@@ -78,6 +78,8 @@ defmodule FlezhaConsoleWeb.Glossary do
        Enum.join(Enum.drop(@role_names, -1), ", ") <> " or " <> List.last(@role_names) <> "."},
     {"quota", "Quota",
      "A per-namespace limit, such as the number of relays, paired with a live counter."},
+    {"flow in", "Flow in",
+     "Records arriving at this namespace's relays each second, every relay summed. Out is what they forwarded to their outputs, so the two differ when a relay filters, combines or dead-letters records."},
     {"partition group", "Partition group",
      "A set of relays that split one keyspace between them, each owning a range of key groups."},
     {"coverage", "Coverage",
@@ -141,7 +143,7 @@ defmodule FlezhaConsoleWeb.Glossary do
   @screens %{
     home: {
       "Home sums up this namespace in tiles: how many relays, runners, plugins and schedules there are, how healthy they are, what is flowing and how close each limit is. This namespace's problems sit below its tiles; the river below them lists what happened while you watched.",
-      ["namespace", "runner", "relay", "factory", "health", "quota"]
+      ["namespace", "runner", "relay", "factory", "health", "quota", "flow in"]
     },
     relays: {
       "Every relay you can reach, or one namespace's, with its health, run, runner and measured rate. Activate a row to inspect it in place; start a relay from a factory here too.",

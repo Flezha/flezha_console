@@ -147,8 +147,9 @@ Below its attention items, Home SHALL show one row of tiles for its namespace:
 - **Plugins:** how many distinct plugins are bound to its relays.
 - **Schedules:** how many belong to it, and when the next one fires.
 - **Dead letters:** the dead-letter count, linking to `/dlq`.
-- **Flow:** the measured inbound rate with a sparkline of its last 60 samples,
-  shown only once two snapshots exist.
+- **Flow:** the measured inbound rate — records arriving at the namespace's relays,
+  summed — with a sparkline of its last 60 samples, and the rate they forwarded to
+  their outputs, shown only once two snapshots exist.
 - **Limits:** the peak use, a meter for each of the two most used quota kinds,
   breached ones first, and a link naming how many more quota kinds the folded Limits
   section holds.
@@ -158,6 +159,17 @@ words and SHALL mark a non-neutral tone with a shape as well as a colour. A figu
 that changes between ticks SHALL be marked as changed. A figure SHALL carry its unit
 apart from its number. The row SHALL be built from reads Home's tick already makes,
 with no call per relay.
+
+The Relays, Flow and Limits tiles SHALL mark their label as a glossary term
+(relay, flow in and quota), so the label explains its figure in place. A tile that
+is itself a link SHALL NOT mark its label, because a term inside a link cannot be
+activated apart from it.
+
+#### Scenario: Reading what Flow measures
+
+- **WHEN** an operator activates the Flow tile's label
+- **THEN** the "flow in" definition is pinned beside it, saying the figure is
+  records arriving at the namespace's relays and its Out is what they forwarded
 
 #### Scenario: One relay is suspended
 

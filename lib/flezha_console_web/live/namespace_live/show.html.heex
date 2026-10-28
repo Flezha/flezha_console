@@ -69,6 +69,7 @@
           <% {relays_tone, relays_verdict, relays_condition} = Words.health_said(health) %>
           <.tile
             testid="ns-relays"
+            term="relay"
             icon="hero-cpu-chip"
             label="Relays"
             value={@topology.relay_count}
@@ -148,6 +149,7 @@
           <% {flow_tone, flow_verdict, flow_condition} = flow_said(inbound) %>
           <.tile
             testid="ns-flow"
+            term="flow in"
             icon="hero-arrow-trending-up"
             label="Flow in"
             value={inbound && Topology.rate_label(inbound.in, "")}
@@ -173,6 +175,7 @@
           <% limits = limit_rows(@quotas) %>
           <.tile
             testid="ns-limits"
+            term="quota"
             icon="hero-adjustments-horizontal"
             label="Limits"
             value={peak_use(limits)}

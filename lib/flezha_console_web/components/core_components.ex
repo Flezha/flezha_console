@@ -1301,6 +1301,11 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   """
   attr :testid, :string, required: true, doc: "also names the figure's DOM id"
   attr :label, :string, required: true
+
+  attr :term, :string,
+    default: nil,
+    doc: "a glossary key the label explains in place; not on a tile with `href`"
+
   attr :icon, :string, default: nil, doc: "a `hero-*` name, drawn as a glyph in the tone"
 
   attr :verdict, :string,
@@ -1355,7 +1360,13 @@ defmodule FlezhaConsoleWeb.CoreComponents do
     ~H"""
     <span class="fcon-indicator-head">
       <.glyph :if={@icon} icon={@icon} tone={@tone} />
-      <span class="fcon-indicator-label">{@label}</span>
+      <span class="fcon-indicator-label">
+        <%= if @term && !@href do %>
+          <.term key={@term} id={"#{@testid}-term"}>{@label}</.term>
+        <% else %>
+          {@label}
+        <% end %>
+      </span>
     </span>
     <span :if={@live} class="fcon-indicator-pulse" aria-hidden="true"></span>
     <span class="fcon-indicator-figure flz-figure-fit">

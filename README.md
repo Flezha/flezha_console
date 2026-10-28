@@ -37,6 +37,7 @@ The console uses the controller's terms exactly. If a name here disagrees with
 | **Principal** | The identity a call is made as. The console's comes only from a verified flezha token — never from a form field. |
 | **Role** | What a principal may do in a namespace: `viewer`, `app`, `ops`, `admin`, `runner`, `spawner`, `stopper`. "Operator" in this README means the person using the console. |
 | **Quota** | A per-namespace limit (`max_relays`, `max_runners`, state bytes, …) paired with a live counter. |
+| **Flow in** | Records arriving at a namespace's relays each second, summed; its Out is what they forwarded to their outputs. |
 | **Partition group** | A set of relays that split one keyspace between them, each owning a *key-group* range. |
 | **Coverage** | Whether a partition group's members own every key group exactly once. A gap or an overlap is a fault. |
 | **Suspended** | A relay stopped at a committed boundary on purpose, not by a fault. It holds no runner; the next message or its timer wakes it on a runner that serves its factory. |
