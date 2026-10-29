@@ -1,5 +1,8 @@
 import {
+  choose,
   chosen,
+  comboboxValues,
+  sendRecords,
   ownRelay,
   test,
   expect,
@@ -14,9 +17,9 @@ import {
  * file starts for itself, and the run it leaves in the relay history once
  * stopped.
  *
- * Whether a steps relay suspends, or how many iterations its journal holds,
- * depends on inputs a browser cannot send yet, so those states are asserted in
- * ExUnit against the fake controller rather than read off the live stack.
+ * Whether a steps relay suspends depends on inputs a browser cannot send yet,
+ * so that state is asserted in ExUnit against the fake controller rather than
+ * read off the live stack.
  */
 const { id } = ownRelay('pw_steps', { run: 'steps' });
 
@@ -72,6 +75,34 @@ test.describe('Steps relays', () => {
     await page.getByTestId('rewind-confirm-btn').click();
     await expect(page.getByTestId('rewind-modal')).toHaveCount(0);
     await expect(page.locator('body')).toContainText(`Rewound to iteration ${iteration}.`);
+  });
+
+  test('asks to rewind to an iteration the picker reads past its first page', async ({ page, live }) => {
+    // Each record on its entry channel commits an iteration; more than a page
+    // of them puts the oldest behind the picker's Older control.
+    await sendRecords(id, Array.from({ length: 24 }, (_, i) => `older-${i}`), 'in');
+
+    await live(`/namespaces/default/relays/${id}/state`);
+    await openSection(page, 'journal');
+    await expect(page.getByTestId('task-journal-committed')).toContainText(/and \d+ older/);
+
+    await page.getByTestId('open-rewind-btn').click();
+    await expect(page.getByTestId('rewind-modal')).toBeVisible();
+    const first = await comboboxValues(page, 'rewind-iteration');
+    expect(first).toHaveLength(20);
+
+    await page.getByTestId('rewind-older').click();
+    await expect(page.locator('#rewind-iteration [role="option"]')).not.toHaveCount(20);
+    const older = (await comboboxValues(page, 'rewind-iteration')).filter((value) => !first.includes(value));
+    expect(older.length).toBeGreaterThan(0);
+
+    const target = older[older.length - 1];
+    await choose(page, 'rewind-iteration', target);
+    await expect(chosen(page, 'rewind-iteration')).toHaveValue(target);
+    await page.getByTestId('rewind-confirm-btn').click();
+    // The controller judges it: unwinding output no tasklet compensates is
+    // refused, and the refusal names the iteration chosen from the older page.
+    await expect(page.locator('body')).toContainText(`a rewind to iteration ${target} would unwind output`);
   });
 
   test("a stopped steps relay is listed among the namespace's recent runs, and opens on its last run", async ({
