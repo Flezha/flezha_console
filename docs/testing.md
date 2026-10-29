@@ -285,7 +285,7 @@ it honest:
 - `controller_shapes_test.exs` checks every stub's default answer and every
   fixture builder (`relay_row/2`, `runner_row/2`, `graph_channel/5`,
   `graph_tasklet/2`, `factory_row/2`, `activity_row/2`, `option_row/2`,
-  `history_record/2`) against
+  `history_record/2`, `relay_counters/2`) against
   `test/support/fixtures/controller_shapes.json`: tuple tags, map keys and value
   types recorded from the dev controller, never values. A map keyed by data
   rather than by fields — a provider's `opts`, a relay's hook `chains`, one

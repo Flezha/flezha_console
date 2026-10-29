@@ -75,6 +75,8 @@ defmodule FlezhaConsole.ControllerShapes do
       {"Controller.liveness_counters", Flezha.Service.Controller, :liveness_counters, []},
       {"Controller.liveness_counters relays", Flezha.Service.Controller, :liveness_counters,
        [[filter: [relays: [{"default", "testnet_store_1"}]]]]},
+      {"Controller.liveness_counters totals", Flezha.Service.Controller, :liveness_counters,
+       [[filter: [namespace: "default"], limit: 0]]},
       {"Logs.kinds", Flezha.Service.Logs, :kinds, []},
       {"Logs.read", Flezha.Service.Logs, :read, [[kind: "relay_history", limit: 20]]},
       {"Logs.files", Flezha.Service.Logs, :files, [[kind: "relay_history"]]},
@@ -84,9 +86,11 @@ defmodule FlezhaConsole.ControllerShapes do
 
   # Keys whose map is keyed by data rather than by fields: a provider's
   # options, the hooks a relay's bindings use, one count per health verdict or
-  # recent signal, and one value per controller. Which keys such a map holds
-  # depends on what the stack runs.
-  @keyed_by_data ~w(opts chains request_subs relay_health health signals statuses by_node refused)
+  # recent signal, one value per controller, and an observability record's
+  # metadata and measurements, which differ by event. Which keys such a map
+  # holds depends on what the stack runs.
+  @keyed_by_data ~w(opts chains request_subs relay_health health signals statuses by_node refused
+                    metadata measurements)
 
   @doc "The shape of `term`."
   def of(term) when is_binary(term), do: "string"

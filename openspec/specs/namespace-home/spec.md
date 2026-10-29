@@ -151,13 +151,14 @@ Below its attention items, Home SHALL show one row of tiles for its namespace:
 - **Relays:** the total, a health strip, and a count for each non-healthy verdict,
   each linking to the relays index filtered to this namespace and that health.
 - **Runners:** how many serve the namespace, and how many are dropped.
-- **Plugins:** how many distinct plugins are bound to its relays.
+- **Plugins:** how many plugins are enabled in it, naming the first two, read as one page of the controller's plugin listing.
 - **Schedules:** how many belong to it, and when the next one fires.
 - **Dead letters:** the dead-letter count, linking to `/dlq`, in the warning tone
   while any waits that no operator has marked seen.
 - **Flow:** the measured inbound rate — records arriving at the namespace's relays,
-  summed — with a sparkline of its last 60 samples, and the rate they forwarded to
-  their outputs, shown only once two snapshots exist.
+  summed by the controller as the namespace's liveness totals — with a sparkline of
+  its last 60 samples, and the rate they forwarded to their outputs, shown only once
+  two snapshots exist.
 - **Limits:** the peak use, a meter for each of the two most used quota kinds,
   breached ones first, and a link naming how many more quota kinds the folded Limits
   section holds.

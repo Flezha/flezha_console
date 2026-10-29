@@ -391,10 +391,13 @@ namespace the bound token can reach. Each row SHALL show:
 Activating a row SHALL open the relay's inspector in place. Row actions SHALL sit
 in a per-row menu, so that a destructive action never sits beside a benign one.
 
-The listing SHALL cost a fixed set of calls per namespace, and none per relay:
-one `Service.Relay.list/2`, one `Service.Relay.relay_plugins/2`, one
-`Service.Relay.registry/2`, and the liveness snapshot it already shares with the
-map.
+The listing SHALL read only the rows it shows: per namespace, one paged
+`Service.Relay.list` asking for the shown count, with the operator's search, filters
+and sort applied by the controller, and one liveness read naming the shown relays.
+Each row's run and plugin count SHALL come from that page's rows, not from a
+registry or binding read. The listing SHALL offer a search over relay id and
+factory, and sorting by id or by severity. An opened partition group SHALL read its
+members through the controller's group filter, as a paged listing of its own.
 
 The same LiveView SHALL serve a namespace-scoped listing at
 `/namespaces/:ns/relays`, which takes its namespace from the path rather than from
@@ -405,12 +408,12 @@ bookmarked, shared, and reversed with the browser's back button.
 #### Scenario: Relays exist across namespaces
 
 - **WHEN** an operator opens the relays index at `/relays`
-- **THEN** every relay in every reachable namespace is listed with its namespace and health
+- **THEN** the first page of relays across every reachable namespace is listed with each relay's namespace and health, and the foot states how many relays there are in all
 
 #### Scenario: Filtering the index
 
 - **WHEN** an operator filters by namespace, health, run, or runner
-- **THEN** only matching relays are listed
+- **THEN** only matching relays are listed, the controller applies the filter, and the total counts only the matching relays
 
 #### Scenario: Every health verdict can be filtered on
 
@@ -454,6 +457,17 @@ bookmarked, shared, and reversed with the browser's back button.
 
 - **WHEN** no namespace holds a relay
 - **THEN** an empty state says so rather than rendering an empty table
+
+#### Scenario: Searching thousands of relays
+
+- **GIVEN** a namespace running 5,000 relays
+- **WHEN** an operator types part of a relay id into the search
+- **THEN** the listing shows the matching relays from anywhere in the namespace, and the query string carries the search
+
+#### Scenario: The listing reads only its page
+
+- **WHEN** the relays index ticks while showing 20 rows of one namespace
+- **THEN** it makes one paged relay list call for that namespace and one liveness call naming those 20 relays, and no registry or binding call
 
 ### Requirement: A relay is diagnosed on request
 

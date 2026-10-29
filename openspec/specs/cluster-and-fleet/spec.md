@@ -101,7 +101,7 @@ Each runner SHALL be listed with:
 - the controller node that holds its session;
 - how long it has been connected, with the absolute connect time;
 - how long ago the controller last heard from it, in the warning tone when the controller answers `late?`;
-- the number of relays on it, linking to the relays index filtered to that runner;
+- a link to the relays index filtered to that runner, where its relays are listed and counted;
 - the factories it serves, from the `runners` of each `Flezha.Service.Fleet.factories/2` row.
 
 The Serves cell SHALL show at most two factories, plus a control that reveals the rest and states how many there are. When other runners serve exactly the same set of factories, the cell SHALL say how many.
@@ -116,7 +116,7 @@ Above the table, the listing SHALL state how many runners are connected, on how 
 #### Scenario: Runners are connected
 
 - **WHEN** a namespace has active runners
-- **THEN** each runner id is listed with its node, connection time, last contact, relay count and factories
+- **THEN** each runner id is listed with its node, connection time, last contact, a link to its relays and its factories
 
 #### Scenario: Runners on another node are listed
 
@@ -199,22 +199,22 @@ An operator SHALL be able to select a factory and see which runners can serve it
 
 ### Requirement: Per-node health rollup
 
-The cluster screen SHALL show, per namespace and per node, how many relays that node hosts broken down by health, and SHALL name the relays that have no live node. The figures SHALL come from `Flezha.Service.Relay.relay_rows/2`, the same rows `Flezha.Service.Controller.cluster_status/2` and `flz cluster status` read, so the UI and the controller cannot disagree. Every health verdict the controller returns SHALL be counted under its own name, including `recovering` and `parked`.
+The cluster screen SHALL show, per namespace, how many relays each node hosts and how its relays stand by health, and SHALL say how many relays have no live node, naming those among its most severe. The per-node counts and the number of unplaced relays SHALL come from `Flezha.Service.Controller.cluster_status/2`, the read `flz cluster status` makes, so the UI and the controller cannot disagree. The health counts SHALL come from the summary of the namespace's paged relay list. Every health verdict the controller returns SHALL be counted under its own name, including `recovering` and `parked`. No read SHALL answer every relay of the namespace.
 
 #### Scenario: A healthy cluster
 
 - **WHEN** every relay in a namespace is healthy and placed
-- **THEN** each node shows its relay count and the rollup reports no unhealthy relays
+- **THEN** each node shows its relay count and the namespace's health reads every relay healthy
 
 #### Scenario: Relays are unplaced
 
-- **WHEN** relay rows have no live node
-- **THEN** they are listed as unplaced and named
+- **WHEN** relays have no live node
+- **THEN** the screen states how many, and names those among the namespace's most severe relays
 
 #### Scenario: Relays are moving off a dead runner
 
-- **WHEN** relay rows report the verdict `recovering` or `parked`
-- **THEN** the rollup counts them under that verdict rather than as unknown
+- **WHEN** the summary counts relays under the verdict `recovering` or `parked`
+- **THEN** the namespace's health counts them under that verdict rather than as unknown
 
 #### Scenario: A split view
 
@@ -224,7 +224,7 @@ The cluster screen SHALL show, per namespace and per node, how many relays that 
 #### Scenario: The rollup agrees with the controller
 
 - **WHEN** the same namespace is read by the UI and by `flz cluster status`
-- **THEN** both report the same per-node counts and health breakdown
+- **THEN** both report the same per-node counts
 
 ### Requirement: Hub recovery state
 

@@ -100,16 +100,26 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 
 ### Requirement: Data-plane liveness snapshot
 
-`NodeManager` SHALL expose `liveness_snapshot`, calling `Flezha.Service.Controller.liveness_counters/1` with the caller context and answering the controller's own map of `channels` and `relays` counter lists, with transport failures normalized into the seam's closed error set.
+`NodeManager` SHALL expose `liveness_snapshot`, calling `Flezha.Service.Controller.liveness_counters` with the caller context and answering the controller's own map of `channels` and `relays` counter lists, with transport failures normalized into the seam's closed error set. It SHALL take the relays to read, as `{namespace, relay_id}` pairs of at most 500, or a namespace whose summed `totals` to read with `limit: 0`. It SHALL key every relay snapshot by namespace and relay id. A screen SHALL NOT read the unfiltered cluster snapshot to draw rates. Reads with the same token and arguments within 1.5 s SHALL be answered once from `NodeManager`'s read cache.
 
 #### Scenario: Snapshot succeeds
 
-- **WHEN** the controller answers the liveness counters
-- **THEN** `liveness_snapshot` answers the map of per-channel and per-relay counter snapshots as the controller produced it, each relay snapshot keyed by `relay_id`
+- **WHEN** the controller answers the liveness counters for the named relays
+- **THEN** `liveness_snapshot` answers the map of per-channel and per-relay counter snapshots as the controller produced it, each relay snapshot keyed by namespace and `relay_id`
+
+#### Scenario: A namespace's totals
+
+- **WHEN** Home asks for its namespace's flow
+- **THEN** `liveness_snapshot` asks for that namespace's totals with `limit: 0`, and answers the summed counters with no relay rows
+
+#### Scenario: Two tabs share one read
+
+- **WHEN** two screens with the same token ask for the same relays' counters within 1.5 s
+- **THEN** the controller is called once
 
 #### Scenario: Controller predates the published counters read
 
-- **WHEN** the connected controller does not export `Flezha.Service.Controller.liveness_counters/1`
+- **WHEN** the connected controller does not export `Flezha.Service.Controller.liveness_counters`
 - **THEN** `liveness_snapshot` answers `{:error, {:api_missing, module, function, arity}}` and the divergence is logged, per the seam's version-skew requirement
 
 ### Requirement: Observability ring-buffer query
@@ -177,34 +187,28 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 
 ### Requirement: Namespace-flat listing reads
 
-`NodeManager` SHALL expose the controller's bulk reads so a listing costs a fixed number of calls per namespace regardless of how many relays it holds: `Flezha.Service.Relay.list/2` for the rows, with partition members already collapsed into one row per group by the controller's rule, `Flezha.Service.Relay.relay_plugins/2` for the plugin bindings, and `Flezha.Service.Relay.registry/2` for each relay's run. A group's key-group coverage SHALL come from `Flezha.Service.Relay.partition_groups/2`. The UI SHALL NOT derive group rows, group health, or coverage itself.
+`NodeManager` SHALL expose the controller's paged relay list so a listing costs a fixed number of calls per namespace, however many relays it holds, and answers only the rows it shows: `Flezha.Service.Relay.list` with `opts` of `limit`, `after`, `sort` and `filter`. Its rows carry partition members already collapsed into one row per group by the controller's rule, each row's run and plugin count, and the namespace `summary` (health counts, faulted groups, factories relays wait on). One relay's row SHALL be read with the `ids` filter. A group's members SHALL be read with the `group` filter. Faulted groups SHALL come from the summary. The UI SHALL NOT derive group rows, group health or coverage itself, and SHALL NOT send relay rows back to the controller.
 
 #### Scenario: Listing a namespace's relays
 
 - **WHEN** a screen lists a namespace's relays
-- **THEN** one `Service.Relay.list/2` call answers every row's id, health, runner, factory, partition width, and node
+- **THEN** one paged `Service.Relay.list` call answers the shown rows' id, health, runner, factory, partition width, node, run and plugin count, and the total
 
-#### Scenario: Listing plugin counts
+#### Scenario: Counting without rows
 
-- **WHEN** a screen shows a plugin count per relay
-- **THEN** one `Service.Relay.relay_plugins/2` call answers the whole namespace
-
-#### Scenario: Reading each relay's run
-
-- **WHEN** a screen shows whether each relay runs as flow or steps
-- **THEN** one `Service.Relay.registry/2` call answers it for the whole namespace, read from each relay's builder
-- **AND** registry entries that are not relays, such as enabled plugins, are skipped rather than failing the read
+- **WHEN** a screen needs only the namespace's health counts and faulted groups
+- **THEN** it reads them from the summary of a paged call with `limit: 0` or with only the rows it shows
 
 #### Scenario: Partition groups are collapsed by the controller's rule
 
 - **WHEN** a namespace holds partition group members
-- **THEN** the group rows, and each group's health as its sickest member's, come from `Service.Relay.list/2`
+- **THEN** the group rows, and each group's health as its sickest member's, come from `Service.Relay.list`
 - **AND** the UI contains no second implementation of group rollup or health ranking
 
 #### Scenario: Call count does not grow with fleet size
 
 - **WHEN** a namespace's relay count changes
-- **THEN** the number of controller calls a listing tick makes does not change
+- **THEN** the number of controller calls a listing tick makes does not change, and the rows it receives do not exceed the rows it shows
 
 ### Requirement: A relay start carries no run
 

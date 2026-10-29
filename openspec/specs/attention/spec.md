@@ -130,9 +130,14 @@ On a connected screen, the shell SHALL gather attention items every 10 seconds
 with the operator's own token, for every namespace that token reaches. For each
 namespace it SHALL make a fixed number of controller calls, plus one runner read per
 distinct factory that a suspended, unbound, failed or recovering relay names. It
-SHALL make none per relay. Home SHALL read runners through the same function. The
-pulse SHALL NOT run on the disconnected first render. No item SHALL be gathered
-with any principal but the operator's.
+SHALL make none per relay. Its relay read SHALL be one paged relay list asking for at
+most 50 unhealthy relays, most severe first, whose summary gives the health counts,
+faulted groups and waiting factories; it SHALL NOT read every relay row. When more
+relays are unhealthy than it read, it SHALL add one item stating how many more. Home
+SHALL read runners through the same function. The pulse SHALL NOT run on the
+disconnected first render, and SHALL NOT run while its tab is hidden; it SHALL run at
+once when the tab becomes visible. No item SHALL be gathered with any principal but
+the operator's.
 
 Beside its items, the pulse SHALL keep the fleet totals its reads already answer:
 the relay health counts summed across the reachable namespaces and the number of
@@ -166,6 +171,17 @@ controller's status.
 - **WHEN** the pulse runs on any screen
 - **THEN** it makes no `runners`, `cluster_status` or `controller_status` call
 
+#### Scenario: A hidden tab does not pulse
+
+- **WHEN** the operator's tab is hidden for a minute
+- **THEN** no pulse call is made during it, and one pulse runs as soon as the tab is visible again
+
+#### Scenario: A large outage of one namespace
+
+- **GIVEN** 1,000 relays of a namespace failed for 1,000 different reasons
+- **WHEN** the pulse runs
+- **THEN** it reads 50 of them, most severe first, and adds one item stating that 950 more relays are not healthy
+
 ### Requirement: The shell shows how much needs attention
 
 The rail's Problems entry SHALL show the number of open attention items, in the
@@ -195,8 +211,11 @@ tone of the most severe of them, and nothing when there are none.
 ### Requirement: The Open problems screen lists every open problem with its fix
 
 The console SHALL serve `/problems`, reached from the rail's Problems entry in its
-platform group. The screen SHALL list every open item, ordered by severity and then
-by first-seen time, oldest first. Each item SHALL show:
+platform group. The screen SHALL list the open items, ordered by severity and then
+by first-seen time, oldest first, as a paged listing that states how many items are
+open and grows on request. A namespace with more unhealthy relays than the pulse read
+SHALL show the most severe of them and an item stating how many more, which grows
+that namespace's read when activated. Each item SHALL show:
 
 - its title;
 - its condition rows;
@@ -235,6 +254,12 @@ checked.
 
 - **WHEN** no item is open
 - **THEN** the screen says nothing needs attention and when it last checked
+
+#### Scenario: More problems than one page
+
+- **GIVEN** 300 open relay items
+- **WHEN** the operator opens Open problems
+- **THEN** the most severe 20 are shown with a control stating 20 of 300, which shows more when activated
 
 ### Requirement: Home shows its namespace's items inline
 

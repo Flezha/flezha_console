@@ -229,8 +229,7 @@ defmodule FakeController do
   Each read cuts its page as core does: a relay list filters and sorts by
   `id` or `severity`, its summary counted over every row; liveness counters
   keep the named relays, or a namespace's, and with `limit: 0` only that
-  namespace's `totals`. A counter row naming no namespace, as a controller
-  that does not key counters by namespace answers it, belongs to any.
+  namespace's `totals`.
   """
   def page(_read, opts, answer) when opts in [[], %{}], do: answer
   def page(_read, _opts, {:error, _reason} = refused), do: refused
@@ -339,32 +338,17 @@ defmodule FakeController do
 
   defp cut(:liveness_counters, %{relays: relays} = snapshot, page) do
     case page.filter do
-      %{namespace: ns} when page.limit == 0 ->
-        totals =
-          relays
-          |> Enum.filter(&(&1[:namespace] in [nil, ns]))
-          |> Enum.flat_map(&Map.to_list(Map.drop(&1, [:relay_id, :namespace, :node])))
-          |> Enum.filter(fn {_slot, value} -> is_integer(value) end)
-          |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-          |> Map.new(fn {slot, values} -> {slot, Enum.sum(values)} end)
-
-        %{snapshot | relays: [], channels: []} |> Map.put(:totals, totals)
-
       %{namespace: ns} ->
-        %{snapshot | relays: Enum.filter(relays, &(&1[:namespace] in [nil, ns]))}
+        relays = Enum.filter(relays, &(&1[:namespace] == ns))
+        if page.limit == 0, do: totals(snapshot, relays), else: %{snapshot | relays: relays}
 
       %{relays: named} ->
-        named = MapSet.new(named, fn {ns, id} -> {ns, id} end)
-        ids = MapSet.new(named, &elem(&1, 1))
+        named = MapSet.new(named)
 
-        kept =
-          Enum.filter(relays, fn row ->
-            if row[:namespace],
-              do: MapSet.member?(named, {row.namespace, row.relay_id}),
-              else: MapSet.member?(ids, row.relay_id)
-          end)
-
-        %{snapshot | relays: kept}
+        %{
+          snapshot
+          | relays: Enum.filter(relays, &MapSet.member?(named, {&1[:namespace], &1.relay_id}))
+        }
 
       _none ->
         snapshot
@@ -396,6 +380,18 @@ defmodule FakeController do
       |> Enum.filter(&String.contains?(to_string(&1.cell_key), text))
       |> slice_page(page, :cells, &{to_string(&1.tasklet_id), to_string(&1.cell_key)})
     )
+  end
+
+  # A namespace's counters summed slot by slot, without its rows.
+  defp totals(snapshot, relays) do
+    totals =
+      relays
+      |> Enum.flat_map(&Map.to_list(Map.drop(&1, [:relay_id, :namespace, :node])))
+      |> Enum.filter(fn {_slot, value} -> is_integer(value) end)
+      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+      |> Map.new(fn {slot, values} -> {slot, Enum.sum(values)} end)
+
+    %{snapshot | relays: [], channels: []} |> Map.put(:totals, totals)
   end
 
   # `rows` sorted by `key` (kept in order for none), the page after the
@@ -481,6 +477,27 @@ defmodule FakeController do
   """
   def log_page(records, next \\ nil, unreachable \\ []),
     do: {:ok, %{records: records, next: next, unreachable: Enum.map(unreachable, &to_node/1)}}
+
+  @doc """
+  A relay's row of `Controller.liveness_counters/2`: `in`, `out` and
+  `filtered` record counts, keyed by `namespace` (`"default"` unless given),
+  on `flezha@node-a`, every other counter at 0.
+  """
+  def relay_counters(id, counts) do
+    %{
+      relay_id: id,
+      namespace: Keyword.get(counts, :namespace, "default"),
+      node: :"flezha@node-a",
+      io_in_received: Keyword.get(counts, :in, 0),
+      forwarded: Keyword.get(counts, :out, 0),
+      filtered_nil: Keyword.get(counts, :filtered, 0),
+      bytes_in: 0,
+      bytes_forwarded: 0,
+      bytes_filtered: 0,
+      halted_drops: 0,
+      not_started_drops: 0
+    }
+  end
 
   @doc """
   `Namespace.quota/3`'s answer: the cluster's `total`, all on

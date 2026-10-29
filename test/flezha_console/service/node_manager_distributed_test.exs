@@ -133,7 +133,9 @@ defmodule FlezhaConsole.Service.NodeManagerDataPlaneTest do
   test "the liveness snapshot is passed through as the controller produced it", %{node: node} do
     snapshot = %{
       channels: [%{runner_id: "runner-a", name: :chan_a, io_in_received: 7}],
-      relays: [%{relay_id: "relay_a", io_in_received: 9, forwarded: 8, filtered_nil: 1}],
+      relays: [
+        FakeController.relay_counters("relay_a", in: 9, out: 8, filtered: 1, namespace: "pass")
+      ],
       unreachable: [:"flezha@node-b"]
     }
 

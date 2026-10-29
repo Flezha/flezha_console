@@ -144,13 +144,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
 
   # A relay of another namespace, its counters keyed by it.
   defp elsewhere(count),
-    do: %{
-      relay_id: "elsewhere",
-      namespace: "other",
-      io_in_received: count,
-      forwarded: count,
-      filtered_nil: 0
-    }
+    do: FakeController.relay_counters("elsewhere", in: count, out: count, namespace: "other")
 
   defp snapshot(node, relays, channels \\ []) do
     FakeController.set(
@@ -165,15 +159,10 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
                counted
 
              {id, received, forwarded} ->
-               %{relay_id: id, io_in_received: received, forwarded: forwarded, filtered_nil: 0}
+               FakeController.relay_counters(id, in: received, out: forwarded)
 
              {id, received, forwarded, filtered} ->
-               %{
-                 relay_id: id,
-                 io_in_received: received,
-                 forwarded: forwarded,
-                 filtered_nil: filtered
-               }
+               FakeController.relay_counters(id, in: received, out: forwarded, filtered: filtered)
            end)
        }}
     )
@@ -1836,8 +1825,8 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert text_of(html, ~s([data-testid="ns-flow"] .fcon-indicator-foot)) =~
                ~r/^Out [\d.]+ msgs\/s$/
 
-      assert text_of(html, ~s([data-testid="ns-flow-condition"])) ==
-               "Records arriving each second"
+      assert text_of(html, ~s([data-testid="ns-flow-condition"])) =~
+               ~r/^Records arriving each second/
 
       assert html =~ ~s(data-testid="ns-flow-spark")
     end

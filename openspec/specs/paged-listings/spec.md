@@ -12,6 +12,14 @@ control SHALL NOT render when every row is shown. Listings already
 bounded by design — the live tail, the river, the command palette and an audit
 read, which its limit bounds — SHALL keep their own bound and render no control.
 
+A listing of a controller collection that can grow with the fleet SHALL read only
+the rows it shows: its shown count is the limit it asks the controller for, and the
+"out of how many" is the total the controller answers. Such a listing SHALL grow to
+at most 500 rows, the controller's page limit. Past that its foot SHALL state the
+total and ask the operator to search or filter to narrow it, instead of offering
+another page. These collections are relays, plugins, dead letters, Cells, journal
+entries and committed iterations.
+
 #### Scenario: A long token list
 
 - **WHEN** a namespace holds 43 tokens and the operator opens Access
@@ -25,12 +33,24 @@ read, which its limit bounds — SHALL keep their own bound and render no contro
 #### Scenario: An open group stays whole
 
 - **WHEN** a relay partition group is the last row of a page and the operator opens it
-- **THEN** its partitions are shown under it, and the page still counts it as one row
+- **THEN** its partitions are shown under it as their own paged listing, and the page still counts the group as one row
 
 #### Scenario: A short list
 
 - **WHEN** a listing holds 7 rows
 - **THEN** all 7 are shown and no control renders
+
+#### Scenario: A controller listing reads only its page
+
+- **GIVEN** a namespace running 5,000 relays
+- **WHEN** the operator opens its relays and grows the listing once
+- **THEN** the controller is asked for 20 rows, then for 40, and the foot reads "Show 20 more · 40 of 5,000"
+
+#### Scenario: The reach of a controller listing
+
+- **GIVEN** a relays listing grown to 500 rows of 5,000
+- **WHEN** the operator looks at its foot
+- **THEN** it states 500 of 5,000 and asks them to search or filter, and offers no further page
 
 ### Requirement: The shown count survives the refresh tick
 

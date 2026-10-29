@@ -865,30 +865,13 @@ defmodule FlezhaConsoleWeb.Topology do
   # the host's own error banner already says the controller is unhappy.
   defp snapshot(token, opts) do
     case NodeManager.liveness_snapshot(token, opts) do
-      {:ok, %{} = snapshot} -> {placed(snapshot, opts), nil}
+      {:ok, %{} = snapshot} -> {snapshot, nil}
       {:error, {:api_missing, _module, _function, _arity} = reason} -> {nil, reason}
       _other -> {nil, nil}
     end
   end
 
   defp relays(keys), do: [filter: [relays: keys]]
-
-  # A controller that does not key its counters by namespace answers relay
-  # rows without one; the relays asked for name it.
-  defp placed(%{relays: [_ | _] = rows} = snapshot, filter: [relays: keys]) do
-    asked = Map.new(keys, fn {namespace, id} -> {id, namespace} end)
-
-    rows =
-      Enum.map(rows, fn row ->
-        Map.put_new_lazy(row, :namespace, fn ->
-          Map.get(asked, NodeManager.identifier_id(Map.get(row, :relay_id)))
-        end)
-      end)
-
-    %{snapshot | relays: rows}
-  end
-
-  defp placed(snapshot, _opts), do: snapshot
 
   # The dead-letter statistics are kept per relay class across the cluster; a
   # namespace's share is its own relays' classes.
