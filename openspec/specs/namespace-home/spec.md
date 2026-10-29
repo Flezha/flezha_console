@@ -87,8 +87,9 @@ The condition SHALL be one of:
 - empty: no relays and no runners;
 - unreachable: no controller connected.
 
-A suspended relay that a runner can wake SHALL NOT turn the condition to needs
-attention.
+The attention items SHALL be the namespace's own, its relays' dead letters
+included. A suspended relay that a runner can wake SHALL NOT turn the condition to
+needs attention.
 
 #### Scenario: Everything is healthy and moving
 
@@ -124,6 +125,12 @@ attention.
 - **WHEN** three dead-letter entries are waiting in the namespace
 - **THEN** the second line reads "3 dead letters" and never "3 parked"
 
+#### Scenario: A dead letter needs attention
+
+- **WHEN** every relay is healthy and moving, and one relay of the namespace has a
+  dead letter
+- **THEN** the headline says one problem needs attention, never that nothing does
+
 ### Requirement: An empty namespace teaches instead of drawing nothing
 
 When a namespace has no relays and no runners, the namespace indicators SHALL be
@@ -146,7 +153,8 @@ Below its attention items, Home SHALL show one row of tiles for its namespace:
 - **Runners:** how many serve the namespace, and how many are dropped.
 - **Plugins:** how many distinct plugins are bound to its relays.
 - **Schedules:** how many belong to it, and when the next one fires.
-- **Dead letters:** the dead-letter count, linking to `/dlq`.
+- **Dead letters:** the dead-letter count, linking to `/dlq`, in the warning tone
+  while any waits that no operator has marked seen.
 - **Flow:** the measured inbound rate — records arriving at the namespace's relays,
   summed — with a sparkline of its last 60 samples, and the rate they forwarded to
   their outputs, shown only once two snapshots exist.
@@ -200,6 +208,12 @@ activated apart from it.
 - **WHEN** no dead-letter entry is waiting
 - **THEN** the Dead letters tile reads 0 in the positive tone and never says
   "parked"
+
+#### Scenario: A dead letter waits
+
+- **WHEN** one dead-letter entry is waiting and is not marked seen
+- **THEN** the Dead letters tile reads 1 with the verdict "Waiting" in the warning
+  tone
 
 #### Scenario: The cost does not grow with relays
 

@@ -11,6 +11,7 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
   use FlezhaConsoleWeb.LiveCase
 
   alias Flezha.Service.Controller
+  alias Flezha.Service.Dlq
   alias Flezha.Service.Fleet
   alias Flezha.Service.Relay
 
@@ -149,6 +150,22 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       assert attrs(html, ~s([data-testid="sys-problems"]), "data-tone") == ["negative"]
       assert text_of(html, ~s([data-testid="sys-problems-verdict"])) == "Urgent"
       assert has_element?(view, ~s(a[data-testid="sys-problems"][href="/problems"]))
+    end
+
+    test "a dead letter alone asks for attention, not urgency", %{conn: conn, node: node} do
+      two_namespaces(node, [FakeController.relay_row("fine")])
+
+      FakeController.set(
+        node,
+        {Dlq, :stats},
+        FakeController.rows([%{relay_class: "fine", tasklet_id: "t", entries: 1, bytes: 0}])
+      )
+
+      {_view, html} = live_loaded(conn, ~p"/cluster")
+
+      assert text_of(html, ~s([data-testid="sys-problems-value"])) == "1"
+      assert attrs(html, ~s([data-testid="sys-problems"]), "data-tone") == ["warning"]
+      assert text_of(html, ~s([data-testid="sys-problems-verdict"])) == "Attention"
     end
 
     test "wait for the shell's first check before drawing", %{conn: conn, node: node} do

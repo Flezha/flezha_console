@@ -22,7 +22,11 @@ reads it already makes. Each problem SHALL be an attention item carrying:
 
 An item SHALL be opened only for a condition whose Handled by is Flezha or You.
 A condition handled by Nobody is not a problem. The severity SHALL follow the
-handler: You is negative, Flezha is warning.
+handler: You is negative, Flezha is warning. Dead letters are the one exception:
+their records wait safely in the queue, so their severity SHALL be warning.
+
+A dead-letter item SHALL name the namespace whose relay rows hold the relay of its
+class, and no namespace when no namespace read holds it.
 
 The kinds SHALL be:
 
@@ -98,10 +102,16 @@ one derivation. Every item SHALL be rendered with the shared condition component
 #### Scenario: Dead letters
 
 - **WHEN** the dead-letter statistics report entries for a relay class
-- **THEN** a negative item names the class and the count of dead letters
-- **AND** it shows State "Dead letters" and Next step "Replay or drop them"
+- **THEN** a warning item names the class and the count of dead letters
+- **AND** it shows State "Dead letters", Handled by "You" and Next step "Replay or
+  drop them"
 - **AND** it links to the dead-letter screen filtered to that class
 - **AND** its text does not say "parked"
+
+#### Scenario: Dead letters belong to their relay's namespace
+
+- **WHEN** relay `orders` runs in namespace `default` and its class has dead letters
+- **THEN** the dead-letter item names namespace `default`
 
 #### Scenario: Every kind has the same rows
 
@@ -166,6 +176,11 @@ tone of the most severe of them, and nothing when there are none.
 - **WHEN** one relay is halted and one relay class has dead letters
 - **THEN** the rail's Problems entry shows 2 in the negative tone
 
+#### Scenario: Only dead letters
+
+- **WHEN** the only open item is a relay class's dead letters
+- **THEN** the rail's Problems entry shows 1 in the warning tone
+
 #### Scenario: A sleeping relay is not counted
 
 - **WHEN** the only relay that is not healthy is suspended, and a runner serves its
@@ -223,10 +238,10 @@ checked.
 
 ### Requirement: Home shows its namespace's items inline
 
-Home SHALL list the attention items of its own namespace directly below the
-namespace indicator tiles, in a section titled with how many need attention, using
-the same item component and actions as the Open problems screen. It SHALL collapse
-to the first three items, with a link to the rest.
+Home SHALL list the attention items of its own namespace, its relays' dead letters
+included, directly below the namespace indicator tiles, in a section titled with how
+many need attention, using the same item component and actions as the Open problems
+screen. It SHALL collapse to the first three items, with a link to the rest.
 
 #### Scenario: More than three items
 
@@ -239,6 +254,11 @@ to the first three items, with a link to the rest.
 - **WHEN** a namespace has two relays needing attention
 - **THEN** the section titled "2 relays need attention" renders after the namespace
   tiles and before "What happened"
+
+#### Scenario: Dead letters on Home
+
+- **WHEN** a relay of the namespace has dead letters
+- **THEN** Home lists the dead-letter item
 
 ### Requirement: A seen dead letter raises no problem
 

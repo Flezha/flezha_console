@@ -15,7 +15,9 @@ operator's token reaches:
   sentence.
 - **Relays:** how many across the reachable namespaces, with a health strip and
   the healthy count.
-- **Open problems:** how many, in the tone of the worst, linking to `/problems`.
+- **Open problems:** how many, in the tone of the worst, with the verdict "Urgent"
+  when the worst is negative and "Attention" when it is a warning, linking to
+  `/problems`.
 - **Controller:** whether it is connected, its durability posture, and its
   durability breaches.
 
@@ -39,6 +41,12 @@ until the pulse has answered once.
 - **WHEN** no attention item is open anywhere
 - **THEN** the Open problems tile reads that nothing needs attention, in the
   positive tone
+
+#### Scenario: One dead letter
+
+- **WHEN** the only open item is a relay class's dead letters
+- **THEN** the Open problems tile reads 1 with the verdict "Attention" in the
+  warning tone
 
 #### Scenario: A durability breach
 

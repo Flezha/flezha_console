@@ -197,6 +197,7 @@ defmodule FlezhaConsoleWeb.AttentionTest do
 
     assert item.what == "3 dead letters for orders"
     assert item.severity == :warning
+    assert item.condition.state.tone == :warning
     assert item.namespace == nil
     assert text(item, "cause") == "Tasklets t1 and t2 could not process 3 records"
     assert text(item, "handled") == "You"

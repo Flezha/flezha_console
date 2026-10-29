@@ -105,7 +105,8 @@ defmodule FlezhaConsoleWeb.Words do
       factory: {"No runner", :negative},
       partition_group: {"Coverage broken", :negative},
       quota: {"Limit reached", :negative},
-      dead_letters: {"Dead letters", :negative},
+      # Nothing is lost: the records wait safely for a replay or a drop.
+      dead_letters: {"Dead letters", :warning},
       rpo: {"Behind target", :warning},
       stall: {"Stalled", :warning},
       bootstrap: {"Unclaimed", :negative},

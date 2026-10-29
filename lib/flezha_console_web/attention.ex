@@ -16,12 +16,12 @@ defmodule FlezhaConsoleWeb.Attention do
   where `condition` is its facts, as `condition/1` renders them, and the
   severity follows who handles it: negative for the operator, warning for
   Flezha. Dead letters are a warning whoever handles them, and name the
-  namespace whose relay rows hold their class. A relay item carries `relay: %{state:, factory:, serving:}` in place
-  of `condition`, which `FlezhaConsoleWeb.RelayState.summary/1` renders with the
-  diagnosis once asked; `serving` is how many runners serve its factory, nil
-  when unread. It names no runner: a registry row names the one that last
-  hosted the relay, not the one bound to it now, which only the relay's own
-  Overwatch reads.
+  namespace whose relay rows hold their class. A relay item carries
+  `relay: %{state:, factory:, serving:}` in place of `condition`, which
+  `FlezhaConsoleWeb.RelayState.summary/1` renders with the diagnosis once
+  asked; `serving` is how many runners serve its factory, nil when unread. It
+  names no runner: a registry row names the one that last hosted the relay,
+  not the one bound to it now, which only the relay's own Overwatch reads.
 
   and an action is `%{label:, navigate:}` or `%{label:, do: :diagnose,
   operation:, namespace:, relay:}`; `operation` names the controller verb that
@@ -247,22 +247,21 @@ defmodule FlezhaConsoleWeb.Attention do
     "#{Words.count(length(states), "relay")} #{verb}: #{Enum.join(by_state, ", ")}"
   end
 
-  # An item that is not a relay: its State is its kind's word, and its tone
-  # follows who handles it, red for the operator and amber for Flezha, unless
-  # `severity` says otherwise.
+  # An item that is not a relay: its State is its kind's word, whose tone is
+  # the item's severity.
   defp problem(kind, fields, condition) do
-    handler = Keyword.fetch!(condition, :handled_by)
+    state = Words.say(:problem, kind)
 
     Map.merge(
       %{
         kind: kind,
-        severity: Keyword.get(condition, :severity, Words.tone(:handled_by, handler)),
+        severity: state.tone,
         namespace: nil,
         condition: %{
-          state: Words.say(:problem, kind),
+          state: state,
           cause: Keyword.fetch!(condition, :cause),
           impact: Keyword.fetch!(condition, :impact),
-          handled: RelayState.handler_said(handler),
+          handled: RelayState.handler_said(Keyword.fetch!(condition, :handled_by)),
           next: Keyword.fetch!(condition, :next)
         },
         first_seen: nil
@@ -346,9 +345,7 @@ defmodule FlezhaConsoleWeb.Attention do
               "#{tasklet_phrase(tasklets)} could not process #{Words.count(entries, "record")}",
             impact: "They wait in the dead-letter queue",
             handled_by: :you,
-            next: "Replay or drop them",
-            # Nothing is lost: the records wait safely for a replay or a drop.
-            severity: :warning
+            next: "Replay or drop them"
           )
         ]
       else
