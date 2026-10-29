@@ -2,7 +2,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   @moduledoc """
   A namespace's Home: a headline sentence, the namespace's open problems,
   indicator tiles for the namespace, the event river, and its administration
-  folded below — limits, access, partition groups, finished relays and runners.
+  folded below — limits, access, partition groups, recent runs and runners.
 
   It replaces both the former dashboard and the namespace overview, and is the
   only screen that renders the namespace's data-plane summary. Figures for
@@ -34,7 +34,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
       "quotas" => false,
       "access" => false,
       "partition-groups" => false,
-      "finished-relays" => false,
+      "recent-runs" => false,
       "runners" => false
     }
 
@@ -73,9 +73,11 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
         items: [],
         rows: [],
         unreachable: [],
-        finished: [],
-        finished_error: nil,
-        finished_loading?: false,
+        runs: [],
+        runs_next: nil,
+        runs_error: nil,
+        runs_grown?: false,
+        runs_loading?: false,
         rescale: nil,
         quota_form: nil,
         quota_error: nil,
@@ -85,8 +87,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
         factory_descriptions: nil
       )
       |> refresh_when_connected()
-      |> on_finished_answer()
-      |> load_finished()
+      |> on_older_runs()
 
     {:ok, socket}
   end
@@ -150,11 +151,6 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
       {:ok, typed} -> {:noreply, save_quotas(socket, Map.merge(held, typed))}
       {:error, message} -> {:noreply, assign(socket, quota_error: message)}
     end
-  end
-
-  @impl true
-  def handle_event("reload_finished", _params, socket) do
-    {:noreply, load_finished(socket)}
   end
 
   @impl true
@@ -242,7 +238,13 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   def refresh_read(socket) do
     %{ns: ns, flezha_token: token, items: items, loaded?: loaded?} = socket.assigns
     previous = {items, socket.assigns[:serving]}
-    fn -> read(ns, token, previous, loaded?) end
+    # Read on the first read, then only while someone looks at them.
+    runs? = not loaded? or socket.assigns.sections["recent-runs"]
+
+    fn ->
+      runs = if runs?, do: recent_runs(ns, token)
+      ns |> read(token, previous, loaded?) |> Map.put(:runs, runs)
+    end
   end
 
   # Every call one Home read makes, run off the screen's process. Once the
@@ -342,6 +344,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
       runners: read.runner_ids
     })
     |> track_attention(read.attention)
+    |> merge_runs(read.runs)
     |> then(&if(first?, do: inspect_params(&1, &1.assigns.params), else: &1))
   end
 
@@ -646,41 +649,97 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
     end
   end
 
-  # Off the refresh tick and off the mount: the controller reads an overwatch
-  # per live relay to answer it, which is seconds on a busy namespace. Loaded
-  # once the screen is connected, and again when an operator asks for it.
-  defp on_finished_answer(socket) do
-    if connected?(socket),
-      do:
-        FlezhaConsoleWeb.Live.Refresh.on_answer(
-          socket,
-          :finished,
-          :finished_loading?,
-          &finished_answered/2
-        ),
-      else: socket
+  # ---- Recent runs ----
+  #
+  # The namespace's ended runs from the relay history, newest first. The
+  # newest page rides Home's background read; growing the listing past the
+  # rows it holds reads the next older page by the history's cursor.
+
+  @runs_page 20
+  @runs_id "recent-runs"
+
+  defp recent_runs(ns, token, before \\ nil) do
+    filters = %{"namespace" => ns, "event" => "ended"}
+
+    NodeManager.log_read(
+      "relay_history",
+      %{filters: filters, limit: @runs_page, before: before},
+      token
+    )
   end
 
-  defp load_finished(socket) do
-    if connected?(socket) do
+  # A grown listing keeps the older pages it read, under the newest page.
+  defp merge_runs(socket, nil), do: socket
+
+  defp merge_runs(socket, {:ok, %{records: fresh, next: next}}) do
+    if socket.assigns.runs_grown?,
+      do: assign(socket, runs: newest_first(fresh ++ socket.assigns.runs), runs_error: nil),
+      else: assign(socket, runs: fresh, runs_next: next, runs_error: nil)
+  end
+
+  defp merge_runs(socket, {:error, reason}), do: assign(socket, runs_error: reason)
+
+  defp newest_first(records),
+    do: records |> Enum.uniq() |> Enum.sort_by(&(&1["ts_us"] || 0), :desc)
+
+  def section_opened(socket, @runs_id), do: refresh(socket)
+  def section_opened(socket, _key), do: socket
+
+  @doc false
+  def listing_grown(socket, @runs_id), do: read_older_runs(socket)
+  def listing_grown(socket, _id), do: socket
+
+  defp read_older_runs(%{assigns: %{runs_next: next, runs: runs}} = socket)
+       when is_binary(next) do
+    if FlezhaConsoleWeb.Live.Sections.shown(socket.assigns.paging, @runs_id) > length(runs) do
       %{ns: ns, flezha_token: token} = socket.assigns
 
-      FlezhaConsoleWeb.Live.Refresh.start_once(socket, :finished_loading?, :finished, fn ->
-        NodeManager.finished_relays(ns, token)
+      FlezhaConsoleWeb.Live.Refresh.start_once(socket, :runs_loading?, :older_runs, fn ->
+        recent_runs(ns, token, next)
       end)
     else
       socket
     end
   end
 
-  defp finished_answered(socket, {:ok, {:ok, %{rows: finished}}}),
-    do: assign(socket, finished: finished, finished_error: nil)
+  defp read_older_runs(socket), do: socket
 
-  defp finished_answered(socket, {:ok, {:error, reason}}),
-    do: assign(socket, finished: [], finished_error: reason)
+  defp on_older_runs(socket) do
+    if connected?(socket),
+      do:
+        FlezhaConsoleWeb.Live.Refresh.on_answer(
+          socket,
+          :older_runs,
+          :runs_loading?,
+          &older_runs_answered/2
+        ),
+      else: socket
+  end
 
-  defp finished_answered(socket, {:exit, _reason}),
-    do: assign(socket, finished: [], finished_error: :read_failed)
+  # A listing grown twice while a page was read asks for the next at once.
+  defp older_runs_answered(socket, {:ok, {:ok, %{records: older, next: next}}}) do
+    socket
+    |> assign(
+      runs: newest_first(socket.assigns.runs ++ older),
+      runs_next: next,
+      runs_grown?: true,
+      runs_error: nil
+    )
+    |> read_older_runs()
+  end
+
+  defp older_runs_answered(socket, {:ok, {:error, reason}}),
+    do: assign(socket, runs_error: reason)
+
+  defp older_runs_answered(socket, {:exit, _reason}),
+    do: assign(socket, runs_error: :read_failed)
+
+  @doc "How many of the runs a listing shows did not complete."
+  def not_completed(runs, paging) do
+    runs
+    |> Enum.take(FlezhaConsoleWeb.Live.Sections.shown(paging, @runs_id))
+    |> Enum.count(&(&1["outcome"] != "completed"))
+  end
 
   # ---- Section digests: what a folded section holds, in a few words ----
 
@@ -737,12 +796,11 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
     end
   end
 
-  defp finished_digest(_finished, true), do: "reading…"
-  defp finished_digest([], false), do: "none in the retention window"
+  defp runs_digest([], _next), do: "none yet"
 
-  defp finished_digest(finished, false) do
-    latest = finished |> Enum.map(&(&1[:finished_at] || 0)) |> Enum.max()
-    "#{Words.count(length(finished), "relay")}, latest #{Format.unix_time(latest, :second)}"
+  defp runs_digest([latest | _] = runs, next) do
+    count = Words.count(length(runs), "run") <> if(next, do: " or more", else: "")
+    "#{count}, latest #{Format.relative(FlezhaConsoleWeb.LogLines.time(latest), :millisecond)}"
   end
 
   defp runners_digest(runners, marks) do

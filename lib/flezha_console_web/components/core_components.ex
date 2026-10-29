@@ -47,7 +47,7 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   attr :eyebrow, :string, required: true
   attr :title, :string, required: true
   attr :crumbs, :list, default: []
-  attr :tabs, :list, default: [], doc: "`%{label:, path:, current?:, testid:}` per view"
+  attr :tabs, :list, default: [], doc: "`%{label:, path:, current?:, testid:, patch?:}` per view"
   attr :tabs_label, :string, default: "Views"
   attr :headline, :boolean, default: false
   attr :testid, :string, default: "page-header"
@@ -112,9 +112,11 @@ defmodule FlezhaConsoleWeb.CoreComponents do
 
   @doc """
   An object's views, as tabs. Each tab is its own route and navigates, so a
-  view holding a live subscription is not mounted while another is read.
+  view holding a live subscription is not mounted while another is read. A
+  tab with `patch?` patches instead: one screen showing another of its own
+  views, which lets go of what the last one held itself.
   """
-  attr :items, :list, required: true, doc: "`%{label:, path:, current?:, testid:}`"
+  attr :items, :list, required: true, doc: "`%{label:, path:, current?:, testid:, patch?:}`"
   attr :label, :string, default: "Views"
   attr :testid, :string, default: nil
 
@@ -123,7 +125,8 @@ defmodule FlezhaConsoleWeb.CoreComponents do
     <nav class="fcon-tabs" aria-label={@label} data-testid={@testid}>
       <.link
         :for={item <- @items}
-        navigate={item.path}
+        navigate={!item[:patch?] && item.path}
+        patch={item[:patch?] && item.path}
         aria-current={item[:current?] && "page"}
         data-testid={item[:testid]}
         class="fcon-tab"
@@ -869,6 +872,10 @@ defmodule FlezhaConsoleWeb.CoreComponents do
 
   attr :page_size, :integer, default: 20
 
+  attr :older, :string,
+    default: nil,
+    doc: "what growing reads once every held row is shown, while the source holds older ones"
+
   attr :expand, :any,
     default: nil,
     doc: "fn row -> the rows drawn under it; a page counts only the rows it expands"
@@ -976,9 +983,16 @@ defmodule FlezhaConsoleWeb.CoreComponents do
           </tr>
         </tbody>
       </table>
-      <div :if={@foot != [] or (@shown && @total > @shown)} class="fcon-grid-foot">
+      <div :if={@foot != [] or (@shown && (@total > @shown or @older))} class="fcon-grid-foot">
         {render_slot(@foot)}
-        <.more :if={@shown} id={@id} shown={@shown} total={@total} step={@page_size} />
+        <.more
+          :if={@shown}
+          id={@id}
+          shown={@shown}
+          total={@total}
+          step={@page_size}
+          older={@older}
+        />
       </div>
     </div>
     """
@@ -999,6 +1013,7 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   attr :rows, :list, required: true
   attr :paging, :map, required: true, doc: "the screen's `@paging`"
   attr :page_size, :integer, default: 20
+  attr :older, :string, default: nil, doc: "as `grid/1` takes it"
   slot :inner_block, required: true
 
   def paged(assigns) do
@@ -1007,23 +1022,29 @@ defmodule FlezhaConsoleWeb.CoreComponents do
 
     ~H"""
     {render_slot(@inner_block, @page)}
-    <.more id={@id} shown={@shown} total={length(@rows)} step={@page_size} />
+    <.more id={@id} shown={@shown} total={length(@rows)} step={@page_size} older={@older} />
     """
   end
 
   @doc """
   The control that grows a listing by a page, stating how many of how many it
   shows; nothing once every row is shown. `grid/1` and `paged/1` render it.
+
+  A listing whose source pages by cursor holds only the rows read so far, so
+  its total is not known: once every held row is shown, `older` names what
+  growing reads next, and the screen reads it in `listing_grown/2` (see
+  `FlezhaConsoleWeb.Live.Sections`).
   """
   attr :id, :string, required: true, doc: "the listing's id, the key its count is kept under"
   attr :shown, :integer, required: true
   attr :total, :integer, required: true
   attr :step, :integer, default: 20
+  attr :older, :string, default: nil
 
   def more(assigns) do
     ~H"""
     <button
-      :if={@total > @shown}
+      :if={@total > @shown or @older}
       type="button"
       class="fcon-more"
       phx-click="grid_more"
@@ -1032,7 +1053,11 @@ defmodule FlezhaConsoleWeb.CoreComponents do
       phx-value-step={@step}
       data-testid={"#{@id}-more"}
     >
-      Show {min(@step, @total - @shown)} more · {@shown} of {@total}
+      <%= if @total > @shown do %>
+        Show {min(@step, @total - @shown)} more · {@shown} of {@total}
+      <% else %>
+        {@older} · {@total} shown
+      <% end %>
     </button>
     """
   end

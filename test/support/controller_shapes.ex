@@ -26,7 +26,6 @@ defmodule FlezhaConsole.ControllerShapes do
       {"Relay.list_namespaces", Flezha.Service.Relay, :list_namespaces, []},
       {"Relay.list", Flezha.Service.Relay, :list, ["default"]},
       {"Relay.relay_rows", Flezha.Service.Relay, :relay_rows, ["default"]},
-      {"Relay.info", Flezha.Service.Relay, :info, ["default"]},
       {"Relay.registry", Flezha.Service.Relay, :registry, ["default"]},
       {"Relay.overwatch_state", Flezha.Service.Relay, :overwatch_state,
        ["default", "testnet_store_1"]},
@@ -62,7 +61,11 @@ defmodule FlezhaConsole.ControllerShapes do
       {"Controller.durability_breaches", Flezha.Service.Controller, :durability_breaches, []},
       {"Controller.durability_status", Flezha.Service.Controller, :durability_status, []},
       {"Controller.mem_top", Flezha.Service.Controller, :mem_top, []},
-      {"Controller.liveness_counters", Flezha.Service.Controller, :liveness_counters, []}
+      {"Controller.liveness_counters", Flezha.Service.Controller, :liveness_counters, []},
+      {"Logs.kinds", Flezha.Service.Logs, :kinds, []},
+      {"Logs.read", Flezha.Service.Logs, :read, [[kind: "relay_history", limit: 20]]},
+      {"Logs.files", Flezha.Service.Logs, :files, [[kind: "relay_history"]]},
+      {"Logs.stats", Flezha.Service.Logs, :stats, [[kind: "relay_history"]]}
     ]
   end
 

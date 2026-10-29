@@ -2,7 +2,7 @@ defmodule FlezhaConsole.Service.EventFeed do
   @moduledoc """
   Holds one published stream operation open and forwards what it hears.
 
-  A stream operation — `Observability.tail/2`, `AuditLog.tail/2`,
+  A stream operation — `Observability.tail/2`, `Logs.tail/2`,
   `Relay.listen/5` — runs in the `:erpc` worker on the controller and hands
   each event to the caller context's `:emit`. The feed passes its own pid as
   `:emit`, so every event arrives here as `{:flezha_emit, event}` and only data

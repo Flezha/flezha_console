@@ -39,7 +39,8 @@ test.describe('The console shell', () => {
 
     for (const href of hrefs) {
       await rail.locator(`a.flz-sidebar-link[href="${href}"]`).click();
-      await expect(page).toHaveURL((url) => url.pathname === href);
+      // An entry may open a screen below it: Logs opens its first kind.
+      await expect(page).toHaveURL((url) => url.pathname === href || url.pathname.startsWith(`${href}/`));
       await expect(page.locator('[data-phx-main]')).not.toHaveClass(/phx-loading/);
       await expect(rail.locator(`a.flz-sidebar-link[href="${href}"]`)).toHaveAttribute('aria-current', 'page');
       await expect(page.locator('h1').first()).not.toBeEmpty();
@@ -192,7 +193,7 @@ test.describe('The command palette', () => {
     page,
     live,
   }) => {
-    await live('/audit');
+    await live('/logs/audit');
 
     await openPalette(page);
     await page.getByTestId('command-palette-search').getByTestId('command-palette-input').fill('dead');
@@ -202,7 +203,7 @@ test.describe('The command palette', () => {
     await openPalette(page);
     await page.mouse.click(5, 5);
     await expect(page.getByTestId('command-palette')).toHaveCount(0);
-    await expect(page).toHaveURL(/\/audit$/);
+    await expect(page).toHaveURL(/\/logs\/audit$/);
 
     await openPalette(page);
     await page.getByTestId('command-palette-input').fill('nothing-is-called-this');

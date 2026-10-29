@@ -1,12 +1,13 @@
 defmodule FlezhaConsoleWeb.RelayStepsTest do
   @moduledoc """
-  A steps relay: its panel, its task journal and input log, finished relays,
-  and the two guarded actions.
+  A steps relay: its panel, its task journal and input log, and the two
+  guarded actions.
 
   All of it lives here rather than in the browser because the states that
   matter — a relay that failed to initialise, a journal with a dead-lettered
-  entry, a finished relay — are ones a live stack cannot be asked to produce on
-  demand.
+  entry — are ones a live stack cannot be asked to produce on demand. A
+  finished relay's screen is `RelayLiveTest`'s, its run listed on Home is
+  `NamespaceLiveTest`'s.
   """
 
   use FlezhaConsoleWeb.LiveCase
@@ -372,132 +373,6 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
       assert html =~ ~s(data-testid="inbox-error")
       assert html =~ "state.inbox_unreadable"
       assert html =~ ~s(data-testid="steps-panel")
-    end
-  end
-
-  describe "finished relays" do
-    test "the controller's finished relays are listed, separated from live ones", %{
-      conn: conn,
-      node: node
-    } do
-      FakeController.set(
-        node,
-        {Relay, :info},
-        {:ok,
-         %{
-           namespace: "default",
-           groups: [],
-           relays: [
-             %{id: "relay_live", phase: "running"},
-             %{
-               id: "relay_done",
-               phase: "finished",
-               run: :steps,
-               status: "ok",
-               finished_at: System.system_time(:second) - 60
-             }
-           ]
-         }}
-      )
-
-      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
-
-      html = open_section(view, "finished-relays")
-
-      assert html =~ ~s(data-testid="finished-relays")
-      assert html =~ ~s(data-testid="finished-row-relay_done")
-      assert html =~ "Completed"
-      refute html =~ ~s(data-testid="finished-row-relay_live")
-    end
-
-    test "a finished row states its run, its error, when it finished and until when it is kept",
-         %{conn: conn, node: node} do
-      now = System.system_time(:second)
-
-      FakeController.set(
-        node,
-        {Relay, :info},
-        {:ok,
-         %{
-           namespace: "default",
-           groups: [],
-           relays: [
-             %{
-               id: "relay_failed",
-               phase: "finished",
-               run: :steps,
-               status: "error",
-               error: "tasklet crashed: :badarg",
-               finished_at: now - 90,
-               expires_at: now + 6 * 86_400
-             },
-             %{
-               id: "relay_kept",
-               phase: "finished",
-               run: :steps,
-               status: "ok",
-               finished_at: now
-             }
-           ]
-         }}
-      )
-
-      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
-      html = open_section(view, "finished-relays")
-
-      failed = text_of(html, ~s([data-testid="finished-row-relay_failed"]))
-      assert failed =~ "steps"
-      assert text_of(html, ~s([data-testid="finished-error-relay_failed"])) =~ "tasklet crashed"
-      # `now` is whole seconds and the render comes a moment later.
-      assert text_of(html, ~s([data-testid="finished-at-relay_failed"])) =~ ~r/1m 3[01]s ago/
-      assert text_of(html, ~s([data-testid="finished-kept-relay_failed"])) =~ ~r/in (5|6)d/
-
-      # A row without a keep time shows a dash rather than a guess.
-      assert text_of(html, ~s([data-testid="finished-kept-relay_kept"])) == "—"
-      refute html =~ ~s(data-testid="finished-error-relay_kept")
-    end
-
-    test "the listing is read on open and on request, never on a tick", %{
-      conn: conn,
-      node: node
-    } do
-      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
-      before = length(FakeController.calls(node, {Relay, :info}))
-
-      send(view.pid, :refresh)
-      render_async(view)
-      assert length(FakeController.calls(node, {Relay, :info})) == before
-
-      view |> element(~s([data-testid="reload-finished"])) |> render_click()
-      render_async(view)
-      assert length(FakeController.calls(node, {Relay, :info})) == before + 1
-    end
-
-    test "a finished relay's completion record is shown on its own screen", %{
-      conn: conn,
-      node: node
-    } do
-      FakeController.set(node, {Relay, :overwatch_state}, FakeController.error("relay.not_found"))
-
-      FakeController.set(
-        node,
-        {Steps, :completion},
-        {:ok,
-         %{
-           namespace: "default",
-           status: "error",
-           error: "boom",
-           finished_at: System.system_time(:second) - 30
-         }}
-      )
-
-      {:ok, _view, html} = live(conn, @live)
-
-      assert html =~ ~s(data-testid="completion-record")
-      assert html =~ "Failed"
-      assert html =~ "boom"
-      assert text_of(html, ~s([data-testid="completion-finished"])) =~ ~r/\b3\d s ago/
-      refute html =~ ~s(data-testid="runtime-error")
     end
   end
 

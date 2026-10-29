@@ -10,6 +10,7 @@ defmodule FlezhaConsoleWeb.RoleGatingTest do
 
   use FlezhaConsoleWeb.LiveCase
 
+  alias Flezha.Service.Logs
   alias Flezha.Service.Namespace
   alias Flezha.Service.PluginManager
   alias Flezha.Service.Relay
@@ -37,6 +38,13 @@ defmodule FlezhaConsoleWeb.RoleGatingTest do
 
   setup %{node: node, user: user} do
     enforce_operations(node, user, @identity)
+
+    # One controller of a fixed name, so its Rotate control has a known testid.
+    FakeController.set(
+      node,
+      {Logs, :stats},
+      {:ok, %{controllers: [FakeController.log_stats_row(:"flezha@node-a")], unreachable: []}}
+    )
 
     FakeController.set(
       node,
@@ -141,9 +149,9 @@ defmodule FlezhaConsoleWeb.RoleGatingTest do
     open_section(namespace, "access")
     {:ok, plugins, _html} = live(conn, ~p"/plugins")
     {:ok, schedules, _html} = live(conn, ~p"/schedules")
-    {:ok, audit, _html} = live(conn, ~p"/audit")
+    {logs, _html} = live_loaded(conn, ~p"/logs/audit")
 
-    Enum.map_join([relay, state, namespace, plugins, schedules, audit], &render/1)
+    Enum.map_join([relay, state, namespace, plugins, schedules, logs], &render/1)
   end
 
   # The testid of each control, with the role that may use it.
@@ -166,7 +174,7 @@ defmodule FlezhaConsoleWeb.RoleGatingTest do
     "schedule-run-nightly" => :ops,
     "schedule-remove-nightly" => :ops,
     "schedule-new-btn" => :ops,
-    "audit-rotate-btn" => :ops
+    "logs-rotate-flezha@node-a" => :ops
   }
 
   defp rendered?(html, testid), do: html =~ ~s(data-testid="#{testid}")

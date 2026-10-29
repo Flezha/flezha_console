@@ -28,7 +28,12 @@ defmodule FlezhaConsole.ControllerShapesTest do
      {:provider_entry, ["relay_websocket", "Flezha.Plugin.Provider.Websocket", true]}},
     {"Fleet.provider", [1, "options", :each], {:option_row, ["url"]}},
     {"Relay.registry", [1, :each], {:registry_entry, [:flow]}},
-    {"Fleet.runners", [1, :each], {:runner_row, ["runner-a"]}}
+    {"Fleet.runners", [1, :each], {:runner_row, ["runner-a"]}},
+    {"Logs.kinds", [1, :each], {:log_kind, ["relay_history"]}},
+    {"Logs.read", [1, "records", :each], {:history_record, ["relay_a"]}},
+    {"Logs.stats", [1, "controllers", :each], {:log_stats_row, [:"flezha@node-a"]}},
+    {"Logs.files", [1, "files", :each],
+     {:log_file_row, [:"flezha@node-a", "relay_history-20261029T130738Z-1.jsonl"]}}
   ]
 
   setup_all do

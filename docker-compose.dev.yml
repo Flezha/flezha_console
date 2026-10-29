@@ -57,9 +57,6 @@ services:
       # posture refuses to boot under prod config and the difference is worth
       # being able to see here.
       FLEZHA_DURABILITY_BACKEND: ${FLEZHA_DURABILITY_BACKEND:-none}
-      # A finished relay keeps its state and completion record, which the
-      # namespace's Finished relays section and a finished relay's page read.
-      FLEZHA_KEEP_FINISHED_BY_DEFAULT: ${FLEZHA_KEEP_FINISHED_BY_DEFAULT:-true}
       <<: *dev-cookie
     depends_on:
       kafka:

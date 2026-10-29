@@ -80,13 +80,18 @@ The relay state screen SHALL list the cells with persisted state belonging to th
 
 ### Requirement: Retention facts
 
-The state screen SHALL show the retention facts that apply to the relay's class, each labelled for what it keeps: how long the cells' write-ahead history is retained, from the `history_retention_hours` that `Flezha.Service.Steps.cells/2` answers, and, for a steps relay, how long a finished instance is retained, from `Flezha.Service.Steps.completed_retention_hours/3`. An operator SHALL be able to set the history retention through `Flezha.Service.Steps.set_retention/3`; the form SHALL state that the value lasts until the controller next boots unless its runtime configuration says the same.
+The state screen SHALL show the retention facts that apply to the relay's class, each labelled for what it keeps: how long the cells' write-ahead history is retained, from the `history_retention_hours` that `Flezha.Service.Steps.cells/2` answers, and whether this relay's factory keeps the state of a finished run, and for how long, as the controller answers it for the relay's class. A factory that does not keep finished state SHALL be stated as not keeping it, and as able to by declaring `keep_finished`. An operator SHALL be able to set the history retention through `Flezha.Service.Steps.set_retention/3`; the form SHALL state that the value lasts until the controller next boots unless its runtime configuration says the same.
 
 #### Scenario: Retention is shown
 
 - **WHEN** an operator opens the state screen
 - **THEN** the history retention that applies to the class is stated in hours
-- **AND** for a steps relay the finished-instance retention is stated beside it under its own label
+- **AND** whether finished state is kept is stated beside it under its own label
+
+#### Scenario: A factory that does not keep finished state
+
+- **WHEN** the controller answers that the relay's class keeps no finished state
+- **THEN** the screen states that a finished run's state is not kept and that a factory keeps it by declaring `keep_finished`
 
 #### Scenario: Retention cannot be read
 
@@ -166,4 +171,14 @@ Each column of the cell listing (WAL seq, Snapshot seq, Flush p99, Fsync lag, De
 
 - **WHEN** an operator opens the explanation beside Rotate
 - **THEN** it says that rotate asks the runner for a fresh snapshot and compacts the cell's write-ahead log behind it, and that the cell's state is kept
+
+### Requirement: A finished relay whose state was not kept says so
+
+When the State tab is opened for a relay that has ended and whose state the controller did not keep, the tab SHALL say that this run's state was not kept, link to the run's `ended` record in the relay history, and SHALL NOT render its Cell, journal, input log, outbox or time-travel sections as empty.
+
+#### Scenario: Opening the state of a run that was not kept
+
+- **WHEN** an operator opens the State tab of a relay that ended and whose state was not kept
+- **THEN** the tab says its state was not kept and links to its `ended` record
+- **AND** no empty Cell, journal or input log section is shown
 

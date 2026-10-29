@@ -40,6 +40,7 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
         load_error: nil,
         history: %{},
         retention_hours: nil,
+        state_kept: :unread,
         selected: nil,
         travel_form: %{"kind" => "seq", "value" => ""},
         travel_result: nil,
@@ -84,7 +85,7 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
   # Read until it answers: one refused read must not hide the steps sections
   # for as long as the screen is open.
   defp read_relay(%{assigns: %{facts: nil}} = socket),
-    do: socket |> assign_relay() |> load_retention()
+    do: socket |> assign_relay() |> load_retention() |> load_kept()
 
   defp read_relay(socket), do: socket
 
@@ -116,6 +117,20 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
   end
 
   defp load_retention(socket), do: assign(socket, retention_hours: nil)
+
+  # A relay with no overwatch has ended or is not there. The controller says
+  # whether a run ended and whether its state was kept; asked once.
+  defp load_kept(%{assigns: %{facts: nil, state_kept: :unread}} = socket) do
+    case NodeManager.kept_until(socket.assigns.relay_id, socket.assigns.flezha_token) do
+      {:ok, until} -> assign(socket, state_kept: until != nil)
+      _unknown -> assign(socket, state_kept: nil)
+    end
+  end
+
+  defp load_kept(socket), do: socket
+
+  @doc "Whether the relay ended and the controller kept none of its state to show."
+  def state_gone?(state_kept), do: state_kept == false
 
   # A row could move underneath an open confirmation.
   @impl FlezhaConsoleWeb.Live.Refresh
@@ -310,11 +325,15 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
 
   @impl FlezhaConsoleWeb.Live.Refresh
   def refresh(socket) do
-    socket
-    |> read_relay()
-    |> load_cells()
-    |> load_durability()
-    |> then(&if(&1.assigns.auto_refresh_state, do: fetch_state(&1), else: &1))
+    socket = read_relay(socket)
+
+    if state_gone?(socket.assigns.state_kept),
+      do: socket,
+      else:
+        socket
+        |> load_cells()
+        |> load_durability()
+        |> then(&if(&1.assigns.auto_refresh_state, do: fetch_state(&1), else: &1))
   end
 
   # The retained records, read when the input log section opens, never on the

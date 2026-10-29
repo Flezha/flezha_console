@@ -1045,7 +1045,10 @@ button.fcon-menu-item--danger:hover {
   display: grid;
   font-size: var(--fcon-text-sm);
   gap: var(--fcon-space-1) var(--fcon-space-4);
-  grid-template-columns: 15rem 9rem minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  /* A time column, then as many as the log kind declares, which each row
+     sets inline. */
+  --fcon-record-cols: 2;
+  grid-template-columns: 11rem repeat(var(--fcon-record-cols), minmax(0, 1fr));
   min-height: var(--fcon-control-h);
   padding: var(--fcon-space-2) var(--fcon-space-3);
   text-align: left;

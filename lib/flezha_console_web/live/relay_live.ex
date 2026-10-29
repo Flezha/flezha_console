@@ -4,6 +4,11 @@ defmodule FlezhaConsoleWeb.RelayLive do
   graph and payload tap, and on request its diagnosis, the calls made to it,
   its API and its plugin bindings. What it has kept — its cells, task journal,
   input log and steps facts — is on its State view.
+
+  Its recent activity is the relay history's records of it: read when the
+  screen opens, then kept live by a tail narrowed to this relay, held only
+  while the screen is visible. A relay that has ended is shown from its last
+  `ended` record.
   """
 
   use FlezhaConsoleWeb, :live_view
@@ -17,6 +22,7 @@ defmodule FlezhaConsoleWeb.RelayLive do
 
   use FlezhaConsoleWeb.Topology
   use FlezhaConsoleWeb.Live.PluginForm
+  use FlezhaConsoleWeb.Live.Tail, tag: :history_tail, max: 5
 
   alias FlezhaConsoleWeb.RelayState
 
@@ -35,6 +41,7 @@ defmodule FlezhaConsoleWeb.RelayLive do
   alias FlezhaConsole.Service.EventFeed
   alias FlezhaConsole.Service.NodeManager
   alias FlezhaConsoleWeb.Live.TypedFields
+  alias FlezhaConsoleWeb.LogLines
   alias FlezhaConsoleWeb.Topology
 
   @impl true
@@ -45,6 +52,7 @@ defmodule FlezhaConsoleWeb.RelayLive do
       |> Topology.init()
       |> sections_init()
       |> plugin_form_init()
+      |> init_tail()
       |> assign(
         ns: ns,
         relay_id: id,
@@ -53,7 +61,9 @@ defmodule FlezhaConsoleWeb.RelayLive do
         confirm_stop: false,
         confirm_unbind: nil,
         idle_bindings: [],
-        completion: nil,
+        finished: nil,
+        history_read?: false,
+        history_released?: false,
         tap: nil,
         diagnosis: nil,
         diagnosis_error: nil,
@@ -67,9 +77,10 @@ defmodule FlezhaConsoleWeb.RelayLive do
       )
       |> assign_feeding()
       |> load_data()
-      |> load_completion()
+      |> load_finished()
       |> load_api()
       |> Topology.load_pipeline()
+      |> open_history()
 
     {:ok, socket}
   end
@@ -89,19 +100,66 @@ defmodule FlezhaConsoleWeb.RelayLive do
     socket
     |> load_data()
     |> Topology.load_pipeline()
+    |> reopen_history()
   end
 
-  # A hidden page reads nothing, so it holds no tally either; the next
-  # visible tick opens one again.
+  # A hidden page reads nothing, so it holds no tally and no history tail
+  # either; the next visible tick opens them again.
   @impl FlezhaConsoleWeb.Live.Refresh
-  def refresh_hidden(socket), do: Topology.stop_tally(socket)
+  def refresh_hidden(socket) do
+    socket
+    |> Topology.stop_tally()
+    |> stop_tail()
+    |> assign(history_released?: true)
+  end
+
+  @doc "A forwarded relay history record is shown as the controller decoded it."
+  @impl FlezhaConsoleWeb.Live.Tail
+  def unwrap_tail(record), do: record
+
+  # ---- Recent activity ----
+  #
+  # The relay's latest history records, read once, then kept live by the
+  # history's tail, which the controller narrows to this relay: no tick reads
+  # the log. The dead render has no process to hold a tail.
+
+  @history_shown 5
+
+  defp open_history(socket) do
+    if connected?(socket), do: read_history(socket), else: socket
+  end
+
+  defp reopen_history(%{assigns: %{history_released?: true}} = socket),
+    do: socket |> assign(history_released?: false) |> read_history()
+
+  defp reopen_history(socket), do: socket
+
+  defp read_history(socket) do
+    %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
+    filters = %{"namespace" => ns, "relay" => id}
+
+    read =
+      NodeManager.log_read("relay_history", %{filters: filters, limit: @history_shown}, token)
+
+    case read do
+      {:ok, %{records: records}} ->
+        socket
+        |> start_tail(&NodeManager.log_tail("relay_history", filters, token, &1), true,
+          seed: records
+        )
+        |> assign(history_read?: true)
+
+      {:error, reason} ->
+        socket |> stop_tail() |> assign(history_read?: true, tail_error: reason)
+    end
+  end
 
   # `?do=` lands an action from the command palette on the screen that owns
   # it: a stop opens this screen's own confirmation, and a diagnosis is asked
   # for once and shown open.
   @impl true
   def handle_params(%{"do" => "stop"}, _uri, socket) do
-    if is_nil(socket.assigns.completion) and
+    if is_nil(socket.assigns.finished) and
          NodeManager.granted?(socket.assigns.operations, "Relay.stop"),
        do: {:noreply, socket |> assign(confirm_stop: true) |> done_with_action()},
        else: {:noreply, done_with_action(socket)}
@@ -114,7 +172,7 @@ defmodule FlezhaConsoleWeb.RelayLive do
   end
 
   def handle_params(%{"do" => "talk"}, _uri, socket) do
-    if is_nil(socket.assigns.completion) and
+    if is_nil(socket.assigns.finished) and
          NodeManager.granted?(socket.assigns.operations, "Relay.send"),
        do: {:noreply, socket |> open_talk() |> done_with_action()},
        else: {:noreply, done_with_action(socket)}
@@ -722,17 +780,24 @@ defmodule FlezhaConsoleWeb.RelayLive do
     running ++ idle
   end
 
-  # A relay that has finished is not in the registry at all, so "no row and
-  # no overwatch" is the signal to read its completion record rather than to
-  # report the relay missing. Read on open, never on a tick.
-  defp load_completion(%{assigns: %{row: nil}} = socket) do
-    case NodeManager.completion(socket.assigns.relay_id, socket.assigns.flezha_token) do
-      {:ok, record} when is_map(record) -> assign(socket, completion: record, load_error: nil)
-      _none -> assign(socket, completion: nil)
+  # A relay that has ended is in neither the registry nor an overwatch, so
+  # that is the signal to read its last run from the relay history rather
+  # than to report it missing. Whether its state was kept is the controller's
+  # to say. Read on open, never on a tick.
+  defp load_finished(%{assigns: %{row: nil, load_error: error}} = socket) when error != nil do
+    %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
+
+    case NodeManager.last_run(ns, id, token) do
+      {:ok, %{} = record} ->
+        kept_until = NodeManager.ok_or(NodeManager.kept_until(id, token), nil)
+        assign(socket, finished: %{record: record, kept_until: kept_until})
+
+      _none ->
+        assign(socket, finished: nil)
     end
   end
 
-  defp load_completion(socket), do: assign(socket, completion: nil)
+  defp load_finished(socket), do: assign(socket, finished: nil)
 
   # Spread for the panels that read one field each, and kept whole for the
   # pipeline graph, so a tick fetches the overwatch state once rather than

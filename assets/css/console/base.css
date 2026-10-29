@@ -77,6 +77,7 @@ td {
     [type="search"],
     [type="tel"],
     [type="url"],
+    [type="datetime-local"],
     input:not([type]),
     select,
     textarea

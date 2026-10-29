@@ -615,7 +615,8 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         route: "/controller",
         read: {Controller, :status},
         kept: ["shutdown-unavailable", "boot-panel"]
-      }
+      },
+      %{screen: "logs", route: "/logs/audit", read: {Logs, :read}, kept: ["logs-files-panel"]}
     ]
 
     for row <- @reads do
@@ -634,7 +635,9 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
           FakeController.error("authz.role_insufficient", message)
         )
 
-        {:ok, view, html} = live(conn, row.route)
+        # A screen reading in the background states the refusal once it lands.
+        {:ok, view, _html} = live(conn, row.route)
+        html = render_async(view)
 
         stated = text_of(html, ~s([data-testid="runtime-error"]))
         assert stated =~ "authz.role_insufficient"
@@ -668,12 +671,12 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         says: "Nothing runs in default yet"
       },
       %{
-        screen: "namespace home's finished relays",
+        screen: "namespace home's recent runs",
         route: "/namespaces/default",
         arrange: :fleet,
-        before: ["section-toggle-finished-relays"],
-        in: ~s([data-testid="section-body-finished-relays"]),
-        says: "None has finished"
+        before: ["section-toggle-recent-runs"],
+        in: ~s([data-testid="section-body-recent-runs"]),
+        says: "Runs appear here when a relay of this namespace finishes."
       },
       %{
         screen: "cluster",
@@ -711,6 +714,12 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         route: "/namespaces/default/relays/relay_a/state",
         in: ~s([data-testid="state-empty"]),
         says: "This relay has none persisted yet."
+      },
+      %{
+        screen: "logs",
+        route: "/logs/audit",
+        in: ~s([data-testid="logs-records-empty"]),
+        says: "No record matches this filter."
       }
     ]
 
@@ -740,11 +749,11 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
   describe "closing a tail" do
     @tails [
       %{
-        screen: "audit log",
-        route: "/audit",
+        screen: "logs",
+        route: "/logs/audit",
         tail: {Logs, :tail},
-        start: "audit-tail-toggle",
-        stop: "audit-tail-toggle"
+        start: "logs-tail-toggle",
+        stop: "logs-tail-toggle"
       },
       %{
         screen: "observability",
@@ -764,7 +773,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
     end
 
     defp tailing(conn, node, row) do
-      {:ok, view, _html} = live(conn, row.route)
+      {view, _html} = live_loaded(conn, row.route)
       click(view, row.start)
       assert PeerNode.eventually(fn -> FakeController.streams(node, row.tail) != [] end)
       view

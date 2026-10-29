@@ -155,6 +155,26 @@ defmodule FlezhaConsoleWeb.Words do
       flow: {"flow", :neutral},
       steps: {"steps", :neutral}
     },
+    # How a relay run ended, as the relay history records it.
+    run_outcome: %{
+      completed: {"completed", :positive},
+      undone: {"undone", :warning},
+      failed: {"failed", :negative},
+      cancelled: {"cancelled", :neutral},
+      timed_out: {"ran out of time", :warning},
+      stopped: {"stopped", :neutral},
+      rescaled_away: {"removed by a rescale", :neutral}
+    },
+    # What started a relay run: the words that lead the one who started it.
+    run_origin: %{
+      operator: {"started by", :neutral},
+      schedule: {"started by schedule", :neutral},
+      spawn: {"spawned by", :neutral},
+      call: {"started by a call from", :neutral},
+      group: {"started with its partition group", :neutral},
+      rescale: {"started by a rescale", :neutral},
+      reconcile: {"started again by the controller", :neutral}
+    },
     completion: %{
       ok: {"Completed", :positive},
       error: {"Failed", :negative},
@@ -334,6 +354,16 @@ defmodule FlezhaConsoleWeb.Words do
     do: String.downcase(<<first::utf8>>) <> String.slice(label, 1..-1//1)
 
   def in_sentence(label), do: label
+
+  @doc """
+  Words as they open a sentence: their first letter raised, the rest as
+  written, so a name inside them keeps its case.
+
+      iex> FlezhaConsoleWeb.Words.sentence_start("started by FLEZHA_X")
+      "Started by FLEZHA_X"
+  """
+  def sentence_start(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest
+  def sentence_start(text), do: text
 
   @doc "Items joined as a sentence: \"a\", \"a and b\", \"a, b and c\"."
   def join([]), do: ""

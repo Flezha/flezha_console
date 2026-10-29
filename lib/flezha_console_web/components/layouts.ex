@@ -94,7 +94,7 @@ defmodule FlezhaConsoleWeb.Layouts do
         scope: nil,
         entries: [
           entry(~p"/observability", "hero-signal", "Observability"),
-          entry(~p"/audit", "hero-document-text", "Audit log")
+          entry(~p"/logs", "hero-document-text", "Logs")
         ]
       }
     ]
@@ -150,7 +150,7 @@ defmodule FlezhaConsoleWeb.Layouts do
   end
 
   @screens Map.new(
-             ~w(relays plugins schedules problems dlq namespaces cluster controller observability audit)a,
+             ~w(relays plugins schedules problems dlq namespaces cluster controller observability logs)a,
              &{Atom.to_string(&1), &1}
            )
 
@@ -166,6 +166,7 @@ defmodule FlezhaConsoleWeb.Layouts do
       ["namespaces", _ns, "relays", _id, "state"] -> :relay_state
       ["namespaces", _ns, kind] when is_map_key(@screens, kind) -> @screens[kind]
       [kind] when is_map_key(@screens, kind) -> @screens[kind]
+      ["logs", _kind] -> :logs
       ["users", "settings" | _] -> :settings
       ["dev", "kit"] -> :kit
       _other -> nil

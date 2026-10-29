@@ -206,13 +206,15 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
       {:ok, _view, html} = live(conn, @url)
 
       assert html =~ ~r/data-testid="history-retention"[^>]*>\s*12 hours/
-      assert html =~ ~r/data-testid="finished-retention"[^>]*>\s*48 hours/
+
+      assert text_of(html, ~s([data-testid="finished-retention"])) ==
+               "Kept for 48 hours after a run ends"
 
       assert [["relay_a", %{source: :ui}] | _] =
                FakeController.calls(node, {Steps, :completed_retention_hours})
     end
 
-    test "a finished relay, with no overwatch, states its finished-instance retention", %{
+    test "a finished relay, with no overwatch, states how long finished state is kept", %{
       conn: conn,
       node: node
     } do
@@ -222,7 +224,23 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert html =~ ~r/data-testid="finished-retention"[^>]*>\s*72 hours/
+      assert text_of(html, ~s([data-testid="finished-retention"])) ==
+               "Kept for 72 hours after a run ends"
+    end
+
+    test "a factory that keeps no finished state is said so, with how it would", %{
+      conn: conn,
+      node: node
+    } do
+      run(node, :steps)
+      cells(node, [cell("orders", "k1")], history_retention_hours: 12)
+      FakeController.set(node, {Steps, :completed_retention_hours}, {:ok, 0})
+
+      {:ok, _view, html} = live(conn, @url)
+
+      retention = text_of(html, ~s([data-testid="finished-retention"]))
+      assert retention =~ "Not kept"
+      assert retention =~ "keep_finished"
     end
 
     test "a flow relay states the history retention alone", %{conn: conn, node: node} do
@@ -537,6 +555,55 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
       select_and_travel(view, "time", "yesterday")
 
       assert FakeController.calls(node, {Steps, :time_travel}) == []
+    end
+  end
+
+  describe "a run whose state was not kept" do
+    setup %{node: node} do
+      FakeController.set(node, {Relay, :overwatch_state}, FakeController.error("relay.not_found"))
+      cells(node, [], history_retention_hours: 12)
+      :ok
+    end
+
+    test "says so and links to how it ended, with no empty sections", %{conn: conn, node: node} do
+      FakeController.set(
+        node,
+        {Steps, :completion},
+        {:ok, %{status: "error", finished_at: 1_700_000_000, state_kept: false}}
+      )
+
+      {:ok, _view, html} = live(conn, @url)
+
+      notice = text_of(html, ~s([data-testid="state-not-kept"]))
+      assert notice =~ "state was not kept"
+      assert notice =~ "keep_finished"
+
+      assert html =~
+               ~s(href="/logs/relay_history?namespace=default&amp;relay=relay_a&amp;event=ended")
+
+      for section <- ~w(cells-panel sdk-state-panel state-empty task-journal-panel) do
+        refute html =~ ~s(data-testid="#{section}"), section
+      end
+
+      # Retention is a fact of the class, still stated.
+      assert html =~ ~s(data-testid="state-retention")
+      assert FakeController.calls(node, {Steps, :cells}) == []
+      completions = FakeController.calls(node, {Steps, :completion})
+      assert completions != []
+      assert Enum.all?(completions, &match?(["relay_a", %{source: :ui}], &1))
+    end
+
+    test "a run whose state is kept lists its cells as before", %{conn: conn, node: node} do
+      FakeController.set(
+        node,
+        {Steps, :completion},
+        {:ok, %{status: "ok", finished_at: 1_700_000_000, state_kept: true, expires_at: 1}}
+      )
+
+      {:ok, _view, html} = live(conn, @url)
+
+      refute html =~ ~s(data-testid="state-not-kept")
+      assert html =~ ~s(data-testid="cells-panel")
     end
   end
 end

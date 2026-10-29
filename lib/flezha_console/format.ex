@@ -92,8 +92,16 @@ defmodule FlezhaConsole.Format do
   end
 
   defp span(ms, _say) when ms < 1_000, do: "now"
-  defp span(ms, say) when ms < 60_000, do: say.("#{div(ms, 1_000)} s")
-  defp span(ms, say), do: say.(duration(ms))
+  defp span(ms, say), do: say.(took(ms))
+
+  @doc """
+  How long something took: "41 s" under a minute, then `duration/1`.
+
+      iex> FlezhaConsole.Format.took(41_000)
+      "41 s"
+  """
+  def took(ms) when is_integer(ms) and ms >= 1_000 and ms < 60_000, do: "#{div(ms, 1_000)} s"
+  def took(ms), do: duration(ms)
 
   @doc """
   A duration in seconds, to its largest unit alone.

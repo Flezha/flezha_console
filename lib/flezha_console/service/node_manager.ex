@@ -1249,31 +1249,6 @@ defmodule FlezhaConsole.Service.NodeManager do
   end
 
   @doc """
-  Every relay of a namespace as `Relay.info/2` reports it, live and finished,
-  on every controller, with the controllers that did not answer in
-  `unreachable`. Costs an overwatch read per live relay, so it is read on
-  open, never on a refresh tick.
-  """
-  def relay_info(namespace, token) do
-    authorized_call(token, Flezha.Service.Relay, :info, [namespace])
-  end
-
-  @doc """
-  The steps relays that have finished but are still retained, as the
-  controllers select them, as rows `%{id:, run:, status:, error:,
-  finished_at:}`.
-  """
-  def finished_relays(namespace, token) do
-    with {:ok, %{relays: relays} = info} <- relay_info(namespace, token) do
-      {:ok,
-       %{
-         rows: Enum.filter(relays, &(Map.get(&1, :phase) == "finished")),
-         unreachable: Map.get(info, :unreachable, [])
-       }}
-    end
-  end
-
-  @doc """
   The facts a screen wants out of a relay's overwatch state.
 
   The controller answers a struct this node cannot pattern-match, and each
@@ -1446,11 +1421,17 @@ defmodule FlezhaConsole.Service.NodeManager do
     authorized_call(token, Flezha.Service.Steps, :completed_retention_hours, [relay_class])
   end
 
-  @doc "A finished steps relay's completion record, or `{:error, :not_found}` for none."
-  def completion(relay_id, token) do
+  @doc """
+  Until when the controller keeps a finished relay's state, as `{:ok,
+  unix_seconds}`; `{:ok, nil}` when the run ended and its state was not
+  kept; `{:error, :not_found}` when no end of it is recorded.
+  """
+  def kept_until(relay_id, token) do
     case authorized_call(token, Flezha.Service.Steps, :completion, [relay_id]) do
-      {:ok, :error} -> {:error, :not_found}
-      answer -> answer
+      {:ok, %{state_kept: true, expires_at: at}} when is_integer(at) -> {:ok, at}
+      {:ok, %{state_kept: false}} -> {:ok, nil}
+      {:ok, _none} -> {:error, :not_found}
+      error -> error
     end
   end
 
@@ -1845,61 +1826,79 @@ defmodule FlezhaConsole.Service.NodeManager do
     authorized_call(token, Flezha.Service.Schedule, :run, [name])
   end
 
-  # ---- Audit log ----
+  # ---- Logs ----
   #
-  # The audit kind of the controller's logs service. A file lives on one
-  # controller, so the catalog, its statistics and rotation are this console's
-  # controller's, and a file is read there; a read without one covers every
-  # controller, newest first.
-
-  @audit [kind: "audit"]
+  # Every durable log the controller keeps is a kind it declares, with the
+  # filters a read takes and the columns a reader shows. Reads and the tail
+  # cover every controller; files, statistics and rotation answer one row set
+  # per controller, and a file is read on its own controller.
 
   # The most records the logs service answers to one read.
-  @audit_read_max 1_000
+  @log_read_max 1_000
 
-  @doc "The rotated audit files of the connected controller."
-  def audit_files(token) do
-    with {:ok, %{files: files}} <-
-           authorized_call(token, Flezha.Service.Logs, :files, [@audit]),
-         do: {:ok, Enum.filter(files, &(&1[:node] == connected_node()))}
+  @doc "The kinds of log the controller keeps, each with its filters and columns."
+  def log_kinds(token), do: authorized_call(token, Flezha.Service.Logs, :kinds, [])
+
+  @doc """
+  A kind's records, newest first from every controller, as `{:ok, %{records:,
+  next:, unreachable:}}`. `params` holds `filters`, `limit`, `since_us`,
+  `until_us` and `before`, the cursor a previous answer named `next`; with
+  `node` and `file` it reads that controller's file, oldest first.
+  """
+  def log_read(kind, params, token) when is_map(params) do
+    read =
+      for key <- [:filters, :since_us, :until_us, :before, :node, :file],
+          value = params[key],
+          value not in [nil, "", %{}],
+          do: {key, value}
+
+    limit = min(Map.get(params, :limit, 100), @log_read_max)
+    authorized_call(token, Flezha.Service.Logs, :read, [[kind: kind] ++ read ++ [limit: limit]])
+  end
+
+  @doc "A kind's rotated files on every controller, as rows naming their `node`."
+  def log_files(kind, token) do
+    with {:ok, %{files: files, unreachable: unreachable}} <-
+           authorized_call(token, Flezha.Service.Logs, :files, [[kind: kind]]),
+         do: {:ok, %{rows: files, unreachable: unreachable}}
+  end
+
+  @doc "A kind's writer statistics, one row per controller."
+  def log_stats(kind, token) do
+    with {:ok, %{controllers: rows, unreachable: unreachable}} <-
+           authorized_call(token, Flezha.Service.Logs, :stats, [[kind: kind]]),
+         do: {:ok, %{rows: rows, unreachable: unreachable}}
+  end
+
+  @doc "Closes `node`'s current file of a kind and starts a new one."
+  def log_rotate(kind, node, token) do
+    authorized_call(token, Flezha.Service.Logs, :rotate, [[kind: kind, node: to_string(node)]])
   end
 
   @doc """
-  Audit records, `%{limit:}` and optionally `file`, `source` and `name`, as
-  `{:ok, records}`.
+  Opens a kind's live tail of every controller for `emit_pid`, narrowed by
+  `filters` as a read is. See `authorized_stream/5`.
   """
-  def audit_read(params, token) when is_map(params) do
-    filters = Map.take(params, [:source, :name])
+  def log_tail(kind, filters, token, emit_pid) do
+    authorized_stream(
+      token,
+      Flezha.Service.Logs,
+      :tail,
+      [[kind: kind, filters: filters]],
+      emit_pid
+    )
+  end
 
-    read =
-      @audit
-      |> Keyword.merge(filters: filters, limit: min(params.limit, @audit_read_max))
-      |> then(&if params[:file], do: &1 ++ [file: params.file, node: connected_node()], else: &1)
+  @doc """
+  A relay's latest `ended` record in the relay history, `{:ok, nil}` when it
+  has none.
+  """
+  def last_run(namespace, relay_id, token) do
+    filters = %{"namespace" => namespace, "relay" => relay_id, "event" => "ended"}
 
     with {:ok, %{records: records}} <-
-           authorized_call(token, Flezha.Service.Logs, :read, [read]),
-         do: {:ok, records}
-  end
-
-  @doc "The connected controller's audit writer statistics."
-  def audit_stats(token) do
-    with {:ok, %{controllers: rows}} <-
-           authorized_call(token, Flezha.Service.Logs, :stats, [@audit]) do
-      case Enum.find(rows, &(&1[:node] == connected_node())) do
-        nil -> {:error, {:controller_unreachable, connected_node()}}
-        stats -> {:ok, stats}
-      end
-    end
-  end
-
-  @doc "Closes the connected controller's current audit file and starts a new one."
-  def audit_rotate(token) do
-    authorized_call(token, Flezha.Service.Logs, :rotate, [@audit ++ [node: connected_node()]])
-  end
-
-  @doc "Opens the live audit tail of every controller for `emit_pid`. See `authorized_stream/5`."
-  def audit_tail(token, emit_pid) do
-    authorized_stream(token, Flezha.Service.Logs, :tail, [@audit], emit_pid)
+           log_read("relay_history", %{filters: filters, limit: 1}, token),
+         do: {:ok, List.first(records)}
   end
 
   # ---- Observability ----

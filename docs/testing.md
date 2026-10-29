@@ -31,7 +31,7 @@ An assertion lives at the layer that can **produce** the state it asserts, and
 only there.
 
 Put it in **ExUnit** when the state is one a healthy dev stack refuses to enter:
-audit logging switched off, a controller that is disconnected, timing out,
+a log switched off, a controller that is disconnected, timing out,
 version-skewed or shutting down, a partition group to rescale, a second running
 namespace, a confirmed runner drop. `FakeController`
 produces all of those in milliseconds.
@@ -183,7 +183,7 @@ acts on. Relays stay in `default`, under run-unique ids, because only `default`
 has a runner. A test asserts its own ids are or are
 not listed, never that a global count equals an earlier read: another worker may
 have started a relay in between. Every listing shows 20 rows and grows by a page,
-so other workers' rows — revoked tokens, finished relays, rotated audit files —
+so other workers' rows — revoked tokens, ended runs, rotated log files —
 can push a test's own row past the first page: `growListing(page, listing, row)`
 grows the listing until that row is shown, and without a row shows every one. No test binds a plugin to or retunes a seeded
 relay. Actions that reach every session on the stack — stopping the controller,
@@ -284,7 +284,7 @@ it honest:
   it.
 - `controller_shapes_test.exs` checks every stub's default answer and every
   fixture builder (`relay_row/2`, `runner_row/2`, `graph_channel/5`,
-  `activity_row/2`, `option_row/2`, `registry_entry/2`) against
+  `activity_row/2`, `option_row/2`, `registry_entry/2`, `history_record/2`) against
   `test/support/fixtures/controller_shapes.json`: tuple tags, map keys and value
   types recorded from the dev controller, never values. A map keyed by data
   rather than by fields — a provider's `opts`, a relay's hook `chains`, one

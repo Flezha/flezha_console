@@ -214,7 +214,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
       )
 
       assert {:error, %Flezha.Error{code: "authz.principal_not_bound", class: :denied}} =
-               NodeManager.audit_files(token)
+               NodeManager.log_files("audit", token)
     end
 
     test "an unanswerable verification is reported rather than called unbound", %{
@@ -224,10 +224,10 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
       refuse_context(node, "authz.registry_unavailable")
 
       assert {:error, %Flezha.Error{code: "authz.registry_unavailable"}} =
-               NodeManager.audit_stats(token)
+               NodeManager.log_stats("audit", token)
 
       assert {:error, %Flezha.Error{code: "authz.registry_unavailable"}} =
-               NodeManager.audit_tail(token, self())
+               NodeManager.log_tail("audit", %{}, token, self())
 
       assert FakeController.calls(node, {Flezha.Service.Logs, :stats}) == []
       assert FakeController.calls(node, {Flezha.Service.Logs, :tail}) == []
@@ -247,7 +247,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
         FakeController.error("authz.role_insufficient")
       )
 
-      assert {:error, %Flezha.Error{class: :denied}} = NodeManager.audit_stats(token)
+      assert {:error, %Flezha.Error{class: :denied}} = NodeManager.log_stats("audit", token)
 
       # The cached identity is gone, so the next context is established afresh.
       NodeManager.caller_context(token)
@@ -283,7 +283,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
         {:ok, %{files: [], unreachable: []}}
       )
 
-      assert {:ok, []} = NodeManager.audit_files(token)
+      assert {:ok, %{rows: []}} = NodeManager.log_files("audit", token)
 
       assert [
                [
@@ -300,7 +300,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
     } do
       bind(node, identity())
 
-      assert {:ok, []} = NodeManager.audit_files(token)
+      assert {:ok, %{rows: []}} = NodeManager.log_files("audit", token)
       assert ["Logs.files"] in FakeController.calls(node, {Flezha.Service.Admin, :run})
     end
 
@@ -330,7 +330,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
       )
 
       assert {:error, %Flezha.Error{code: "audit.disabled", class: :unavailable}} =
-               NodeManager.audit_files(token)
+               NodeManager.log_files("audit", token)
     end
   end
 
@@ -403,7 +403,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
         FakeController.error("authz.role_insufficient")
       )
 
-      assert {:ok, request} = NodeManager.audit_tail(token, self())
+      assert {:ok, request} = NodeManager.log_tail("audit", %{}, token, self())
       assert {:ended, {:error, %Flezha.Error{class: :denied}}} = await_end(request)
 
       NodeManager.caller_context(token)

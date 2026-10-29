@@ -231,7 +231,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
     } do
       FlezhaConsole.Accounts.remember_namespace(user, "gone")
 
-      {:ok, _view, html} = live(conn, ~p"/audit")
+      {:ok, _view, html} = live(conn, ~p"/logs/audit")
 
       refute html |> within(~s([data-testid="namespace-picker"])) |> LazyHTML.text() =~ "gone"
       assert html =~ ~s(data-testid="no-namespace-scoped")
@@ -473,13 +473,13 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
     end
 
     test "a screen that never opens it makes no listing call for it", %{conn: conn, node: node} do
-      {:ok, _view, _html} = live(conn, ~p"/audit")
+      {:ok, _view, _html} = live(conn, ~p"/logs/audit")
 
       assert FakeController.calls(node, {Relay, :list}) == []
     end
 
     test "it offers a relay by id, with its namespace and health", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/audit")
+      {:ok, view, _html} = live(conn, ~p"/logs/audit")
 
       assert open_palette(view) =~ ~s(data-testid="command-palette")
 
@@ -502,7 +502,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
     end
 
     test "stop lands on the relay's own confirmation and stops nothing", %{conn: conn, node: node} do
-      {:ok, view, _html} = live(conn, ~p"/audit")
+      {:ok, view, _html} = live(conn, ~p"/logs/audit")
 
       open_palette(view)
       html = search_palette(view, "stop relay_b")
@@ -534,7 +534,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
         ])
       )
 
-      {:ok, view, _html} = live(conn, ~p"/audit")
+      {:ok, view, _html} = live(conn, ~p"/logs/audit")
       open_palette(view)
 
       assert search_palette(view, "diagnose relay_a") =~ "?do=diagnose"
@@ -553,7 +553,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
       enforce_operations(node, user, identity)
       grant_operations(node, identity, ["Relay.diagnose"])
 
-      {:ok, view, _html} = live(conn, ~p"/audit")
+      {:ok, view, _html} = live(conn, ~p"/logs/audit")
       open_palette(view)
 
       refute search_palette(view, "stop relay_a") =~ "command-palette-action-Stop"
@@ -561,7 +561,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
     end
 
     test "nothing matching says so rather than showing an empty list", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/audit")
+      {:ok, view, _html} = live(conn, ~p"/logs/audit")
 
       open_palette(view)
       html = search_palette(view, "nothing-is-called-this")
@@ -576,7 +576,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
     } do
       ids = for i <- 1..25, do: "many_#{String.pad_leading(to_string(i), 2, "0")}"
       with_fleet(node, ["default"], %{"default" => ids})
-      {:ok, view, _html} = live(conn, ~p"/audit")
+      {:ok, view, _html} = live(conn, ~p"/logs/audit")
 
       open_palette(view)
       html = search_palette(view, "stop many_")

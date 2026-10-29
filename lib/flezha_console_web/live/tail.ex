@@ -2,15 +2,16 @@ defmodule FlezhaConsoleWeb.Live.Tail do
   @moduledoc """
   A live tail carried by `FlezhaConsole.Service.EventFeed`.
 
-  Two screens tail something — the audit log and an observability source — and
-  the plumbing either would need is identical: open the published tail through
-  a feed linked to the screen, prepend what arrives to a bounded list, say so
-  when the tail is refused or re-established, and stop the feed on the way out.
-  Only the opening call and the envelope differ.
+  Several screens tail something — a log, an observability source, a relay's
+  own history — and the plumbing each would need is identical: open the
+  published tail through a feed linked to the screen, prepend what arrives to a
+  bounded list, say so when the tail is refused or re-established, and stop the
+  feed on the way out. Only the opening call and the envelope differ; a tail
+  narrowed by filters carries them in the opening call.
 
   So it is written once, the way `FlezhaConsoleWeb.Live.Refresh` is:
 
-      use FlezhaConsoleWeb.Live.Tail, tag: :audit_tail, max: 200
+      use FlezhaConsoleWeb.Live.Tail, tag: :logs_tail, max: 200
 
       def unwrap_tail(record), do: record
 

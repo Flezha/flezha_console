@@ -38,6 +38,8 @@ defmodule FlezhaConsoleWeb.Glossary do
     {"factory", "Factory",
      "What a runner registers and a relay is started from. Its runners announce its run."},
     {"tasklet", "Tasklet", "A step inside a relay."},
+    {"relay history", "Relay history",
+     "The controller's durable record of every relay run: one line when it starts and one when it ends, with who started it, how it ended and how long it ran. It outlives the run's state, which a factory keeps only when it declares keep_finished."},
     {"source plugin", "Source plugin",
      "A plugin whose provider feeds a relay, such as a websocket or a poll. It injects records on the entry channel it names, or on the relay's first one."},
     {"input filter", "Input filter",
@@ -215,9 +217,9 @@ defmodule FlezhaConsoleWeb.Glossary do
       "What each part of the controller reports about itself: every source with what it is, what it said recently and what its signals mean. Watch one live, or switch one off.",
       ["source"]
     },
-    audit: {
-      "The controller's audit log: who did what, when, and with which outcome. Open a file to read its records, filter them, open one to see the whole of it, or tail the log live.",
-      ["principal", "role"]
+    logs: {
+      "The controller's durable logs, one tab per kind: the audit log of who did what, and the relay history of every run's start and end. Filter one, open a record to see the whole of it, open a controller's file, or tail it live.",
+      ["relay history", "principal", "role"]
     },
     namespaces: {
       "Every namespace the controller declares or runs, with its health and how close it is to its quotas.",

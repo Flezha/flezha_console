@@ -86,6 +86,10 @@ defmodule FlezhaConsoleWeb.Live.Sections do
   reason sections are — the screens tick, and a tick that re-reads the rows
   must not shrink a listing the operator grew.
 
+  A listing paged by cursor grows the same way: the screen holding it defines
+  `listing_grown(socket, id)`, called after each growth, and reads the next
+  page there when the listing shows more rows than it holds.
+
       live_session :authenticated, on_mount: [{FlezhaConsoleWeb.Live.Sections, :paging}]
   """
   def on_mount(:paging, _params, _session, socket) do
@@ -107,7 +111,7 @@ defmodule FlezhaConsoleWeb.Live.Sections do
          paging = socket.assigns.paging,
          true <- Map.has_key?(paging, id) or map_size(paging) < @max_listings do
       count = min(shown + step, @max_shown)
-      {:halt, Phoenix.Component.update(socket, :paging, &Map.put(&1, id, count))}
+      {:halt, socket |> Phoenix.Component.update(:paging, &Map.put(&1, id, count)) |> grown(id)}
     else
       _forged -> {:halt, socket}
     end
@@ -115,6 +119,14 @@ defmodule FlezhaConsoleWeb.Live.Sections do
 
   defp grow(event, _params, socket) when event in @events, do: {:halt, socket}
   defp grow(_event, _params, socket), do: {:cont, socket}
+
+  # A listing backed by a cursor holds only the rows read so far; its screen
+  # reads the next page in `listing_grown/2` once the listing grows past them.
+  defp grown(socket, id) do
+    if function_exported?(socket.view, :listing_grown, 2),
+      do: socket.view.listing_grown(socket, id),
+      else: socket
+  end
 
   @doc "The rows a listing shows at first."
   def page_size, do: @page_size

@@ -10,8 +10,8 @@ currency.
 The navigation rail SHALL present two labelled sections. A `NAMESPACE` section
 SHALL hold Home, Relays, Plugins and Schedules for the namespace in scope. A
 `PLATFORM` section SHALL hold Problems, Fleet, Namespaces, Cluster, Controller,
-Observability, Dead-letter and Audit, where Fleet is the listing of every
-reachable relay at `/relays`. A screen SHALL appear in the `NAMESPACE` section
+Observability, Dead-letter and Logs. Fleet is the listing of every reachable relay
+at `/relays`, and Logs leads to `/logs`. A screen SHALL appear in the `NAMESPACE` section
 only when the controller call behind it accepts a namespace, or when the rows it
 returns each carry one. With no namespace in scope the `NAMESPACE` section SHALL
 say so rather than offer destinations it has no scope to point at. The rail and
@@ -50,6 +50,12 @@ the topbar SHALL keep the stylebook's shell recipe.
 - **WHEN** an operator is on a screen reachable from the sidebar
 - **THEN** that entry carries `aria-current="page"`
 - **AND** exactly one entry carries it
+
+#### Scenario: Logs replaces the audit entry
+
+- **WHEN** the sidebar is rendered
+- **THEN** it offers a Logs entry leading to `/logs` and no Audit entry
+- **AND** the Logs entry carries `aria-current="page"` on every `/logs/:kind` screen
 
 #### Scenario: The dashboard entry is gone
 

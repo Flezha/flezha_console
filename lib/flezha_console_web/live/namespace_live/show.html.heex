@@ -491,65 +491,50 @@
   </div>
 </.section>
 
-<%!-- Finished relays: retained completions, not live relays --%>
+<%!-- Recent runs: the namespace's ended runs, from the relay history --%>
 <.section
-  fold="finished-relays"
-  open={@sections["finished-relays"]}
-  testid="finished-relays"
-  digest={finished_digest(@finished, @finished_loading?)}
-  help="Relays that completed, failed or were cancelled, kept for a while after they end so their outcome can still be read."
+  id="recent-runs-section"
+  fold="recent-runs"
+  open={@sections["recent-runs"]}
+  testid="recent-runs"
+  digest={runs_digest(@runs, @runs_next)}
+  help="The namespace's relay runs that ended, newest first, from the relay history: how each ended, how long it ran and who started it."
 >
-  <:title>Finished relays</:title>
+  <:title>
+    Recent runs<span
+      :if={not_completed(@runs, @paging) > 0}
+      class="fcon-tone-warning"
+      data-testid="recent-runs-not-completed"
+    > · {not_completed(@runs, @paging)} did not complete</span>
+  </:title>
   <:actions>
-    <.button
-      variant="secondary"
-      size="sm"
-      phx-click="reload_finished"
-      data-testid="reload-finished"
-      disabled={@finished_loading?}
+    <.link
+      navigate={~p"/logs/relay_history?#{[namespace: @ns, event: "ended"]}"}
+      data-testid="recent-runs-link"
     >
-      Reload
-    </.button>
+      The whole history
+    </.link>
   </:actions>
-  <.runtime_error
-    :if={@finished_error}
-    error={@finished_error}
-    action="the finished-relay listing"
-  />
-  <.skeleton :if={@finished_loading?} rows={2} testid="finished-loading" />
-  <.empty_state
-    :if={@finished == [] and is_nil(@finished_error) and not @finished_loading?}
-    icon="hero-check-circle"
-  >
-    A steps relay that completes is kept here until its retention window passes. None has finished
-    inside it.
+  <.runtime_error :if={@runs_error} error={@runs_error} action="the recent runs" />
+  <.empty_state :if={@runs == [] and is_nil(@runs_error)} icon="hero-check-circle">
+    Runs appear here when a relay of this namespace finishes.
   </.empty_state>
   <.grid
-    :if={@finished != []}
+    :if={@runs != []}
     paging={@paging}
-    id="finished"
-    rows={@finished}
-    row_testid={&"finished-row-#{&1.id}"}
+    id="recent-runs"
+    rows={@runs}
+    row_id={&"run-#{&1["relay"]}-#{&1["ts_us"]}"}
+    row_testid={&"run-row-#{&1["relay"]}"}
+    older={@runs_next && "Show older runs"}
   >
-    <:col :let={relay} label="Relay">
-      <.link navigate={~p"/namespaces/#{@ns}/relays/#{relay.id}"}>{relay.id}</.link>
+    <:col :let={run} label="Ended">
+      <.moment at={FlezhaConsoleWeb.LogLines.time(run)} unit={:millisecond} />
     </:col>
-    <:col :let={relay} label="Run">{relay[:run] || "—"}</:col>
-    <:col :let={relay} label="Status">
-      <.said kind={:completion} value={relay[:status]} />
-      <p
-        :if={relay[:error] not in [nil, ""]}
-        class="fcon-tone-negative fcon-ident text-xs"
-        data-testid={"finished-error-#{relay.id}"}
-      >
-        {relay.error}
-      </p>
-    </:col>
-    <:col :let={relay} label="Finished">
-      <.moment at={relay[:finished_at]} testid={"finished-at-#{relay.id}"} />
-    </:col>
-    <:col :let={relay} label="Kept until">
-      <.moment at={relay[:expires_at]} testid={"finished-kept-#{relay.id}"} />
+    <:col :let={run} label="Run">
+      <FlezhaConsoleWeb.LogLines.line line={
+        FlezhaConsoleWeb.LogLines.sentence("relay_history", run)
+      } />
     </:col>
   </.grid>
 </.section>

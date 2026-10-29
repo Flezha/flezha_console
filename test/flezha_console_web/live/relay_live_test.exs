@@ -12,6 +12,7 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
   use FlezhaConsoleWeb.LiveCase
 
   alias Flezha.Service.Fleet
+  alias Flezha.Service.Logs
   alias Flezha.Service.PluginManager
   alias Flezha.Service.Relay
 
@@ -313,27 +314,227 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
     end
   end
 
+  describe "recent activity" do
+    @tail {Logs, :tail}
+
+    defp history(node, records),
+      do:
+        FakeController.set(
+          node,
+          {Logs, :read},
+          FakeController.log_page(records)
+        )
+
+    defp history_reads(node),
+      do: node |> FakeController.calls({Logs, :read}) |> Enum.map(&hd/1)
+
+    test "lists the relay's history on open and links to the whole of it", %{
+      conn: conn,
+      node: node
+    } do
+      overwatch(node, %{factory_id: "store_input"})
+      registry_row(node, %{})
+      history(node, [FakeController.history_record("relay_a")])
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert text_of(html, ~s([data-testid="recent-activity-sentence"])) =~
+               "relay_a started from store_input, started by ops@acme through the UI"
+
+      assert html =~ ~s(href="/logs/relay_history?namespace=default&amp;relay=relay_a")
+
+      assert [params] =
+               node |> history_reads() |> Enum.filter(&(&1[:limit] == 5))
+
+      assert params[:kind] == "relay_history"
+      assert params[:filters] == %{"namespace" => "default", "relay" => "relay_a"}
+    end
+
+    test "says when nothing is recorded for the relay yet", %{conn: conn, node: node} do
+      overwatch(node, %{factory_id: "store_input"})
+      registry_row(node, %{})
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert html =~ ~s(data-testid="recent-activity-empty")
+    end
+
+    test "an ended record arrives at the top while the screen is open, without a read", %{
+      conn: conn,
+      node: node
+    } do
+      overwatch(node, %{factory_id: "store_input"})
+      registry_row(node, %{})
+      history(node, [FakeController.history_record("relay_a")])
+
+      {:ok, view, _html} = live(conn, @url)
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
+
+      assert [[params, _ctx]] = FakeController.calls(node, @tail)
+      assert params[:kind] == "relay_history"
+      assert params[:filters] == %{"namespace" => "default", "relay" => "relay_a"}
+      reads = length(FakeController.calls(node, {Logs, :read}))
+
+      ended =
+        FakeController.history_record("relay_a", %{
+          "event" => "ended",
+          "outcome" => "completed",
+          "duration_ms" => 3_000
+        })
+
+      FakeController.emit(node, @tail, ended)
+
+      assert PeerNode.eventually(fn ->
+               view
+               |> render()
+               |> text_of(~s([data-testid="recent-activity-sentence"]))
+               |> String.starts_with?("relay_a finished: completed after 3 s")
+             end)
+
+      assert length(FakeController.calls(node, {Logs, :read})) == reads
+    end
+
+    test "lets go of its tail while the page is hidden and reads afresh when it shows", %{
+      conn: conn,
+      node: node
+    } do
+      overwatch(node, %{factory_id: "store_input"})
+      registry_row(node, %{})
+
+      {:ok, view, _html} = live(conn, @url)
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
+      reads = length(history_reads(node) |> Enum.filter(&(&1[:limit] == 5)))
+
+      render_hook(view, "refresh_visibility", %{"hidden" => true})
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) == [] end)
+
+      render_hook(view, "refresh_visibility", %{"hidden" => false})
+      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
+
+      assert length(history_reads(node) |> Enum.filter(&(&1[:limit] == 5))) == reads + 1
+      assert length(FakeController.calls(node, @tail)) == 2
+    end
+
+    test "a refused read is stated in the strip, the rest of the screen kept", %{
+      conn: conn,
+      node: node
+    } do
+      overwatch(node, %{factory_id: "store_input"})
+      registry_row(node, %{})
+      FakeController.set(node, {Logs, :read}, FakeController.error("authz.role_insufficient"))
+
+      {:ok, _view, html} = live(conn, @url)
+
+      strip = text_of(html, ~s([data-testid="recent-activity"]))
+      assert strip =~ "authz.role_insufficient"
+      refute html =~ ~s(data-testid="recent-activity-empty")
+      assert html =~ ~s(data-testid="topology-graph")
+    end
+  end
+
   describe "a finished relay" do
-    test "shows its completion record and offers no live actions", %{conn: conn, node: node} do
+    defp finished(node, completion) do
       FakeController.set(node, {Relay, :overwatch_state}, FakeController.error("relay.not_found"))
+
+      ended =
+        FakeController.history_record("relay_a", %{
+          "event" => "ended",
+          "outcome" => "undone",
+          "duration_ms" => 41_000,
+          "error" => "step 3 refused",
+          "origin" => %{"kind" => "spawn", "parent_relay" => "ma_fan"}
+        })
 
       FakeController.set(
         node,
-        {Flezha.Service.Steps, :completion},
-        {:ok, %{status: "ok", finished_at: System.system_time(:second)}}
+        {Logs, :read},
+        FakeController.log_page([ended])
+      )
+
+      FakeController.set(node, {Flezha.Service.Steps, :completion}, completion)
+    end
+
+    test "whose state was kept shows its last run, until when it is kept, and no live action", %{
+      conn: conn,
+      node: node
+    } do
+      expires_at = System.system_time(:second) + 3_600
+
+      finished(
+        node,
+        {:ok,
+         %{
+           status: "error",
+           finished_at: System.system_time(:second),
+           state_kept: true,
+           expires_at: expires_at
+         }}
       )
 
       {:ok, _view, html} = live(conn, @url)
 
-      assert html =~ ~s(data-testid="completion-record")
-      assert html =~ "Completed"
+      assert html =~ ~s(data-testid="finished-run")
+      outcome = text_of(html, ~s([data-testid="finished-outcome"]))
+      assert outcome =~ "undone"
+      assert outcome =~ "compensated"
+      assert text_of(html, ~s([data-testid="finished-duration"])) =~ "41 s"
+      assert text_of(html, ~s([data-testid="finished-origin"])) =~ "Spawned by ma_fan"
+      assert html =~ "step 3 refused"
+
+      state = text_of(html, ~s([data-testid="finished-state"]))
+      assert state =~ "kept until"
+      assert html =~ ~s(href="/namespaces/default/relays/relay_a/state")
+
       refute html =~ ~s(data-testid="stop-relay-btn")
+      refute html =~ ~s(data-testid="talk-open-btn")
       refute html =~ ~s(data-testid="calls-panel")
 
-      # Read on each mount, never on a tick.
-      calls = FakeController.calls(node, {Flezha.Service.Steps, :completion})
-      assert calls != []
-      assert Enum.all?(calls, &match?(["relay_a", %{source: :ui}], &1))
+      # The last run is read by its `ended` record on mount, never on a tick.
+      last_runs =
+        node
+        |> FakeController.calls({Logs, :read})
+        |> Enum.map(&hd/1)
+        |> Enum.filter(&(&1[:limit] == 1))
+
+      assert last_runs != []
+
+      assert Enum.all?(
+               last_runs,
+               &(&1[:filters] == %{
+                   "namespace" => "default",
+                   "relay" => "relay_a",
+                   "event" => "ended"
+                 })
+             )
+
+      completions = FakeController.calls(node, {Flezha.Service.Steps, :completion})
+      assert completions != []
+      assert Enum.all?(completions, &match?(["relay_a", %{source: :ui}], &1))
+    end
+
+    test "whose state was not kept says so and how a factory keeps it", %{conn: conn, node: node} do
+      finished(node, {:ok, %{status: "error", finished_at: 1_700_000_000, state_kept: false}})
+
+      {:ok, _view, html} = live(conn, @url)
+
+      state = text_of(html, ~s([data-testid="finished-state"]))
+      assert state =~ "Its state was not kept"
+      assert state =~ "keep_finished"
+      refute state =~ "Read it on State"
+      refute html =~ ~s(data-testid="stop-relay-btn")
+    end
+
+    test "with neither a live row nor an ended record is reported as not found", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {Relay, :overwatch_state}, FakeController.error("relay.not_found"))
+
+      {:ok, _view, html} = live(conn, @url)
+
+      refute html =~ ~s(data-testid="finished-run")
+      assert html =~ ~s(data-testid="runtime-error")
+      assert html =~ "relay.not_found"
     end
   end
 

@@ -12,6 +12,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
 
   alias Flezha.Service.Controller
   alias Flezha.Service.Fleet
+  alias Flezha.Service.Logs
   alias Flezha.Service.Namespace
   alias Flezha.Service.Relay
 
@@ -231,38 +232,123 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
     end
   end
 
-  describe "finished relays" do
-    test "lists the finished relays the controller retains", %{conn: conn, node: node} do
-      with_relays(node, ["relay_a"])
+  describe "recent runs" do
+    defp ended(relay, outcome),
+      do: FakeController.history_record(relay, %{"event" => "ended", "outcome" => outcome})
+
+    defp runs_reads(node) do
+      for [params, _ctx] <- FakeController.calls(node, {Logs, :read}),
+          params[:kind] == "relay_history",
+          do: params
+    end
+
+    defp open_runs(view) do
+      open_section(view, "recent-runs")
+      render_async(view)
+    end
+
+    test "lists the namespace's ended runs newest first and counts those that did not complete",
+         %{conn: conn, node: node} do
+      with_relays(node, [])
 
       FakeController.set(
         node,
-        {Relay, :info},
-        {:ok,
-         %{
-           namespace: "default",
-           groups: [],
-           relays: [
-             %{id: "relay_a", phase: "running"},
-             %{id: "echo_1", phase: "finished", status: "ok", finished_at: 1_700_000_000}
-           ]
-         }}
+        {Logs, :read},
+        FakeController.log_page([
+          ended("run_c", "completed"),
+          ended("run_b", "undone"),
+          ended("run_a", "completed")
+        ])
       )
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
-      html = open_section(view, "finished-relays")
+      html = open_runs(view)
 
-      assert html =~ ~s(data-testid="finished-row-echo_1")
-      refute html =~ ~s(data-testid="finished-row-relay_a")
+      positions =
+        for id <- ~w(run_c run_b run_a) do
+          {index, _} = :binary.match(html, ~s(data-testid="run-row-#{id}"))
+          index
+        end
+
+      assert positions == Enum.sort(positions)
+      assert text_of(html, ~s([data-testid="run-row-run_b"])) =~ "run_b finished: undone"
+
+      assert text_of(html, ~s([data-testid="recent-runs-not-completed"])) =~
+               "1 did not complete"
+
+      assert [params | _] = runs_reads(node)
+      assert params[:filters] == %{"namespace" => "default", "event" => "ended"}
+      assert params[:limit] == 20
+    end
+
+    test "grows by the history's cursor, appending the older runs", %{conn: conn, node: node} do
+      with_relays(node, [])
+      newest = for i <- 1..20, do: ended("new_#{i}", "completed")
+      # Older than every run of the first page, as the cursor reads them.
+      older =
+        for i <- 1..3,
+            do: "old_#{i}" |> ended("failed") |> Map.put("ts_us", 1_000_000 - i)
+
+      FakeController.set(
+        node,
+        {Logs, :read},
+        {:per_arg, {0, :before}, %{"c1" => FakeController.log_page(older)},
+         FakeController.log_page(newest, "c1")}
+      )
+
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      html = open_runs(view)
+
+      refute html =~ ~s(data-testid="recent-runs-not-completed")
+
+      assert text_of(html, ~s([data-testid="recent-runs-more"])) ==
+               "Show older runs · 20 shown"
+
+      view |> element(~s([data-testid="recent-runs-more"])) |> render_click()
+      html = render_async(view)
+
+      assert html =~ ~s(data-testid="run-row-new_20")
+      assert html =~ ~s(data-testid="run-row-old_3")
+      assert Enum.any?(runs_reads(node), &(&1[:before] == "c1"))
+      assert text_of(html, ~s([data-testid="recent-runs-not-completed"])) =~ "3 did not complete"
+      # The history holds nothing older, so the listing cannot grow on.
+      refute html =~ ~s(data-testid="recent-runs-more")
+    end
+
+    test "says where runs come from when none has ended", %{conn: conn, node: node} do
+      with_relays(node, [])
+
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+
+      assert open_runs(view) =~ "Runs appear here when a relay of this namespace finishes."
     end
 
     test "a refused read is stated, not shown as empty", %{conn: conn, node: node} do
       with_relays(node, [])
-      FakeController.set(node, {Relay, :info}, FakeController.error("authz.role_insufficient"))
+      FakeController.set(node, {Logs, :read}, FakeController.error("authz.role_insufficient"))
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      html = open_runs(view)
 
-      assert open_section(view, "finished-relays") =~ "authz.role_insufficient"
+      assert html =~ "authz.role_insufficient"
+      refute html =~ "Runs appear here"
+    end
+
+    test "are read on the first read, then only while the section is open", %{
+      conn: conn,
+      node: node
+    } do
+      with_relays(node, [])
+
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      assert length(runs_reads(node)) == 1
+
+      send(view.pid, :refresh)
+      render_async(view)
+      assert length(runs_reads(node)) == 1
+
+      open_runs(view)
+      assert length(runs_reads(node)) == 2
     end
   end
 
@@ -476,19 +562,6 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
         refute html =~ "not_a_row"
       end)
     end
-  end
-
-  test "a finished-relays read that dies says so without its stack", %{conn: conn, node: node} do
-    with_relays(node, ["relay_a"])
-    FakeController.set(node, {Relay, :info}, {:ok, %{relays: [:not_a_relay]}})
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
-      html = open_section(view, "finished-relays")
-
-      assert html =~ "This console could not finish the read."
-      refute html =~ "not_a_relay"
-    end)
   end
 
   describe "the pulse in the background" do

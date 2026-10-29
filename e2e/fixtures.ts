@@ -765,7 +765,7 @@ function liveViewFrameProblem(payload: string | Buffer): string | null {
 
 /**
  * `test` with a `live` helper bound to the page, so a spec reads
- * `await live('/audit')` instead of repeating the connect wait everywhere.
+ * `await live('/logs/audit')` instead of repeating the connect wait everywhere.
  *
  * Every test is also armed with page-health guards it cannot opt out of: a
  * script error or console error, a LiveView that crashes, errors or loses its

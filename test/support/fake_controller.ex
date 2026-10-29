@@ -109,7 +109,8 @@ defmodule FakeController do
   For a controller that answers differently per call — a factory listing per
   namespace, the runners serving each factory — `value` may be
   `{:per_arg, index, by_arg, default}`: the answer looked up by the call's
-  `index`-th recorded argument.
+  `index`-th recorded argument, or with `{index, field}` by that argument's
+  `field`, such as the `kind` a logs call names.
 
       FakeController.set(node, {FleetManager, :runners_for_factory},
         {:per_arg, 1, %{"store_input" => {:ok, ["runner-a"]}}, {:ok, []}})
@@ -163,6 +164,14 @@ defmodule FakeController do
   """
   def rows(rows, unreachable \\ []),
     do: {:ok, %{rows: rows, unreachable: Enum.map(unreachable, &to_node/1)}}
+
+  @doc """
+  A logs read's answer: `records` newest first, the `next` cursor a further
+  read continues from, and the controllers in `unreachable` that did not
+  answer.
+  """
+  def log_page(records, next \\ nil, unreachable \\ []),
+    do: {:ok, %{records: records, next: next, unreachable: Enum.map(unreachable, &to_node/1)}}
 
   @doc """
   `Namespace.quota/3`'s answer: the cluster's `total`, all on
@@ -429,6 +438,148 @@ defmodule FakeController do
   end
 
   @doc """
+  A log kind as `Flezha.Service.Logs.kinds/1` declares one, with
+  `overrides` applied. `audit` and `relay_history` carry core's own filters
+  and columns; any other id is a kind with one text filter, `name`, and the
+  columns time, name and controller.
+  """
+  def log_kind(id, overrides \\ %{}) do
+    {title, description, filters, columns} = kind_declaration(id)
+
+    Map.merge(
+      %{
+        id: id,
+        title: title,
+        description: description,
+        enabled: true,
+        disabled_reason: nil,
+        filters: filters,
+        columns: columns
+      },
+      overrides
+    )
+  end
+
+  defp kind_declaration("audit") do
+    {"Audit log", "Who did what.",
+     [
+       log_filter("source", "Source"),
+       log_filter("name", "Name"),
+       log_filter("namespace", "Namespace")
+     ], log_columns(~w(ts_iso source name caller namespace node))}
+  end
+
+  defp kind_declaration("relay_history") do
+    {"Relay history", "Each relay run's start and end.",
+     [
+       log_filter("namespace", "Namespace"),
+       log_filter("factory", "Factory"),
+       log_filter("relay", "Relay"),
+       log_filter("event", "Event", ~w(started ended start_failed)),
+       log_filter(
+         "outcome",
+         "Outcome",
+         ~w(completed undone failed stopped timed_out rescaled_away cancelled)
+       )
+     ],
+     log_columns(
+       ~w(ts_iso event namespace relay factory run origin outcome duration_ms halted error node)
+     )}
+  end
+
+  defp kind_declaration(id) do
+    {String.capitalize(id), "The #{id} log.", [log_filter("name", "Name")],
+     log_columns(~w(ts_iso name node))}
+  end
+
+  defp log_filter(field, label, values \\ nil),
+    do: %{field: field, label: label, type: if(values, do: "enum", else: "text"), values: values}
+
+  defp log_columns(fields) do
+    for field <- fields do
+      label =
+        case field do
+          "ts_iso" -> "Time"
+          "node" -> "Controller"
+          "duration_ms" -> "Duration (ms)"
+          other -> String.capitalize(other)
+        end
+
+      %{field: field, label: label, type: if(field == "ts_iso", do: "time", else: "text")}
+    end
+  end
+
+  @doc """
+  A relay history record as `Flezha.Service.Logs.read/2` answers one, keyed
+  by string as decoded from its file: a `started` record of `relay` from
+  `store_input`, started by an operator through the UI on `flezha@node-a`,
+  with `overrides` applied. An `ended` record also carries `outcome`,
+  `halted`, `duration_ms` and `error`, which `overrides` give.
+  """
+  def history_record(relay, overrides \\ %{}) do
+    ts_us = System.os_time(:microsecond)
+
+    Map.merge(
+      %{
+        "ts_us" => ts_us,
+        "ts_iso" => ts_us |> DateTime.from_unix!(:microsecond) |> DateTime.to_iso8601(),
+        "event" => "started",
+        "namespace" => "default",
+        "relay" => relay,
+        "factory" => "store_input",
+        "run" => "steps",
+        "origin" => %{"kind" => "operator", "principal" => "ops@acme", "source" => "ui"},
+        "first_started_at" => div(ts_us, 1_000),
+        "node" => "flezha@node-a"
+      },
+      overrides
+    )
+  end
+
+  @doc """
+  One controller's row of `Flezha.Service.Logs.stats/2`, with `overrides`
+  applied: a current file of 12 records on `node`.
+  """
+  def log_stats_row(node, overrides \\ %{}) do
+    Map.merge(
+      %{
+        node: node,
+        current_file: "storage/app/logs/relay_history-current.jsonl",
+        current_file_bytes: 2_048,
+        record_count: 12,
+        total_bytes: 2_048,
+        total_files: 1,
+        oldest_ts_us: nil,
+        fsync_mode: :group_commit,
+        closed: false,
+        dropped_count: 0,
+        timeout_count: 0,
+        post_close_dropped: 0
+      },
+      overrides
+    )
+  end
+
+  @doc """
+  One rotated file as `Flezha.Service.Logs.files/2` lists it on `node`, with
+  `overrides` applied.
+  """
+  def log_file_row(node, filename, overrides \\ %{}) do
+    Map.merge(
+      %{
+        node: node,
+        filename: filename,
+        first_ts_us: 1_793_270_000_000_000,
+        last_ts_us: 1_793_271_000_000_000,
+        record_count: 40,
+        size_bytes: 8_192,
+        sha256: String.duplicate("a", 64)
+      },
+      overrides
+    )
+  end
+
+  @doc """
   Answers the calls every relay listing makes: which namespaces the token
   reaches, each namespace's rows (as both `list/2` and `relay_rows/2`), its
   plugin pairs and its registry.
@@ -540,6 +691,9 @@ defmodule FakeController do
       [{^key, {:gated, gate, value}}] ->
         await_gate(gate)
         value
+
+      [{^key, {:per_arg, {index, field}, by_arg, fallback}}] ->
+        Map.get(by_arg, args |> Enum.at(index) |> Access.get(field), fallback)
 
       [{^key, {:per_arg, index, by_arg, fallback}}] ->
         Map.get(by_arg, Enum.at(args, index), fallback)
@@ -662,9 +816,6 @@ defmodule Flezha.Service.Relay do
   defstub relay_plugins(ns, %{source: :ui} = ctx), do: FakeController.rows([])
   defstub registry(ns, %{source: :ui} = ctx), do: {:ok, %{}}
   defstub partition_groups(rows, %{source: :ui} = ctx), do: {:ok, []}
-
-  defstub info(ns, %{source: :ui} = ctx),
-    do: {:ok, %{namespace: ns, groups: [], relays: [], key_groups: 0, unreachable: []}}
 
   defstub cell_state(ns, id, cell, %{source: :ui} = ctx), do: {:ok, "{}", 0}
   defstub overwatch_state(ns, id, %{source: :ui} = ctx), do: {:ok, %{}}

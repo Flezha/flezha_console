@@ -7,7 +7,8 @@ defmodule FlezhaConsoleWeb.LandingController do
   falls back to the first one it does, and a token reaching none to the
   namespace list, which says so.
 
-  Also the not-found page for any address no other route takes.
+  Also the not-found page for any address no other route takes, and the old
+  address of the audit log, which is a kind of the Logs screen.
   """
   use FlezhaConsoleWeb, :controller
 
@@ -20,6 +21,11 @@ defmodule FlezhaConsoleWeb.LandingController do
       scope |> FlezhaConsole.Accounts.Scope.flezha_token() |> NodeManager.scoped_namespaces()
 
     redirect(conn, to: FlezhaConsoleWeb.Layouts.landing(scope.user.last_namespace, reachable))
+  end
+
+  def audit(conn, _params) do
+    query = if conn.query_string == "", do: "", else: "?" <> conn.query_string
+    redirect(conn, to: "/logs/audit" <> query)
   end
 
   # Answered rather than raised, so dev's debugger keeps to real failures and an

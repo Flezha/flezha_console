@@ -23,7 +23,9 @@ defmodule FlezhaConsoleWeb.LayoutsTest do
     "/cluster",
     "/controller",
     "/observability",
-    "/audit",
+    "/logs",
+    "/logs/audit",
+    "/logs/relay_history",
     "/namespaces/default",
     "/namespaces/default/relays",
     "/namespaces/default/plugins",
@@ -167,7 +169,8 @@ defmodule FlezhaConsoleWeb.LayoutsTest do
 
       assert Enum.map(attention.entries, & &1.label) == ["Problems", "Dead-letter"]
       assert Enum.map(platform.entries, & &1.label) == ["Namespaces", "Cluster", "Controller"]
-      assert Enum.map(monitoring.entries, & &1.label) == ["Observability", "Audit log"]
+      assert Enum.map(monitoring.entries, & &1.label) == ["Observability", "Logs"]
+      assert Enum.find(monitoring.entries, &(&1.label == "Logs")).path == "/logs"
     end
 
     test "Problems alone carries the count, and every relay is no destination of its own" do
@@ -186,6 +189,12 @@ defmodule FlezhaConsoleWeb.LayoutsTest do
       assert Layouts.screen("/namespaces/default/relays/relay_a/listen") == :relay_listen
       assert Layouts.screen("/namespaces/default/relays/relay_a/state") == :relay_state
       assert Layouts.screen("/namespaces/default") == :home
+    end
+
+    test "every kind of log is the Logs screen" do
+      assert Layouts.screen("/logs") == :logs
+      assert Layouts.screen("/logs/relay_history") == :logs
+      assert Layouts.screen("/logs/a_kind_added_later") == :logs
     end
 
     test "every routed screen kind has a help purpose" do

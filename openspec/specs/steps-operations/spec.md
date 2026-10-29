@@ -2,8 +2,8 @@
 
 ## Purpose
 What the console shows and does for relays whose factory runs as `steps`: the steps
-facts panel, suspension as a health verdict, finished relays within their retention
-window, the task journal and input log, and rescale and rewind.
+facts panel, suspension as a health verdict, the task journal and input log, and
+rescale and rewind. A finished run's outcome is the relay history's (see `relay-history`).
 ## Requirements
 ### Requirement: Suspension is a health value, carried by the flat listing read
 
@@ -31,47 +31,6 @@ Suspension is not a separate fact to fetch: the Convergence Loop ranks it among 
 
 - **WHEN** a relay is suspended and another has been stopped
 - **THEN** the suspended one is listed with suspended health and the stopped one is absent from the live listing
-
-### Requirement: Finished instances are listed within their retention window
-
-The UI SHALL list steps relays that have finished but are still retained, as `Flezha.Service.Relay.info/2` reports them. The controller already selects the namespace's finished relays whose completion record is inside their retention window. The UI SHALL NOT re-derive that selection from relay classes, completion records, or retention settings.
-
-Each finished relay SHALL be listed with:
-
-- its run and status;
-- for a failed relay, its error;
-- when it finished, relative to now and as an absolute time;
-- until when it is kept, from the `expires_at` the controller answers.
-
-Opening a finished relay SHALL read its completion record through `Flezha.Service.Steps.completion/2`.
-
-#### Scenario: A recently finished relay
-
-- **WHEN** a relay finished within its retention window
-- **THEN** it is listed as finished with its run, status, finish time and the time it is kept until
-- **AND** it is visibly separated from live relays
-
-#### Scenario: A failed relay
-
-- **WHEN** a finished relay's status is failed and its row carries an error
-- **THEN** the error text is shown in its row
-
-#### Scenario: The keep time is unknown
-
-- **WHEN** a finished row carries no `expires_at`
-- **THEN** its "kept until" cell shows a placeholder
-- **AND** the UI does not compute one from retention settings
-
-#### Scenario: A relay past its retention window
-
-- **WHEN** a relay's completion is older than its retention window
-- **THEN** the controller does not report it and it is not listed
-
-#### Scenario: A finished relay is opened
-
-- **WHEN** an operator opens a finished relay
-- **THEN** its completion record is shown
-- **AND** actions that require a live relay are absent rather than failing when used
 
 ### Requirement: Rescale and rewind
 

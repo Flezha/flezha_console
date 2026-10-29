@@ -5,7 +5,10 @@
   tabs={Layouts.relay_tabs(@ns, @relay_id, :state)}
   tabs_label="Relay views"
 >
-  <:sentence>
+  <:sentence :if={state_gone?(@state_kept)}>
+    {@relay_id} has ended, and the controller did not keep its state.
+  </:sentence>
+  <:sentence :if={!state_gone?(@state_kept)}>
     What {@relay_id} has kept:
     <%= if @run == :steps do %>
       its steps facts,
@@ -23,6 +26,17 @@
 <.runtime_error error={@load_error} action="the state listing" />
 
 <.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
+<.notice :if={state_gone?(@state_kept)} testid="state-not-kept">
+  This run's state was not kept, so it has no Cells, task journal or input log to read. A factory
+  keeps the state of its finished runs by declaring <code>keep_finished</code>.
+  <.link
+    navigate={~p"/logs/relay_history?#{[namespace: @ns, relay: @relay_id, event: "ended"]}"}
+    data-testid="state-ended-record"
+  >
+    Read how it ended.
+  </.link>
+</.notice>
 
 <%!-- Steps facts, as sentences --%>
 <.section :if={@run == :steps and @facts} id="steps" testid="steps-panel" flush>
@@ -143,6 +157,7 @@
 
 <%!-- SDK state, read on request --%>
 <.section
+  :if={!state_gone?(@state_kept)}
   fold="sdk-state"
   open={@sections["sdk-state"]}
   testid="sdk-state-panel"
@@ -223,8 +238,15 @@
           {hours} hours
       <% end %>
     </.stat>
-    <.stat :if={@run != :flow} label="Finished-instance retention" testid="finished-retention">
-      {if @retention_hours, do: "#{@retention_hours} hours", else: "Unavailable"}
+    <.stat :if={@run != :flow} label="Finished state" testid="finished-retention">
+      <%= cond do %>
+        <% is_nil(@retention_hours) -> %>
+          Unavailable
+        <% @retention_hours > 0 -> %>
+          Kept for {@retention_hours} hours after a run ends
+        <% true -> %>
+          Not kept — a factory keeps it by declaring <code>keep_finished</code>
+      <% end %>
     </.stat>
   </dl>
   <form
@@ -252,7 +274,7 @@
 </.section>
 
 <%!-- Durable cells --%>
-<.section testid="cells-panel">
+<.section :if={!state_gone?(@state_kept)} testid="cells-panel">
   <:title>Durable cells</:title>
   <.empty_state :if={@cells == []} icon="hero-circle-stack" testid="state-empty">
     A cell is a keyed unit of state a tasklet persists. This relay has none persisted yet.

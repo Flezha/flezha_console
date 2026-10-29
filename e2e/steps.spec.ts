@@ -10,7 +10,8 @@ import {
 
 /**
  * The steps panel, task journal and input log of a durable steps relay this
- * file starts for itself, and the finished relay it leaves once stopped.
+ * file starts for itself, and the run it leaves in the relay history once
+ * stopped.
  *
  * Whether a steps relay suspends, or how many iterations its journal holds,
  * depends on inputs a browser cannot send yet, so those states are asserted in
@@ -34,7 +35,9 @@ test.describe('Steps relays', () => {
     await expect(panel).toContainText(/exactly once|at least once/);
     await expect(page.getByTestId('steps-init-error')).toHaveCount(0);
     await expect(page.getByTestId('history-retention')).toContainText(/\d+ hours/);
-    await expect(page.getByTestId('finished-retention')).toContainText(/\d+ hours/);
+    // The test app's factories declare no keep_finished, and the dev
+    // controllers keep nothing by default.
+    await expect(page.getByTestId('finished-retention')).toContainText('Not kept');
 
     // Nothing sent yet: nothing pending, and an empty log said in words,
     // never as an offset of -1.
@@ -70,30 +73,26 @@ test.describe('Steps relays', () => {
     await expect(page.locator('body')).toContainText(`Rewound to iteration ${iteration}.`);
   });
 
-  test('a stopped steps relay is listed as finished, with its completion record', async ({
+  test("a stopped steps relay is listed among the namespace's recent runs, and opens on its last run", async ({
     page,
     live,
   }) => {
-    // A steps relay stops cooperatively, leaves the listing once it has
-    // completed, and completes as cancelled.
     await stopRelay(page, id);
 
     await live('/namespaces/default');
-    await openSection(page, 'finished-relays');
-    await page.getByTestId('reload-finished').click();
-    const row = page.getByTestId(`finished-row-${id}`);
-    // Finished relays stay listed for their retention window, so this one may
-    // sit past the first page.
-    await growListing(page, 'finished', row);
-    await expect(row).toContainText('Cancelled');
-    await expect(row).toContainText('steps');
-    await expect(page.getByTestId(`finished-at-${id}`)).toContainText(/now|s ago/);
-    // Kept until the end of the retention window the controller computed.
-    await expect(page.getByTestId(`finished-kept-${id}`)).toContainText(/\bin \d/);
+    await openSection(page, 'recent-runs');
+    const row = page.getByTestId(`run-row-${id}`);
+    // Other workers' runs end too, so this one may sit past the first page.
+    await growListing(page, 'recent-runs', row);
+    await expect(row).toContainText(`${id} finished: stopped`);
 
-    await row.getByRole('link').click();
-    await expect(page).toHaveURL(new RegExp(`/relays/${id}$`));
-    await expect(page.getByTestId('completion-record')).toContainText('Cancelled');
+    // The listing stays live, so a run ending elsewhere can move this row
+    // under a click: the link is followed by its address.
+    const link = row.getByRole('link', { name: id, exact: true });
+    await expect(link).toHaveAttribute('href', new RegExp(`/relays/${id}$`));
+    await live((await link.getAttribute('href'))!);
+    await expect(page.getByTestId('finished-outcome')).toContainText('stopped');
+    await expect(page.getByTestId('finished-state')).toContainText('state was not kept');
 
     // Actions that need a live relay are absent rather than failing.
     await expect(page.getByTestId('task-journal-panel')).toHaveCount(0);

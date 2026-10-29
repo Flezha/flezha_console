@@ -25,7 +25,8 @@ defmodule FlezhaConsoleWeb.OperatorLanguageTest do
     "/controller",
     "/observability",
     "/dlq",
-    "/audit",
+    "/logs/audit",
+    "/logs/relay_history",
     "/namespaces/default/relays/relay_a",
     "/namespaces/default/relays/relay_a/listen",
     "/namespaces/default/relays/relay_a/state"
@@ -46,6 +47,23 @@ defmodule FlezhaConsoleWeb.OperatorLanguageTest do
       }
     )
 
+    # Every screen showing relay history says its records in words.
+    ended =
+      FakeController.history_record("relay_a", %{
+        "event" => "ended",
+        "outcome" => "timed_out",
+        "halted" => true,
+        "duration_ms" => 41_000,
+        "error" => "",
+        "origin" => %{"kind" => "spawn", "parent_relay" => "ma_fan"}
+      })
+
+    FakeController.set(
+      node,
+      {Flezha.Service.Logs, :read},
+      FakeController.log_page([ended, FakeController.history_record("relay_a")])
+    )
+
     :ok
   end
 
@@ -58,7 +76,7 @@ defmodule FlezhaConsoleWeb.OperatorLanguageTest do
   test "no routed screen shows a raw atom", %{conn: conn} do
     for route <- @routes do
       {:ok, view, _html} = live(conn, route)
-      hits = Regex.scan(@atom, said(render(view))) |> List.flatten() |> Enum.uniq()
+      hits = Regex.scan(@atom, said(render_async(view))) |> List.flatten() |> Enum.uniq()
 
       assert hits == [], "#{route} shows #{Enum.join(hits, ", ")}"
     end

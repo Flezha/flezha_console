@@ -164,7 +164,7 @@ its state to assistive technology.
 
 ### Requirement: Controller subscriptions are taken through the published tail operations
 
-Every live controller subscription the console holds — runner session events, an observability source's signals, the audit log's records — SHALL be taken through a published stream operation of the consumer API (`Flezha.Service.Observability.tail/2` or `Flezha.Service.AuditLog.tail/2`) with the console's caller context, and SHALL be held by `FlezhaConsole.Service.EventFeed`, which receives the signals on the console node and forwards each one to the console process that asked for it. The console SHALL NOT call `Flezha.Service.EventManager` or any other unpublished controller module to subscribe.
+Every live controller subscription the console holds — runner session events, an observability source's signals, a log's records — SHALL be taken through a published stream operation of the consumer API (`Flezha.Service.Observability.tail/2` or `Flezha.Service.Logs.tail/2`) with the console's caller context, and SHALL be held by `FlezhaConsole.Service.EventFeed`, which receives the signals on the console node and forwards each one to the console process that asked for it. The console SHALL NOT call `Flezha.Service.EventManager` or any other unpublished controller module to subscribe.
 
 #### Scenario: Establishing the runner event subscription
 
@@ -208,7 +208,7 @@ The bridge SHALL monitor the controller connection and the feed's subscription a
 
 ### Requirement: Every tail rides the event feed
 
-A live tail of an observability source or of the audit log SHALL be carried by `FlezhaConsole.Service.EventFeed`, the mechanism that carries runtime events. A second subscription mechanism SHALL NOT be introduced.
+A live tail of an observability source or of a log SHALL be carried by `FlezhaConsole.Service.EventFeed`, the mechanism that carries runtime events. A second subscription mechanism SHALL NOT be introduced.
 
 #### Scenario: Tailing a source
 
@@ -216,10 +216,10 @@ A live tail of an observability source or of the audit log SHALL be carried by `
 - **THEN** `EventFeed` takes the subscription through `Flezha.Service.Observability.tail/2`
 - **AND** signals arrive in the LiveView without a page reload
 
-#### Scenario: Tailing the audit log
+#### Scenario: Tailing a log
 
-- **WHEN** an operator starts a live audit tail
-- **THEN** `EventFeed` carries it, through `Flezha.Service.AuditLog.tail/2`
+- **WHEN** an operator starts the live tail of a log kind, or a relay screen tails its own history
+- **THEN** `EventFeed` carries it, through `Flezha.Service.Logs.tail/2`
 
 #### Scenario: One feed
 

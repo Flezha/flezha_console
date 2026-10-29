@@ -60,7 +60,17 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
       {&NodeManager.delete_cell("rc/t/k", &1), {Steps, :delete}, ["rc/t/k"]},
       {&NodeManager.set_retention("rc", 6, &1), {Steps, :set_retention}, ["rc", 6]},
       {&NodeManager.schedule_run("nightly", &1), {Schedule, :run}, ["nightly"]},
-      {&NodeManager.audit_rotate(&1), {Logs, :rotate}, [[kind: "audit", node: node]]}
+      {&NodeManager.log_kinds(&1), {Logs, :kinds}, []},
+      {&NodeManager.log_read(
+         "audit",
+         %{filters: %{"name" => "x"}, limit: 5_000, before: "c1"},
+         &1
+       ), {Logs, :read},
+       [[kind: "audit", filters: %{"name" => "x"}, before: "c1", limit: 1_000]]},
+      {&NodeManager.log_files("audit", &1), {Logs, :files}, [[kind: "audit"]]},
+      {&NodeManager.log_stats("audit", &1), {Logs, :stats}, [[kind: "audit"]]},
+      {&NodeManager.log_rotate("audit", node, &1), {Logs, :rotate},
+       [[kind: "audit", node: to_string(node)]]}
     ]
   end
 
@@ -112,8 +122,53 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
       assert NodeManager.dlq_get("e1", nil) == {:ok, %{ref: "e1"}, "payload"}
     end
 
-    test "a relay with no completion record answers not_found" do
-      assert NodeManager.completion("r1", nil) == {:error, :not_found}
+    test "a log's files and statistics answer as rows, naming who did not answer", %{
+      node: node
+    } do
+      file = FakeController.log_file_row(:flezha@c1, "audit-1.jsonl")
+      stats = FakeController.log_stats_row(:flezha@c1)
+
+      FakeController.set(
+        node,
+        {Logs, :files},
+        {:ok, %{files: [file], unreachable: [:flezha@c2]}}
+      )
+
+      FakeController.set(node, {Logs, :stats}, {:ok, %{controllers: [stats], unreachable: []}})
+
+      assert NodeManager.log_files("audit", nil) ==
+               {:ok, %{rows: [file], unreachable: [:flezha@c2]}}
+
+      assert NodeManager.log_stats("audit", nil) == {:ok, %{rows: [stats], unreachable: []}}
+    end
+
+    test "a read of one file names its controller and drops what it leaves empty", %{node: node} do
+      NodeManager.log_read(
+        "relay_history",
+        %{filters: %{}, file: "relay_history-1.jsonl", node: "flezha@c1", before: nil, limit: 50},
+        nil
+      )
+
+      assert [[params, _ctx]] = FakeController.calls(node, {Logs, :read})
+
+      assert params == [
+               kind: "relay_history",
+               node: "flezha@c1",
+               file: "relay_history-1.jsonl",
+               limit: 50
+             ]
+    end
+
+    test "a relay with no recorded end answers not_found" do
+      assert NodeManager.kept_until("r1", nil) == {:error, :not_found}
+    end
+
+    test "a finished relay's state is kept until a time, or was not kept", %{node: node} do
+      FakeController.set(node, {Steps, :completion}, {:ok, %{state_kept: true, expires_at: 9}})
+      assert NodeManager.kept_until("r1", nil) == {:ok, 9}
+
+      FakeController.set(node, {Steps, :completion}, {:ok, %{state_kept: false}})
+      assert NodeManager.kept_until("r1", nil) == {:ok, nil}
     end
 
     test "the relay ids are read from the relay listing's rows", %{node: node} do

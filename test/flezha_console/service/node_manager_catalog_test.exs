@@ -256,23 +256,44 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
     end
   end
 
-  describe "finished_relays/2" do
-    test "keeps only the relays the controller reports as finished", %{node: node} do
+  describe "last_run/3" do
+    test "reads the relay's newest ended record from the relay history", %{node: node} do
+      ended = FakeController.history_record("done", %{"event" => "ended", "outcome" => "failed"})
+
       FakeController.set(
         node,
-        {Flezha.Service.Relay, :info},
-        {:ok,
-         %{
-           relays: [
-             %{id: "live", phase: "running"},
-             %{id: "done", phase: "finished", status: "ok", finished_at: 1}
-           ],
-           unreachable: [:"flezha@node-b"]
-         }}
+        {Flezha.Service.Logs, :read},
+        FakeController.log_page([ended], "c1")
       )
 
-      assert {:ok, %{rows: [%{id: "done"}], unreachable: [:"flezha@node-b"]}} =
-               NodeManager.finished_relays("default", nil)
+      assert {:ok, ^ended} = NodeManager.last_run("default", "done", nil)
+
+      assert [[params, %{source: :ui}]] =
+               FakeController.calls(node, {Flezha.Service.Logs, :read})
+
+      assert params[:kind] == "relay_history"
+      assert params[:limit] == 1
+
+      assert params[:filters] == %{
+               "namespace" => "default",
+               "relay" => "done",
+               "event" => "ended"
+             }
+    end
+
+    test "answers nil for a relay the history never saw end", %{node: _node} do
+      assert {:ok, nil} = NodeManager.last_run("default", "never", nil)
+    end
+
+    test "passes a refusal on", %{node: node} do
+      FakeController.set(
+        node,
+        {Flezha.Service.Logs, :read},
+        FakeController.error("authz.role_insufficient")
+      )
+
+      assert {:error, %Flezha.Error{code: "authz.role_insufficient"}} =
+               NodeManager.last_run("default", "done", nil)
     end
   end
 end

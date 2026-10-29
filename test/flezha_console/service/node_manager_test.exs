@@ -43,7 +43,7 @@ defmodule FlezhaConsole.Service.NodeManagerTest do
       fn -> NodeManager.cell_state("default", "r1", nil, nil) end,
       fn -> NodeManager.overwatch_state("default", "r1", nil) end,
       fn -> NodeManager.overwatch_facts("default", "r1", nil) end,
-      fn -> NodeManager.finished_relays("default", nil) end,
+      fn -> NodeManager.last_run("default", "r1", nil) end,
       fn -> NodeManager.task_journal("r1", nil) end,
       fn -> NodeManager.plugins("default", nil) end,
       fn -> NodeManager.providers(nil) end,
@@ -52,13 +52,16 @@ defmodule FlezhaConsole.Service.NodeManagerTest do
       fn -> NodeManager.dlq_get("a/b/c", nil) end,
       fn -> NodeManager.dlq_stats(nil) end,
       fn -> NodeManager.schedule_list(nil) end,
-      fn -> NodeManager.audit_files(nil) end,
-      fn -> NodeManager.audit_stats(nil) end,
+      fn -> NodeManager.log_kinds(nil) end,
+      fn -> NodeManager.log_read("audit", %{}, nil) end,
+      fn -> NodeManager.log_files("audit", nil) end,
+      fn -> NodeManager.log_stats("audit", nil) end,
+      fn -> NodeManager.log_rotate("audit", "flezha@c1", nil) end,
       fn -> NodeManager.controller_status(nil) end,
       fn -> NodeManager.cluster_status("default", nil) end,
       fn -> NodeManager.liveness_snapshot(nil) end,
       fn -> NodeManager.namespace_records(nil) end,
-      fn -> NodeManager.audit_tail(nil, self()) end,
+      fn -> NodeManager.log_tail("audit", %{}, nil, self()) end,
       fn -> NodeManager.listen("default", "r1", :output, nil, self()) end
     ]
   end

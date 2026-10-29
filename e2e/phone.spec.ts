@@ -33,7 +33,7 @@ const ROUTES = [
   '/cluster',
   '/controller',
   '/observability',
-  '/audit',
+  '/logs/audit',
   '/users/settings',
   '/users/log-in',
 ];

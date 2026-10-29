@@ -450,7 +450,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLive do
   @sink_purposes %{
     Flezha.Observability.PubSubSink => "live tails",
     Flezha.Observability.RingBufferSink => "recent history",
-    Flezha.Observability.AuditLog.Sink => "the audit log",
+    Flezha.Logs.Sink => "the audit log",
     Flezha.Observability.HookSink => "controller plugins",
     Flezha.Observability.Export.PrometheusSink => "Prometheus",
     Flezha.Observability.Export.OtlpSink => "an OTLP collector"
