@@ -144,7 +144,12 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
 
   # A relay of another namespace, its counters keyed by it.
   defp elsewhere(count),
-    do: FakeController.relay_counters("elsewhere", in: count, out: count, namespace: "other")
+    do:
+      FakeController.relay_counters("elsewhere", %{
+        io_in_received: count,
+        forwarded: count,
+        namespace: "other"
+      })
 
   defp snapshot(node, relays, channels \\ []) do
     FakeController.set(
@@ -159,10 +164,14 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
                counted
 
              {id, received, forwarded} ->
-               FakeController.relay_counters(id, in: received, out: forwarded)
+               FakeController.relay_counters(id, %{io_in_received: received, forwarded: forwarded})
 
              {id, received, forwarded, filtered} ->
-               FakeController.relay_counters(id, in: received, out: forwarded, filtered: filtered)
+               FakeController.relay_counters(id, %{
+                 io_in_received: received,
+                 forwarded: forwarded,
+                 filtered_nil: filtered
+               })
            end)
        }}
     )

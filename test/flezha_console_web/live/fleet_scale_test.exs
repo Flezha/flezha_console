@@ -327,8 +327,8 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
          %{
            channels: [],
            relays: [
-             FakeController.relay_counters("r00001", in: 10, out: 4),
-             FakeController.relay_counters("r00002", in: 30, out: 6)
+             FakeController.relay_counters("r00001", %{io_in_received: 10, forwarded: 4}),
+             FakeController.relay_counters("r00002", %{io_in_received: 30, forwarded: 6})
            ],
            unreachable: []
          }}
@@ -347,8 +347,8 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
          %{
            channels: [],
            relays: [
-             FakeController.relay_counters("r00001", in: 50, out: 4),
-             FakeController.relay_counters("r00002", in: 50, out: 6)
+             FakeController.relay_counters("r00001", %{io_in_received: 50, forwarded: 4}),
+             FakeController.relay_counters("r00002", %{io_in_received: 50, forwarded: 6})
            ],
            unreachable: []
          }}

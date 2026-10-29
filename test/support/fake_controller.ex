@@ -479,27 +479,6 @@ defmodule FakeController do
     do: {:ok, %{records: records, next: next, unreachable: Enum.map(unreachable, &to_node/1)}}
 
   @doc """
-  A relay's row of `Controller.liveness_counters/2`: `in`, `out` and
-  `filtered` record counts, keyed by `namespace` (`"default"` unless given),
-  on `flezha@node-a`, every other counter at 0.
-  """
-  def relay_counters(id, counts) do
-    %{
-      relay_id: id,
-      namespace: Keyword.get(counts, :namespace, "default"),
-      node: :"flezha@node-a",
-      io_in_received: Keyword.get(counts, :in, 0),
-      forwarded: Keyword.get(counts, :out, 0),
-      filtered_nil: Keyword.get(counts, :filtered, 0),
-      bytes_in: 0,
-      bytes_forwarded: 0,
-      bytes_filtered: 0,
-      halted_drops: 0,
-      not_started_drops: 0
-    }
-  end
-
-  @doc """
   `Namespace.quota/3`'s answer: the cluster's `total`, all on
   `flezha@node-a` unless `by_node` splits it, and the controllers that did not
   count.
@@ -742,6 +721,29 @@ defmodule FakeController do
         factory: "store_input",
         partition: nil,
         node: :"flezha@node-a"
+      },
+      overrides
+    )
+  end
+
+  @doc """
+  A relay's row of `Controller.liveness_counters/2` in namespace `default` on
+  `flezha@node-a`, every counter at 0, with `overrides` applied.
+  """
+  def relay_counters(id, overrides \\ %{}) do
+    Map.merge(
+      %{
+        relay_id: id,
+        namespace: "default",
+        node: :"flezha@node-a",
+        io_in_received: 0,
+        forwarded: 0,
+        filtered_nil: 0,
+        bytes_in: 0,
+        bytes_forwarded: 0,
+        bytes_filtered: 0,
+        halted_drops: 0,
+        not_started_drops: 0
       },
       overrides
     )

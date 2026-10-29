@@ -392,7 +392,13 @@ defmodule FlezhaConsoleWeb.TopologyTest do
       quiet = Topology.pipeline(lr(chain()))
 
       skipped = %{
-        relays: [FakeController.relay_counters("relay_a", in: 5, out: 3, filtered: 2)]
+        relays: [
+          FakeController.relay_counters("relay_a", %{
+            io_in_received: 5,
+            forwarded: 3,
+            filtered_nil: 2
+          })
+        ]
       }
 
       graph = Topology.pipeline(lr(chain(%{snapshot: skipped})))
@@ -957,7 +963,7 @@ defmodule FlezhaConsoleWeb.TopologyTest do
 
     test "a runner channel out of credit reads Stuck and marks the output edge" do
       snapshot = %{
-        relays: [FakeController.relay_counters("relay_a", in: 1, out: 1)],
+        relays: [FakeController.relay_counters("relay_a", %{io_in_received: 1, forwarded: 1})],
         channels: [
           %{name: "runner-a", runner_id: "runner-a", credit_active: 1, credit_ledger_level: 0}
         ]
@@ -1283,10 +1289,22 @@ defmodule FlezhaConsoleWeb.TopologyTest do
 
     test "advancing counters over elapsed time become messages per second" do
       previous =
-        snapshot([FakeController.relay_counters("relay_a", in: 100, out: 90, filtered: 4)])
+        snapshot([
+          FakeController.relay_counters("relay_a", %{
+            io_in_received: 100,
+            forwarded: 90,
+            filtered_nil: 4
+          })
+        ])
 
       current =
-        snapshot([FakeController.relay_counters("relay_a", in: 140, out: 120, filtered: 10)])
+        snapshot([
+          FakeController.relay_counters("relay_a", %{
+            io_in_received: 140,
+            forwarded: 120,
+            filtered_nil: 10
+          })
+        ])
 
       assert %{{"default", "relay_a"} => %{in: 20.0, out: 15.0, filtered: 3.0}} =
                Topology.rates(current, previous, 2_000)
@@ -1294,7 +1312,9 @@ defmodule FlezhaConsoleWeb.TopologyTest do
 
     test "a controller that counts bytes gives byte rates too; one that does not gives none" do
       with_bytes =
-        &Map.merge(FakeController.relay_counters("relay_a", in: &1, out: &1), %{
+        &FakeController.relay_counters("relay_a", %{
+          io_in_received: &1,
+          forwarded: &1,
           bytes_in: &2,
           bytes_forwarded: &2
         })
@@ -1308,7 +1328,12 @@ defmodule FlezhaConsoleWeb.TopologyTest do
       assert Topology.traffic_label(rate, :in) == "20.0 msgs/s · 2.0 KB/s"
 
       bytes = [:bytes_in, :bytes_forwarded, :bytes_filtered]
-      without_bytes = &Map.drop(FakeController.relay_counters("relay_a", in: &1, out: &2), bytes)
+
+      without_bytes =
+        &Map.drop(
+          FakeController.relay_counters("relay_a", %{io_in_received: &1, forwarded: &2}),
+          bytes
+        )
 
       older =
         Topology.rates(
@@ -1328,7 +1353,11 @@ defmodule FlezhaConsoleWeb.TopologyTest do
           {"no elapsed time is not divided by", 140, 100, 0}
         ] do
       test "#{why}, so it yields no rates" do
-        reading = &(&1 && snapshot([FakeController.relay_counters("relay_a", in: &1, out: &1)]))
+        reading =
+          &(&1 &&
+              snapshot([
+                FakeController.relay_counters("relay_a", %{io_in_received: &1, forwarded: &1})
+              ]))
 
         assert Topology.rates(
                  reading.(unquote(current)),
@@ -1341,20 +1370,28 @@ defmodule FlezhaConsoleWeb.TopologyTest do
 
     test "counters that went backwards clamp to zero for the tick" do
       # What a controller restart looks like from here.
-      previous = snapshot([FakeController.relay_counters("relay_a", in: 5_000, out: 4_900)])
-      current = snapshot([FakeController.relay_counters("relay_a", in: 12, out: 8)])
+      previous =
+        snapshot([
+          FakeController.relay_counters("relay_a", %{io_in_received: 5_000, forwarded: 4_900})
+        ])
+
+      current =
+        snapshot([FakeController.relay_counters("relay_a", %{io_in_received: 12, forwarded: 8})])
 
       assert %{{"default", "relay_a"} => %{in: +0.0, out: +0.0}} =
                Topology.rates(current, previous, 2_000)
     end
 
     test "a relay absent from the previous snapshot gets no rate until it has a baseline" do
-      previous = snapshot([FakeController.relay_counters("relay_a", in: 100, out: 90)])
+      previous =
+        snapshot([
+          FakeController.relay_counters("relay_a", %{io_in_received: 100, forwarded: 90})
+        ])
 
       current =
         snapshot([
-          FakeController.relay_counters("relay_a", in: 120, out: 110),
-          FakeController.relay_counters("relay_b", in: 7, out: 7)
+          FakeController.relay_counters("relay_a", %{io_in_received: 120, forwarded: 110}),
+          FakeController.relay_counters("relay_b", %{io_in_received: 7, forwarded: 7})
         ])
 
       rates = Topology.rates(current, previous, 1_000)
@@ -1365,13 +1402,23 @@ defmodule FlezhaConsoleWeb.TopologyTest do
 
     test "relays of the same id in two namespaces keep their own rates" do
       other =
-        &Map.put(FakeController.relay_counters("relay_a", in: &1, out: &1), :namespace, "billing")
+        &FakeController.relay_counters("relay_a", %{
+          io_in_received: &1,
+          forwarded: &1,
+          namespace: "billing"
+        })
 
       previous =
-        snapshot([FakeController.relay_counters("relay_a", in: 100, out: 90), other.(10)])
+        snapshot([
+          FakeController.relay_counters("relay_a", %{io_in_received: 100, forwarded: 90}),
+          other.(10)
+        ])
 
       current =
-        snapshot([FakeController.relay_counters("relay_a", in: 120, out: 110), other.(50)])
+        snapshot([
+          FakeController.relay_counters("relay_a", %{io_in_received: 120, forwarded: 110}),
+          other.(50)
+        ])
 
       assert %{{"default", "relay_a"} => %{in: 20.0}, {"billing", "relay_a"} => %{in: 40.0}} =
                Topology.rates(current, previous, 1_000)

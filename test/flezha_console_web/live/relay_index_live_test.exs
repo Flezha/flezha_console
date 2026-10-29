@@ -184,7 +184,7 @@ defmodule FlezhaConsoleWeb.RelayIndexLiveTest do
            channels: [],
            relays:
              for {id, count} <- received do
-               FakeController.relay_counters(id, in: count)
+               FakeController.relay_counters(id, %{io_in_received: count})
              end
          }}
       )

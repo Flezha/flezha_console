@@ -34,7 +34,7 @@ defmodule FlezhaConsole.ControllerShapesTest do
     {"Fleet.provider", [1, "options", :each], {:option_row, ["url"]}},
     {"Fleet.runners", [1, :each], {:runner_row, ["runner-a"]}},
     {"Controller.liveness_counters relays", [1, "relays", :each],
-     {:relay_counters, ["relay_a", [in: 3]]}},
+     {:relay_counters, ["relay_a", %{io_in_received: 3}]}},
     {"Logs.kinds", [1, :each], {:log_kind, ["relay_history"]}},
     {"Logs.read", [1, "records", :each], {:history_record, ["relay_a"]}},
     {"Logs.stats", [1, "controllers", :each], {:log_stats_row, [:"flezha@node-a"]}},
