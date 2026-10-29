@@ -17,6 +17,7 @@ defmodule FlezhaConsoleWeb.Layouts do
   alias FlezhaConsole.Service.NodeManager
   alias FlezhaConsoleWeb.Attention
   alias FlezhaConsoleWeb.Glossary
+  alias FlezhaConsoleWeb.Live.Refresh
   alias FlezhaConsoleWeb.Live.Sections
   alias FlezhaConsoleWeb.Topology
 
@@ -660,7 +661,7 @@ defmodule FlezhaConsoleWeb.Layouts do
           {:cont, socket}
       end)
       |> Phoenix.LiveView.attach_hook(:shell_visibility, :handle_event, &visibility/3)
-      |> FlezhaConsoleWeb.Live.Refresh.on_answer(:shell_pulse, :pulse_reading, &pulse_apply/2)
+      |> Refresh.on_answer(:shell_pulse, :pulse_reading, &pulse_apply/2)
     else
       socket
     end
@@ -677,7 +678,7 @@ defmodule FlezhaConsoleWeb.Layouts do
 
   defp pulse(socket),
     do:
-      FlezhaConsoleWeb.Live.Refresh.start_once(
+      Refresh.start_once(
         socket,
         :pulse_reading,
         :shell_pulse,

@@ -41,6 +41,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   alias FlezhaConsole.Format
   alias FlezhaConsole.Service.NodeManager
   alias FlezhaConsoleWeb.Attention
+  alias FlezhaConsoleWeb.Live.Sections
   alias FlezhaConsoleWeb.Topology
 
   @impl true
@@ -344,7 +345,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
           do: to_string(group)
 
     ns
-    |> NodeManager.relay_list(token, limit: FlezhaConsoleWeb.Live.Sections.reach(), sort: :id)
+    |> NodeManager.relay_list(token, limit: Sections.reach(), sort: :id)
     |> NodeManager.ok_or([])
     |> Enum.filter(& &1[:partitions])
     |> Enum.map(&Map.put(&1, :coverage_broken?, MapSet.member?(broken, to_string(&1.id))))
@@ -692,7 +693,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
 
   defp read_older_runs(%{assigns: %{runs_next: next, runs: runs}} = socket)
        when is_binary(next) do
-    if FlezhaConsoleWeb.Live.Sections.shown(socket.assigns.paging, @runs_id) > length(runs) do
+    if Sections.shown(socket.assigns.paging, @runs_id) > length(runs) do
       %{ns: ns, flezha_token: token} = socket.assigns
 
       FlezhaConsoleWeb.Live.Refresh.start_once(socket, :runs_loading?, :older_runs, fn ->
@@ -738,7 +739,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   @doc "How many of the runs a listing shows did not complete."
   def not_completed(runs, paging) do
     runs
-    |> Enum.take(FlezhaConsoleWeb.Live.Sections.shown(paging, @runs_id))
+    |> Enum.take(Sections.shown(paging, @runs_id))
     |> Enum.count(&(&1["outcome"] != "completed"))
   end
 

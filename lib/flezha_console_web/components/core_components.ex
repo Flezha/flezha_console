@@ -1080,19 +1080,16 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   # own listing, and the control that grows it.
   defp open_rows(rows, nil, _paging), do: rows
 
-  defp open_rows(rows, expand, paging) when is_list(rows) do
-    Enum.flat_map(rows, fn row ->
-      case expand.(row) do
-        {id, [_ | _] = opened} ->
-          shown = Sections.shown(paging, id)
-          more = %{more_of: id, shown: shown, total: length(opened)}
-          [row | Enum.take(opened, shown)] ++ if(length(opened) > shown, do: [more], else: [])
+  defp open_rows(rows, expand, paging) when is_list(rows),
+    do: Enum.flat_map(rows, &open_row(&1, expand.(&1), paging))
 
-        _closed ->
-          [row]
-      end
-    end)
+  defp open_row(row, {id, [_ | _] = opened}, paging) do
+    shown = Sections.shown(paging, id)
+    more = %{more_of: id, shown: shown, total: length(opened)}
+    [row | Enum.take(opened, shown)] ++ if(length(opened) > shown, do: [more], else: [])
   end
+
+  defp open_row(row, _closed, _paging), do: [row]
 
   @doc """
   A listing that is not a grid, paged the way a grid is: its inner block is

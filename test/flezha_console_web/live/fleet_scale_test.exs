@@ -17,6 +17,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
   alias Flezha.Service.Relay
   alias Flezha.Service.Steps
   alias FlezhaConsole.DeadLetters
+  alias FlezhaConsoleWeb.NamespaceLive.Show
 
   defp relays(count, overrides \\ fn _index -> %{} end) do
     for index <- 1..count do
@@ -378,8 +379,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
         {micros, _html} =
           :timer.tc(fn ->
             for _render <- 1..20,
-                do:
-                  assigns |> FlezhaConsoleWeb.NamespaceLive.Show.render() |> rendered_to_string()
+                do: assigns |> Show.render() |> rendered_to_string()
           end)
 
         micros

@@ -29,6 +29,7 @@ defmodule FlezhaConsoleWeb.PluginLive do
 
   alias FlezhaConsole.Service.NodeManager
   alias FlezhaConsoleWeb.ListingView
+  alias FlezhaConsoleWeb.Live.PluginForm
   alias FlezhaConsoleWeb.Live.Sections
 
   @listing "plugins"
@@ -405,7 +406,7 @@ defmodule FlezhaConsoleWeb.PluginLive do
     do:
       Map.merge(
         other,
-        FlezhaConsoleWeb.Live.PluginForm.relay_matches(other.namespace, query, token)
+        PluginForm.relay_matches(other.namespace, query, token)
       )
 
   defp bound?(namespace, name, relay, token) do

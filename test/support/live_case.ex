@@ -25,6 +25,8 @@ defmodule FlezhaConsoleWeb.LiveCase do
 
   use ExUnit.CaseTemplate
 
+  alias FlezhaConsole.Service.NodeManager
+
   using do
     quote do
       use FlezhaConsoleWeb.ConnCase, async: false
@@ -142,7 +144,7 @@ defmodule FlezhaConsoleWeb.LiveCase do
         )
       end
 
-    rank = FlezhaConsole.Service.NodeManager.health_verdicts()
+    rank = NodeManager.health_verdicts()
 
     worst =
       members |> Enum.map(& &1.health) |> Enum.max_by(&Enum.find_index(rank, fn h -> h == &1 end))
