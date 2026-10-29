@@ -21,6 +21,9 @@ namespaces =
 
 problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
 <div class="flz-app" phx-mounted={JS.ignore_attributes(["data-nav-open"])}>
+  <%!-- Every screen hears when its tab is hidden: the pulse and the screen's
+        own reads hold until it is shown again. --%>
+  <div :if={live?} id="shell-visibility" phx-hook="FlzVisibility" hidden></div>
   <aside id="shell-nav" class="flz-sidebar" aria-label="Navigation">
     <.link
       navigate={~p"/"}
@@ -120,7 +123,12 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
         </span>
 
         <%!-- One meaning in both places: show me this namespace. --%>
-        <div :if={live?} id="namespace-picker" class="relative min-w-0" data-fcon-pop>
+        <div
+          :if={live? and Map.has_key?(assigns, :shell_namespaces)}
+          id="namespace-picker"
+          class="relative min-w-0"
+          data-fcon-pop
+        >
           <button
             type="button"
             class="flz-dropdown-trigger flz-chrome-icon-btn max-w-full"
@@ -132,7 +140,7 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
             phx-mounted={JS.ignore_attributes(["aria-expanded"])}
           >
             <.icon name="hero-rectangle-stack" class="w-[18px] h-[18px] shrink-0" />
-            <span class="flz-num truncate min-w-0">{scope || "no namespace"}</span>
+            <span class="flz-num truncate min-w-0">{@shell_namespace || "no namespace"}</span>
             <.icon name="hero-chevron-down-micro" class="shrink-0" />
           </button>
           <div
@@ -142,11 +150,13 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
             hidden
             phx-mounted={JS.ignore_attributes(["hidden", "style"])}
           >
-            <p :if={namespaces == []} class="flz-menu-item">No namespace is reachable.</p>
+            <%!-- Read from assigns, not the template's own variables, so a
+                  render re-sends the menu only when the namespaces change. --%>
+            <p :if={@shell_namespaces == []} class="flz-menu-item">No namespace is reachable.</p>
             <.link
-              :for={name <- namespaces}
-              navigate={scope_target(current_path, name)}
-              aria-current={name == scope && "true"}
+              :for={name <- @shell_namespaces}
+              navigate={scope_target(@current_path, name)}
+              aria-current={name == @shell_namespace && "true"}
               data-testid={"namespace-picker-#{name}"}
               data-fcon-pop-item
               class="flz-menu-item flz-num"

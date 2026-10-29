@@ -17,6 +17,7 @@ defmodule FlezhaConsoleWeb.Layouts do
   alias FlezhaConsole.Service.NodeManager
   alias FlezhaConsoleWeb.Attention
   alias FlezhaConsoleWeb.Glossary
+  alias FlezhaConsoleWeb.Live.Sections
   alias FlezhaConsoleWeb.Topology
 
   @theme_hydrate_path Path.expand(
@@ -203,15 +204,33 @@ defmodule FlezhaConsoleWeb.Layouts do
   @doc """
   A partition member's way to the other partitions of its group, each opened
   on the same view; nothing for a relay that is no partition member.
-  `members` are `NodeManager.partition_members/2`'s rows.
+  `members` are `NodeManager.relay_and_partitions/3`'s. A group may hold
+  hundreds, so they are paged, and searched by id past a page.
   """
   attr :ns, :string, required: true
   attr :relay_id, :string, required: true
   attr :view, :atom, required: true, values: [:live, :listen, :state]
   attr :members, :list, required: true
+  attr :paging, :map, required: true, doc: "the screen's `@paging`"
+  attr :searches, :map, required: true, doc: "the screen's `@searches`"
+
+  @partition_menu "partition-menu"
 
   def partition_menu(assigns) do
-    assigns = assign(assigns, :current, NodeManager.relay_row(assigns.members, assigns.relay_id))
+    query =
+      assigns.searches |> Sections.search(@partition_menu) |> String.trim() |> String.downcase()
+
+    assigns =
+      assign(assigns,
+        current: NodeManager.relay_row(assigns.members, assigns.relay_id),
+        listing: @partition_menu,
+        searchable?: length(assigns.members) > Sections.page_size(),
+        listed:
+          Enum.filter(
+            assigns.members,
+            &String.contains?(String.downcase(to_string(&1.id)), query)
+          )
+      )
 
     ~H"""
     <.popover
@@ -226,21 +245,30 @@ defmodule FlezhaConsoleWeb.Layouts do
         Partition p{@current.partition.index} of {@current.partition.count}
         <.icon name="hero-chevron-down-micro" />
       </:trigger>
-      <.link
-        :for={member <- @members}
-        navigate={relay_path(@ns, member.id, @view)}
-        role="menuitemradio"
-        aria-checked={to_string(member == @current)}
-        data-testid={"partition-menu-#{member.id}"}
-        data-fcon-pop-item
-        class="fcon-menu-item fcon-num"
-      >
-        p{member.partition.index} · keys {Format.key_range(member.partition.range)} · {Words.text(
-          :health,
-          member.health
-        )}
-        <.icon :if={member == @current} name="hero-check-micro" class="ml-auto" />
-      </.link>
+      <.listing_search
+        :if={@searchable?}
+        listing={@listing}
+        searches={@searches}
+        placeholder="Partition id"
+        testid="partition-menu-search"
+      />
+      <.paged :let={page} id={@listing} rows={@listed} paging={@paging}>
+        <.link
+          :for={member <- page}
+          navigate={relay_path(@ns, member.id, @view)}
+          role="menuitemradio"
+          aria-checked={to_string(member == @current)}
+          data-testid={"partition-menu-#{member.id}"}
+          data-fcon-pop-item
+          class="fcon-menu-item fcon-num"
+        >
+          p{member.partition.index} · keys {Format.key_range(member.partition.range)} · {Words.text(
+            :health,
+            member.health
+          )}
+          <.icon :if={member == @current} name="hero-check-micro" class="ml-auto" />
+        </.link>
+      </.paged>
     </.popover>
     """
   end
@@ -318,6 +346,9 @@ defmodule FlezhaConsoleWeb.Layouts do
       |> Phoenix.Component.assign_new(:last_namespace, fn ->
         socket.assigns.current_scope.user.last_namespace
       end)
+      # What the shell renders before the first `handle_params`.
+      |> Phoenix.Component.assign_new(:current_path, fn -> "/" end)
+      |> Phoenix.Component.assign_new(:shell_namespace, fn -> nil end)
       |> Phoenix.Component.assign_new(:shell_pulse, fn -> nil end)
       |> start_pulse()
 
@@ -609,10 +640,11 @@ defmodule FlezhaConsoleWeb.Layouts do
 
   # ---- The pulse ----
   #
-  # Every 10 s on a connected screen, the shell gathers the open problems of
-  # every namespace the operator's own token reaches: a fixed number of calls
-  # per namespace and none per relay. The calls run in a task, one pulse at a
-  # time, so a slow controller never holds the screen. It ends with the process.
+  # Every 10 s on a connected, visible screen, the shell gathers the open
+  # problems of every namespace the operator's own token reaches: a fixed
+  # number of calls per namespace and none per relay. The calls run in a task,
+  # one pulse at a time, so a slow controller never holds the screen. It ends
+  # with the process.
 
   defp start_pulse(socket) do
     if Phoenix.LiveView.connected?(socket) do
@@ -622,18 +654,12 @@ defmodule FlezhaConsoleWeb.Layouts do
       |> Phoenix.LiveView.attach_hook(:shell_pulse, :handle_info, fn
         :shell_pulse, socket ->
           Process.send_after(self(), :shell_pulse, @pulse_every)
-
-          {:halt,
-           FlezhaConsoleWeb.Live.Refresh.start_once(
-             socket,
-             :pulse_reading,
-             :shell_pulse,
-             pulse_read(socket)
-           )}
+          {:halt, pulse_now(socket)}
 
         _message, socket ->
           {:cont, socket}
       end)
+      |> Phoenix.LiveView.attach_hook(:shell_visibility, :handle_event, &visibility/3)
       |> FlezhaConsoleWeb.Live.Refresh.on_answer(:shell_pulse, :pulse_reading, &pulse_apply/2)
     else
       socket
@@ -641,45 +667,81 @@ defmodule FlezhaConsoleWeb.Layouts do
   end
 
   @doc """
+  Pulses now, unless the tab is hidden or a pulse is already reading: the
+  timer's pulse, and what a screen asks for when the operator grows the
+  problems read.
+  """
+  def pulse_now(socket) do
+    if socket.assigns[:refresh_hidden], do: socket, else: pulse(socket)
+  end
+
+  defp pulse(socket),
+    do:
+      FlezhaConsoleWeb.Live.Refresh.start_once(
+        socket,
+        :pulse_reading,
+        :shell_pulse,
+        pulse_read(socket)
+      )
+
+  # The shell reports the tab's visibility for every screen: a tab shown again
+  # pulses at once, and a screen that refreshes holds its own reads as well,
+  # through its own handler, which this leaves the change to.
+  defp visibility("refresh_visibility", %{"hidden" => hidden}, socket) when is_boolean(hidden) do
+    socket =
+      if socket.assigns[:refresh_hidden] == true and not hidden, do: pulse(socket), else: socket
+
+    if function_exported?(socket.view, :__refresh_background__, 0),
+      do: {:cont, socket},
+      else: {:halt, Phoenix.Component.assign(socket, :refresh_hidden, hidden)}
+  end
+
+  defp visibility(_event, _params, socket), do: {:cont, socket}
+
+  @doc """
   One pulse's reads, as a function to run off the screen's process: the
-  namespaces the socket's token reaches, each one's relay rows, partition
-  groups and quotas, and the fleet-wide stall verdicts, durability breaches,
-  dead-letter stats, authorization posture and connected controllers.
-  `pulse_apply/2` takes its answer.
+  namespaces the socket's token reaches, each one's most severe relays with
+  its summary, and its quotas, and the fleet-wide stall verdicts, durability
+  breaches, dead-letter stats, authorization posture and connected
+  controllers. A namespace's relays are read as far as `@paging` has grown
+  its problems (`Attention.shown/2`). `pulse_apply/2` takes its answer.
   """
   def pulse_read(socket) do
     token = FlezhaConsole.Accounts.Scope.flezha_token(socket.assigns[:current_scope])
-    fn -> pulse_calls(token) end
+    paging = socket.assigns[:paging]
+    fn -> pulse_calls(token, paging) end
   end
 
-  defp pulse_calls(token) do
+  defp pulse_calls(token, paging) do
     read_at = DateTime.utc_now()
     listed = NodeManager.list_namespaces(token)
     {catalog, catalog_error} = NodeManager.ok_or_error(listed, [])
     names = catalog |> Enum.map(&to_string(&1.namespace)) |> Enum.sort()
+    dlq = FlezhaConsole.DeadLetters.stats(token)
+    unseen = dlq |> NodeManager.ok_or([]) |> Attention.unseen_stats()
 
     reads =
       for name <- names do
-        read_rows = NodeManager.relay_rows(name, token)
-        {rows, rows_error} = NodeManager.ok_or_error(read_rows, [])
-        groups = NodeManager.partition_groups(rows, token)
+        read_page =
+          NodeManager.relay_list(name, token, Attention.relay_opts(Attention.shown(paging, name)))
+
+        page = Attention.page(read_page)
         declared = NodeManager.ok_or(NodeManager.namespace_record(name, token), nil)
         quotas = NodeManager.quota_usage(name, declared && declared.quotas, token)
 
         %{
           namespace: name,
-          rows: rows,
-          faulted_groups: NodeManager.faulted_group_ids(groups),
+          page: page,
+          owns: Topology.owned_classes(unseen, name, token),
           quotas: quotas,
-          serving: NodeManager.serving_counts(name, Attention.waiting_factories(rows), token),
-          error: rows_error,
-          unreachable: NodeManager.unreachable([read_rows | quotas])
+          serving: NodeManager.serving_counts(name, Attention.waiting_factories(page), token),
+          error: elem(NodeManager.ok_or_error(read_page, []), 1),
+          unreachable: NodeManager.unreachable([read_page | quotas])
         }
       end
 
     {verdicts, _notice} = Topology.stall(token)
     breaches = NodeManager.durability_breaches(token)
-    dlq = FlezhaConsole.DeadLetters.stats(token)
     controllers = NodeManager.controllers(token)
 
     %{
@@ -704,7 +766,7 @@ defmodule FlezhaConsoleWeb.Layouts do
   namespaces could not be listed, so no problem list stands for an all-clear.
 
   `fleet` counts what the pulse's reads already answer: the relays' `health`
-  across every reachable namespace as `NodeManager.health_counts/1` pairs, and
+  across every reachable namespace as `NodeManager.health_pairs/1` pairs, and
   the durability `breaches`. `serving` is each namespace's runner counts per
   waiting factory. `controllers` are `NodeManager.controllers/1`'s rows, none
   when they could not be read, and `unreachable` the controllers its reads
@@ -719,7 +781,8 @@ defmodule FlezhaConsoleWeb.Layouts do
 
     reads =
       Enum.map(pulse.reads, fn read ->
-        %{read | serving: Attention.keep_serving(read.serving, known[read.namespace], read.rows)}
+        factories = Attention.waiting_factories(read.page)
+        %{read | serving: Attention.keep_serving(read.serving, known[read.namespace], factories)}
       end)
 
     items =
@@ -740,7 +803,11 @@ defmodule FlezhaConsoleWeb.Layouts do
       checked_at: pulse.read_at,
       error: pulse.catalog_error,
       fleet: %{
-        health: pulse.reads |> Enum.flat_map(& &1.rows) |> NodeManager.health_counts(),
+        health:
+          pulse.reads
+          |> Enum.map(&Map.get(&1.page.summary, :health, %{}))
+          |> Enum.reduce(%{}, &Map.merge(&1, &2, fn _health, a, b -> a + b end))
+          |> NodeManager.health_pairs(),
         breaches: length(pulse.breaches)
       },
       serving: Map.new(reads, &{&1.namespace, &1.serving}),

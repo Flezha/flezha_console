@@ -22,6 +22,7 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   alias FlezhaConsole.Format
   alias FlezhaConsole.Service.NodeManager
   alias FlezhaConsoleWeb.Glossary
+  alias FlezhaConsoleWeb.Live.Sections
   alias FlezhaConsoleWeb.Words
   alias Phoenix.LiveView.JS
 
@@ -585,6 +586,11 @@ defmodule FlezhaConsoleWeb.CoreComponents do
         <:option value="">All</:option>
         <:option :for={ns <- @namespaces} value={ns}>{ns}</:option>
       </.combobox>
+
+  A choice too long to hold, such as a namespace's relays, is searched on the
+  server instead: `search` names the event each debounced query is sent to,
+  as `%{"value" => query}`, and the host answers with the first matches as the
+  options and how many match in all as `matches`.
   """
   attr :id, :string, required: true
   attr :name, :string, required: true
@@ -594,6 +600,14 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   attr :testid, :string, default: nil
   attr :disabled, :boolean, default: false
   attr :searchable, :boolean, default: nil, doc: "defaults to true past eight options"
+
+  attr :search, :string,
+    default: nil,
+    doc: "the event a server-searched choice sends its query to"
+
+  attr :query, :string, default: "", doc: "the query the options answer"
+  attr :matches, :integer, default: nil, doc: "how many choices match the query in all"
+  attr :hint, :string, default: nil
   attr :class, :string, default: nil
 
   slot :option, required: true do
@@ -607,7 +621,14 @@ defmodule FlezhaConsoleWeb.CoreComponents do
       assigns
       |> assign(:value, value)
       |> assign(:chosen, Enum.find(assigns.option, &(&1.value == value)))
-      |> assign(:searchable, assigns.searchable || length(assigns.option) > 8)
+      |> assign(
+        :searchable,
+        !assigns.search and (assigns.searchable || length(assigns.option) > 8)
+      )
+      |> assign(
+        :more,
+        max((assigns.matches || 0) - Enum.count(assigns.option, &(&1.value != "")), 0)
+      )
 
     ~H"""
     <div class={["fcon-field", @class]}>
@@ -626,7 +647,14 @@ defmodule FlezhaConsoleWeb.CoreComponents do
           phx-mounted={JS.ignore_attributes(["aria-expanded"])}
         >
           <span class="flex-1 truncate text-left">
-            {(@chosen && render_slot(@chosen)) || @prompt}
+            <%= cond do %>
+              <% @chosen -> %>
+                {render_slot(@chosen)}
+              <% @search && @value != "" -> %>
+                {@value}
+              <% true -> %>
+                {@prompt}
+            <% end %>
           </span>
           <.icon name="hero-chevron-down-mini" class="w-4 h-4 shrink-0" />
         </button>
@@ -645,6 +673,17 @@ defmodule FlezhaConsoleWeb.CoreComponents do
             aria-label="Filter the choices"
             data-fcon-filter
           />
+          <input
+            :if={@search}
+            type="search"
+            class="fcon-combobox-search fcon-input--compact"
+            placeholder="Search"
+            aria-label="Search the choices"
+            value={@query}
+            phx-keyup={@search}
+            phx-debounce="300"
+            data-testid={@testid && "#{@testid}-search"}
+          />
           <button
             :for={option <- @option}
             type="button"
@@ -661,8 +700,12 @@ defmodule FlezhaConsoleWeb.CoreComponents do
             <.icon name="hero-check-mini" class="fcon-option-check w-4 h-4" />
             <span class="truncate">{render_slot(option)}</span>
           </button>
+          <p :if={@more > 0} class="fcon-figures px-2 py-1" data-testid={@testid && "#{@testid}-more"}>
+            {Format.count(@more)} more match · keep typing
+          </p>
         </div>
       </div>
+      <p :if={@hint} class="fcon-hint">{code_names(@hint)}</p>
     </div>
     """
   end
@@ -689,21 +732,28 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   attr :mono, :boolean, default: false
   attr :placeholder, :string, default: nil, doc: "for the typed fallback"
   attr :testid, :string, required: true
+  attr :search, :string, default: nil, doc: "as `combobox/1` takes it, for a set too long to hold"
+  attr :query, :string, default: ""
+  attr :matches, :integer, default: nil
 
   def enumerated_field(%{error: nil} = assigns) do
     ~H"""
-    <.input
-      type="select"
+    <.combobox
+      id={@testid}
       name={@name}
       label={@label}
       value={@value}
-      prompt={(@options == [] && @empty) || @prompt}
-      options={@options}
+      prompt={((@options == [] and @query == "") && @empty) || @prompt}
       hint={@hint}
-      mono={@mono}
-      disabled={@options == []}
-      data-testid={@testid}
-    />
+      disabled={@options == [] and is_nil(@search)}
+      search={@search}
+      query={@query}
+      matches={@matches}
+      testid={@testid}
+    >
+      <:option :if={@prompt} value="">{@prompt}</:option>
+      <:option :for={{label, value} <- @options} value={to_string(value)}>{label}</:option>
+    </.combobox>
     """
   end
 
@@ -872,13 +922,19 @@ defmodule FlezhaConsoleWeb.CoreComponents do
 
   attr :page_size, :integer, default: 20
 
+  attr :total, :integer,
+    default: nil,
+    doc: "the collection's size, when `rows` is the page the controller answered for `@paging`"
+
   attr :older, :string,
     default: nil,
     doc: "what growing reads once every held row is shown, while the source holds older ones"
 
   attr :expand, :any,
     default: nil,
-    doc: "fn row -> the rows drawn under it; a page counts only the rows it expands"
+    doc:
+      "fn row -> nil, or `{id, rows}` drawn under it as a paged listing of its own, " <>
+        "kept under `id`; a page counts only the rows it expands"
 
   attr :menu_help, :list,
     default: [],
@@ -902,16 +958,24 @@ defmodule FlezhaConsoleWeb.CoreComponents do
 
     # A stream is never sliced: its rows are not held here to count. The page
     # is its own assign, since a page holding every row equals `rows` and
-    # would not count as changed when the listing grows to it.
+    # would not count as changed when the listing grows to it. A controller
+    # listing's rows are already its page, and `total` counts the rest.
     assigns =
       case assigns do
         %{paging: %{} = paging, rows: rows} when is_list(rows) ->
-          shown = FlezhaConsoleWeb.Live.Sections.shown(paging, assigns.id, assigns.page_size)
-          page = rows |> Enum.take(shown) |> expand_rows(assigns.expand)
-          assign(assigns, page: page, shown: shown, total: length(rows))
+          listing = listing_page(assigns)
+
+          assigns
+          |> assign(listing)
+          |> assign(:page, open_rows(listing.page, assigns.expand, paging))
 
         _unpaged ->
-          assign(assigns, page: expand_rows(assigns.rows, assigns.expand), shown: nil, total: nil)
+          assign(assigns,
+            page: open_rows(assigns.rows, assigns.expand, assigns.paging),
+            shown: nil,
+            total: nil,
+            reach: nil
+          )
       end
 
     ~H"""
@@ -955,32 +1019,45 @@ defmodule FlezhaConsoleWeb.CoreComponents do
           role="rowgroup"
           phx-update={match?(%Phoenix.LiveView.LiveStream{}, @rows) && "stream"}
         >
-          <tr
-            :for={row <- @page}
-            role="row"
-            id={@row_id && @row_id.(row)}
-            data-testid={@row_testid && @row_testid.(row)}
-            data-tone={@row_tone && @row_tone.(row)}
-            data-activate={@row_activate && @row_activate.(row) && "true"}
-            aria-selected={@row_selected && to_string(@row_selected.(row))}
-            aria-label={@row_label && @row_label.(row)}
-            tabindex={@row_activate && @row_activate.(row) && "0"}
-            phx-click={@row_activate && @row_activate.(row)}
-            phx-keydown={@row_activate && @row_activate.(row)}
-            phx-key={@row_activate && "Enter"}
-          >
-            <td
-              :for={col <- @col}
-              role="cell"
-              data-label={col[:label]}
-              class={[col[:num] && "fcon-cell-num", col[:class]]}
+          <%= for row <- @page do %>
+            <%!-- An opened row's own listing, grown by its own control. --%>
+            <tr
+              :if={match?(%{more_of: _}, row)}
+              role="row"
+              class="fcon-grid-more"
+              id={"#{row.more_of}-foot"}
             >
-              {render_slot(col, @row_item.(row))}
-            </td>
-            <td :if={@menu != []} role="cell" class="fcon-cell-menu" phx-click={own_click()}>
-              {render_slot(@menu, @row_item.(row))}
-            </td>
-          </tr>
+              <td role="cell" colspan={length(@col) + if(@menu != [], do: 1, else: 0)}>
+                <.more id={row.more_of} shown={row.shown} total={row.total} step={@page_size} />
+              </td>
+            </tr>
+            <tr
+              :if={!match?(%{more_of: _}, row)}
+              role="row"
+              id={@row_id && @row_id.(row)}
+              data-testid={@row_testid && @row_testid.(row)}
+              data-tone={@row_tone && @row_tone.(row)}
+              data-activate={@row_activate && @row_activate.(row) && "true"}
+              aria-selected={@row_selected && to_string(@row_selected.(row))}
+              aria-label={@row_label && @row_label.(row)}
+              tabindex={@row_activate && @row_activate.(row) && "0"}
+              phx-click={@row_activate && @row_activate.(row)}
+              phx-keydown={@row_activate && @row_activate.(row)}
+              phx-key={@row_activate && "Enter"}
+            >
+              <td
+                :for={col <- @col}
+                role="cell"
+                data-label={col[:label]}
+                class={[col[:num] && "fcon-cell-num", col[:class]]}
+              >
+                {render_slot(col, @row_item.(row))}
+              </td>
+              <td :if={@menu != []} role="cell" class="fcon-cell-menu" phx-click={own_click()}>
+                {render_slot(@menu, @row_item.(row))}
+              </td>
+            </tr>
+          <% end %>
         </tbody>
       </table>
       <div :if={@foot != [] or (@shown && (@total > @shown or @older))} class="fcon-grid-foot">
@@ -992,14 +1069,30 @@ defmodule FlezhaConsoleWeb.CoreComponents do
           total={@total}
           step={@page_size}
           older={@older}
+          reach={@reach}
         />
       </div>
     </div>
     """
   end
 
-  defp expand_rows(rows, nil), do: rows
-  defp expand_rows(rows, expand) when is_list(rows), do: Enum.flat_map(rows, &[&1 | expand.(&1)])
+  # The rows with what each opened row draws under it: the first page of its
+  # own listing, and the control that grows it.
+  defp open_rows(rows, nil, _paging), do: rows
+
+  defp open_rows(rows, expand, paging) when is_list(rows) do
+    Enum.flat_map(rows, fn row ->
+      case expand.(row) do
+        {id, [_ | _] = opened} ->
+          shown = Sections.shown(paging, id)
+          more = %{more_of: id, shown: shown, total: length(opened)}
+          [row | Enum.take(opened, shown)] ++ if(length(opened) > shown, do: [more], else: [])
+
+        _closed ->
+          [row]
+      end
+    end)
+  end
 
   @doc """
   A listing that is not a grid, paged the way a grid is: its inner block is
@@ -1014,15 +1107,70 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   attr :paging, :map, required: true, doc: "the screen's `@paging`"
   attr :page_size, :integer, default: 20
   attr :older, :string, default: nil, doc: "as `grid/1` takes it"
+  attr :total, :integer, default: nil, doc: "as `grid/1` takes it"
   slot :inner_block, required: true
 
   def paged(assigns) do
-    shown = FlezhaConsoleWeb.Live.Sections.shown(assigns.paging, assigns.id, assigns.page_size)
-    assigns = assign(assigns, shown: shown, page: Enum.take(assigns.rows, shown))
+    assigns = assign(assigns, listing_page(assigns))
 
     ~H"""
     {render_slot(@inner_block, @page)}
-    <.more id={@id} shown={@shown} total={length(@rows)} step={@page_size} older={@older} />
+    <.more id={@id} shown={@shown} total={@total} step={@page_size} older={@older} reach={@reach} />
+    """
+  end
+
+  # The page a listing shows of its `rows`: the first `shown` of them, or for
+  # a controller listing (`total` given) the rows already read, at most the
+  # controller's reach.
+  defp listing_page(%{rows: rows, total: total, paging: paging, id: id, page_size: size})
+       when is_integer(total) do
+    %{
+      page: rows,
+      shown: min(length(rows), Sections.limit(paging, id, size)),
+      total: total,
+      reach: Sections.reach()
+    }
+  end
+
+  defp listing_page(%{rows: rows, paging: paging, id: id, page_size: size}) do
+    shown = Sections.shown(paging, id, size)
+    %{page: Enum.take(rows, shown), shown: shown, total: length(rows), reach: nil}
+  end
+
+  @doc """
+  The search box of a listing searched through `Live.Sections`: its text is
+  kept per listing in the screen's `@searches`, and each change starts the
+  listing again at its first page.
+  """
+  attr :listing, :string, required: true, doc: "the listing's id"
+  attr :searches, :map, required: true, doc: "the screen's `@searches`"
+  attr :testid, :string, required: true, doc: "the box's; its form's adds `-form`"
+  attr :label, :string, default: nil
+  attr :placeholder, :string, default: "Search"
+  attr :class, :string, default: nil
+
+  def listing_search(assigns) do
+    ~H"""
+    <form
+      phx-change="listing_search"
+      onsubmit="return false"
+      class={@class}
+      data-testid={"#{@testid}-form"}
+    >
+      <input type="hidden" name="listing" value={@listing} />
+      <.input
+        type="search"
+        name="q"
+        id={@testid}
+        label={@label}
+        value={Sections.search(@searches, @listing)}
+        placeholder={@placeholder}
+        aria-label={@label || @placeholder}
+        phx-debounce="300"
+        compact
+        data-testid={@testid}
+      />
+    </form>
     """
   end
 
@@ -1041,6 +1189,19 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   attr :step, :integer, default: 20
   attr :older, :string, default: nil
 
+  attr :reach, :integer,
+    default: nil,
+    doc: "the most rows a controller listing reads; past it the foot asks to narrow instead"
+
+  def more(%{reach: reach, shown: shown, total: total} = assigns)
+      when is_integer(reach) and shown >= reach and total > shown do
+    ~H"""
+    <p class="fcon-figures" data-testid={"#{@id}-reach"}>
+      Showing {Format.count(@shown)} of {Format.count(@total)} · search or filter to narrow
+    </p>
+    """
+  end
+
   def more(assigns) do
     ~H"""
     <button
@@ -1054,7 +1215,7 @@ defmodule FlezhaConsoleWeb.CoreComponents do
       data-testid={"#{@id}-more"}
     >
       <%= if @total > @shown do %>
-        Show {min(@step, @total - @shown)} more · {@shown} of {@total}
+        Show {min(@step, @total - @shown)} more · {Format.count(@shown)} of {Format.count(@total)}
       <% else %>
         {@older} · {@total} shown
       <% end %>

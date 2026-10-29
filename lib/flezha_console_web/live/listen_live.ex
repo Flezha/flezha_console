@@ -42,7 +42,7 @@ defmodule FlezhaConsoleWeb.ListenLive do
         relay_state: nil
       )
 
-    # Read once, on the connected mount: it resolves the whole namespace.
+    # Read once, on the connected mount.
     socket = if connected?(socket), do: read_relay(socket), else: socket
 
     {:ok, if(connected?(socket), do: listen(socket), else: socket)}
@@ -51,12 +51,11 @@ defmodule FlezhaConsoleWeb.ListenLive do
   # Its partitions, its state, and whether a runner serves its factory: a
   # relay none serves is offered a send, but not a call nobody could answer.
   defp read_relay(%{assigns: %{ns: ns, relay_id: relay_id, flezha_token: token}} = socket) do
-    rows = ns |> NodeManager.relay_rows(token) |> NodeManager.ok_or([])
-    row = NodeManager.relay_row(rows, relay_id)
+    {_read, row, partitions} = NodeManager.relay_and_partitions(ns, relay_id, token)
     factory = row && row[:factory]
 
     assign(socket,
-      partitions: NodeManager.partition_members(rows, relay_id),
+      partitions: partitions,
       serving: factory && NodeManager.serving_count(ns, factory, token),
       factory_id: factory,
       relay_state: row && RelayState.of(row, suspended?(ns, relay_id, token))

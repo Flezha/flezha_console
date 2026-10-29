@@ -21,7 +21,11 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
   alias Flezha.Service.Schedule
   alias Flezha.Service.Steps
 
-  defp click(view, testid), do: view |> element(~s([data-testid="#{testid}"])) |> render_click()
+  # A click whose screen reads in the background answers once that read has.
+  defp click(view, testid) do
+    view |> element(~s([data-testid="#{testid}"])) |> render_click()
+    render_async(view)
+  end
 
   # ---- What each row stands on ----
 
@@ -176,7 +180,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
   defp arrange(:journal, node, _user) do
     FakeController.set(
       node,
-      {Relay, :relay_rows},
+      {Relay, :list},
       FakeController.rows([
         FakeController.relay_row("relay_steps", %{factory: "chat_loop_steps"})
       ])
@@ -206,13 +210,8 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         })
       end
 
-    FakeController.set_fleet(node, rows: %{"default" => members})
-
-    FakeController.set(
-      node,
-      {Relay, :partition_groups},
-      {:ok, [%{group: "orders", declared: 2, members: members, coverage: :ok}]}
-    )
+    group = Map.merge(FakeController.relay_row("orders"), %{partitions: "2/2", members: members})
+    FakeController.set_fleet(node, rows: %{"default" => [group]})
   end
 
   defp arrange(:runners, node, user) do
@@ -596,6 +595,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         row = @row
         arrange(row.arrange, node, user)
         {:ok, view, _html} = live(conn, row.route)
+        render_async(view)
         Enum.each(row[:before] || [], &click(view, &1))
 
         html = click(view, row.open)
@@ -1012,10 +1012,8 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         assert shown(html, row.rows) == 20
         assert text_of(html, ~s([data-testid="#{row.more}"])) == "Show 5 more · 20 of 25"
 
-        html =
-          view
-          |> element(~s([data-testid="#{row.more}"][phx-click="grid_more"]))
-          |> render_click()
+        view |> element(~s([data-testid="#{row.more}"][phx-click="grid_more"])) |> render_click()
+        html = render_async(view)
 
         assert shown(html, row.rows) == 25
         refute has_element?(view, ~s([data-testid="#{row.more}"]))
@@ -1066,7 +1064,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
 
     # Every relay is listed in `default`, and the detail screen's overwatch
     # read answers each one with its own builder.
-    defp list_relays(node, rows, runs \\ %{}) do
+    defp listed_relays(node, rows, runs \\ %{}) do
       FakeController.set_fleet(node, rows: %{"default" => rows}, runs: runs)
 
       overwatch =
@@ -1096,7 +1094,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         # Ids that name no verdict, so only the screen's words can match.
         verdicts = Enum.with_index([nil | FlezhaConsoleWeb.Words.health_verdicts()])
 
-        list_relays(
+        listed_relays(
           node,
           Enum.map(verdicts, fn {health, i} ->
             FakeController.relay_row("relay_#{i}", %{health: health})
@@ -1116,7 +1114,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         conn: conn,
         node: node
       } do
-        list_relays(node, [
+        listed_relays(node, [
           FakeController.relay_row("relay_a", %{node: nil}),
           FakeController.relay_row("relay_b", %{node: :"flezha@node-b"})
         ])
@@ -1129,7 +1127,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         conn: conn,
         node: node
       } do
-        list_relays(
+        listed_relays(
           node,
           [FakeController.relay_row("relay_a"), FakeController.relay_row("relay_b")],
           %{"relay_a" => :steps}

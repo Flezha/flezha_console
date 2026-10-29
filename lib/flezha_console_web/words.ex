@@ -110,7 +110,8 @@ defmodule FlezhaConsoleWeb.Words do
       rpo: {"Behind target", :warning},
       stall: {"Stalled", :warning},
       bootstrap: {"Unclaimed", :negative},
-      skew: {"Version skew", :negative}
+      skew: {"Version skew", :negative},
+      unread: {"Not healthy", :warning}
     },
     diagnosis: %{
       ok: {"No fault found", :positive},
@@ -312,7 +313,7 @@ defmodule FlezhaConsoleWeb.Words do
 
   @doc """
   A relays tile's `{tone, verdict, condition}` for health counts as
-  `NodeManager.health_counts/1` answers them: painted in the worst verdict,
+  `NodeManager.health_pairs/1` answers them: painted in the worst verdict,
   whose count is the pill.
   """
   def health_said([]), do: {:neutral, nil, "None running"}

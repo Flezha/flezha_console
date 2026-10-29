@@ -1,7 +1,7 @@
 defmodule FlezhaConsoleWeb.AttentionTest do
   @moduledoc """
   The one derivation of open problems, fed the shapes the controller really
-  answers: `relay_rows/2` rows, `quota_usage/3` rows, `Dlq.stats/1` rows,
+  answers: `Relay.list/3` pages, `quota_usage/3` rows, `Dlq.stats/1` rows,
   `durability_breaches/1`, stall verdicts and the authz status map.
   """
 
@@ -16,6 +16,27 @@ defmodule FlezhaConsoleWeb.AttentionTest do
     )
   end
 
+  # A namespace's relay read as `Attention.page/1` takes it: these rows,
+  # `total` of them unhealthy, with the summary's faulted groups and waiting
+  # factories.
+  defp page(rows, opts \\ []) do
+    Attention.page(
+      {:ok,
+       %{
+         rows: rows,
+         total: Keyword.get(opts, :total, length(rows)),
+         summary: %{
+           faulted_groups:
+             for(
+               group <- Keyword.get(opts, :faulted, []),
+               do: %{group: group, health: :healthy, complete: false}
+             ),
+           waiting: Keyword.get(opts, :waiting, [])
+         }
+       }}
+    )
+  end
+
   defp text(item, key) do
     case item.condition[String.to_existing_atom(key)] do
       %{text: text} -> text
@@ -27,18 +48,23 @@ defmodule FlezhaConsoleWeb.AttentionTest do
     rows = [row("testnet_echo", %{health: :suspended})]
 
     assert Attention.derive(%{
-             namespaces: [%{namespace: "default", rows: rows, serving: %{"f" => 1}}]
+             namespaces: [%{namespace: "default", page: page(rows), serving: %{"f" => 1}}]
            }) == []
 
-    assert Attention.derive(%{namespaces: [%{namespace: "default", rows: rows}]}) == []
+    assert Attention.derive(%{namespaces: [%{namespace: "default", page: page(rows)}]}) == []
   end
 
   test "a failed serving read keeps the last known count of a factory that still waits" do
     rows = [row("a", %{health: :unbound}), row("b", %{health: :healthy, factory: "g"})]
 
-    assert Attention.keep_serving(%{}, %{"f" => 0, "g" => 1, "gone" => 2}, rows) == %{"f" => 0}
-    assert Attention.keep_serving(%{"f" => 3}, %{"f" => 0}, rows) == %{"f" => 3}
-    assert Attention.keep_serving(%{}, nil, rows) == %{}
+    factories = Attention.waiting_factories(page(rows))
+
+    assert Attention.keep_serving(%{}, %{"f" => 0, "g" => 1, "gone" => 2}, factories) == %{
+             "f" => 0
+           }
+
+    assert Attention.keep_serving(%{"f" => 3}, %{"f" => 0}, factories) == %{"f" => 3}
+    assert Attention.keep_serving(%{}, nil, factories) == %{}
   end
 
   test "a failed relay Flezha is rebinding is a warning that offers Diagnose and Open relay" do
@@ -47,7 +73,7 @@ defmodule FlezhaConsoleWeb.AttentionTest do
         namespaces: [
           %{
             namespace: "default",
-            rows: [row("orders", %{health: :failed})],
+            page: page([row("orders", %{health: :failed})]),
             serving: %{"f" => 2}
           }
         ]
@@ -83,14 +109,14 @@ defmodule FlezhaConsoleWeb.AttentionTest do
              )
 
     for {health, severity} <- @verdicts do
-      assert [item] = Attention.relay_items("default", [row("r", %{health: health})]),
+      assert [item] = Attention.relay_items("default", page([row("r", %{health: health})])),
              "#{health} raised no item"
 
       assert {item.reason, item.severity} == {health, severity}
       assert item.what =~ ~r/^r is \S/
     end
 
-    assert Attention.relay_items("default", [row("r")]) == []
+    assert Attention.relay_items("default", page([row("r")])) == []
   end
 
   test "relays that wait only on a missing runner fold into one item for their factory" do
@@ -102,7 +128,7 @@ defmodule FlezhaConsoleWeb.AttentionTest do
       row("d", %{health: :degraded, factory: "other"})
     ]
 
-    items = Attention.relay_items("default", rows, [], %{"echo_steps" => 0, "other" => 1})
+    items = Attention.relay_items("default", page(rows), %{"echo_steps" => 0, "other" => 1})
     by_id = Map.new(items, &{&1.id, &1})
 
     assert Map.keys(by_id) |> Enum.sort() ==
@@ -129,13 +155,18 @@ defmodule FlezhaConsoleWeb.AttentionTest do
       row("ok", %{factory: "i"})
     ]
 
-    assert Enum.sort(Attention.waiting_factories(rows)) == ["f", "g"]
-    assert Attention.waiting_factories([row("ok")]) == []
+    assert Enum.sort(Attention.waiting_factories(page(rows))) == ["f", "g"]
+    assert Attention.waiting_factories(page([row("ok")])) == []
+
+    # The summary names the factories relays wait on past the rows read.
+    assert Attention.waiting_factories(page([], waiting: [%{factory: "far", relays: 9}])) == [
+             "far"
+           ]
   end
 
   test "a row with no health reads as unknown, never as healthy" do
     assert [%{reason: :unknown, severity: :warning}] =
-             Attention.relay_items("default", [Map.delete(row("r"), :health)])
+             Attention.relay_items("default", page([Map.delete(row("r"), :health)]))
   end
 
   test "a halted relay is negative; an unplaced one and a faulted group are found too" do
@@ -144,12 +175,15 @@ defmodule FlezhaConsoleWeb.AttentionTest do
         namespaces: [
           %{
             namespace: "default",
-            rows: [
-              row("f", %{health: :halted}),
-              row("u", %{node: nil}),
-              row("m", %{partition: %{group: "g1", index: 0, count: 2, range: {0, 1}}})
-            ],
-            faulted_groups: ["g1"]
+            page:
+              page(
+                [
+                  row("f", %{health: :halted}),
+                  row("u", %{node: nil}),
+                  row("m", %{partition: %{group: "g1", index: 0, count: 2, range: {0, 1}}})
+                ],
+                faulted: ["g1"]
+              )
           }
         ]
       })
@@ -170,7 +204,7 @@ defmodule FlezhaConsoleWeb.AttentionTest do
         namespaces: [
           %{
             namespace: "default",
-            rows: [],
+            page: page([]),
             quotas: [
               %{kind: :relays, limit_key: :max_relays, value: 5, limit: 5, breached?: true}
             ]
@@ -220,12 +254,12 @@ defmodule FlezhaConsoleWeb.AttentionTest do
     assert text(item, "cause") == "Tasklet t1 could not process 1 record"
   end
 
-  test "dead letters belong to the namespace whose relay rows hold their class" do
+  test "dead letters belong to the namespace that owns their class's relay" do
     items =
       Attention.derive(%{
         namespaces: [
-          %{namespace: "default", rows: [%{id: :orders, health: :healthy, node: :a}]},
-          %{namespace: "sandbox", rows: [%{id: "prices", health: :healthy, node: :a}]}
+          %{namespace: "default", page: page([]), owns: ["orders"]},
+          %{namespace: "sandbox", page: page([]), owns: ["prices"]}
         ],
         dlq: [
           %{relay_class: "orders", tasklet_id: "t", entries: 1},
@@ -246,7 +280,7 @@ defmodule FlezhaConsoleWeb.AttentionTest do
         breaches: [%{ref: :a}, %{ref: :b}],
         verdicts: [%{layer: :runner_channel, subject: "orders"}],
         authz: %{posture: :bootstrap_pending},
-        skew: {:api_missing, Flezha.Service.Relay, :relay_rows, 2}
+        skew: {:api_missing, Flezha.Service.Relay, :list, 3}
       })
 
     assert Enum.map(items, & &1.kind) == [:rpo, :stall, :bootstrap, :skew]
@@ -254,7 +288,7 @@ defmodule FlezhaConsoleWeb.AttentionTest do
     assert Enum.find(items, &(&1.kind == :rpo)).what == "2 references past their RPO target"
 
     assert text(Enum.find(items, &(&1.kind == :skew)), "cause") =~
-             "Flezha.Service.Relay.relay_rows/2"
+             "Flezha.Service.Relay.list/3"
 
     for item <- items do
       assert item.condition |> Map.keys() |> Enum.sort() == ~w(cause handled impact next state)a
@@ -264,7 +298,7 @@ defmodule FlezhaConsoleWeb.AttentionTest do
 
   test "a healthy namespace and an open controller have nothing to say" do
     assert Attention.derive(%{
-             namespaces: [%{namespace: "d", rows: [row("a")]}],
+             namespaces: [%{namespace: "d", page: page([row("a")])}],
              authz: %{posture: :open}
            }) == []
   end
@@ -274,7 +308,9 @@ defmodule FlezhaConsoleWeb.AttentionTest do
     t1 = ~U[2026-10-12 10:00:10Z]
 
     first =
-      Attention.derive(%{namespaces: [%{namespace: "d", rows: [row("a", %{health: :failed})]}]})
+      Attention.derive(%{
+        namespaces: [%{namespace: "d", page: page([row("a", %{health: :failed})])}]
+      })
 
     {tracked, appeared, cleared} = Attention.track(%{}, first, t0)
     assert [%{first_seen: ^t0}] = tracked
@@ -283,7 +319,10 @@ defmodule FlezhaConsoleWeb.AttentionTest do
     second =
       Attention.derive(%{
         namespaces: [
-          %{namespace: "d", rows: [row("a", %{health: :failed}), row("b", %{health: :unbound})]}
+          %{
+            namespace: "d",
+            page: page([row("a", %{health: :failed}), row("b", %{health: :unbound})])
+          }
         ]
       })
 
@@ -293,6 +332,45 @@ defmodule FlezhaConsoleWeb.AttentionTest do
     assert cleared == []
 
     {[], [], [%{object: %{id: "a"}} | _]} = Attention.track(Attention.by_id(tracked), [], t1)
+  end
+
+  test "relays past the read are one item saying how many more, which grows the read" do
+    rows = for id <- ~w(a b c), do: row(id, %{health: :halted})
+    items = Attention.relay_items("default", page(rows, total: 300))
+
+    assert [more] = Enum.filter(items, &(&1.kind == :unread))
+    assert more.what == "297 more relays in default are not healthy"
+    assert more.severity == :warning
+
+    assert %{grow: "problems-default", shown: 3, step: 50} =
+             Enum.find(more.actions, & &1[:grow])
+
+    assert Enum.any?(more.actions, &(&1[:navigate] == "/namespaces/default/relays?sort=severity"))
+
+    assert Attention.relay_items("default", page(rows, total: 3))
+           |> Enum.all?(&(&1.kind == :relay))
+  end
+
+  test "a factory's waiting relays are counted from the summary past those read" do
+    rows = [row("s", %{health: :unbound, factory: "f"})]
+    summary = [waiting: [%{factory: "f", relays: 950}, %{factory: "far", relays: 4}], total: 954]
+
+    items = Attention.relay_items("default", page(rows, summary), %{"f" => 0, "far" => 0})
+
+    assert Enum.map(items, & &1.id) == ["factory:default:f", "factory:default:far"]
+    assert text(hd(items), "impact") == "950 relays wait for a runner"
+    assert text(List.last(items), "impact") == "4 relays wait for a runner"
+
+    # Every waiting relay is counted in a factory item, so none is "more".
+    refute Enum.any?(items, &(&1.kind == :unread))
+  end
+
+  test "the read asks the controller for the most severe relays a namespace has" do
+    assert Attention.relay_opts() ==
+             [limit: 50, sort: :severity, filter: [health: ["unhealthy", "suspended"]]]
+
+    assert Attention.shown(%{"problems-default" => 150}, "default") == 150
+    assert Attention.shown(%{"problems-default" => 900}, "default") == 500
   end
 
   test "the worst come first, then the longest seen" do

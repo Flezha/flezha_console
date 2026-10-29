@@ -15,11 +15,13 @@ defmodule FlezhaConsoleWeb.ClusterLive do
 
   use FlezhaConsoleWeb.Live.Refresh,
     every: 5_000,
-    on_events: [:runner_connected, :runner_disconnected, :runner_dropped, :runner_readmitted]
+    on_events: [:runner_connected, :runner_disconnected, :runner_dropped, :runner_readmitted],
+    background: true
 
   use FlezhaConsoleWeb.Live.RunnerActions
 
   alias FlezhaConsole.Service.NodeManager
+  alias FlezhaConsoleWeb.Attention
 
   @impl true
   def mount(_params, _session, socket) do
@@ -30,7 +32,7 @@ defmodule FlezhaConsoleWeb.ClusterLive do
      |> assign(page_title: "Cluster", selected_factory: nil, factory_runners: nil)
      |> assign(load_error: nil, connected_node: nil, cluster_nodes: [], namespaces: [])
      |> assign(runner_count: 0, controller_status: nil, unreachable: [])
-     |> refresh()}
+     |> read_now()}
   end
 
   # A lookup, not a read: the catalog this screen already loaded per namespace
@@ -55,15 +57,19 @@ defmodule FlezhaConsoleWeb.ClusterLive do
   end
 
   @impl FlezhaConsoleWeb.Live.Refresh
-  def refresh(socket) do
+  def refresh_read(socket) do
     token = socket.assigns.flezha_token
+    fn -> read(token) end
+  end
+
+  defp read(token) do
     connected = NodeManager.connected_node()
     {names, load_error} = NodeManager.scoped_namespaces(token)
     namespaces = Enum.map(names, &describe_namespace(&1, token))
     controllers = NodeManager.controllers(token)
     status = NodeManager.controller_status(token)
 
-    assign(socket,
+    %{
       load_error: load_error,
       connected_node: connected,
       cluster_nodes:
@@ -78,8 +84,12 @@ defmodule FlezhaConsoleWeb.ClusterLive do
       controller_status: status,
       unreachable:
         NodeManager.unreachable([controllers, status | Enum.flat_map(namespaces, & &1.answers)])
-    )
+    }
   end
+
+  @impl FlezhaConsoleWeb.Live.Refresh
+  def refresh_apply(socket, {:ok, read}), do: assign(socket, read)
+  def refresh_apply(socket, {:exit, _reason}), do: assign(socket, load_error: :read_failed)
 
   defp health_total(health), do: health |> Enum.map(&elem(&1, 1)) |> Enum.sum()
 
@@ -141,6 +151,25 @@ defmodule FlezhaConsoleWeb.ClusterLive do
     """
   end
 
+  @doc """
+  How many of a namespace's relays have no live node, naming those among its
+  most severe: "3 relays have no live node: a, b, and 1 more".
+  """
+  def unplaced_words(%{unplaced_count: count, unplaced: named}) do
+    said = "#{Words.count(count, "relay")} #{if count == 1, do: "has", else: "have"} no live node"
+
+    case Enum.map(named, &to_string(&1.id)) do
+      [] ->
+        said
+
+      ids when count > length(ids) ->
+        "#{said}: #{Enum.join(ids, ", ")}, and #{count - length(ids)} more"
+
+      ids ->
+        "#{said}: #{Enum.join(ids, ", ")}"
+    end
+  end
+
   @doc "A recovery state as an operator reads it, in its tone."
   def recovery(state), do: Words.say(:hub_recovery, state)
 
@@ -159,27 +188,22 @@ defmodule FlezhaConsoleWeb.ClusterLive do
   end
 
   defp describe_namespace(ns, token) do
-    # The same rows `flz cluster status` reads, so the UI and the CLI cannot
-    # disagree about where relays are or how healthy they are.
-    read_rows = NodeManager.relay_rows(ns, token)
-    rows = NodeManager.ok_or(read_rows, [])
+    # The controller's own per-node count, as `flz cluster status` reads it,
+    # so the UI and the CLI cannot disagree about where relays are; the
+    # namespace's health and its most severe relays from the relay summary.
     read_status = NodeManager.cluster_status(ns, token)
+    read_page = NodeManager.relay_list(ns, token, Attention.relay_opts())
+    page = Attention.page(read_page)
 
     {status, status_error} = NodeManager.ok_or_error(read_status, %{})
     hub_nodes = status |> Map.get(:nodes, []) |> Enum.map(& &1.node)
-    recovery = Map.new(Map.get(status, :nodes, []), &{&1.node, &1.recovery_state})
 
     per_node =
-      rows
-      |> NodeManager.placed_rows()
-      |> Enum.group_by(& &1[:node])
-      |> Enum.map(fn {node, node_rows} ->
-        %{
-          node: node,
-          count: length(node_rows),
-          health: NodeManager.health_counts(node_rows),
-          recovery: Map.get(recovery, node, :unavailable)
-        }
+      status
+      |> Map.get(:nodes, [])
+      |> Enum.filter(&((&1[:relay_count] || 0) > 0))
+      |> Enum.map(fn row ->
+        %{node: row.node, count: row.relay_count, recovery: row[:recovery_state] || :unavailable}
       end)
       |> Enum.sort_by(&inspect(&1.node))
 
@@ -191,7 +215,7 @@ defmodule FlezhaConsoleWeb.ClusterLive do
       ns
       |> NodeManager.runners(token)
       |> NodeManager.ok_or([])
-      |> FlezhaConsoleWeb.Runners.rows(factories_by_runner, rows)
+      |> FlezhaConsoleWeb.Runners.rows(factories_by_runner)
 
     %{
       name: ns,
@@ -204,9 +228,10 @@ defmodule FlezhaConsoleWeb.ClusterLive do
       runner_principal: NodeManager.runner_principal(ns, token),
       factories: catalog,
       per_node: per_node,
-      health: NodeManager.health_counts(rows),
-      unplaced: NodeManager.unplaced_rows(rows),
-      answers: [read_rows, read_status, read_catalog]
+      health: page.health,
+      unplaced: NodeManager.unplaced_rows(page.rows),
+      unplaced_count: Map.get(status, :unplaced_relays, 0),
+      answers: [read_page, read_status, read_catalog]
     }
   end
 end

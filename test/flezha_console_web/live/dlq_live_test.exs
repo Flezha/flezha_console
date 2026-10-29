@@ -171,16 +171,14 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
 
       # The filter is pushed down to the controller rather than applied to a
       # full list here.
-      assert ["orders", %{source: :ui}] =
+      assert ["orders", [limit: 20], %{source: :ui}] =
                node |> FakeController.calls({Dlq, :list}) |> List.last()
-
-      assert ["orders", _ctx] = node |> FakeController.calls({Dlq, :tasklets}) |> List.last()
     end
 
     test "an unfiltered listing asks for every class", %{conn: conn, node: node} do
       {:ok, _view, _html} = live(conn, ~p"/dlq")
 
-      assert [nil, _ctx] = node |> FakeController.calls({Dlq, :list}) |> List.last()
+      assert [nil, [limit: 20], _ctx] = node |> FakeController.calls({Dlq, :list}) |> List.last()
     end
   end
 
@@ -404,7 +402,7 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       |> render_change(%{"filter" => %{"relay_class" => "", "controller" => "flezha@c1"}})
 
       assert_patch(view, "/dlq?controller=flezha%40c1")
-      html = render(view)
+      html = render_async(view)
       assert html =~ ~s(data-testid="dlq-row-#{@ref}")
       refute html =~ ~s(data-testid="dlq-row-orders/charge/18")
     end
@@ -435,8 +433,8 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       assert replayed(view) =~ ~s(data-testid="replay-succeeded")
       assert [[@ref, %{source: :ui}]] = FakeController.calls(node, {Dlq, :replay})
 
-      html = view |> element(~s([data-testid="dlq-mark-seen-#{@ref}"])) |> render_click()
-      refute html =~ ~s(data-testid="dlq-row-#{@ref}")
+      view |> element(~s([data-testid="dlq-mark-seen-#{@ref}"])) |> render_click()
+      refute render_async(view) =~ ~s(data-testid="dlq-row-#{@ref}")
 
       assert [%{relay_class: "orders"}] =
                FlezhaConsole.Repo.all(FlezhaConsole.DeadLetters.Acknowledgement)
@@ -448,8 +446,11 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
     alias FlezhaConsole.DeadLetters.Acknowledgement
     alias FlezhaConsole.Repo
 
-    defp mark(view, ref),
-      do: view |> element(~s([data-testid="dlq-mark-seen-#{ref}"])) |> render_click()
+    # Marking reads the queue again, in the background.
+    defp mark(view, ref) do
+      view |> element(~s([data-testid="dlq-mark-seen-#{ref}"])) |> render_click()
+      render_async(view)
+    end
 
     defp parked(node, entries) do
       with_entries(node, entries)
@@ -495,7 +496,7 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       |> render_change(%{"filter" => %{"relay_class" => "", "show_seen" => "true"}})
 
       assert_patch(view, ~p"/dlq?seen=shown")
-      html = render(view)
+      html = render_async(view)
       assert text_of(html, ~s([data-testid="dlq-seen-#{@ref}"])) == "Seen"
       refute html =~ ~s(data-testid="dlq-mark-seen-#{@ref}")
       refute html =~ ~s(data-testid="dlq-seen-orders/charge/18")
@@ -505,10 +506,8 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       parked(node, [entry(), entry(%{"id" => "18"}), entry("refunds", "settle", "1", %{})])
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
-      html =
-        view
-        |> element(~s([data-testid="dlq-group-seen-orders-charge"]))
-        |> render_click()
+      view |> element(~s([data-testid="dlq-group-seen-orders-charge"])) |> render_click()
+      html = render_async(view)
 
       refute html =~ ~s(data-testid="dlq-group-orders-charge")
       assert html =~ ~s(data-testid="dlq-row-refunds/settle/1")
@@ -540,7 +539,7 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       parked(node, [entry(%{"generation" => 3})])
       send(view.pid, :refresh)
 
-      assert render(view) =~ ~s(data-testid="dlq-row-#{@ref}")
+      assert render_async(view) =~ ~s(data-testid="dlq-row-#{@ref}")
       assert {:ok, %{rows: [%{seen: 0}]}} = DeadLetters.stats(nil)
       # The mark of the generation that left is forgotten.
       assert Repo.all(Acknowledgement) == []

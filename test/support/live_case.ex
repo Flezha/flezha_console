@@ -36,11 +36,14 @@ defmodule FlezhaConsoleWeb.LiveCase do
           live_loaded: 2,
           open_section: 2,
           partition_group: 3,
+          group_row: 2,
+          group_row: 3,
           text_of: 2,
           condition_value: 3,
           testids: 2,
           attributes: 3,
           submit_plugin_form: 2,
+          plugin_fields: 1,
           tick: 1,
           enforce_operations: 3,
           grant_operations: 3
@@ -110,31 +113,45 @@ defmodule FlezhaConsoleWeb.LiveCase do
   end
 
   @doc """
-  Answers the namespace's relay rows with `count` members of the partition
-  group `group`, `group#p0` onwards, beside one relay of no group and one
-  member of another group.
+  Answers the namespace's relay list with the partition group `group` of
+  `count` members, `group#p0` onwards, collapsed into one row as the
+  controller lists a group, beside one relay of no group and another group.
   """
   def partition_group(node, group, count) do
-    members =
-      for i <- 0..(count - 1) do
-        FakeController.relay_row("#{group}#p#{i}", %{
-          partition: %{group: group, index: i, count: count, range: {i * 64, i * 64 + 63}}
-        })
-      end
-
     FakeController.set(
       node,
-      {Flezha.Service.Relay, :relay_rows},
-      FakeController.rows(
-        members ++
-          [
-            FakeController.relay_row("relay_a"),
-            FakeController.relay_row("other#p0", %{
-              partition: %{group: "other", index: 0, count: 2, range: {0, 127}}
-            })
-          ]
-      )
+      {Flezha.Service.Relay, :list},
+      FakeController.rows([
+        group_row(group, count),
+        FakeController.relay_row("relay_a"),
+        group_row("other", 2)
+      ])
     )
+  end
+
+  @doc "A partition group's row as the controller lists it: one row holding its `count` members."
+  def group_row(group, count, member \\ fn _index -> %{} end) do
+    members =
+      for i <- 0..(count - 1) do
+        FakeController.relay_row(
+          "#{group}#p#{i}",
+          Map.merge(
+            %{partition: %{group: group, index: i, count: count, range: {i * 64, i * 64 + 63}}},
+            member.(i)
+          )
+        )
+      end
+
+    rank = FlezhaConsole.Service.NodeManager.health_verdicts()
+
+    worst =
+      members |> Enum.map(& &1.health) |> Enum.max_by(&Enum.find_index(rank, fn h -> h == &1 end))
+
+    Map.merge(FakeController.relay_row(group), %{
+      health: worst,
+      partitions: "#{count}/#{count}",
+      members: members
+    })
   end
 
   @doc """
@@ -146,13 +163,12 @@ defmodule FlezhaConsoleWeb.LiveCase do
   """
   def submit_plugin_form(view, fields) do
     step = plugin_step(Phoenix.LiveViewTest.render(view))
+    {typed, picked} = plugin_fields(fields)
 
     html =
       view
-      |> Phoenix.LiveViewTest.form(~s(form[phx-submit="plugin_form_submit"]),
-        plugin: Map.new(fields)
-      )
-      |> Phoenix.LiveViewTest.render_submit()
+      |> Phoenix.LiveViewTest.form(~s(form[phx-submit="plugin_form_submit"]), plugin: typed)
+      |> Phoenix.LiveViewTest.render_submit(%{plugin: picked})
 
     case {step, plugin_step(html)} do
       {from, to} when is_integer(from) and is_integer(to) and to > from ->
@@ -161,6 +177,17 @@ defmodule FlezhaConsoleWeb.LiveCase do
       _stopped ->
         html
     end
+  end
+
+  @doc """
+  The plugin form's `fields` split into what a test types into the form and
+  what its pickers hold: a picker's option sets the form's hidden value in
+  the browser, so a test sends it with the event instead.
+  """
+  def plugin_fields(fields) do
+    fields
+    |> Map.new(fn {key, value} -> {to_string(key), value} end)
+    |> Map.split_with(fn {key, _value} -> key not in ~w(namespace relay_id) end)
   end
 
   defp plugin_step(html) do

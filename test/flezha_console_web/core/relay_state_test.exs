@@ -1,7 +1,7 @@
 defmodule FlezhaConsoleWeb.RelayStateTest do
   @moduledoc """
   What a relay's state means, who handles it and what happens next, fed the
-  shapes the controller answers: `relay_rows/2` rows and the Overwatch's
+  shapes the controller answers: `Relay.list/3` rows and the Overwatch's
   suspended flag.
   """
 

@@ -8,10 +8,10 @@
         <% !@loaded? -> %>
           Reading the relays you can reach…
         <% @scoped_namespace -> %>
-          {Words.count(length(@rows), "relay")} in {@scoped_namespace}, with their
+          {Words.count(@total, "relay")} in {@scoped_namespace}, with their
           <.term key="health" />, <.term key="run" /> and measured rate.
         <% true -> %>
-          {Words.count(length(@rows), "relay")} across {Words.count(
+          {Words.count(@total, "relay")} across {Words.count(
             length(@namespaces),
             "namespace"
           )}, with their <.term key="health" />, <.term key="run" /> and measured rate.
@@ -39,7 +39,23 @@
 
 <.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
 
-<form phx-change="filter" class="flex flex-wrap items-end gap-3 mb-5">
+<form
+  phx-change="filter"
+  class="flex flex-wrap items-end gap-3 mb-5"
+  onsubmit="return false"
+  data-testid="relay-filters"
+>
+  <.input
+    type="search"
+    name="filters[q]"
+    id="filter-q"
+    label="Search"
+    value={@filters["q"]}
+    placeholder="Relay or factory"
+    phx-debounce="300"
+    compact
+    data-testid="filter-q"
+  />
   <.combobox
     :if={!@scoped_namespace}
     label="Namespace"
@@ -77,7 +93,17 @@
     class="w-32"
   >
     <:option value="">All</:option>
-    <:option :for={run <- @run_options} value={to_string(run)}>{run}</:option>
+    <:option :for={run <- run_options()} value={run}>{run}</:option>
+  </.combobox>
+  <.combobox
+    label="Sort"
+    id="filter-sort"
+    name="filters[sort]"
+    value={@filters["sort"]}
+    testid="filter-sort"
+    class="w-48"
+  >
+    <:option :for={{value, label} <- sort_options()} value={value}>{label}</:option>
   </.combobox>
   <div :if={@filters["runner"] != ""} class="fcon-field" data-testid="filter-runner">
     <span class="fcon-label">Runner</span>
@@ -125,6 +151,7 @@
   paging={@paging}
   id="relay-rows"
   rows={@rows}
+  total={@total}
   expand={&open_members(&1, @expanded)}
   testid="relays-index-table"
   row_id={&"relay-row-#{&1.namespace}-#{&1.id}"}

@@ -25,7 +25,7 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
   defp registry_row(node, overrides) do
     row = FakeController.relay_row("relay_a", overrides)
 
-    FakeController.set(node, {Relay, :relay_rows}, FakeController.rows([row]))
+    FakeController.set(node, {Relay, :list}, FakeController.rows([row]))
   end
 
   describe "registry facts" do
@@ -65,7 +65,7 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
 
       FakeController.set(
         node,
-        {Relay, :relay_rows},
+        {Relay, :list},
         FakeController.rows([row], ["flezha@node-b"])
       )
 

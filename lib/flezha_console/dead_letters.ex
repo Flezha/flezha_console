@@ -64,9 +64,14 @@ defmodule FlezhaConsole.DeadLetters do
   `NodeManager.dlq_stats/1`, each row carrying how many of its entries are
   `:seen`, in the cluster answer's shape.
 
-  A class's entries are listed only when something in it was marked seen, so
-  the usual answer costs one call. Listing a class also forgets the marks of
-  its entries that left the queue or parked again.
+  A class's entries are listed only when something in it was marked seen, and
+  then only when its figures or its marks changed since it was last counted,
+  or `:dead_letter_seen_ttl_ms` (a minute unless configured) has passed: each
+  class's count is kept in `NodeManager`'s read cache beside the figures and
+  marks it was counted from, so the usual answer costs one call. The bound
+  catches an entry that parked again with the same count and size. Listing a
+  class also forgets the marks of its entries that left the queue or parked
+  again.
   """
   def stats(token) do
     with {:ok, %{rows: stats} = answer} <- NodeManager.dlq_stats(token) do
@@ -81,14 +86,15 @@ defmodule FlezhaConsole.DeadLetters do
   defp seen_counts(stats, token) do
     stats
     |> Enum.filter(&((&1[:entries] || 0) > 0))
-    |> Enum.map(&to_string(&1[:relay_class]))
-    |> Enum.uniq()
+    |> Enum.group_by(&to_string(&1[:relay_class]))
     |> seen_in_classes(token)
   end
 
-  defp seen_in_classes([], _token), do: %{}
+  defp seen_in_classes(by_class, _token) when by_class == %{}, do: %{}
 
-  defp seen_in_classes(classes, token) do
+  defp seen_in_classes(by_class, token) do
+    classes = Map.keys(by_class)
+
     marks =
       from(a in Acknowledgement,
         where: a.relay_class in ^classes,
@@ -98,21 +104,45 @@ defmodule FlezhaConsole.DeadLetters do
       |> Enum.group_by(&elem(&1, 0), &Tuple.delete_at(&1, 0))
 
     marks
-    |> Enum.flat_map(fn {class, class_marks} -> seen_in(class, class_marks, token) end)
+    |> Enum.flat_map(fn {class, class_marks} ->
+      counted(class, class_marks, figures(by_class[class]), token)
+    end)
     |> Enum.frequencies()
   end
 
-  # A class whose listing fails counts nothing seen and forgets nothing.
+  # What a class's count was taken from: each tasklet's entries and bytes.
+  defp figures(rows),
+    do: rows |> Enum.map(&{key(&1), &1[:entries], &1[:bytes]}) |> Enum.sort()
+
+  defp counted(class, marks, figures, token) do
+    ids = marks |> Enum.map(&elem(&1, 1)) |> Enum.sort()
+
+    case NodeManager.cached(token, {:dlq_seen, class}) do
+      {:ok, {^figures, ^ids, seen}} ->
+        seen
+
+      _changed ->
+        {seen, held} = seen_in(class, marks, token)
+        ttl = Application.get_env(:flezha_console, :dead_letter_seen_ttl_ms, 60_000)
+        NodeManager.cache(token, {:dlq_seen, class}, {figures, held, seen}, ttl)
+        seen
+    end
+  end
+
+  # A class whose listing fails counts nothing seen and forgets nothing, and
+  # is counted again on the next read.
   defp seen_in(class, marks, token) do
     case NodeManager.dlq_list(class, token) do
       {:ok, %{rows: entries}} ->
         parked = Map.new(entries, &{{ref(&1), generation(&1)}, to_string(&1["tasklet_id"])})
         {held, gone} = Enum.split_with(marks, fn {pair, _id} -> Map.has_key?(parked, pair) end)
         forget(Enum.map(gone, &elem(&1, 1)))
-        for {pair, _id} <- held, do: {class, Map.fetch!(parked, pair)}
+
+        {for({pair, _id} <- held, do: {class, Map.fetch!(parked, pair)}),
+         held |> Enum.map(&elem(&1, 1)) |> Enum.sort()}
 
       {:error, _reason} ->
-        []
+        {[], nil}
     end
   end
 

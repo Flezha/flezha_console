@@ -67,7 +67,7 @@ defmodule FlezhaConsole.Service.NodeManagerDistributedTest do
       # This peer carries no stand-ins at all, so it has no door to run the
       # published read through.
       assert {:error, {:api_missing, Flezha.Service.Admin, :run, 4}} =
-               capture_quietly(fn -> NodeManager.liveness_snapshot(nil) end)
+               capture_quietly(fn -> NodeManager.liveness_snapshot(nil, filter: [relays: []]) end)
     end
   end
 
@@ -139,7 +139,38 @@ defmodule FlezhaConsole.Service.NodeManagerDataPlaneTest do
 
     FakeController.set(node, {Flezha.Service.Controller, :liveness_counters}, {:ok, snapshot})
 
-    assert NodeManager.liveness_snapshot(nil) == {:ok, snapshot}
+    assert NodeManager.liveness_snapshot(nil, filter: [relays: [{"pass", "relay_a"}]]) ==
+             {:ok, snapshot}
+  end
+
+  test "reads of the same counters with the same token are answered once", %{node: node} do
+    FlezhaConsole.TestEnv.put_app(:liveness_ttl_ms, 60_000)
+    snapshot = %{channels: [], relays: [], unreachable: []}
+    FakeController.set(node, {Flezha.Service.Controller, :liveness_counters}, {:ok, snapshot})
+    opts = [filter: [relays: [{"shared", "relay_#{System.unique_integer([:positive])}"}]]]
+
+    assert {:ok, ^snapshot} = NodeManager.liveness_snapshot(nil, opts)
+    assert {:ok, ^snapshot} = NodeManager.liveness_snapshot(nil, opts)
+
+    assert [[^opts, _ctx]] =
+             FakeController.calls(node, {Flezha.Service.Controller, :liveness_counters})
+
+    # Other relays are another read.
+    NodeManager.liveness_snapshot(nil, filter: [relays: [{"shared", "another"}]])
+
+    assert length(FakeController.calls(node, {Flezha.Service.Controller, :liveness_counters})) ==
+             2
+  end
+
+  test "a failed counters read is not kept", %{node: node} do
+    FakeController.set(node, {Flezha.Service.Controller, :liveness_counters}, {:error, :timeout})
+    opts = [filter: [relays: [{"failed", "relay_#{System.unique_integer([:positive])}"}]]]
+
+    assert {:error, _reason} = NodeManager.liveness_snapshot(nil, opts)
+    assert {:error, _reason} = NodeManager.liveness_snapshot(nil, opts)
+
+    assert length(FakeController.calls(node, {Flezha.Service.Controller, :liveness_counters})) ==
+             2
   end
 
   test "the observability query carries the UI's caller context and answers every controller",

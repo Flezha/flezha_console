@@ -16,7 +16,7 @@ defmodule FlezhaConsoleWeb.ScheduleLive do
 
   use FlezhaConsoleWeb, :live_view
 
-  use FlezhaConsoleWeb.Live.Refresh, every: 5_000
+  use FlezhaConsoleWeb.Live.Refresh, every: 5_000, background: true
 
   alias FlezhaConsole.Service.NodeManager
   alias FlezhaConsoleWeb.Live.Target
@@ -56,7 +56,7 @@ defmodule FlezhaConsoleWeb.ScheduleLive do
     socket =
       socket
       |> assign(page_title: title, controller: params["controller"] || "")
-      |> refresh_when_connected()
+      |> read_when_connected()
 
     case params["run"] do
       name when is_binary(name) and name != "" ->
@@ -209,9 +209,18 @@ defmodule FlezhaConsoleWeb.ScheduleLive do
   end
 
   @impl FlezhaConsoleWeb.Live.Refresh
-  def refresh(socket) do
-    case NodeManager.schedule_list(socket.assigns.flezha_token) do
-      {:ok, %{rows: entries}} = listed ->
+  def refresh_read(socket) do
+    token = socket.assigns.flezha_token
+    fn -> NodeManager.schedule_list(token) end
+  end
+
+  @impl FlezhaConsoleWeb.Live.Refresh
+  def refresh_apply(socket, {:exit, _reason}),
+    do: assign(socket, schedules: [], listed: [], load_error: :read_failed, loaded?: true)
+
+  def refresh_apply(socket, {:ok, listed}) do
+    case listed do
+      {:ok, %{rows: entries}} ->
         listed_rows = rows(entries, socket.assigns.scoped_namespace)
 
         assign(socket,

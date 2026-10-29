@@ -51,7 +51,7 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
   # Named exactly and namespaced, so a host's own events are never swallowed.
   @events ~w(plugin_form_open plugin_form_close plugin_form_provider plugin_form_change
              plugin_form_submit plugin_form_step plugin_form_role plugin_form_rename
-             plugin_form_fold plugin_form_bind)
+             plugin_form_fold plugin_form_bind plugin_form_relays)
 
   # The enable flow's steps: Provider, Placement, Options, Review.
   @placement 1
@@ -98,8 +98,7 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
       enabled: [],
       provider: nil,
       options: nil,
-      relays: [],
-      relays_error: nil,
+      relays: relay_matches(nil, "", nil),
       fields: %{
         "name" => params["name"] || generated_name(),
         # A screen that asks opens on the namespace the shell has in scope.
@@ -189,6 +188,15 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
   def handle_event(_module, "plugin_form_rename", _params, socket) do
     update(socket, :plugin_form, &%{&1 | fields: Map.put(&1.fields, "name", generated_name())})
   end
+
+  # The relay picker's search: the first relays matching what was typed.
+  def handle_event(_module, "plugin_form_relays", %{"value" => query}, socket)
+      when is_binary(query) and byte_size(query) <= 256 do
+    form = load_relays(socket.assigns.plugin_form, socket.assigns.flezha_token, query)
+    assign(socket, plugin_form: form)
+  end
+
+  def handle_event(_module, "plugin_form_relays", _params, socket), do: socket
 
   # A form with no field of its own to post, such as an update of a relay
   # plugin that takes no options, arrives without `plugin`.
@@ -426,17 +434,34 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
 
   defp option_doc(row, _mode), do: Map.get(row, :doc)
 
-  # The relay picker is read only when the form asks for a relay at all.
-  defp load_relays(%{relay: relay} = form, _token) when is_binary(relay), do: form
+  # The relay picker is read only when the form asks for a relay at all, and
+  # holds the first relays matching its search: a namespace may run thousands.
+  defp load_relays(form, token, query \\ "")
 
-  defp load_relays(form, token) do
+  defp load_relays(%{relay: relay} = form, _token, _query) when is_binary(relay), do: form
+
+  defp load_relays(form, token, query) do
     namespace = namespace(form)
 
-    if asks_relay?(form) and namespace != "" do
-      {relays, error} = NodeManager.ok_or_error(NodeManager.list_relays(namespace, token), [])
-      %{form | relays: Enum.sort(relays), relays_error: error}
-    else
-      %{form | relays: [], relays_error: nil}
+    if asks_relay?(form) and namespace != "",
+      do: %{form | relays: relay_matches(namespace, query, token)},
+      else: %{form | relays: relay_matches(nil, "", token)}
+  end
+
+  @doc """
+  What a relay picker offers for `query` in `namespace`: `%{relays:,
+  matching:, query:, error:}`, the first relays matching it, how many match
+  in all, and why none could be read. A picker with no namespace offers none.
+  """
+  def relay_matches(nil, query, _token), do: %{relays: [], matching: 0, query: query, error: nil}
+
+  def relay_matches(namespace, query, token) do
+    case NodeManager.search_relays(namespace, token, query) do
+      {:ok, %{rows: rows, total: total}} ->
+        %{relays: Enum.map(rows, &to_string(&1.id)), matching: total, query: query, error: nil}
+
+      {:error, reason} ->
+        %{relays: [], matching: 0, query: query, error: reason}
     end
   end
 
@@ -1049,10 +1074,13 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
               do: "Bound now, it runs at once. Left empty, it waits until a relay is bound to it."
           }
           value={@form.fields["relay_id"]}
-          options={Enum.map(@form.relays, &{&1, &1})}
+          options={Enum.map(@form.relays.relays, &{&1, &1})}
           prompt={if @form.mode == :bind, do: "Select a relay...", else: "None yet: bind it later"}
           empty="No relay is running in this namespace"
-          error={@form.relays_error}
+          error={@form.relays.error}
+          search="plugin_form_relays"
+          query={@form.relays.query}
+          matches={@form.relays.matching}
           mono
           testid="input-plugin-relay"
         />

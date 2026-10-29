@@ -57,7 +57,7 @@ defmodule FlezhaConsoleWeb.Live.RunnerActions do
 
   @doc false
   def handle_event(_module, "runner_view", %{"namespace" => ns, "view" => view}, socket) do
-    view = Map.take(view, Map.keys(FlezhaConsoleWeb.Runners.default_view()))
+    view = FlezhaConsoleWeb.Runners.view(view)
     assign(socket, runner_views: Map.put(socket.assigns.runner_views, ns, view))
   end
 

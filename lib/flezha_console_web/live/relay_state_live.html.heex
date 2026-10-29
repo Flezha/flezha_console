@@ -19,7 +19,14 @@
     its SDK state and its durable <.term key="cell">cells</.term>.
   </:sentence>
   <:actions>
-    <Layouts.partition_menu ns={@ns} relay_id={@relay_id} view={:state} members={@partitions} />
+    <Layouts.partition_menu
+      ns={@ns}
+      relay_id={@relay_id}
+      view={:state}
+      members={@partitions}
+      paging={@paging}
+      searches={@searches}
+    />
   </:actions>
 </.page_header>
 
@@ -55,7 +62,7 @@
   fold="journal"
   open={@sections["journal"]}
   testid="task-journal-panel"
-  digest={journal_digest(@journal, @committed_iterations)}
+  digest={journal_digest(@journal, @committed_iterations, @committed_total)}
 >
   <:title>Task journal</:title>
   <:actions>
@@ -71,7 +78,7 @@
   </:actions>
   <div class="space-y-1 mb-4">
     <p data-testid="task-journal-committed">
-      Committed iterations: <span class="fcon-num">{Enum.join(@committed_iterations, ", ") |> then(&if(&1 == "", do: "none", else: &1))}</span>.
+      Committed iterations: {committed_words(@committed_iterations, @committed_total)}.
     </p>
     <p data-testid="task-journal-outcome">
       <%= if @journal.outcome do %>
@@ -92,6 +99,7 @@
     paging={@paging}
     id="journal-entries"
     rows={@journal.entries}
+    total={@journal.total}
     row_testid={&"journal-entry-#{&1[:seq]}"}
   >
     <:col :let={entry} label="Seq" num>{entry[:seq]}</:col>
@@ -276,9 +284,29 @@
 <%!-- Durable cells --%>
 <.section :if={!state_gone?(@state_kept)} testid="cells-panel">
   <:title>Durable cells</:title>
-  <.empty_state :if={@cells == []} icon="hero-circle-stack" testid="state-empty">
+  <.listing_search
+    :if={@cells != [] or Sections.search(@searches, "cells") != ""}
+    listing="cells"
+    searches={@searches}
+    label="Search"
+    placeholder="Cell key"
+    class="mb-4"
+    testid="cells-search"
+  />
+  <.empty_state
+    :if={@cells == [] and Sections.search(@searches, "cells") == ""}
+    icon="hero-circle-stack"
+    testid="state-empty"
+  >
     A cell is a keyed unit of state a tasklet persists. This relay has none persisted yet.
   </.empty_state>
+  <p
+    :if={@cells == [] and Sections.search(@searches, "cells") != ""}
+    class="fcon-figures"
+    data-testid="cells-none-match"
+  >
+    No Cell key matches this search.
+  </p>
   <div :if={@cells != []} class="space-y-8">
     <div
       :for={{tasklet, cells} <- Enum.group_by(@cells, & &1.tasklet)}
@@ -287,7 +315,6 @@
     >
       <h3 class="fcon-eyebrow">Tasklet <span class="fcon-num">{tasklet}</span></h3>
       <.grid
-        paging={@paging}
         id={"cells-#{tasklet}"}
         rows={cells}
         row_testid={&"cell-#{&1.key}"}
@@ -357,8 +384,14 @@
         </:menu>
       </.grid>
     </div>
+    <.more
+      id="cells"
+      shown={length(@cells)}
+      total={@cells_total}
+      reach={Sections.reach()}
+    />
 
-    <%!-- Durability lag, sampled by this UI --%>
+    <%!-- Durability lag, sampled by this UI, of the Cells shown --%>
     <div data-testid="lag-chart" class="space-y-3">
       <h3 class="fcon-eyebrow">Durability lag and WAL behind snapshot</h3>
       <p data-testid="chart-provenance" class="fcon-figures">
@@ -498,15 +531,27 @@
     boundary and the work in between is unwound.
   </.notice>
   <form phx-change="select_rewind">
-    <.input
-      type="select"
+    <.combobox
+      id="rewind-iteration"
       name="rewind[iteration]"
       label="Committed iteration"
       value={@rewind_target}
-      options={@committed_iterations}
-      data-testid="rewind-iteration"
-    />
+      testid="rewind-iteration"
+    >
+      <:option :for={iteration <- @committed_iterations} value={to_string(iteration)}>
+        {iteration}
+      </:option>
+    </.combobox>
   </form>
+  <.button
+    :if={@committed_next}
+    variant="ghost"
+    size="sm"
+    phx-click="rewind_older"
+    data-testid="rewind-older"
+  >
+    Older · {length(@committed_iterations)} of {@committed_total} shown
+  </.button>
   <:actions>
     <.button variant="ghost" phx-click="cancel_rewind" data-testid="rewind-cancel-btn">
       Cancel

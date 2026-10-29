@@ -54,13 +54,24 @@ defmodule FlezhaConsoleWeb.KitLive do
       namespaces: [
         %{
           namespace: "default",
-          rows: [
-            row.("orders", %{health: :halted}),
-            row.("ingest", %{health: :degraded}),
-            row.("sleeper_1", %{health: :suspended}),
-            row.("sleeper_2", %{health: :unbound})
-          ],
-          faulted_groups: ["prices"],
+          page:
+            FlezhaConsoleWeb.Attention.page(
+              {:ok,
+               %{
+                 rows: [
+                   row.("orders", %{health: :halted}),
+                   row.("ingest", %{health: :degraded}),
+                   row.("sleeper_1", %{health: :suspended}),
+                   row.("sleeper_2", %{health: :unbound})
+                 ],
+                 total: 6,
+                 summary: %{
+                   faulted_groups: [%{group: "prices", health: :failed, complete: false}],
+                   waiting: [%{factory: "echo_steps", relays: 1}]
+                 }
+               }}
+            ),
+          owns: ["orders"],
           quotas: [%{kind: :relays, value: 20, limit: 20, breached?: true}],
           serving: %{"echo_steps" => 0}
         }

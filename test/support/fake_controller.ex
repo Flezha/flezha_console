@@ -12,6 +12,15 @@ defmodule FakeController.Stub do
   assertion like "nothing reached the controller" checks for — so the drift
   would make that assertion pass for the wrong reason.
 
+  A paged read, which core declares with a trailing `opts`, names the read it
+  pages as and calls its `opts` argument `opts`:
+
+      defstub list(ns, opts, %{source: :ui} = ctx), paged: :relay_list, do: FakeController.rows([])
+
+  It answers the page `FakeController.page/3` cuts from whatever the read
+  answers whole, so a test sets the whole collection and the screen reads it
+  page by page, as from core.
+
   Only plain variables are recorded. An underscore-prefixed one is an argument
   the real API takes but no test asserts on, and a literal pattern such as
   `%{source: :ui}` is a constraint on the caller rather than a value worth
@@ -28,14 +37,30 @@ defmodule FakeController.Stub do
     quote do: import(FakeController.Stub, only: [defstub: 2])
   end
 
-  defmacro defstub(call, do: default) do
+  defmacro defstub(call, opts) do
     {name, _meta, params} = call
     recorded = params |> List.wrap() |> Enum.filter(&recorded?/1)
+    default = Keyword.fetch!(opts, :do)
 
-    quote do
-      def unquote(call) do
+    answer =
+      quote do
         FakeController.answer({__MODULE__, unquote(name)}, unquote(recorded), unquote(default))
       end
+
+    answer =
+      case Keyword.fetch(opts, :paged) do
+        {:ok, read} ->
+          page_opts =
+            Enum.find(params, &match?({:opts, _meta, context} when is_atom(context), &1))
+
+          quote do: FakeController.page(unquote(read), unquote(page_opts), unquote(answer))
+
+        :error ->
+          answer
+      end
+
+    quote do
+      def unquote(call), do: unquote(answer)
     end
   end
 
@@ -129,7 +154,7 @@ defmodule FakeController do
   `{:gate_reached, gate}`, so a test can wait for a read to get that far.
 
       FakeController.close_gate(node, :slow)
-      FakeController.set(node, {Relay, :relay_rows}, {:gated, :slow, FakeController.rows(rows)})
+      FakeController.set(node, {Relay, :list}, {:gated, :slow, FakeController.rows(rows)})
       assert_receive {:gate_reached, :slow}
   """
   def close_gate(node, gate), do: set(node, {:gate, gate}, {:closed, self()})
@@ -164,6 +189,290 @@ defmodule FakeController do
   """
   def rows(rows, unreachable \\ []),
     do: {:ok, %{rows: rows, unreachable: Enum.map(unreachable, &to_node/1)}}
+
+  # The sorts and filter keys each paged read declares, as core's
+  # `Flezha.Cluster.Page.parse/3` is told them.
+  @paged_reads %{
+    relay_list: [
+      sorts: [id: :asc, severity: :asc],
+      filters: [:health, :factory, :runner, :node, :group, :ids, :text, :run]
+    ],
+    plugin_list: [sorts: [name: :asc], filters: [:provider, :relay, :text]],
+    liveness_counters: [sorts: [relay: :asc], filters: [:relays, :namespace]],
+    dlq_list: [sorts: [newest: :desc]],
+    journal: [sorts: [seq: :desc]],
+    committed_iterations: [sorts: [iteration: :desc]],
+    undelivered: [sorts: [offset: :asc]],
+    cells: [sorts: [key: :asc], filters: [:text]]
+  }
+
+  # The health words in core's rank order, worst last.
+  @health_rank [
+    :healthy,
+    :unknown,
+    :suspended,
+    :degraded,
+    :recovering,
+    :unbound,
+    :failed,
+    :halted
+  ]
+
+  @doc """
+  The page of `answer`, the whole collection a paged `read` answers without
+  `opts`, that `opts` asks for: `%{rows:, total:, next:, unreachable:}` and
+  what else core's page of that read carries — a relay list's `summary`, a
+  plugin row's sample of 10 relays and `relay_count`. Opts core refuses are
+  refused with core's codes, before anything is read. An answer that is
+  already a page, or a refusal, is answered as it is.
+
+  Each read cuts its page as core does: a relay list filters and sorts by
+  `id` or `severity`, its summary counted over every row; liveness counters
+  keep the named relays, or a namespace's, and with `limit: 0` only that
+  namespace's `totals`. A counter row naming no namespace, as a controller
+  that does not key counters by namespace answers it, belongs to any.
+  """
+  def page(_read, opts, answer) when opts in [[], %{}], do: answer
+  def page(_read, _opts, {:error, _reason} = refused), do: refused
+  def page(_read, _opts, {:ok, %{total: _}} = page), do: page
+
+  def page(read, opts, {:ok, whole}) do
+    declared = Map.fetch!(@paged_reads, read)
+
+    case parse_page(Map.new(opts), declared, read) do
+      {:ok, page} -> {:ok, cut(read, whole, page)}
+      refused -> refused
+    end
+  end
+
+  defp parse_page(opts, declared, read) do
+    keys =
+      if read == :liveness_counters, do: [:filter, :limit], else: [:limit, :after, :sort, :filter]
+
+    sorts = Keyword.fetch!(declared, :sorts)
+
+    with :ok <- known_keys(Map.keys(opts), keys),
+         {:ok, limit} <- page_limit(Map.get(opts, :limit, 50)),
+         {:ok, sort} <- page_sort(Map.get(opts, :sort), sorts),
+         {:ok, filter} <- page_filter(Map.get(opts, :filter, []), declared[:filters] || []),
+         {:ok, offset} <- page_cursor(Map.get(opts, :after), read, sort) do
+      {:ok, %{limit: limit, sort: sort, filter: filter, offset: offset}}
+    end
+  end
+
+  defp known_keys(keys, allowed) do
+    case Enum.find(keys, &(&1 not in allowed)) do
+      nil -> :ok
+      key -> error("control.unknown_parameter", "unknown parameter '#{key}'")
+    end
+  end
+
+  defp page_limit(n) when is_integer(n) and n >= 0 and n <= 500, do: {:ok, n}
+  defp page_limit(n), do: error("usage.invalid_number", "invalid limit value '#{inspect(n)}'")
+
+  defp page_sort(nil, [{default, _direction} | _]), do: {:ok, default}
+
+  defp page_sort(written, sorts) do
+    case Enum.find(Keyword.keys(sorts), &(to_string(&1) == to_string(written))) do
+      nil -> error("usage.unknown_word", "unknown sort '#{inspect(written)}'")
+      sort -> {:ok, sort}
+    end
+  end
+
+  defp page_filter(written, keys) do
+    Enum.reduce_while(written, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
+      case Enum.find(keys, &(to_string(&1) == to_string(key))) do
+        nil -> {:halt, error("control.unknown_parameter", "unknown parameter 'filter.#{key}'")}
+        key -> {:cont, {:ok, Map.put(acc, key, value)}}
+      end
+    end)
+  end
+
+  # A cursor is the offset of the page it continues, for the read and sort it
+  # was issued for, as core refuses one issued for another.
+  defp page_cursor(nil, _read, _sort), do: {:ok, 0}
+
+  defp page_cursor(written, read, sort) when is_binary(written) do
+    case String.split(written, ":") do
+      ["fake", read_name, sort_name, offset] ->
+        if read_name == to_string(read) and sort_name == to_string(sort),
+          do: {:ok, String.to_integer(offset)},
+          else: error("usage.invalid_number", "invalid after value '#{written}'")
+
+      _other ->
+        error("usage.invalid_number", "invalid after value '#{written}'")
+    end
+  end
+
+  defp page_cursor(written, _read, _sort),
+    do: error("usage.invalid_number", "invalid after value '#{inspect(written)}'")
+
+  defp cut(:relay_list, %{rows: rows, unreachable: unreachable}, page) do
+    listed = &(&1 |> Map.put_new(:run, :flow) |> Map.put_new(:plugins, 0))
+
+    rows =
+      Enum.map(rows, fn row ->
+        if row[:members],
+          do: %{listed.(row) | members: Enum.map(row.members, listed)},
+          else: listed.(row)
+      end)
+
+    ids_only? = Map.keys(page.filter) == [:ids]
+
+    rows
+    |> Enum.filter(&relay_kept?(&1, page.filter))
+    |> slice_page(page, :relay_list, relay_sort(page.sort))
+    |> Map.merge(%{unreachable: unreachable, summary: if(!ids_only?, do: relay_summary(rows))})
+  end
+
+  defp cut(:plugin_list, plugins, page) do
+    plugins
+    |> Enum.filter(&plugin_kept?(&1, page.filter))
+    |> slice_page(page, :plugin_list, &to_string(&1.name))
+    |> Map.update!(:rows, fn rows ->
+      Enum.map(rows, fn row ->
+        relays = Map.get(row, :relays, [])
+        %{row | relays: Enum.take(relays, 10)} |> Map.put(:relay_count, length(relays))
+      end)
+    end)
+  end
+
+  defp cut(:liveness_counters, %{relays: relays} = snapshot, page) do
+    case page.filter do
+      %{namespace: ns} when page.limit == 0 ->
+        totals =
+          relays
+          |> Enum.filter(&(&1[:namespace] in [nil, ns]))
+          |> Enum.flat_map(&Map.to_list(Map.drop(&1, [:relay_id, :namespace, :node])))
+          |> Enum.filter(fn {_slot, value} -> is_integer(value) end)
+          |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+          |> Map.new(fn {slot, values} -> {slot, Enum.sum(values)} end)
+
+        %{snapshot | relays: [], channels: []} |> Map.put(:totals, totals)
+
+      %{namespace: ns} ->
+        %{snapshot | relays: Enum.filter(relays, &(&1[:namespace] in [nil, ns]))}
+
+      %{relays: named} ->
+        named = MapSet.new(named, fn {ns, id} -> {ns, id} end)
+        ids = MapSet.new(named, &elem(&1, 1))
+
+        kept =
+          Enum.filter(relays, fn row ->
+            if row[:namespace],
+              do: MapSet.member?(named, {row.namespace, row.relay_id}),
+              else: MapSet.member?(ids, row.relay_id)
+          end)
+
+        %{snapshot | relays: kept}
+
+      _none ->
+        snapshot
+    end
+  end
+
+  defp cut(:dlq_list, %{rows: rows, unreachable: unreachable}, page),
+    do: rows |> slice_page(page, :dlq_list, nil) |> Map.put(:unreachable, unreachable)
+
+  defp cut(:journal, %{entries: entries} = report, page) do
+    report
+    |> Map.delete(:entries)
+    |> Map.merge(slice_page(entries, page, :journal, &(-Map.get(&1, :seq, 0))))
+  end
+
+  defp cut(:committed_iterations, iterations, page),
+    do: slice_page(iterations, page, :committed_iterations, &(-&1))
+
+  defp cut(:undelivered, records, page),
+    do: slice_page(records, page, :undelivered, &Map.get(&1, :offset, 0))
+
+  defp cut(:cells, %{cells: cells} = report, page) do
+    text = page.filter |> Map.get(:text, "") |> to_string()
+
+    report
+    |> Map.delete(:cells)
+    |> Map.merge(
+      cells
+      |> Enum.filter(&String.contains?(to_string(&1.cell_key), text))
+      |> slice_page(page, :cells, &{to_string(&1.tasklet_id), to_string(&1.cell_key)})
+    )
+  end
+
+  # `rows` sorted by `key` (kept in order for none), the page after the
+  # cursor's offset, and a cursor while rows remain.
+  defp slice_page(rows, page, read, key) do
+    sorted = if key, do: Enum.sort_by(rows, key), else: rows
+    kept = sorted |> Enum.drop(page.offset) |> Enum.take(page.limit)
+    shown = page.offset + length(kept)
+
+    next =
+      if kept != [] and shown < length(sorted), do: "fake:#{read}:#{page.sort}:#{shown}"
+
+    %{rows: kept, total: length(sorted), next: next, unreachable: []}
+  end
+
+  defp relay_sort(:id), do: &to_string(&1.id)
+  defp relay_sort(:severity), do: &{-health_rank(&1.health), to_string(&1.id)}
+
+  defp health_rank(health), do: Enum.find_index(@health_rank, &(&1 == health)) || 1
+
+  defp fault?(health), do: health_rank(health) >= health_rank(:degraded)
+
+  defp relay_kept?(row, filter) do
+    Enum.all?(filter, fn
+      {:health, words} ->
+        words = Enum.map(List.wrap(words), &to_string/1)
+        to_string(row.health) in words or ("unhealthy" in words and fault?(row.health))
+
+      {:ids, ids} ->
+        to_string(row.id) in Enum.map(ids, &to_string/1)
+
+      {:group, group} ->
+        row[:members] != nil and to_string(row.id) == group
+
+      {:text, text} ->
+        text = String.downcase(text)
+
+        Enum.any?(
+          [row.id, row.factory],
+          &(is_binary(&1) and String.contains?(String.downcase(&1), text))
+        )
+
+      {:run, run} ->
+        to_string(row[:run]) == to_string(run)
+
+      {key, value} when key in [:factory, :runner, :node] ->
+        Enum.any?(row[:members] || [row], &(to_string(&1[key]) == to_string(value)))
+    end)
+  end
+
+  defp relay_summary(rows) do
+    relays = Enum.flat_map(rows, &(&1[:members] || [&1]))
+
+    %{
+      health: Enum.frequencies_by(rows, & &1.health),
+      faulted_groups:
+        for(
+          %{members: [_ | _]} = group <- rows,
+          fault?(group.health),
+          do: %{group: group.id, health: group.health, complete: true}
+        ),
+      waiting:
+        relays
+        |> Enum.filter(&(&1.health in [:unbound, :recovering]))
+        |> Enum.frequencies_by(&to_string(&1.factory))
+        |> Enum.map(fn {factory, count} -> %{factory: factory, relays: count} end)
+        |> Enum.sort_by(&{-&1.relays, &1.factory})
+    }
+  end
+
+  defp plugin_kept?(row, filter) do
+    Enum.all?(filter, fn
+      {:provider, provider} -> provider in [row[:provider], row[:provider_id]]
+      {:relay, relay} -> relay in Map.get(row, :relays, [])
+      {:text, text} -> String.contains?(String.downcase(row.name), String.downcase(text))
+    end)
+  end
 
   @doc """
   A logs read's answer: `records` newest first, the `next` cursor a further
@@ -400,7 +709,7 @@ defmodule FakeController do
     do: %{id: id, module: module, type: :relay, feeds: feeds, nodes: [:"flezha@node-a"]}
 
   @doc """
-  A relay row shaped as `Flezha.Service.Relay.relay_rows/2` answers one, with
+  A relay row shaped as `Flezha.Service.Relay.list/3` answers one, with
   `overrides` applied.
 
   Every listing, the fleet summary and the cluster rollup read these rows, so
@@ -507,21 +816,6 @@ defmodule FakeController do
   """
   def option_row(name, overrides \\ %{}) do
     Map.merge(%{name: to_string(name), type: :any, required: false, doc: nil}, overrides)
-  end
-
-  @doc """
-  A registry entry for a relay whose builder carries `run`, as
-  `Flezha.Service.Relay.registry/2` answers one under the relay's id.
-  """
-  def registry_entry(run, opts \\ []) do
-    builder = %{id: nil, factory_id: "store_input", run: run, init_values: %{}, opts: opts}
-
-    {%{
-       id: "relay",
-       restart: :temporary,
-       shutdown: 5_000,
-       start: {Flezha.Relay, :start_link, [{"default", "runner-a", builder}]}
-     }, [], %{}}
   end
 
   @doc """
@@ -668,39 +962,39 @@ defmodule FakeController do
 
   @doc """
   Answers the calls every relay listing makes: which namespaces the token
-  reaches, each namespace's rows (as both `list/2` and `relay_rows/2`), its
-  plugin pairs and its registry.
+  reaches, and each namespace's relays as `list/3` pages them.
 
   `:rows` maps a namespace to its rows, `:plugins` is the `relay_plugins/2`
-  answer's rows, `:runs` maps a relay id to its run — every row defaults to
-  `:flow` — and `:unreachable` names controllers the row reads lack. The registry also carries a `{:plugin, name}` entry, as a real one
-  does, so the decoder that skips it is exercised by every listing test.
+  answer's rows, from which each row's plugin count is taken, `:runs` maps a
+  relay id to its run — every row defaults to `:flow` — and `:unreachable`
+  names controllers the row reads lack.
   """
   def set_fleet(node, opts) do
     rows = Keyword.get(opts, :rows, %{})
     runs = Keyword.get(opts, :runs, %{})
+    plugins = Keyword.get(opts, :plugins, [])
     unreachable = Keyword.get(opts, :unreachable, [])
     namespaces = Keyword.get(opts, :namespaces, Map.keys(rows))
     catalog = Enum.map(namespaces, &%{namespace: &1, running: true, nodes: [:"flezha@node-a"]})
+    counts = Map.new(plugins, fn {id, bound} -> {to_string(id), length(bound)} end)
 
-    registry =
-      Map.new(rows, fn {namespace, ns_rows} ->
-        entries =
-          Map.new(ns_rows, fn row ->
-            {to_string(row.id), registry_entry(Map.get(runs, to_string(row.id), :flow))}
-          end)
+    listed = fn row ->
+      # A group's run and bindings are its first member's, which every member shares.
+      id = row |> Map.get(:members, [row]) |> hd() |> Map.fetch!(:id) |> to_string()
 
-        {namespace, {:ok, Map.put(entries, {:plugin, "fixture-plugin"}, {%{}, [], %{}})}}
-      end)
+      row
+      |> Map.put(:run, Map.get(runs, id, :flow))
+      |> Map.put(:plugins, Map.get(counts, id, 0))
+    end
 
     by_namespace =
-      Map.new(rows, fn {namespace, ns_rows} -> {namespace, rows(ns_rows, unreachable)} end)
+      Map.new(rows, fn {namespace, ns_rows} ->
+        {namespace, rows(Enum.map(ns_rows, listed), unreachable)}
+      end)
 
     set(node, {Flezha.Service.Relay, :list_namespaces}, rows(catalog))
     set(node, {Flezha.Service.Relay, :list}, {:per_arg, 0, by_namespace, rows([])})
-    set(node, {Flezha.Service.Relay, :relay_rows}, {:per_arg, 0, by_namespace, rows([])})
-    set(node, {Flezha.Service.Relay, :relay_plugins}, rows(Keyword.get(opts, :plugins, [])))
-    set(node, {Flezha.Service.Relay, :registry}, {:per_arg, 0, registry, {:ok, %{}}})
+    set(node, {Flezha.Service.Relay, :relay_plugins}, rows(plugins))
   end
 
   @doc """
@@ -899,10 +1193,12 @@ defmodule Flezha.Service.Relay do
 
   defstub list_namespaces(%{source: :ui} = ctx), do: FakeController.rows([])
   defstub list(ns, %{source: :ui} = ctx), do: FakeController.rows([])
-  defstub relay_rows(ns, %{source: :ui} = ctx), do: FakeController.rows([])
+
+  defstub list(ns, opts, %{source: :ui} = ctx),
+    paged: :relay_list,
+    do: FakeController.rows([])
+
   defstub relay_plugins(ns, %{source: :ui} = ctx), do: FakeController.rows([])
-  defstub registry(ns, %{source: :ui} = ctx), do: {:ok, %{}}
-  defstub partition_groups(rows, %{source: :ui} = ctx), do: {:ok, []}
 
   defstub cell_state(ns, id, cell, %{source: :ui} = ctx), do: {:ok, "{}", 0}
   defstub overwatch_state(ns, id, %{source: :ui} = ctx), do: {:ok, %{}}
@@ -952,6 +1248,10 @@ defmodule Flezha.Service.Steps do
   @moduledoc "Stand-in for the published steps surface. See `FakeController`."
   use FakeController.Stub
 
+  defstub cells(relay_class, opts, %{source: :ui} = ctx),
+    paged: :cells,
+    do: {:ok, %{relay_class: relay_class, history_retention_hours: 24, cells: []}}
+
   defstub cells(relay_class, %{source: :ui} = ctx),
     do: {:ok, %{relay_class: relay_class, history_retention_hours: 24, cells: []}}
 
@@ -966,9 +1266,19 @@ defmodule Flezha.Service.Steps do
   defstub journal(id, %{source: :ui} = ctx),
     do: {:ok, %{instance: id, entries: [], outcome: nil}}
 
+  defstub journal(id, opts, %{source: :ui} = ctx),
+    paged: :journal,
+    do: {:ok, %{instance: id, entries: [], outcome: nil}}
+
   defstub committed_iterations(id, %{source: :ui} = ctx), do: {:ok, []}
+
+  defstub committed_iterations(id, opts, %{source: :ui} = ctx),
+    paged: :committed_iterations,
+    do: {:ok, []}
+
   defstub consumed_offset(id, %{source: :ui} = ctx), do: {:ok, nil}
   defstub undelivered(id, %{source: :ui} = ctx), do: {:ok, []}
+  defstub undelivered(id, opts, %{source: :ui} = ctx), paged: :undelivered, do: {:ok, []}
   defstub last_offset(id, %{source: :ui} = ctx), do: {:ok, -1}
   defstub rescale(ns, group, target, opts, %{source: :ui} = ctx), do: {:ok, %{group: group}}
   defstub rewind(ns, relay_class, to_iter, %{source: :ui} = ctx), do: :ok
@@ -1083,13 +1393,17 @@ defmodule Flezha.Service.Dlq do
   use FakeController.Stub
 
   defstub list(relay_class, %{source: :ui} = ctx), do: FakeController.rows([])
+
+  defstub list(relay_class, opts, %{source: :ui} = ctx),
+    paged: :dlq_list,
+    do: FakeController.rows([])
+
   defstub get(entry_ref, %{source: :ui} = ctx), do: FakeController.error("dlq.not_found")
   defstub drop(entry_ref, %{source: :ui} = ctx), do: :ok
 
   defstub replay(entry_ref, %{source: :ui} = ctx),
     do: {:ok, %{outcome: :removed, generation: nil}}
 
-  defstub tasklets(relay_class, %{source: :ui} = ctx), do: FakeController.rows([])
   defstub stats(%{source: :ui} = ctx), do: FakeController.rows([])
 end
 
@@ -1139,6 +1453,10 @@ defmodule Flezha.Service.Controller do
   defstub liveness_counters(%{source: :ui} = ctx),
     do: {:ok, %{channels: [], relays: [], unreachable: []}}
 
+  defstub liveness_counters(opts, %{source: :ui} = ctx),
+    paged: :liveness_counters,
+    do: {:ok, %{channels: [], relays: [], unreachable: []}}
+
   defstub durability_status(%{source: :ui} = ctx), do: FakeController.rows([])
 end
 
@@ -1151,6 +1469,7 @@ defmodule Flezha.Service.PluginManager do
 
   defstub disable(name, fields, %{source: :ui} = ctx), do: {:ok, "plugin disabled"}
   defstub enabled(ns, %{source: :ui} = ctx), do: {:ok, []}
+  defstub enabled(ns, opts, %{source: :ui} = ctx), paged: :plugin_list, do: {:ok, []}
   defstub bind(name, fields, %{source: :ui} = ctx), do: :ok
   defstub unbind(name, fields, %{source: :ui} = ctx), do: :ok
 

@@ -16,6 +16,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
   alias Flezha.Service.Dlq
   alias Flezha.Service.Fleet
   alias Flezha.Service.Observability
+  alias Flezha.Service.PluginManager
   alias Flezha.Service.Relay
   alias FlezhaConsole.TestEnv
   alias FlezhaConsoleWeb.Glossary
@@ -135,6 +136,22 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
     )
   end
 
+  # The plugins enabled in the namespace, by name.
+  defp enabled(node, names) do
+    plugins = for name <- names, do: %{name: name, provider: "std_out", relays: []}
+    FakeController.set(node, {PluginManager, :enabled}, {:ok, plugins})
+  end
+
+  # A relay of another namespace, its counters keyed by it.
+  defp elsewhere(count),
+    do: %{
+      relay_id: "elsewhere",
+      namespace: "other",
+      io_in_received: count,
+      forwarded: count,
+      filtered_nil: 0
+    }
+
   defp snapshot(node, relays, channels \\ []) do
     FakeController.set(
       node,
@@ -144,6 +161,9 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
          channels: channels,
          relays:
            Enum.map(relays, fn
+             %{} = counted ->
+               counted
+
              {id, received, forwarded} ->
                %{relay_id: id, io_in_received: received, forwarded: forwarded, filtered_nil: 0}
 
@@ -1444,11 +1464,11 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
 
     test "another namespace's traffic does not move this one", %{conn: conn, node: node} do
       stack(node)
-      snapshot(node, [{"relay_a", 1, 1}, {"elsewhere", 0, 0}])
+      snapshot(node, [{"relay_a", 1, 1}, elsewhere(0)])
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
-      snapshot(node, [{"relay_a", 1, 1}, {"elsewhere", 5_000, 5_000}])
+      snapshot(node, [{"relay_a", 1, 1}, elsewhere(5_000)])
       html = tick(view)
 
       assert {"quiet", _text} = headline(html)
@@ -1457,11 +1477,11 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
 
     test "a runner with no relay still reads as nothing running", %{conn: conn, node: node} do
       stack(node, relays: [])
-      snapshot(node, [{"elsewhere", 0, 0}])
+      snapshot(node, [elsewhere(0)])
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
-      snapshot(node, [{"elsewhere", 5_000, 5_000}])
+      snapshot(node, [elsewhere(5_000)])
       html = tick(view)
 
       assert {"empty", "Nothing runs in default yet."} = headline(html)
@@ -1563,36 +1583,53 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert [["default", "sick", _ctx]] = FakeController.calls(node, {Relay, :diagnose})
     end
 
-    test "an unplaced relay and a coverage-faulted member are problems too", %{
+    test "an unplaced member and a coverage-faulted one are problems too", %{
       conn: conn,
       node: node
     } do
-      member =
-        summary_row("orders_p0", %{
-          partition: %{group: "orders", index: 0, count: 2, range: {0, 127}}
-        })
+      member = fn id, index, overrides ->
+        summary_row(
+          id,
+          Map.merge(
+            %{partition: %{group: "orders", index: index, count: 3, range: {index, index}}},
+            overrides
+          )
+        )
+      end
 
-      stack(node, rows: [summary_row("stranded", %{node: nil}), member])
+      members = [
+        member.("orders_p0", 0, %{}),
+        member.("stranded", 1, %{node: nil}),
+        member.("orders_p2", 2, %{health: :failed})
+      ]
 
+      group = Map.merge(summary_row("orders", %{health: :failed}), %{members: members})
+      stack(node, rows: [group])
+
+      # The summary says the group's key-group coverage is not whole.
       FakeController.set(
         node,
-        {Relay, :partition_groups},
+        {Relay, :list},
         {:ok,
-         [
-           %{
-             group: "orders",
-             declared: 2,
-             members: [member],
-             coverage: {:error, %{gaps: [{128, 255}], overlaps: []}}
+         %{
+           rows: [group],
+           total: 1,
+           next: nil,
+           unreachable: [],
+           summary: %{
+             health: %{failed: 1},
+             waiting: [],
+             faulted_groups: [%{group: "orders", health: :failed, complete: false}]
            }
-         ]}
+         }}
       )
 
-      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      said = Enum.map(:sys.get_state(view.pid).socket.assigns.items, & &1.what)
 
-      assert html =~ "stranded is unplaced"
-      assert html =~ "orders_p0 owns a broken key range"
-      assert html =~ "Partition group orders has broken coverage"
+      assert "stranded is unplaced" in said
+      assert "orders_p0 owns a broken key range in partition group orders" in said
+      assert "Partition group orders has broken coverage" in said
     end
 
     test "past three, the rest are counted with a link to Open problems", %{
@@ -1740,7 +1777,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       conn: conn,
       node: node
     } do
-      verdicts = Enum.with_index([nil | FlezhaConsoleWeb.Words.health_verdicts()])
+      verdicts = Enum.with_index(FlezhaConsoleWeb.Words.health_verdicts())
 
       stack(node,
         rows: Enum.map(verdicts, fn {h, i} -> summary_row("relay_#{i}", %{health: h}) end)
@@ -1748,10 +1785,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
-      # The row with no health and the one the loop calls unknown are both unknown.
-      assert text_of(html, ~s([data-testid="ns-relays-unknown"])) == "2 unknown"
-
-      for verdict <- FlezhaConsoleWeb.Words.health_verdicts() -- [:healthy, :unknown] do
+      for verdict <- FlezhaConsoleWeb.Words.health_verdicts() -- [:healthy] do
         words = :health |> FlezhaConsoleWeb.Words.text(verdict) |> String.downcase()
         assert text_of(html, ~s([data-testid="ns-relays-#{verdict}"])) == "1 #{words}"
       end
@@ -1876,22 +1910,29 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert attrs(html, ~s([data-testid="problems-count"]), "data-tone") == ["warning"]
     end
 
-    test "plugins are counted once however many relays bind them", %{conn: conn, node: node} do
+    test "plugins are counted from one page of the plugin listing", %{conn: conn, node: node} do
       stack(node, relays: ["relay_a", "relay_b"])
-
-      FakeController.set(
-        node,
-        {Relay, :relay_plugins},
-        FakeController.rows([
-          {"relay_a", [{"ws_in", %{}}, {"kafka_out", %{}}]},
-          {"relay_b", [{"ws_in", %{}}]}
-        ])
-      )
+      enabled(node, ~w(ws_in kafka_out))
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert text_of(html, ~s([data-testid="ns-plugins-value"])) == "2"
-      assert text_of(html, ~s([data-testid="ns-plugins-condition"])) == "Bound to 2 relays"
+
+      assert text_of(html, ~s([data-testid="ns-plugins-condition"])) ==
+               "Enabled in this namespace"
+
+      assert Enum.all?(FakeController.calls(node, {PluginManager, :enabled}), fn
+               [_ns, opts, _ctx] -> opts == [limit: 2]
+             end)
+    end
+
+    test "a namespace with no plugin says none is enabled", %{conn: conn, node: node} do
+      stack(node)
+
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
+
+      assert text_of(html, ~s([data-testid="ns-plugins-value"])) == "0"
+      assert text_of(html, ~s([data-testid="ns-plugins-condition"])) == "None enabled"
     end
 
     test "schedules are this namespace's, with the next one to fire", %{conn: conn, node: node} do
@@ -2015,18 +2056,14 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
 
     test "each tile carries a second fact on its foot", %{conn: conn, node: node} do
       stack(node, relays: ["relay_a", "relay_b"])
-
-      FakeController.set(
-        node,
-        {Relay, :relay_plugins},
-        FakeController.rows([{"relay_a", [{"ws_in", %{}}, {"kafka_out", %{}}, {"tap", %{}}]}])
-      )
+      enabled(node, ~w(ws_in kafka_out tap))
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       foot = &text_of(html, ~s([data-testid="#{&1}"] .fcon-indicator-foot))
       assert foot.("ns-runners") == "Running 2 relays"
-      assert foot.("ns-plugins") == "ws_in, kafka_out +1"
+      # The plugin listing pages by name.
+      assert foot.("ns-plugins") == "kafka_out, tap +1"
       assert foot.("ns-parked") == "The queue is empty"
       assert text_of(html, ~s([data-testid="ns-parked-verdict"])) == "Clear"
     end
@@ -2112,6 +2149,9 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
   end
 
   describe "Home's reads" do
+    # Each Home read lists its plugins once; the shell's pulse does not.
+    defp home_reads(node), do: length(FakeController.calls(node, {PluginManager, :enabled}))
+
     test "nothing is read while the tab is hidden, and once when it is shown", %{
       conn: conn,
       node: node
@@ -2119,21 +2159,21 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       stack(node)
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
-      before = length(FakeController.calls(node, {Relay, :relay_plugins}))
+      before = home_reads(node)
 
       view
-      |> element("#home-visibility")
+      |> element("#shell-visibility")
       |> render_hook("refresh_visibility", %{"hidden" => true})
 
       tick(view)
-      assert length(FakeController.calls(node, {Relay, :relay_plugins})) == before
+      assert home_reads(node) == before
 
       view
-      |> element("#home-visibility")
+      |> element("#shell-visibility")
       |> render_hook("refresh_visibility", %{"hidden" => false})
 
       render_async(view)
-      assert length(FakeController.calls(node, {Relay, :relay_plugins})) == before + 1
+      assert home_reads(node) == before + 1
     end
 
     test "a burst of lifecycle events costs one read", %{conn: conn, node: node} do
@@ -2142,7 +2182,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       stack(node)
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
-      before = length(FakeController.calls(node, {Relay, :relay_plugins}))
+      before = home_reads(node)
 
       for i <- 1..10 do
         send(view.pid, {:flezha_event, :relay_stopped, {"default", stopped("relay_#{i}")}})
@@ -2151,12 +2191,12 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       send(view.pid, {:flezha_event, :relay_stopped, {"staging", stopped("theirs")}})
       html = render_async(view)
 
-      assert length(FakeController.calls(node, {Relay, :relay_plugins})) == before
+      assert home_reads(node) == before
       assert html |> String.split("stopped: ") |> length() == 11
 
       send(view.pid, :refresh_requested)
       render_async(view)
-      assert length(FakeController.calls(node, {Relay, :relay_plugins})) == before + 1
+      assert home_reads(node) == before + 1
     end
   end
 
@@ -2180,19 +2220,19 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert length(FakeController.calls(node, {Relay, :overwatch_state})) == 1
     end
 
-    test "the relay inspector carries its rates and their history, and opens the relay",
+    test "the relay inspector carries the rates its host measured, and opens the relay",
          %{conn: conn, node: node} do
       stack(node)
       snapshot(node, [{"relay_a", 0, 0}])
-      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default/relays")
 
       snapshot(node, [{"relay_a", 1_000, 0}])
       tick(view)
       snapshot(node, [{"relay_a", 3_000, 0}])
       tick(view)
 
-      # The inspector takes the rates the screen measured when it opens.
-      html = render_patch(view, "/namespaces/default?inspect=relay:relay_a")
+      # The inspector takes the rates the relays index measured when it opens.
+      html = render_patch(view, "/namespaces/default/relays?inspect=relay:relay_a")
 
       assert html =~ ~s(data-testid="inspector-rate-in")
       assert html =~ ~s(data-testid="inspector-sparkline")

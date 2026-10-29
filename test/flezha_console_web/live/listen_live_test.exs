@@ -75,7 +75,7 @@ defmodule FlezhaConsoleWeb.ListenLiveTest do
     } do
       FakeController.set(
         node,
-        {Relay, :relay_rows},
+        {Relay, :list},
         FakeController.rows([FakeController.relay_row("relay_a", %{node: :"flezha@node-b"})])
       )
 
@@ -98,7 +98,7 @@ defmodule FlezhaConsoleWeb.ListenLiveTest do
     test "offers a send but no call to a relay no runner can run", %{conn: conn, node: node} do
       FakeController.set(
         node,
-        {Relay, :relay_rows},
+        {Relay, :list},
         FakeController.rows([FakeController.relay_row("relay_a")])
       )
 
@@ -127,7 +127,7 @@ defmodule FlezhaConsoleWeb.ListenLiveTest do
     } do
       FakeController.set(
         node,
-        {Relay, :relay_rows},
+        {Relay, :list},
         FakeController.rows([FakeController.relay_row("relay_a")])
       )
 

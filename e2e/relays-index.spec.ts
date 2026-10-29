@@ -4,7 +4,6 @@ import {
   expect,
   healthBadge,
   healthMatcher,
-  choose,
   startRelay,
   startRelayCli,
   stopRelay,
@@ -79,7 +78,7 @@ test.describe('Relays index', () => {
     await expect(page.getByTestId('relay-runner')).toBeVisible();
   });
 
-  test('starts a steps relay from here, filters by run, and the back button undoes the filter', async ({
+  test('starts a steps relay from here, finds it by search, and the back button undoes the search', async ({
     page,
   }) => {
     const id = uniqueId('pw_idxst');
@@ -88,13 +87,14 @@ test.describe('Relays index', () => {
       await startRelay(page, id, { namespace: 'default', run: 'steps' });
       await expect(page.getByTestId(`relay-index-row-${id}`)).toContainText('steps');
 
-      await choose(page, 'filter-run', 'steps');
-      await expect(page).toHaveURL(/\?.*run=steps/);
+      // The controller searches the whole namespace, whatever page a relay is on.
+      await page.getByTestId('filter-q').fill(id);
+      await expect(page).toHaveURL(new RegExp(`\\?.*q=${id}`));
       await expect(page.getByTestId(`relay-index-row-${id}`)).toBeVisible();
       await expect(page.getByTestId('relay-index-row-testnet_store_1')).toHaveCount(0);
 
       await page.goBack();
-      await expect(page).not.toHaveURL(/run=steps/);
+      await expect(page).not.toHaveURL(/q=/);
       await expect(page.getByTestId('relay-index-row-testnet_store_1')).toBeVisible();
     } finally {
       // The index lists relays; stopping one is the namespace screen's verb.

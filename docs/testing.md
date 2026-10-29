@@ -285,12 +285,15 @@ it honest:
 - `controller_shapes_test.exs` checks every stub's default answer and every
   fixture builder (`relay_row/2`, `runner_row/2`, `graph_channel/5`,
   `graph_tasklet/2`, `factory_row/2`, `activity_row/2`, `option_row/2`,
-  `registry_entry/2`, `history_record/2`) against
+  `history_record/2`) against
   `test/support/fixtures/controller_shapes.json`: tuple tags, map keys and value
   types recorded from the dev controller, never values. A map keyed by data
   rather than by fields — a provider's `opts`, a relay's hook `chains`, one
   count per health verdict — is recorded by its values alone, since which keys
-  it holds depends on what the stack runs.
+  it holds depends on what the stack runs. A paged read — a stub declared with
+  `paged:` — answers the page `FakeController.page/3` cuts from the whole
+  collection a test sets, refusing what core refuses, so a test sets thousands
+  of rows and a screen reads them a page at a time.
 
 Every browser run starts by checking the live controller against that file, and
 fails naming each read whose answer moved. When core changes an answer,

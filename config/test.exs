@@ -53,6 +53,11 @@ config :flezha_console, :tap_flush_ms, 5
 # coalescing window.
 config :flezha_console, :refresh_coalesce_ms, 0
 
+# Tests tick faster than tabs share a liveness read or a dead-letter count,
+# so each tick reads anew; the tests of the sharing set a window of their own.
+config :flezha_console, :liveness_ttl_ms, 0
+config :flezha_console, :dead_letter_seen_ttl_ms, 0
+
 # Retry a lost controller node promptly, for the same reason as the feed.
 config :flezha_console, :node_connector_retry_interval_ms, 20
 

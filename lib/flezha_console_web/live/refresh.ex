@@ -256,6 +256,31 @@ defmodule FlezhaConsoleWeb.Live.Refresh do
         quote do
           @impl FlezhaConsoleWeb.Live.Refresh
           def refresh(socket), do: FlezhaConsoleWeb.Live.Refresh.tick(__MODULE__, socket, :action)
+
+          @doc """
+          This screen's read made once on its own process, for a first load
+          the screen opens on: every tick after it reads off the process.
+          """
+          def read_now(socket) do
+            socket
+            |> refresh_apply({:ok, refresh_read(socket).()})
+            |> Phoenix.Component.assign(:refresh_loaded, true)
+            |> FlezhaConsoleWeb.Live.Refresh.mark_refreshed()
+          end
+
+          @doc """
+          The read a change of the screen's address asks for, on a connected
+          socket: the first made at once, so the screen opens on its figures,
+          and every later one in the background, so a slow controller never
+          holds a filter or a click.
+          """
+          def read_when_connected(socket) do
+            cond do
+              not Phoenix.LiveView.connected?(socket) -> socket
+              socket.assigns[:refresh_loaded] -> refresh(socket)
+              true -> read_now(socket)
+            end
+          end
         end
       end
 

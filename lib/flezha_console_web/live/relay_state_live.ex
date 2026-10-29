@@ -16,15 +16,21 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
 
   use FlezhaConsoleWeb, :live_view
 
-  use FlezhaConsoleWeb.Live.Refresh, every: 5_000
+  use FlezhaConsoleWeb.Live.Refresh, every: 5_000, background: true
 
   use FlezhaConsoleWeb.Live.Sections,
     open: %{"journal" => false, "input-log" => false, "sdk-state" => false}
 
   alias FlezhaConsole.Service.NodeManager
+  alias FlezhaConsoleWeb.Live.Sections
 
   # Enough points to see a trend at the tick rate without unbounded growth.
   @history 60
+
+  # The controller listings this screen pages, and the rewind picker's page.
+  @cells "cells"
+  @journal "journal-entries"
+  @iterations 20
 
   @impl true
   def mount(%{"ns" => ns, "id" => id}, _session, socket) do
@@ -37,6 +43,7 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
         relay_id: id,
         page_title: "#{id} state",
         cells: [],
+        cells_total: 0,
         load_error: nil,
         history: %{},
         retention_hours: nil,
@@ -56,6 +63,8 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
         facts: nil,
         journal: nil,
         committed_iterations: [],
+        committed_total: 0,
+        committed_next: nil,
         input_log: nil,
         inbox: nil,
         inbox_error: nil,
@@ -67,67 +76,119 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
         auto_refresh_state: false
       )
 
-    # Read once, on the connected mount: it resolves the whole namespace.
-    read_rows =
+    # Read once, on the connected mount.
+    {read_row, _row, partitions} =
       if connected?(socket),
-        do: NodeManager.relay_rows(ns, socket.assigns[:flezha_token]),
-        else: {:ok, []}
+        do: NodeManager.relay_and_partitions(ns, id, socket.assigns[:flezha_token]),
+        else: {{:ok, []}, nil, []}
 
     socket =
-      assign(socket,
-        partitions: read_rows |> NodeManager.ok_or([]) |> NodeManager.partition_members(id),
-        unreachable: NodeManager.unreachable([read_rows])
-      )
+      assign(socket, partitions: partitions, unreachable: NodeManager.unreachable([read_row]))
 
-    {:ok, refresh(socket)}
+    {:ok, read_now(socket)}
   end
 
-  # Read until it answers: one refused read must not hide the steps sections
-  # for as long as the screen is open.
-  defp read_relay(%{assigns: %{facts: nil}} = socket),
-    do: socket |> assign_relay() |> load_retention() |> load_kept()
+  # What one read needs of the screen, as plain values: it runs off the
+  # screen's process on a tick.
+  @impl FlezhaConsoleWeb.Live.Refresh
+  def refresh_read(socket) do
+    a = socket.assigns
 
-  defp read_relay(socket), do: socket
+    params = %{
+      ns: a.ns,
+      relay_id: a.relay_id,
+      token: a.flezha_token,
+      relay: if(a.facts, do: Map.take(a, [:relay_class, :run, :facts, :state_kept])),
+      state_kept: a.state_kept,
+      cells: [
+        limit: Sections.limit(a.paging, @cells),
+        filter: NodeManager.text_filter(Sections.search(a.searches, @cells))
+      ],
+      journal: [limit: Sections.limit(a.paging, @journal)],
+      state: a.auto_refresh_state && a.selector_form
+    }
+
+    fn -> read(params) end
+  end
+
+  defp read(params) do
+    relay = params.relay || read_relay(params)
+
+    if state_gone?(relay.state_kept),
+      do: %{relay: relay},
+      else: %{
+        relay: relay,
+        cells: NodeManager.cells(relay.relay_class, params.token, params.cells),
+        durability: read_durability(relay.facts, params),
+        state: params.state && read_state(params.ns, params.relay_id, params.state, params.token)
+      }
+  end
+
+  @impl FlezhaConsoleWeb.Live.Refresh
+  def refresh_apply(socket, {:ok, read}) do
+    socket = assign(socket, read.relay)
+
+    if state_gone?(socket.assigns.state_kept),
+      do: socket,
+      else:
+        socket
+        |> apply_cells(read.cells)
+        |> assign(read.durability)
+        |> then(&if(read.state, do: assign(&1, read.state), else: &1))
+  end
+
+  def refresh_apply(socket, {:exit, _reason}), do: assign(socket, load_error: :read_failed)
+
+  @doc false
+  def listing_grown(socket, id) when id in [@cells, @journal], do: refresh(socket)
+  def listing_grown(socket, _id), do: socket
+
+  @doc false
+  def listing_searched(socket, @cells), do: refresh(socket)
+  def listing_searched(socket, _id), do: socket
 
   # Cells are filed under the relay's class, which defaults to its id. A
   # finished relay has no overwatch to ask: its class is then its id and its
-  # run unknown, so nothing that needs a live relay is offered.
-  defp assign_relay(socket) do
-    %{ns: ns, relay_id: id, flezha_token: token} = socket.assigns
+  # run unknown, so nothing that needs a live relay is offered. Read until it
+  # answers: one refused read must not hide the steps sections for as long as
+  # the screen is open.
+  defp read_relay(%{ns: ns, relay_id: id, token: token} = params) do
+    relay =
+      case NodeManager.overwatch_facts(ns, id, token) do
+        {:ok, %{relay_class: class, run: run} = facts} when is_binary(class) ->
+          %{relay_class: class, run: run, facts: facts}
 
-    case NodeManager.overwatch_facts(ns, id, token) do
-      {:ok, %{relay_class: class, run: run} = facts} when is_binary(class) ->
-        assign(socket, relay_class: class, run: run, facts: facts)
+        _unreadable ->
+          %{relay_class: id, run: nil, facts: nil}
+      end
 
-      _unreadable ->
-        assign(socket, relay_class: id, run: nil, facts: nil)
-    end
+    relay
+    |> Map.put(:retention_hours, retention_hours(relay, token))
+    |> Map.put(:state_kept, state_kept(relay, params))
   end
 
   # How long a finished instance is kept applies to a steps relay alone. A
   # relay with no overwatch to ask is a finished one, which only a steps relay
   # can be.
-  defp load_retention(%{assigns: %{run: run}} = socket) when run in [:steps, nil] do
-    %{relay_class: class, flezha_token: token} = socket.assigns
-
+  defp retention_hours(%{run: run, relay_class: class}, token) when run in [:steps, nil] do
     case NodeManager.completed_retention_hours(class, token) do
-      {:ok, hours} when is_number(hours) -> assign(socket, retention_hours: hours)
-      _unavailable -> assign(socket, retention_hours: nil)
+      {:ok, hours} when is_number(hours) -> hours
+      _unavailable -> nil
     end
   end
 
-  defp load_retention(socket), do: assign(socket, retention_hours: nil)
+  defp retention_hours(_relay, _token), do: nil
 
   # A relay with no overwatch has ended or is not there. The controller says
   # whether a run ended and whether its state was kept; asked once.
-  defp load_kept(%{assigns: %{facts: nil, state_kept: :unread}} = socket) do
-    case NodeManager.kept_until(socket.assigns.relay_id, socket.assigns.flezha_token) do
-      {:ok, until} -> assign(socket, state_kept: until != nil)
-      _unknown -> assign(socket, state_kept: nil)
+  defp state_kept(%{facts: nil}, %{state_kept: :unread, relay_id: id, token: token}) do
+    case NodeManager.kept_until(id, token) do
+      {:ok, until} -> until != nil
+      _unknown -> nil
     end
   end
 
-  defp load_kept(socket), do: socket
+  defp state_kept(_relay, params), do: params.state_kept
 
   @doc "Whether the relay ended and the controller kept none of its state to show."
   def state_gone?(state_kept), do: state_kept == false
@@ -157,6 +218,23 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
     {:noreply, assign(socket, rewind_target: List.first(socket.assigns.committed_iterations))}
   end
 
+  # The next older page of committed iterations, for the rewind picker.
+  @impl true
+  def handle_event("rewind_older", _params, %{assigns: %{committed_next: next}} = socket)
+      when is_binary(next) do
+    %{relay_id: id, flezha_token: token, committed_iterations: held} = socket.assigns
+
+    case NodeManager.committed_iterations(id, token, limit: @iterations, after: next) do
+      {:ok, %{rows: older, next: next}} ->
+        {:noreply, assign(socket, committed_iterations: held ++ older, committed_next: next)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, error_message(reason, "the older iterations"))}
+    end
+  end
+
+  def handle_event("rewind_older", _params, socket), do: {:noreply, socket}
+
   @impl true
   def handle_event("cancel_rewind", _params, socket) do
     {:noreply, assign(socket, rewind_target: nil)}
@@ -185,7 +263,7 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
           {:noreply,
            socket
            |> assign(rewind_target: nil)
-           |> load_durability()
+           |> refresh()
            |> put_flash(:info, "Rewound to iteration #{target}.")}
       end
     else
@@ -323,19 +401,6 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
     end
   end
 
-  @impl FlezhaConsoleWeb.Live.Refresh
-  def refresh(socket) do
-    socket = read_relay(socket)
-
-    if state_gone?(socket.assigns.state_kept),
-      do: socket,
-      else:
-        socket
-        |> load_cells()
-        |> load_durability()
-        |> then(&if(&1.assigns.auto_refresh_state, do: fetch_state(&1), else: &1))
-  end
-
   # The retained records, read when the input log section opens, never on the
   # tick; payloads are never read.
   def section_opened(socket, "input-log"), do: load_inbox(socket)
@@ -352,38 +417,64 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
 
   # The task journal and input log exist only for a durable steps relay.
   # Reading them for a flow relay would answer empty, which renders as "there
-  # is nothing here" rather than "this does not apply".
-  defp load_durability(%{assigns: %{facts: %{run: :steps, durable_steps: true}}} = socket) do
-    %{relay_id: id, flezha_token: token} = socket.assigns
+  # is nothing here" rather than "this does not apply". Each is read as far as
+  # it is shown: the journal's page, the newest committed iterations, and the
+  # count of undelivered records alone.
+  defp read_durability(
+         %{run: :steps, durable_steps: true},
+         %{relay_id: id, token: token} = params
+       ) do
+    {committed, committed_total, committed_next} =
+      case NodeManager.committed_iterations(id, token, limit: @iterations) do
+        {:ok, %{rows: rows, total: total, next: next}} -> {rows, total, next}
+        {:error, _reason} -> {[], 0, nil}
+      end
 
-    assign(socket,
-      journal: NodeManager.ok_or(NodeManager.task_journal(id, token), nil),
-      committed_iterations:
-        id |> NodeManager.committed_iterations(token) |> NodeManager.ok_or([]) |> Enum.sort(:desc),
+    %{
+      journal: journal(NodeManager.task_journal(id, token, params.journal)),
+      committed_iterations: committed,
+      committed_total: committed_total,
+      committed_next: committed_next,
       input_log: %{
-        undelivered: length(NodeManager.ok_or(NodeManager.input_log_undelivered(id, token), [])),
+        undelivered: undelivered(NodeManager.input_log_undelivered(id, token, limit: 0)),
         last_offset: integer_or_nil(NodeManager.input_log_last_offset(id, token)),
         consumed_offset: integer_or_nil(NodeManager.consumed_offset(id, token))
       }
-    )
+    }
   end
 
-  defp load_durability(socket) do
-    assign(socket, journal: nil, committed_iterations: [], input_log: nil)
-  end
+  defp read_durability(_facts, _params),
+    do: %{
+      journal: nil,
+      committed_iterations: [],
+      committed_total: 0,
+      committed_next: nil,
+      input_log: nil
+    }
+
+  defp journal({:ok, %{rows: rows, total: total} = page}),
+    do: %{entries: rows, total: total, outcome: Map.get(page, :outcome)}
+
+  defp journal(_failed), do: nil
+
+  defp undelivered({:ok, %{total: total}}), do: total
+  defp undelivered(_failed), do: 0
 
   defp integer_or_nil({:ok, value}) when is_integer(value), do: value
   defp integer_or_nil(_value), do: nil
 
   defp fetch_state(socket) do
     %{ns: ns, relay_id: id, selector_form: form, flezha_token: token} = socket.assigns
+    assign(socket, read_state(ns, id, form, token))
+  end
 
+  defp read_state(ns, id, form, token) do
     with {:ok, cell} <- selector(form),
          {:ok, json, change_seq} <- NodeManager.cell_state(ns, id, cell, token) do
-      assign(socket, state_json: json, state_seq: change_seq, state_notice: nil)
+      %{state_json: json, state_seq: change_seq, state_notice: nil}
     else
       {:error, reason} ->
-        assign(socket, state_json: nil, state_seq: nil, state_notice: state_notice(reason))
+        %{state_json: nil, state_seq: nil, state_notice: state_notice(reason)}
     end
   end
 
@@ -450,39 +541,49 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
     |> Enum.filter(& &1)
   end
 
-  @doc "The task journal's digest: how many iterations are committed, and the latest."
-  def journal_digest(nil, _committed), do: nil
-  def journal_digest(_journal, []), do: "nothing committed yet"
+  @doc ~S|The committed iterations read, newest first, and how many older ones: "3, 2, and 9 older".|
+  def committed_words([], _total), do: "none"
 
-  def journal_digest(_journal, [latest | _] = committed),
-    do: "#{Words.count(length(committed), "iteration")} committed, latest #{latest}"
+  def committed_words(committed, total) when total > length(committed),
+    do: "#{Enum.join(committed, ", ")}, and #{total - length(committed)} older"
+
+  def committed_words(committed, _total), do: Enum.join(committed, ", ")
+
+  @doc """
+  The task journal's digest: how many iterations are committed, of `total`,
+  and the latest of the newest read.
+  """
+  def journal_digest(nil, _committed, _total), do: nil
+  def journal_digest(_journal, [], _total), do: "nothing committed yet"
+
+  def journal_digest(_journal, [latest | _], total),
+    do: "#{Words.count(total, "iteration")} committed, latest #{latest}"
 
   # The controller answers `-1` for an input log that holds no records.
   defp last_offset(-1), do: "no records"
   defp last_offset(nil), do: "—"
   defp last_offset(offset), do: offset
 
-  defp load_cells(socket) do
-    case NodeManager.cells(socket.assigns.relay_class, socket.assigns.flezha_token) do
-      {:ok, %{cells: rows} = answer} ->
-        cells = rows |> Enum.map(&decorate/1) |> Enum.sort_by(&{&1.tasklet, &1.cell_key})
+  # The page of Cells shown, by tasklet and key as the controller pages them.
+  defp apply_cells(socket, {:ok, %{rows: rows, total: total} = answer}) do
+    cells = Enum.map(rows, &decorate/1)
 
-        # An older controller answers no retention: stated as unknown, never
-        # left out.
-        socket
-        |> assign(
-          cells: cells,
-          load_error: nil,
-          history_retention: Map.get(answer, :history_retention_hours, :unknown)
-        )
-        |> record_history(cells)
-
-      {:error, reason} ->
-        # A tick that could not be taken is a gap in the series, not a repeat
-        # of the last point — so nothing is recorded for it.
-        assign(socket, cells: [], load_error: reason, history_retention: nil)
-    end
+    # An older controller answers no retention: stated as unknown, never
+    # left out.
+    socket
+    |> assign(
+      cells: cells,
+      cells_total: total,
+      load_error: nil,
+      history_retention: Map.get(answer, :history_retention_hours, :unknown)
+    )
+    |> record_history(cells)
   end
+
+  # A tick that could not be taken is a gap in the series, not a repeat of the
+  # last point — so nothing is recorded for it.
+  defp apply_cells(socket, {:error, reason}),
+    do: assign(socket, cells: [], cells_total: 0, load_error: reason, history_retention: nil)
 
   # Read when a cell is selected, never on the tick.
   defp load_outbox(socket) do

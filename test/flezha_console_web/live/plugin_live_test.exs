@@ -121,7 +121,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
 
       assert node
              |> FakeController.calls({PluginManager, :enabled})
-             |> Enum.all?(&match?(["staging", _ctx], &1))
+             |> Enum.all?(&match?(["staging", _page, _ctx], &1))
     end
   end
 
@@ -414,7 +414,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       html = choose(view, "relay_stdout")
 
       assert html =~ ~s(data-testid="input-plugin-relay")
-      assert html =~ ~s(<option value="relay_b")
+      assert html =~ ~s(data-testid="input-plugin-relay-relay_b")
       assert html =~ ~s(data-testid="input-hook-on_output")
       refute html =~ ~s(data-testid="input-plugin-single")
     end
@@ -527,8 +527,8 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
 
       html = change(view, %{"namespace" => "staging"})
 
-      assert html =~ ~s(<option value="stage_1")
-      refute html =~ ~s(<option value="relay_a")
+      assert html =~ ~s(data-testid="input-plugin-relay-stage_1")
+      refute html =~ ~s(data-testid="input-plugin-relay-relay_a")
     end
 
     test "the unscoped screen asks which namespace", %{conn: conn, node: node} do
@@ -1472,8 +1472,13 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
     do: view |> element(~s([data-testid="provider-btn-#{provider}"])) |> render_click()
 
   # One submit of the plugin form, which on an enable moves on one step.
-  defp step(view, fields),
-    do: view |> form(~s([data-testid="plugin-form"]), plugin: fields) |> render_submit()
+  defp step(view, fields) do
+    {typed, picked} = plugin_fields(fields)
+
+    view
+    |> form(~s([data-testid="plugin-form"]), plugin: typed)
+    |> render_submit(%{plugin: picked})
+  end
 
   # Moves the open enable flow to `step`: back at once, forward a step at a
   # time, as the rail and Next do.
@@ -1483,9 +1488,11 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
     do: for(s <- 1..step, do: render_click(view, "plugin_form_step", %{"step" => "#{s}"}))
 
   defp change(view, fields) do
+    {typed, picked} = plugin_fields(fields)
+
     view
-    |> form(~s(form[phx-change="plugin_form_change"]), plugin: fields)
-    |> render_change()
+    |> form(~s(form[phx-change="plugin_form_change"]), plugin: typed)
+    |> render_change(%{plugin: picked})
   end
 
   defp disable(view, name) do

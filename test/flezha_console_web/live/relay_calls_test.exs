@@ -21,7 +21,7 @@ defmodule FlezhaConsoleWeb.RelayCallsTest do
 
     FakeController.set(
       node,
-      {Relay, :relay_rows},
+      {Relay, :list},
       FakeController.rows([FakeController.relay_row("relay_a")])
     )
 
@@ -490,6 +490,7 @@ defmodule FlezhaConsoleWeb.RelayCallsTest do
 
       FakeController.set(node, {Fleet, :runners_for_factory}, FakeController.rows(["runner-a"]))
       send(view.pid, {:flezha_event, :runner_connected, {"default", "runner-a"}})
+      render_async(view)
 
       refute has_element?(view, ~s([data-testid="talk-unavailable"]))
       talk(view)
@@ -703,10 +704,10 @@ defmodule FlezhaConsoleWeb.RelayCallsTest do
 
       assert html =~ ~s(data-testid="talk-waiting")
 
-      rows_before = length(FakeController.calls(node, {Relay, :relay_rows}))
+      rows_before = length(FakeController.calls(node, {Relay, :overwatch_state}))
       send(view.pid, :refresh)
-      render(view)
-      assert length(FakeController.calls(node, {Relay, :relay_rows})) > rows_before
+      render_async(view)
+      assert length(FakeController.calls(node, {Relay, :overwatch_state})) > rows_before
 
       refute render_async(view) =~ ~s(data-testid="talk-waiting")
     end

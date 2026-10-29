@@ -1,4 +1,5 @@
 import {
+  comboboxValues,
   menuAction,
   test,
   expect,
@@ -21,12 +22,7 @@ import {
 
 /** The values a select offers, without its placeholder option. */
 async function optionValues(page: Page, testid: string): Promise<string[]> {
-  return page
-    .getByTestId(testid)
-    .locator('option')
-    .evaluateAll((opts) =>
-      opts.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== ''),
-    );
+  return comboboxValues(page, testid);
 }
 
 test.describe('Schedules', () => {

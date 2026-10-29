@@ -145,6 +145,17 @@ defmodule FlezhaConsole.Format do
 
   defp scaled(n, unit, suffix), do: :erlang.float_to_binary(n / unit, decimals: 1) <> suffix
 
+  @doc "A whole count in full, its thousands separated: `5,000`."
+  def count(n) when is_integer(n) and n < 0, do: "-" <> count(-n)
+
+  def count(n) when is_integer(n) do
+    n
+    |> Integer.to_string()
+    |> String.reverse()
+    |> String.replace(~r/(\d{3})(?=\d)/, "\\1,")
+    |> String.reverse()
+  end
+
   @doc "A byte count at the largest unit that keeps it readable."
   def bytes(nil), do: "—"
   def bytes(bytes) when bytes < 1_024, do: "#{bytes} B"

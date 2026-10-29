@@ -1,4 +1,5 @@
 import {
+  pick,
   openSection,
   menuAction,
   ownRelay,
@@ -145,7 +146,8 @@ test.describe('Plugin writes', () => {
 
       // Bind
       await page.getByTestId(`plugin-bind-${name}`).click();
-      await page.getByTestId('input-plugin-relay').selectOption(FURTHER);
+      // A namespace may run thousands of relays: the picker finds one by part of its id.
+      await pick(page, 'input-plugin-relay', FURTHER, FURTHER.slice('pw_pm2_'.length));
       await page.getByTestId('input-hook-on_output').check();
       await page.getByTestId('attach-submit-btn').click();
       await expect(page.locator('body')).toContainText(`Plugin ${name} bound to ${FURTHER}.`);

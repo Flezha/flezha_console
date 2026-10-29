@@ -171,15 +171,32 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
       assert NodeManager.kept_until("r1", nil) == {:ok, nil}
     end
 
-    test "the relay ids are read from the relay listing's rows", %{node: node} do
+    test "one relay's row is read by its id, a partition member's with its group", %{
+      node: node
+    } do
+      member = fn index ->
+        FakeController.relay_row("g#p#{index}", %{
+          partition: %{group: "g", index: index, count: 2, range: {index * 64, index * 64 + 63}}
+        })
+      end
+
+      group = Map.merge(FakeController.relay_row("g"), %{members: [member.(1), member.(0)]})
+
       FakeController.set(
         node,
         {Relay, :list},
-        FakeController.rows([FakeController.relay_row("r1"), FakeController.relay_row("r2")])
+        FakeController.rows([FakeController.relay_row("r1"), group])
       )
 
-      assert NodeManager.list_relays("ns", nil) == {:ok, ["r1", "r2"]}
-      assert [["ns", %{source: :ui}]] = FakeController.calls(node, {Relay, :list})
+      assert {{:ok, _page}, %{id: "r1"}, []} = NodeManager.relay_and_partitions("ns", "r1", nil)
+
+      assert {_read, %{id: "g#p1"}, [%{id: "g#p0"}, %{id: "g#p1"}]} =
+               NodeManager.relay_and_partitions("ns", "g#p1", nil)
+
+      assert {_read, nil, []} = NodeManager.relay_and_partitions("ns", "gone", nil)
+
+      assert [["ns", [filter: [ids: ["r1"]]], _ctx], ["ns", [filter: [ids: ["g#p1", "g"]]], _], _] =
+               FakeController.calls(node, {Relay, :list})
     end
 
     test "an answer of another shape is reported, never matched as success", %{node: node} do

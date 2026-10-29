@@ -1,4 +1,4 @@
-<% flow = @topology_state.history |> Map.values() |> Topology.sum_history() %>
+<% flow = Topology.flow(@topology_state) %>
 <% inbound = if flow != [], do: Topology.relay_rates(flow) %>
 <% {condition, headline} = headline(@topology || %{state: :loading}, @items, inbound, @ns) %>
 <.page_header eyebrow="Namespace" title={@ns} headline>
@@ -7,7 +7,7 @@
   </:sentence>
   <:figures :if={@loaded? and condition not in [:unreachable]}>
     <span data-testid="home-figures">
-      {figures(@topology || %{}, @rows, inbound)}
+      {figures(@topology || %{}, inbound)}
     </span>
     <span :if={@shell_pulse && @shell_pulse.controllers != []}>
       ·
@@ -29,9 +29,6 @@
     </.button>
   </:actions>
 </.page_header>
-
-<%!-- Tells the tick when the tab is hidden, so a background tab reads nothing --%>
-<div id="home-visibility" phx-hook="FlzVisibility" hidden></div>
 
 <.runtime_error error={@load_error} action="the relay listing" />
 
@@ -96,7 +93,8 @@
               </.link>
             </span>
           </.tile>
-          <% {runners_tone, runners_verdict} = Words.runners_said(length(@runners), length(@rows)) %>
+          <% {runners_tone, runners_verdict} =
+            Words.runners_said(length(@runners), @topology.relay_count) %>
           <.tile
             testid="ns-runners"
             icon="hero-cube"
@@ -107,18 +105,17 @@
             condition={runners_digest(@runners, @runner_marks)}
             href={~p"/cluster"}
           >
-            <:foot>{runners_foot(@rows)}</:foot>
+            <:foot>{runners_foot(@topology)}</:foot>
           </.tile>
-          <% plugins = plugin_count(@plugin_pairs) %>
           <.tile
             testid="ns-plugins"
             icon="hero-puzzle-piece"
             label="Plugins"
-            value={plugins}
-            condition={plugins_condition(@plugin_pairs)}
+            value={@plugins.total}
+            condition={plugins_condition(@plugins)}
             href={~p"/namespaces/#{@ns}/plugins"}
           >
-            <:foot :if={plugins > 0}>{plugin_names(@plugin_pairs)}</:foot>
+            <:foot :if={@plugins.total > 0}>{plugin_names(@plugins)}</:foot>
           </.tile>
           <.tile
             testid="ns-schedules"
@@ -422,15 +419,17 @@
 
 <%!-- Partition groups --%>
 <.section
-  :if={@groups != []}
   fold="partition-groups"
   open={@sections["partition-groups"]}
   testid="partition-groups"
-  digest={groups_digest(@groups)}
+  digest={groups_digest(@groups, @broken_groups)}
   help="Relays that split one stream of keys between them, each owning a range. Coverage says whether every key has exactly one owner."
 >
   <:title>Partition groups</:title>
-  <div class="space-y-6">
+  <p :if={@groups == []} class="fcon-figures" data-testid="partition-groups-none">
+    No partition group runs in {@ns}.
+  </p>
+  <div :if={is_list(@groups)} class="space-y-6">
     <div :for={group <- @groups} data-testid={"partition-group-#{group.id}"} class="space-y-3">
       <div class="flex flex-wrap items-center gap-3">
         <span class="fcon-ident">{group.id}</span>
@@ -438,15 +437,12 @@
         <span class="fcon-figures" data-testid={"group-members-#{group.id}"}>
           {group.partitions} members
         </span>
-        <span :if={is_map(group.coverage)} data-testid={"group-faulted-#{group.id}"}>
+        <span :if={group.coverage_broken?} data-testid={"group-faulted-#{group.id}"}>
           <span class="fcon-badge fcon-badge--negative">
             <span class="fcon-shape" data-shape="cross" aria-hidden="true"></span>
             <.term key="coverage" id={"coverage-#{group.id}"}>Coverage</.term>
             faulted
           </span>
-        </span>
-        <span :if={group.coverage == :unavailable} class="fcon-figures">
-          Coverage is unavailable on this controller.
         </span>
         <.button
           :if={NodeManager.granted?(@operations, "Steps.rescale")}
@@ -460,13 +456,9 @@
           Rescale
         </.button>
       </div>
-      <.notice :if={is_map(group.coverage)} kind={:error} testid={"group-coverage-#{group.id}"}>
-        <p>Key-group coverage is broken: traffic for the named key groups is lost.</p>
-        <p :for={{from, to} <- group.coverage.gaps} class="fcon-ident">
-          Key groups {from}–{to} are owned by no member.
-        </p>
-        <p :for={{key_group, owners} <- group.coverage.overlaps} class="fcon-ident">
-          Key group {key_group} is claimed by {Enum.join(owners, ", ")}.
+      <.notice :if={group.coverage_broken?} kind={:error} testid={"group-coverage-#{group.id}"}>
+        <p>
+          Key-group coverage is broken: some key groups are owned by no member or by more than one, and their traffic is lost.
         </p>
       </.notice>
       <.grid

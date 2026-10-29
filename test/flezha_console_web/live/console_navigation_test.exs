@@ -280,7 +280,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
         {:ok, view, _html} = live(conn, ~p"/problems")
         render(view)
 
-        length(FakeController.calls(node, {Relay, :relay_rows})) +
+        length(FakeController.calls(node, {Relay, :list})) +
           length(FakeController.calls(node, {Relay, :overwatch_state}))
       end
 
@@ -308,7 +308,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
       {:ok, view, _html} = live(conn, ~p"/problems")
       render(view)
 
-      read = node |> FakeController.calls({Relay, :relay_rows}) |> Enum.map(&hd/1) |> Enum.uniq()
+      read = node |> FakeController.calls({Relay, :list}) |> Enum.map(&hd/1) |> Enum.uniq()
       assert read == ["default"]
     end
   end
@@ -338,7 +338,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
       view |> element(~s([data-testid="scope-all"])) |> render_click()
       assert_patch(view, ~p"/relays")
 
-      html = render(view)
+      html = render_async(view)
       assert html =~ "relay_default"
       refute html |> rail() |> LazyHTML.text() =~ "Fleet"
     end
@@ -475,7 +475,11 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
     test "a screen that never opens it makes no listing call for it", %{conn: conn, node: node} do
       {:ok, _view, _html} = live(conn, ~p"/logs/audit")
 
-      assert FakeController.calls(node, {Relay, :list}) == []
+      # The shell's pulse reads each namespace's most severe relays; nothing else.
+      assert Enum.all?(
+               FakeController.calls(node, {Relay, :list}),
+               fn [_ns, opts, _ctx] -> opts == FlezhaConsoleWeb.Attention.relay_opts() end
+             )
     end
 
     test "it offers a relay by id, with its namespace and health", %{conn: conn} do
@@ -654,7 +658,8 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
       render_click(toggle)
       with_fleet(node, ["default"], %{"default" => ["relay_later"]})
 
-      html = render_click(toggle)
+      render_click(toggle)
+      html = render_async(view)
 
       refute html =~ "Paused"
       assert html =~ "relay_later"
@@ -663,7 +668,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
       with_fleet(node, ["default"], %{"default" => ["relay_later_still"]})
       send(view.pid, :refresh)
 
-      assert render(view) =~ "relay_later_still"
+      assert render_async(view) =~ "relay_later_still"
     end
 
     test "a screen that suspends for its own modal still does", %{conn: conn, node: node} do

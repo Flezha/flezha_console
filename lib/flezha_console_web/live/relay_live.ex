@@ -18,7 +18,8 @@ defmodule FlezhaConsoleWeb.RelayLive do
   # the one state change worth showing before the next tick.
   use FlezhaConsoleWeb.Live.Refresh,
     every: 2_000,
-    on_events: [:runner_connected, :runner_disconnected]
+    on_events: [:runner_connected, :runner_disconnected],
+    background: true
 
   use FlezhaConsoleWeb.Topology
   use FlezhaConsoleWeb.Live.PluginForm
@@ -95,13 +96,28 @@ defmodule FlezhaConsoleWeb.RelayLive do
     assign(socket, feeding: feeding)
   end
 
+  # The first load is read on the screen's process, so the screen opens on its
+  # figures; each tick after it reads off the process.
   @impl FlezhaConsoleWeb.Live.Refresh
-  def refresh(socket) do
+  def refresh_read(socket) do
+    data = data_params(socket)
+    pipeline = Topology.pipeline_params(socket)
+
+    fn ->
+      read = read_data(data)
+      %{data: read, pipeline: Topology.pipeline_reads(pipeline, read.facts)}
+    end
+  end
+
+  @impl FlezhaConsoleWeb.Live.Refresh
+  def refresh_apply(socket, {:ok, %{data: data, pipeline: pipeline}}) do
     socket
-    |> load_data()
-    |> Topology.load_pipeline()
+    |> apply_data(data)
+    |> Topology.apply_pipeline(pipeline)
     |> reopen_history()
   end
+
+  def refresh_apply(socket, {:exit, _reason}), do: assign(socket, load_error: :read_failed)
 
   # A hidden page reads nothing, so it holds no tally and no history tail
   # either; the next visible tick opens them again.
@@ -443,7 +459,13 @@ defmodule FlezhaConsoleWeb.RelayLive do
 
   def section_opened(socket, "api"), do: load_api(socket)
   def section_opened(socket, "calls"), do: open_calls(socket)
-  def section_opened(socket, "plugins"), do: assign_idle_bindings(socket)
+
+  def section_opened(socket, "plugins") do
+    params = %{data_params(socket) | bindings?: true}
+    idle = idle_bindings(params, socket.assigns.overwatch, socket.assigns.load_error)
+    assign(socket, idle_bindings: idle)
+  end
+
   def section_opened(socket, _key), do: socket
 
   def section_closed(socket, "calls"), do: close_calls(socket)
@@ -685,32 +707,56 @@ defmodule FlezhaConsoleWeb.RelayLive do
     end
   end
 
-  defp load_data(socket) do
-    %{ns: ns, relay_id: relay_id, flezha_token: token} = socket.assigns
+  defp load_data(socket), do: apply_data(socket, read_data(data_params(socket)))
 
-    # Health, live node and partition identity are registry facts, not
-    # overwatch ones — they come from the same namespace-wide read the listing
-    # makes, so this screen agrees with the listing it was reached from.
-    read_rows = NodeManager.relay_rows(ns, token)
-    rows = NodeManager.ok_or(read_rows, [])
+  defp data_params(socket) do
+    %{
+      ns: socket.assigns.ns,
+      relay_id: socket.assigns.relay_id,
+      token: socket.assigns.flezha_token,
+      feeding: socket.assigns[:feeding],
+      bindings?: socket.assigns.sections["plugins"] == true
+    }
+  end
 
-    socket =
-      assign(socket,
-        row: NodeManager.relay_row(rows, relay_id),
-        partitions: NodeManager.partition_members(rows, relay_id),
-        unreachable: NodeManager.unreachable([read_rows])
-      )
+  # Health, live node and partition identity are registry facts, not overwatch
+  # ones — they come from the controller's relay list, read for this relay
+  # alone, so this screen agrees with the listing it was reached from.
+  defp read_data(%{ns: ns, relay_id: relay_id, token: token} = params) do
+    {read_row, row, partitions} = NodeManager.relay_and_partitions(ns, relay_id, token)
 
-    socket =
-      case NodeManager.overwatch_facts(ns, relay_id, token, socket.assigns[:feeding]) do
-        {:ok, facts} ->
-          socket |> assign(load_error: nil) |> assign_facts(facts)
-
-        {:error, reason} ->
-          socket |> assign(load_error: reason) |> assign_facts(NodeManager.overwatch_facts())
+    {facts, load_error} =
+      case NodeManager.overwatch_facts(ns, relay_id, token, params.feeding) do
+        {:ok, facts} -> {facts, nil}
+        {:error, reason} -> {NodeManager.overwatch_facts(), reason}
       end
 
-    socket |> assign_serving() |> assign_idle_bindings()
+    relay_state = RelayState.of(row, facts[:suspended])
+
+    %{
+      row: row,
+      partitions: partitions,
+      unreachable: NodeManager.unreachable([read_row]),
+      facts: facts,
+      load_error: load_error,
+      relay_state: relay_state,
+      serving: serving(params, facts, relay_state),
+      idle_bindings: idle_bindings(params, facts, load_error)
+    }
+  end
+
+  defp apply_data(socket, data) do
+    socket
+    |> assign(
+      row: data.row,
+      partitions: data.partitions,
+      unreachable: data.unreachable,
+      load_error: data.load_error,
+      serving: data.serving,
+      idle_bindings: data.idle_bindings
+    )
+    |> assign(data.facts)
+    |> assign(overwatch: data.facts, relay_state: data.relay_state)
   end
 
   # How many runners serve the relay's factory, read only while no runner is
@@ -718,15 +764,12 @@ defmodule FlezhaConsoleWeb.RelayLive do
   # runner that left. A read that fails leaves it unknown, which disables
   # nothing — the controller's answer stays the authority. Runner events
   # reload the screen, so it stays current.
-  defp assign_serving(%{assigns: %{factory_id: factory} = assigns} = socket)
-       when not is_nil(factory) do
-    waits? = is_nil(assigns.runner_id) or assigns.relay_state in RelayState.runner_bound_states()
-
-    serving = if waits?, do: NodeManager.serving_count(assigns.ns, factory, assigns.flezha_token)
-    assign(socket, serving: serving)
+  defp serving(params, %{factory_id: factory} = facts, relay_state) when not is_nil(factory) do
+    waits? = is_nil(facts.runner_id) or relay_state in RelayState.runner_bound_states()
+    if waits?, do: NodeManager.serving_count(params.ns, factory, params.token)
   end
 
-  defp assign_serving(socket), do: assign(socket, serving: nil)
+  defp serving(_params, _facts, _relay_state), do: nil
 
   # Bindings the controller declares for this relay that its hook table does
   # not hold: a disabled plugin or a provider that did not start. Listed so
@@ -734,23 +777,18 @@ defmodule FlezhaConsoleWeb.RelayLive do
   # while the Plugins section is open, since it is a namespace-wide read, and
   # never against a hook table that failed to load, which would mark every
   # binding idle.
-  defp assign_idle_bindings(
-         %{assigns: %{load_error: nil, sections: %{"plugins" => true}}} = socket
-       ) do
-    %{ns: ns, relay_id: relay_id, bindings: bindings, flezha_token: token} = socket.assigns
-    running = MapSet.new(bindings, & &1.plugin_id)
+  defp idle_bindings(%{bindings?: true} = params, facts, nil) do
+    running = MapSet.new(facts.bindings, & &1.plugin_id)
 
-    idle =
-      ns
-      |> NodeManager.relay_plugins(token)
-      |> NodeManager.ok_or([])
-      |> NodeManager.declared_bindings(relay_id)
-      |> Enum.reject(&MapSet.member?(running, &1.plugin_id))
-
-    assign(socket, idle_bindings: Enum.sort_by(idle, & &1.plugin_id))
+    params.ns
+    |> NodeManager.relay_plugins(params.token)
+    |> NodeManager.ok_or([])
+    |> NodeManager.declared_bindings(params.relay_id)
+    |> Enum.reject(&MapSet.member?(running, &1.plugin_id))
+    |> Enum.sort_by(& &1.plugin_id)
   end
 
-  defp assign_idle_bindings(socket), do: assign(socket, idle_bindings: [])
+  defp idle_bindings(_params, _facts, _load_error), do: []
 
   # One row per plugin, running ones first: a plugin bound on several hooks is
   # one binding, and is unbound as one.
@@ -798,15 +836,6 @@ defmodule FlezhaConsoleWeb.RelayLive do
   end
 
   defp load_finished(socket), do: assign(socket, finished: nil)
-
-  # Spread for the panels that read one field each, and kept whole for the
-  # pipeline graph, so a tick fetches the overwatch state once rather than
-  # twice.
-  defp assign_facts(socket, facts) do
-    socket
-    |> assign(facts)
-    |> assign(overwatch: facts, relay_state: RelayState.of(socket.assigns.row, facts[:suspended]))
-  end
 
   @doc "The entry channels the relay's API announces, across its factory entries."
   def api_channels(api), do: Enum.flat_map(api, &List.wrap(&1[:channels]))

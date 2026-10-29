@@ -30,11 +30,10 @@ defmodule FlezhaConsole.Service.NodeManagerTest do
   defp controller_calls do
     [
       fn -> NodeManager.list_namespaces(nil) end,
-      fn -> NodeManager.list_relays("default", nil) end,
       fn -> NodeManager.relay_list("default", nil) end,
-      fn -> NodeManager.relay_rows("default", nil) end,
+      fn -> NodeManager.relay_list("default", nil, limit: 20) end,
+      fn -> "default" |> NodeManager.relay_and_partitions("r1", nil) |> elem(0) end,
       fn -> NodeManager.relay_plugins("default", nil) end,
-      fn -> NodeManager.relay_runs("default", nil) end,
       fn -> NodeManager.runners("default", nil) end,
       fn -> NodeManager.factories("default", nil) end,
       fn -> NodeManager.factory_catalog("default", nil) end,
@@ -59,7 +58,7 @@ defmodule FlezhaConsole.Service.NodeManagerTest do
       fn -> NodeManager.log_rotate("audit", "flezha@c1", nil) end,
       fn -> NodeManager.controller_status(nil) end,
       fn -> NodeManager.cluster_status("default", nil) end,
-      fn -> NodeManager.liveness_snapshot(nil) end,
+      fn -> NodeManager.liveness_snapshot(nil, filter: [relays: [{"default", "r1"}]]) end,
       fn -> NodeManager.namespace_records(nil) end,
       fn -> NodeManager.log_tail("audit", %{}, nil, self()) end,
       fn -> NodeManager.listen("default", "r1", :output, nil, self()) end
@@ -146,16 +145,15 @@ defmodule FlezhaConsole.Service.NodeManagerTest do
              ]
     end
 
-    test "health_counts/1 gives every verdict its own bucket, in rank order" do
-      rows = [%{health: :halted}, %{health: :recovering}, %{health: :healthy}, %{}]
+    test "health_pairs/1 gives every verdict its own bucket, in rank order" do
+      counted = %{halted: 1, recovering: 1, healthy: 1, unknown: 1, failed: 0}
 
       assert [healthy: 1, unknown: 1, recovering: 1, halted: 1] =
-               NodeManager.health_counts(rows)
+               NodeManager.health_pairs(counted)
     end
 
-    test "health_counts/1 keeps a verdict it does not know under its own name" do
-      assert [healthy: 1, novel: 1] =
-               NodeManager.health_counts([%{health: :novel}, %{health: :healthy}])
+    test "health_pairs/1 keeps a verdict it does not know under its own name" do
+      assert [healthy: 1, novel: 1] = NodeManager.health_pairs(%{novel: 1, healthy: 1})
     end
   end
 

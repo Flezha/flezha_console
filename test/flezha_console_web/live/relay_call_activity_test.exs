@@ -20,7 +20,7 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
 
     FakeController.set(
       node,
-      {Relay, :relay_rows},
+      {Relay, :list},
       FakeController.rows([FakeController.relay_row("relay_a")])
     )
 

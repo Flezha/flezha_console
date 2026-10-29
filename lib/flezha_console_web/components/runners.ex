@@ -12,18 +12,22 @@ defmodule FlezhaConsoleWeb.Runners do
   use FlezhaConsoleWeb, :html
 
   alias FlezhaConsole.Service.NodeManager
+  alias FlezhaConsoleWeb.ListingView
 
-  @sorts [{"late", "Late first"}, {"newest", "Newest connection"}, {"relays", "Most relays"}]
+  # Runners are bounded in hundreds, so the table filters and sorts in memory.
+  @view ListingView.declare(
+          filters: [node: nil, late: nil],
+          sorts: [late: "Late first", newest: "Newest connection"],
+          defaults: %{"late" => "false"}
+        )
 
   @doc """
   The rows `runner_table/1` lists, from the runners `NodeManager.runners/2`
-  answers: each credited with the factories `factories_by_runner` names, the
-  ids of the `relay_rows` bound to it, sorted, and `same_set`, how many other runners
-  serve exactly its factories. A fact the controller did not answer is `nil`.
+  answers: each credited with the factories `factories_by_runner` names, and
+  `same_set`, how many other runners serve exactly its factories. A fact the
+  controller did not answer is `nil`.
   """
-  def rows(runners, factories_by_runner \\ %{}, relay_rows \\ []) do
-    relays = relays_by_runner(relay_rows)
-
+  def rows(runners, factories_by_runner \\ %{}) do
     rows =
       Enum.map(runners, fn runner ->
         id = NodeManager.identifier_id(runner)
@@ -35,7 +39,6 @@ defmodule FlezhaConsoleWeb.Runners do
           connected_at: facts[:connected_at],
           silent_ms: facts[:silent_ms],
           late?: facts[:late?] == true,
-          relays: Map.get(relays, id, []),
           factories: Map.get(factories_by_runner, id, [])
         }
       end)
@@ -44,20 +47,13 @@ defmodule FlezhaConsoleWeb.Runners do
     Enum.map(rows, &Map.put(&1, :same_set, Map.get(sets, &1.factories, 1) - 1))
   end
 
-  # Read from the field the relays index's runner filter matches, so a count
-  # and the listing it links to agree.
-  defp relays_by_runner(relay_rows) do
-    relay_rows
-    |> Enum.group_by(&to_string(&1[:runner]), &to_string(&1.id))
-    |> Map.new(fn {runner, ids} -> {runner, Enum.sort(ids)} end)
-  end
-
   @doc """
-  The default view of a runner table: no filter, late runners first.
+  The view of a runner table `params` ask for; with none, no filter and late
+  runners first.
   """
-  def default_view, do: %{"q" => "", "node" => "", "late" => "false", "sort" => "late"}
+  def view(params \\ %{}), do: ListingView.parse(@view, params)
 
-  # `rows` as a whole view (`default_view/0` merged with the host's) filters and orders them.
+  # `rows` as a whole view (`view/1`) filters and orders them.
   defp listed(rows, view) do
     query = view["q"] |> to_string() |> String.trim() |> String.downcase()
 
@@ -75,7 +71,6 @@ defmodule FlezhaConsoleWeb.Runners do
     do: Enum.any?([row.id | row.factories], &String.contains?(String.downcase(&1), query))
 
   defp sort_key(row, "newest"), do: {-(row.connected_at || 0), row.id}
-  defp sort_key(row, "relays"), do: {-length(row.relays), row.id}
 
   defp sort_key(row, _late_first),
     do: {if(row.late?, do: 0, else: 1), -(row.silent_ms || 0), row.id}
@@ -96,7 +91,7 @@ defmodule FlezhaConsoleWeb.Runners do
   slot :empty, required: true, doc: "what stands in when no runner is connected"
 
   def runner_table(assigns) do
-    view = Map.merge(default_view(), assigns.view || %{})
+    view = view(assigns.view)
 
     assigns =
       assign(assigns,
@@ -111,7 +106,7 @@ defmodule FlezhaConsoleWeb.Runners do
         served: assigns.runners |> Enum.flat_map(& &1.factories) |> Enum.uniq() |> length(),
         late: Enum.count(assigns.runners, & &1.late?),
         now: System.system_time(:second),
-        sorts: @sorts
+        sorts: ListingView.sorts(@view)
       )
 
     ~H"""
@@ -208,12 +203,14 @@ defmodule FlezhaConsoleWeb.Runners do
               {if runner.silent_ms, do: Format.ago(runner.silent_ms), else: "—"}
             </span>
           </:col>
+          <%!-- The controller counts no relays per runner, so the listing
+                filtered to this runner is where they are counted. --%>
           <:col :let={runner} label="Relays" num>
             <.link
               navigate={~p"/namespaces/#{@namespace}/relays?#{[runner: runner.id]}"}
               data-testid={"runner-relays-#{runner.id}"}
             >
-              {length(runner.relays)}
+              List them
             </.link>
           </:col>
           <:col :let={runner} :if={@factories?} label="Serves">

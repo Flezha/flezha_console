@@ -23,16 +23,22 @@ defmodule FlezhaConsoleWeb.Attention do
   names no runner: a registry row names the one that last hosted the relay,
   not the one bound to it now, which only the relay's own Overwatch reads.
 
-  and an action is `%{label:, navigate:}` or `%{label:, do: :diagnose,
-  operation:, namespace:, relay:}`; `operation` names the controller verb that
-  gates it. `first_seen` is when this console first saw the item, kept across
+  and an action is `%{label:, navigate:}`, `%{label:, do: :diagnose,
+  operation:, namespace:, relay:}` or `%{label:, grow: listing, shown:,
+  step:}`, which grows a listing's read as `grid_more` does; `operation`
+  names the controller verb that gates it. `first_seen` is when this console first saw the item, kept across
   reads by `track/3`.
   """
 
   use FlezhaConsoleWeb, :html
 
   alias FlezhaConsole.Service.NodeManager
+  alias FlezhaConsoleWeb.Live.Sections
   alias FlezhaConsoleWeb.RelayState
+
+  # How many of a namespace's relays the items are read from at first: the
+  # most severe, unhealthy or suspended.
+  @read 50
 
   # Named exactly, so a host's own events cannot be swallowed.
   @events ~w(problem_diagnose)
@@ -77,11 +83,13 @@ defmodule FlezhaConsoleWeb.Attention do
   @doc """
   Every item the reads in `input` reveal. Each key is optional:
 
-    * `:namespaces` — `[%{namespace:, rows:, faulted_groups:, quotas:, serving:}]`,
+    * `:namespaces` — `[%{namespace:, page:, quotas:, serving:, owns:}]`,
+      `page` the namespace's most severe relays as `page/1` keeps them,
       `serving` mapping each factory `waiting_factories/1` names to how many
-      runners serve it;
+      runners serve it, and `owns` the ids of its relays that dead-letter
+      classes name;
     * `:dlq` — the dead-letter statistics, each class's items placed in the
-      namespace whose `rows` hold that relay; a row's `:seen` entries, as
+      namespace that `owns` that relay; a row's `:seen` entries, as
       `FlezhaConsole.DeadLetters.stats/1` counts them, are no problem;
     * `:breaches` — references past their RPO target;
     * `:verdicts` — recent stall verdicts, as `FlezhaConsoleWeb.Topology.stall/1` answers;
@@ -91,10 +99,10 @@ defmodule FlezhaConsoleWeb.Attention do
   def derive(input) do
     namespaced =
       Enum.flat_map(Map.get(input, :namespaces, []), fn ns ->
-        faulted = Map.get(ns, :faulted_groups, [])
+        page = Map.get(ns, :page, page(nil))
 
-        relay_items(ns.namespace, Map.get(ns, :rows, []), faulted, Map.get(ns, :serving, %{})) ++
-          group_items(ns.namespace, faulted) ++
+        relay_items(ns.namespace, page, Map.get(ns, :serving, %{})) ++
+          group_items(ns.namespace, broken_groups(page)) ++
           quota_items(ns.namespace, Map.get(ns, :quotas, []))
       end)
 
@@ -107,46 +115,113 @@ defmodule FlezhaConsoleWeb.Attention do
   end
 
   @doc """
-  The items for a namespace's relays: each relay whose condition Flezha or
-  the operator handles — surfaced whatever its throughput, since a stuck
-  relay is exactly the one whose counters stopped moving — and one item per
-  factory no runner serves, holding every relay that waits only on it.
+  The controller `opts` reading the relays a namespace's items come from:
+  the `shown` most severe that are unhealthy or suspended, with the
+  namespace's summary.
+  """
+  def relay_opts(shown \\ @read),
+    do: [limit: shown, sort: :severity, filter: [health: ["unhealthy", "suspended"]]]
+
+  # The listing a namespace's items are read as, grown by the item saying how
+  # many more relays are not healthy; screens match its `problems-` prefix.
+  defp listing(namespace), do: "problems-#{namespace}"
+
+  @doc "How many of `namespace`'s relays the items are read from, as `paging` has grown it."
+  def shown(paging, namespace), do: Sections.limit(paging, listing(namespace), @read)
+
+  @doc """
+  A namespace's relay read as the items take it, `%{rows:, read:, total:,
+  summary:, health:, relay_count:}`: its rows with each partition group's
+  members in place of the group, how many rows were read of how many, the
+  namespace's summary, its relays by health as `NodeManager.health_pairs/1`
+  pairs and how many there are; nothing for a read that failed.
+  """
+  def page({:ok, %{rows: rows} = page}) do
+    summary = Map.get(page, :summary) || %{}
+    counted = Map.get(summary, :health, %{})
+
+    %{
+      rows: Enum.flat_map(rows, &(&1[:members] || [&1])),
+      read: length(rows),
+      total: Map.get(page, :total, length(rows)),
+      summary: summary,
+      health: NodeManager.health_pairs(counted),
+      relay_count: counted |> Map.values() |> Enum.sum()
+    }
+  end
+
+  def page(_failed), do: %{rows: [], read: 0, total: 0, summary: %{}, health: [], relay_count: 0}
+
+  @doc """
+  The items for a namespace's relays, from `page/1`'s page: each relay whose
+  condition Flezha or the operator handles — surfaced whatever its
+  throughput, since a stuck relay is exactly the one whose counters stopped
+  moving — one item per factory no runner serves, holding every relay that
+  waits only on it, and one stating how many more relays are not healthy
+  than were read.
 
   `serving` maps a factory to how many runners serve it; a factory it does
   not hold is unread, and a suspended relay of an unread factory is no item.
   """
-  def relay_items(namespace, rows, faulted_groups \\ [], serving \\ %{}) do
+  def relay_items(namespace, page, serving \\ %{}) do
+    broken = page |> broken_groups() |> MapSet.new()
+
     {items, waiting} =
-      rows
-      |> Enum.map(&relay_item(namespace, &1, faulted_groups, serving))
+      page.rows
+      |> Enum.map(&relay_item(namespace, &1, broken, serving))
       |> Enum.reduce({[], []}, fn
         {:item, item}, {items, waiting} -> {[item | items], waiting}
         {:waits, wait}, {items, waiting} -> {items, [wait | waiting]}
         :none, acc -> acc
       end)
 
-    Enum.sort_by(items, & &1.object.id) ++ factory_items(namespace, waiting)
+    waiting_counts = waiting_counts(page, serving)
+
+    Enum.sort_by(items, & &1.object.id) ++
+      factory_items(namespace, waiting, waiting_counts) ++
+      unread_items(namespace, page, waiting, waiting_counts)
+  end
+
+  # The groups whose key-group coverage the summary says is not whole.
+  defp broken_groups(page) do
+    for %{group: group, complete: false} <- Map.get(page.summary, :faulted_groups, []),
+        do: to_string(group)
+  end
+
+  # How many relays wait on each factory no runner serves, across the
+  # namespace, as the summary counts them.
+  defp waiting_counts(page, serving) do
+    for %{factory: factory, relays: count} <- Map.get(page.summary, :waiting, []),
+        Map.get(serving, to_string(factory)) == 0,
+        into: %{},
+        do: {to_string(factory), count}
   end
 
   @doc """
-  The factories whose runners decide what `rows` need: those of relays in a
-  runner-bound state. What a caller reads before `derive/1`.
+  The factories whose runners decide what a namespace's `page/1` page needs:
+  those of relays in a runner-bound state, and those the summary says relays
+  wait on. What a caller reads before `derive/1`.
   """
-  def waiting_factories(rows) do
-    for row <- rows,
-        NodeManager.row_health(row) in RelayState.runner_bound_states(),
-        factory = row[:factory],
-        factory != nil,
-        uniq: true,
-        do: to_string(factory)
+  def waiting_factories(page) do
+    from_rows =
+      for row <- page.rows,
+          NodeManager.row_health(row) in RelayState.runner_bound_states(),
+          factory = row[:factory],
+          factory != nil,
+          do: to_string(factory)
+
+    from_summary =
+      for %{factory: factory} <- Map.get(page.summary, :waiting, []), do: to_string(factory)
+
+    Enum.uniq(from_rows ++ from_summary)
   end
 
   @doc """
   `fresh` serving counts, keeping the last `known` count of a waiting factory
   whose read failed, so one failed read does not regroup its relays.
   """
-  def keep_serving(fresh, known, rows),
-    do: (known || %{}) |> Map.take(waiting_factories(rows)) |> Map.merge(fresh)
+  def keep_serving(fresh, known, factories),
+    do: (known || %{}) |> Map.take(factories) |> Map.merge(fresh)
 
   defp relay_item(namespace, row, faulted, serving) do
     id = to_string(row.id)
@@ -211,11 +286,20 @@ defmodule FlezhaConsoleWeb.Attention do
 
   defp relay_what(id, state, _row), do: "#{id} is #{RelayState.word(state)}"
 
-  defp factory_items(namespace, waiting) do
-    waiting
-    |> Enum.group_by(& &1.factory, & &1.state)
+  # A factory's waiting relays are those read and, from the summary, those
+  # unbound or recovering beyond them; a factory none of the read relays
+  # names still has its item.
+  defp factory_items(namespace, waiting, counts) do
+    read = Enum.group_by(waiting, & &1.factory, & &1.state)
+
+    counts
+    |> Map.keys()
+    |> Enum.concat(Map.keys(read))
+    |> Enum.uniq()
     |> Enum.sort()
-    |> Enum.map(fn {factory, states} ->
+    |> Enum.map(fn factory ->
+      states = Map.get(read, factory, [])
+
       problem(
         :factory,
         %{
@@ -227,15 +311,26 @@ defmodule FlezhaConsoleWeb.Attention do
           actions: [%{label: "Open cluster", navigate: ~p"/cluster"}]
         },
         cause: "0 runners serve #{factory}",
-        impact: waiting_words(states),
+        impact: waiting_words(states, waiting_total(states, Map.get(counts, factory, 0))),
         handled_by: :you,
         next: "Start a runner that serves #{factory}"
       )
     end)
   end
 
-  # "3 relays wait: 2 suspended, 1 unbound", states in rank order.
-  defp waiting_words(states) do
+  # The relays read waiting on a factory, with those the summary counts
+  # unbound or recovering past them.
+  defp waiting_total(states, summarised) do
+    read = Enum.count(states, &(&1 in [:unbound, :recovering]))
+    length(states) - read + max(summarised, read)
+  end
+
+  # "3 relays wait: 2 suspended, 1 unbound", states in rank order, when every
+  # one was read; "950 relays wait for a runner" when not.
+  defp waiting_words(states, total) when total > length(states),
+    do: "#{Words.count(total, "relay")} wait for a runner"
+
+  defp waiting_words(states, _total) do
     counts = Enum.frequencies(states)
 
     by_state =
@@ -245,6 +340,51 @@ defmodule FlezhaConsoleWeb.Attention do
 
     verb = if length(states) == 1, do: "waits", else: "wait"
     "#{Words.count(length(states), "relay")} #{verb}: #{Enum.join(by_state, ", ")}"
+  end
+
+  # The relays not read, less those a factory item already counts.
+  defp unread_items(namespace, page, waiting, counts) do
+    read_waiting =
+      Enum.frequencies_by(
+        Enum.filter(waiting, &(&1.state in [:unbound, :recovering])),
+        & &1.factory
+      )
+
+    folded =
+      counts
+      |> Enum.map(fn {factory, count} -> max(count - Map.get(read_waiting, factory, 0), 0) end)
+      |> Enum.sum()
+
+    case page.total - page.read - folded do
+      more when more > 0 ->
+        [
+          problem(
+            :unread,
+            %{
+              id: "unread:#{namespace}",
+              reason: :unread,
+              namespace: namespace,
+              object: %{kind: :namespace, id: namespace},
+              what:
+                "#{Words.count(more, "more relay")} in #{namespace} #{if more == 1, do: "is", else: "are"} not healthy",
+              actions: [
+                %{label: "Show more", grow: listing(namespace), shown: page.read, step: @read},
+                %{
+                  label: "Open relays",
+                  navigate: ~p"/namespaces/#{namespace}/relays?#{[sort: "severity"]}"
+                }
+              ]
+            },
+            cause: "Only the #{page.read} most severe are read at once",
+            impact: "They are listed on the relays screen, most severe first",
+            handled_by: :you,
+            next: "Show more, or open the relays"
+          )
+        ]
+
+      _none ->
+        []
+    end
   end
 
   # An item that is not a relay: its State is its kind's word, whose tone is
@@ -312,13 +452,13 @@ defmodule FlezhaConsoleWeb.Attention do
     end
   end
 
-  # A relay class is its relay's id, so the namespace whose rows hold that id
+  # A relay class is its relay's id, so the namespace that owns that relay
   # owns the class's dead letters.
   defp relay_namespaces(input) do
     for ns <- Map.get(input, :namespaces, []),
-        row <- Map.get(ns, :rows, []),
+        id <- Map.get(ns, :owns, []),
         into: %{},
-        do: {to_string(row.id), ns.namespace}
+        do: {to_string(id), ns.namespace}
   end
 
   defp dead_letter_items(stats, namespaces) do
@@ -356,6 +496,9 @@ defmodule FlezhaConsoleWeb.Attention do
   end
 
   defp unseen(row), do: (Map.get(row, :entries) || 0) - (Map.get(row, :seen) || 0)
+
+  @doc "The dead-letter stats rows holding entries no operator has marked seen: those that are items."
+  def unseen_stats(stats), do: Enum.filter(stats, &(unseen(&1) > 0))
 
   defp tasklet_phrase([one]), do: "Tasklet #{one}"
   defp tasklet_phrase(many), do: "Tasklets #{Words.join(many)}"
@@ -494,17 +637,19 @@ defmodule FlezhaConsoleWeb.Attention do
   Diagnose answers inline.
 
   `limit` shows the first items and a link to the rest on the Open problems
-  screen.
+  screen; `paging` instead shows them a page at a time.
   """
   attr :items, :list, required: true
   attr :operations, :any, required: true
   attr :diagnoses, :map, default: %{}
   attr :limit, :integer, default: nil
+  attr :paging, :map, default: nil, doc: "the screen's `@paging`, to page the items"
   attr :now, :any, default: nil
   attr :testid, :string, default: "problems"
 
   def problem_list(assigns) do
-    shown = if assigns.limit, do: Enum.take(assigns.items, assigns.limit), else: assigns.items
+    limit = assigns.limit || (assigns.paging && Sections.shown(assigns.paging, assigns.testid))
+    shown = if limit, do: Enum.take(assigns.items, limit), else: assigns.items
 
     assigns =
       assign(assigns,
@@ -562,6 +707,18 @@ defmodule FlezhaConsoleWeb.Attention do
                 {action.label}
               </.button>
               <.button
+                :if={action[:grow]}
+                variant="secondary"
+                size="sm"
+                phx-click="grid_more"
+                phx-value-id={action.grow}
+                phx-value-shown={action.shown}
+                phx-value-step={action.step}
+                data-testid={"problem-grow-#{item.id}"}
+              >
+                {action.label}
+              </.button>
+              <.button
                 :if={action[:navigate]}
                 variant="ghost"
                 size="sm"
@@ -574,7 +731,13 @@ defmodule FlezhaConsoleWeb.Attention do
           </div>
         </li>
       </ul>
-      <.link :if={@more > 0} navigate={~p"/problems"} data-testid="problems-more">
+      <.more
+        :if={@paging}
+        id={@testid}
+        shown={length(@shown)}
+        total={length(@items)}
+      />
+      <.link :if={!@paging and @more > 0} navigate={~p"/problems"} data-testid="problems-more">
         {Words.count(@more, "more problem")} on the Open problems screen
       </.link>
     </div>

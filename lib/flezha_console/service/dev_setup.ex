@@ -166,7 +166,11 @@ defmodule FlezhaConsole.Service.DevSetup do
   # A relay already running answers `outcome: :already_running`, so a start
   # per seed is idempotent; the listing only saves the calls.
   defp ensure_relays(ns, relays, token) do
-    running = ns |> NodeManager.list_relays(token) |> NodeManager.ok_or([]) |> MapSet.new()
+    running =
+      ns
+      |> NodeManager.relay_list(token, limit: 500, filter: [ids: Enum.map(relays, & &1.id)])
+      |> NodeManager.ok_or([])
+      |> MapSet.new(& &1.id)
 
     each_ok(relays, fn relay ->
       if MapSet.member?(running, relay.id) do

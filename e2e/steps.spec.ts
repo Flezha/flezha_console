@@ -1,4 +1,5 @@
 import {
+  chosen,
   ownRelay,
   test,
   expect,
@@ -62,7 +63,7 @@ test.describe('Steps relays', () => {
     const open = page.getByTestId('open-rewind-btn');
     await open.click();
     await expect(page.getByTestId('rewind-modal')).toBeVisible();
-    const iteration = await page.getByTestId('rewind-iteration').inputValue();
+    const iteration = await chosen(page, 'rewind-iteration').inputValue();
     await page.getByTestId('rewind-cancel-btn').click();
     await expect(page.getByTestId('rewind-modal')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText('Rewound to iteration');

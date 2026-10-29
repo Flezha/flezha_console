@@ -66,6 +66,8 @@ defmodule FlezhaConsoleWeb.Topology do
   @bytes_of %{in: :bytes_in, out: :bytes_out}
 
   @history_limit 60
+  # The most relays one liveness read names, the controller's own bound.
+  @max_named 500
   @stale_baseline_ms 10_000
   @stall_window_us 60_000_000
   @stall_query %{source: :flezha_health, limit: 20}
@@ -143,53 +145,107 @@ defmodule FlezhaConsoleWeb.Topology do
   the graph replays as marks moving through the relay over the next tick.
   """
   def load_pipeline(socket) do
-    %{ns: namespace, relay_id: relay_id, overwatch: facts} = socket.assigns
-    state = forget_stale(socket.assigns.topology_state)
-    token = socket.assigns[:flezha_token]
+    reads = socket |> pipeline_params() |> pipeline_reads(socket.assigns.overwatch)
+    apply_pipeline(socket, reads)
+  end
 
+  @doc """
+  What `pipeline_reads/2` needs of the host, as plain values: a host reading
+  in the background takes them on its process and reads off it.
+  """
+  def pipeline_params(socket) do
+    state = socket.assigns.topology_state
+
+    %{
+      namespace: socket.assigns.ns,
+      relay_id: socket.assigns.relay_id,
+      token: socket.assigns[:flezha_token],
+      connected?: Phoenix.LiveView.connected?(socket),
+      runner_epoch: socket.assigns[:runner_epoch],
+      graph: state.graph,
+      graph_for: state.graph_for,
+      activity: state.activity,
+      cells_of: state.cells_of
+    }
+  end
+
+  @doc """
+  One pipeline tick's controller reads for the relay whose overwatch `facts`
+  the host read: its liveness counters, the stall verdicts, its parked
+  entries, and its graph and activity. `apply_pipeline/2` measures and draws
+  them on the host's process.
+  """
+  def pipeline_reads(params, facts) do
     if NodeManager.connected_node() do
-      {snapshot, skew} = snapshot(token)
-      {_rates, ticked} = advance(state, snapshot, [relay_id])
+      %{namespace: namespace, relay_id: relay_id, token: token} = params
+      {snapshot, skew} = snapshot(token, relays([{namespace, relay_id}]))
+      read_at = System.monotonic_time(:millisecond)
       {verdicts, stall_notice} = stall(token)
       {parked, parked_by} = parked_for(facts, token)
-      {graph, graph_for, activity} = inside_reads(socket, state, facts, token)
+      {graph, graph_for, activity} = inside_reads(params, facts)
 
-      ticked =
-        %{ticked | graph: graph, graph_for: graph_for, activity: activity}
-        |> keep_tally(socket, announced(graph))
-
-      input = %{
-        namespace: namespace,
-        relay_id: relay_id,
+      %{
         facts: facts,
         snapshot: snapshot,
-        parked: parked,
-        parked_by: parked_by,
+        skew: skew,
+        read_at: read_at,
         verdicts: verdicts,
         stall_notice: stall_notice,
-        skew: skew,
+        parked: parked,
+        parked_by: parked_by,
         graph: graph,
-        activity: activity,
-        prev_activity: state.activity,
-        prev_cells: state.prev_cells
+        graph_for: graph_for,
+        activity: activity
       }
-
-      {ticked, counts} = tick(state, ticked, input)
-
-      # A failed read measures nothing, so nothing is shown as moving.
-      {history, modes} =
-        if snapshot,
-          do: {ticked.history |> Map.get(relay_id, []) |> Enum.reverse(), ticked.modes},
-          else: {[], %{}}
-
-      input = Map.merge(input, %{history: history, modes: modes, seen: ticked.seen})
-
-      socket
-      |> render_pipeline(%{ticked | input: input, prev_cells: cells_of_read(activity)})
-      |> push_counts(counts)
     else
-      disconnected(socket, state)
+      :disconnected
     end
+  end
+
+  @doc "Measures and draws what `pipeline_reads/2` read."
+  def apply_pipeline(socket, :disconnected),
+    do: disconnected(socket, socket.assigns.topology_state)
+
+  def apply_pipeline(socket, reads) do
+    %{ns: namespace, relay_id: relay_id} = socket.assigns
+    state = forget_stale(socket.assigns.topology_state)
+    key = {namespace, relay_id}
+    %{snapshot: snapshot, graph: graph, activity: activity} = reads
+    {_rates, ticked} = advance(state, snapshot, [key], reads.read_at)
+
+    ticked =
+      %{ticked | graph: graph, graph_for: reads.graph_for, activity: activity}
+      |> keep_tally(socket, announced(graph))
+
+    input = %{
+      namespace: namespace,
+      relay_id: relay_id,
+      facts: reads.facts,
+      snapshot: snapshot,
+      parked: reads.parked,
+      parked_by: reads.parked_by,
+      verdicts: reads.verdicts,
+      stall_notice: reads.stall_notice,
+      skew: reads.skew,
+      graph: graph,
+      activity: activity,
+      prev_activity: state.activity,
+      prev_cells: state.prev_cells
+    }
+
+    {ticked, counts} = tick(state, ticked, input)
+
+    # A failed read measures nothing, so nothing is shown as moving.
+    {history, modes} =
+      if snapshot,
+        do: {ticked.history |> Map.get(key, []) |> Enum.reverse(), ticked.modes},
+        else: {[], %{}}
+
+    input = Map.merge(input, %{history: history, modes: modes, seen: ticked.seen})
+
+    socket
+    |> render_pipeline(%{ticked | input: input, prev_cells: cells_of_read(activity)})
+    |> push_counts(counts)
   end
 
   @doc """
@@ -261,17 +317,17 @@ defmodule FlezhaConsoleWeb.Topology do
   # a read that failed for a reason that may pass. Activity is read only for a
   # relay whose inside is drawn, with the open Cell sheet's rows, and the dead
   # render reads neither.
-  defp inside_reads(socket, state, facts, token) do
-    %{ns: namespace, relay_id: relay_id} = socket.assigns
-    key = {facts.runner_id, Map.get(facts, :bound_at), socket.assigns[:runner_epoch]}
+  defp inside_reads(params, facts) do
+    %{namespace: namespace, relay_id: relay_id, token: token} = params
+    key = {facts.runner_id, Map.get(facts, :bound_at), params.runner_epoch}
     read_graph = fn -> NodeManager.relay_graph(namespace, relay_id, token) end
 
-    if Phoenix.LiveView.connected?(socket) do
-      fresh? = state.graph_for != key or not settled?(state.graph)
-      graph = if fresh?, do: read_graph.(), else: state.graph
-      activity = activity(graph, namespace, relay_id, token, state.cells_of)
+    if params.connected? do
+      fresh? = params.graph_for != key or not settled?(params.graph)
+      graph = if fresh?, do: read_graph.(), else: params.graph
+      activity = activity(graph, namespace, relay_id, token, params.cells_of)
 
-      if not fresh? and restarted?(state.activity, activity),
+      if not fresh? and restarted?(params.activity, activity),
         do: {read_graph.(), key, activity},
         else: {graph, key, activity}
     else
@@ -401,9 +457,9 @@ defmodule FlezhaConsoleWeb.Topology do
   # node advanced this tick, its rate in the history, when it last moved and
   # each wire's state. Answers the counts to replay, or nil without a baseline.
   defp tick(before, ticked, input) do
-    relay_id = input.relay_id
-    previous = relay_counters(before.prev, relay_id)
-    current = relay_counters(input.snapshot, relay_id)
+    key = {input.namespace, input.relay_id}
+    previous = relay_counters(before.prev, key)
+    current = relay_counters(input.snapshot, key)
     parked_by = (before.prev_parked && advance_of(input.parked, before.prev_parked)) || 0
     {tally_by, ticked} = tally_advance(before, ticked)
     ticked = %{ticked | prev_parked: input.parked}
@@ -425,7 +481,7 @@ defmodule FlezhaConsoleWeb.Topology do
         )
         |> Map.put(:parked, per_second(parked_by, seconds))
 
-      history = sample_more(ticked.history, relay_id, rates)
+      history = sample_more(ticked.history, key, rates)
 
       moved = Map.merge(counts, %{in: relay.in, out: relay.out})
 
@@ -434,7 +490,7 @@ defmodule FlezhaConsoleWeb.Topology do
           if n > 0, do: Map.put(seen, key, now), else: Map.put_new(seen, key, nil)
         end)
 
-      newest = history |> Map.get(relay_id, []) |> Enum.reverse()
+      newest = history |> Map.get(key, []) |> Enum.reverse()
 
       modes =
         Map.new(seen, fn {key, at} ->
@@ -481,10 +537,10 @@ defmodule FlezhaConsoleWeb.Topology do
 
   # `push_history/2` stores the shared rates; the node and tasklet rates are
   # the pipeline's own, added to the sample this tick just pushed.
-  defp sample_more(history, relay_id, rates) do
+  defp sample_more(history, key, rates) do
     case history do
-      %{^relay_id => [newest | older]} ->
-        %{history | relay_id => [Map.merge(newest, rates) | older]}
+      %{^key => [newest | older]} ->
+        %{history | key => [Map.merge(newest, rates) | older]}
 
       _none ->
         history
@@ -522,29 +578,26 @@ defmodule FlezhaConsoleWeb.Topology do
 
   @doc """
   Reads a namespace's fleet summary, off the host's process: `:disconnected`,
-  or the liveness snapshot, stall verdicts and dead-letter stats for `rows`
-  (as `NodeManager.relay_rows/2` answers them), with when they were read.
+  or the namespace's summed liveness totals, stall verdicts and the
+  dead-letter stats of its relay classes, with when they were read.
 
-  Deliberately issues no per-relay call: the liveness snapshot already
-  carries every relay's counters, so the cost is flat in the size of the
-  fleet.
+  Deliberately issues no per-relay call: the totals are summed on the
+  controller, and a dead-letter class is matched to the namespace with one
+  read of those relays by id, so the cost is flat in the size of the fleet.
   """
-  def read_summary(token, rows) do
+  def read_summary(token, namespace) do
     if NodeManager.connected_node() do
-      {snapshot, skew} = snapshot(token)
+      {snapshot, skew} = snapshot(token, filter: [namespace: namespace], limit: 0)
       read_at = System.monotonic_time(:millisecond)
       {verdicts, stall_notice} = stall(token)
+      stats = token |> FlezhaConsole.DeadLetters.stats() |> NodeManager.ok_or([])
 
       %{
         snapshot: snapshot,
         skew: skew,
         verdicts: verdicts,
         stall_notice: stall_notice,
-        dlq:
-          token
-          |> FlezhaConsole.DeadLetters.stats()
-          |> NodeManager.ok_or([])
-          |> parked_in(Enum.map(rows, &to_string(&1.id))),
+        dlq: parked_in(stats, owned_classes(stats, namespace, token)),
         read_at: read_at
       }
     else
@@ -553,27 +606,43 @@ defmodule FlezhaConsoleWeb.Topology do
   end
 
   @doc """
-  Shows what `read_summary/2` answered for `namespace`, advancing the rates.
-  `given` holds the `rows`, partition `groups` and runner ids the host read on
-  the same tick.
+  The relay classes among `stats` (dead-letter stats rows) whose relay runs in
+  `namespace`, read by their ids, as a set of ids. A relay class is its
+  relay's id.
+  """
+  def owned_classes(stats, namespace, token) do
+    case stats |> Enum.map(&to_string(Map.get(&1, :relay_class))) |> Enum.uniq() do
+      [] ->
+        MapSet.new()
+
+      classes ->
+        namespace
+        |> NodeManager.relay_list(token, limit: 500, filter: [ids: Enum.take(classes, 500)])
+        |> NodeManager.ok_or([])
+        |> MapSet.new(&to_string(&1.id))
+    end
+  end
+
+  @doc """
+  Shows what `read_summary/2` answered for `namespace`, advancing its flow.
+  `given` holds the namespace's `health` counts (`NodeManager.health_pairs/1`
+  pairs), its `relay_count` and the runner ids the host read on the same tick.
   """
   def apply_summary(socket, _namespace, :disconnected, _given),
     do: disconnected(socket, socket.assigns.topology_state)
 
   def apply_summary(socket, namespace, read, given) do
-    ids = Enum.map(given.rows, &to_string(&1.id))
-    {rates, state} = advance(socket.assigns.topology_state, read.snapshot, ids, read.read_at)
+    {_rates, state} =
+      advance(socket.assigns.topology_state, read.snapshot, [:totals], read.read_at)
 
     assign_topology(
       socket,
       state,
       summary(%{
         namespace: namespace,
-        rows: given.rows,
-        relay_ids: ids,
+        health: given.health,
+        relay_count: given.relay_count,
         runners: given.runners,
-        snapshot: read.snapshot,
-        rates: rates,
         dlq: read.dlq,
         verdicts: read.verdicts,
         stall_notice: read.stall_notice,
@@ -583,20 +652,50 @@ defmodule FlezhaConsoleWeb.Topology do
   end
 
   @doc """
-  Measures the rates of `ids` from one liveness snapshot, for a host that
-  shows rates without a graph: the rates and their history land in
-  `:topology_state`, read the same way Home reads them.
+  The namespace's flow, oldest first: one history of its summed totals, as
+  `apply_summary/4` advances it.
   """
-  def load_rates(socket, ids) do
-    state = socket.assigns.topology_state
+  def flow(state), do: state.history |> Map.get(:totals, []) |> Enum.reverse()
 
-    if NodeManager.connected_node() do
-      {snapshot, _skew} = snapshot(socket.assigns[:flezha_token])
-      {_rates, state} = advance(state, snapshot, ids)
-      assign(socket, topology_state: state)
-    else
-      assign(socket, topology_state: %{drop_baseline(state) | rates: %{}})
+  @doc """
+  Reads the liveness counters of `keys`, `{namespace, relay_id}` pairs, off
+  the host's process, for `apply_rates/2`: at most #{@max_named} relays, the
+  controller's own bound, and nothing at all for none.
+  """
+  def read_rates(token, keys) do
+    keys = keys |> Enum.uniq() |> Enum.take(@max_named)
+
+    cond do
+      !NodeManager.connected_node() -> :disconnected
+      keys == [] -> %{snapshot: nil, keys: [], read_at: System.monotonic_time(:millisecond)}
+      true -> rates_read(token, keys)
     end
+  end
+
+  defp rates_read(token, keys) do
+    {snapshot, _skew} = snapshot(token, relays(keys))
+    %{snapshot: snapshot, keys: keys, read_at: System.monotonic_time(:millisecond)}
+  end
+
+  @doc """
+  Measures the rates `read_rates/2` read, for a host that shows rates without
+  a graph: the rates and their history, keyed `{namespace, relay_id}`, land in
+  `:topology_state` for the relays read and no others. `groups` maps a key of
+  its own to the keys of relays measured as one, such as a partition group's
+  members: its rate is theirs summed, and it keeps a history of its own.
+  """
+  def apply_rates(socket, read, groups \\ %{})
+
+  def apply_rates(socket, :disconnected, _groups) do
+    state = socket.assigns.topology_state
+    assign(socket, topology_state: %{drop_baseline(state) | rates: %{}})
+  end
+
+  def apply_rates(socket, %{snapshot: snapshot, keys: keys, read_at: read_at}, groups) do
+    {_rates, state} =
+      advance(socket.assigns.topology_state, snapshot, keys, read_at, groups)
+
+    assign(socket, topology_state: state)
   end
 
   @doc """
@@ -735,12 +834,20 @@ defmodule FlezhaConsoleWeb.Topology do
     )
   end
 
-  # One tick of the shared arithmetic: rates of `ids` alone, since the snapshot
-  # covers the whole cluster, and history advanced and pruned to them. `now`
-  # is when the snapshot was read, which a background read applies later.
-  defp advance(state, snapshot, ids, now \\ System.monotonic_time(:millisecond)) do
-    rates = snapshot |> rates(state.prev, now - (state.prev_at || now)) |> Map.take(ids)
-    history = state.history |> push_history(rates) |> Map.take(ids)
+  # One tick of the shared arithmetic: rates of `keys` alone, each of
+  # `groups` summed over its members, and history advanced and pruned to
+  # them. `now` is when the snapshot was read, which a background read
+  # applies later.
+  defp advance(state, snapshot, keys, now, groups \\ %{}) do
+    rates = snapshot |> rates(state.prev, now - (state.prev_at || now)) |> Map.take(keys)
+
+    rates =
+      for {group, members} <- groups,
+          sum = sum_rates(Enum.map(members, &rates[&1])),
+          into: rates,
+          do: {group, sum}
+
+    history = state.history |> push_history(rates) |> Map.take(keys ++ Map.keys(groups))
 
     {rates,
      %{
@@ -756,13 +863,32 @@ defmodule FlezhaConsoleWeb.Topology do
   # counters: the graph still draws structure, so it is carried through as a
   # notice rather than swallowed. Any other failure simply leaves no rates —
   # the host's own error banner already says the controller is unhappy.
-  defp snapshot(token) do
-    case NodeManager.liveness_snapshot(token) do
-      {:ok, %{} = snapshot} -> {snapshot, nil}
+  defp snapshot(token, opts) do
+    case NodeManager.liveness_snapshot(token, opts) do
+      {:ok, %{} = snapshot} -> {placed(snapshot, opts), nil}
       {:error, {:api_missing, _module, _function, _arity} = reason} -> {nil, reason}
       _other -> {nil, nil}
     end
   end
+
+  defp relays(keys), do: [filter: [relays: keys]]
+
+  # A controller that does not key its counters by namespace answers relay
+  # rows without one; the relays asked for name it.
+  defp placed(%{relays: [_ | _] = rows} = snapshot, filter: [relays: keys]) do
+    asked = Map.new(keys, fn {namespace, id} -> {id, namespace} end)
+
+    rows =
+      Enum.map(rows, fn row ->
+        Map.put_new_lazy(row, :namespace, fn ->
+          Map.get(asked, NodeManager.identifier_id(Map.get(row, :relay_id)))
+        end)
+      end)
+
+    %{snapshot | relays: rows}
+  end
+
+  defp placed(snapshot, _opts), do: snapshot
 
   # The dead-letter statistics are kept per relay class across the cluster; a
   # namespace's share is its own relays' classes.
@@ -2984,7 +3110,7 @@ defmodule FlezhaConsoleWeb.Topology do
       type: :relay,
       label: input.relay_id,
       facts: facts,
-      counters: relay_counters(input.snapshot, input.relay_id),
+      counters: relay_counters(input.snapshot, {input.namespace, input.relay_id}),
       rates: if(Map.get(input, :history, []) != [], do: relay_rates(input.history)),
       channel: channel,
       lifecycle: shape.lifecycle,
@@ -3304,31 +3430,12 @@ defmodule FlezhaConsoleWeb.Topology do
   size of the fleet.
   """
   def summary(input) do
-    live = MapSet.new(input.relay_ids)
-    channels = channels_by_runner(input.snapshot)
-
-    busiest =
-      input.rates
-      |> Enum.filter(fn {id, _rate} -> MapSet.member?(live, id) end)
-      |> Enum.map(fn {id, rate} ->
-        %{
-          id: id,
-          in: rate.in,
-          out: rate.out,
-          href: ~p"/namespaces/#{input.namespace}/relays/#{id}"
-        }
-      end)
-      |> Enum.sort_by(&(-(&1.in + &1.out)))
-      |> Enum.take(5)
-
-    rows = Map.get(input, :rows, [])
-
     summary_view(%{
-      state: ((input.relay_ids == [] and input.runners == []) && :empty) || :ok,
+      state: ((input.relay_count == 0 and input.runners == []) && :empty) || :ok,
       namespace: input.namespace,
-      relay_count: length(input.relay_ids),
+      relay_count: input.relay_count,
       health:
-        Enum.map(NodeManager.health_counts(rows), fn {health, count} ->
+        Enum.map(input.health, fn {health, count} ->
           %{
             health: health,
             count: count,
@@ -3337,14 +3444,9 @@ defmodule FlezhaConsoleWeb.Topology do
         end),
       stall_notice: Map.get(input, :stall_notice),
       runner_count: length(input.runners),
-      backpressured:
-        Enum.filter(input.runners, fn runner ->
-          channels |> Map.get(runner, []) |> Enum.any?(&credit_exhausted?/1)
-        end),
       parked: total(input.dlq, :entries),
       parked_seen: total(input.dlq, :seen),
       stall: List.first(input.verdicts),
-      busiest: busiest,
       skew: input.skew
     })
   end
@@ -3357,13 +3459,11 @@ defmodule FlezhaConsoleWeb.Topology do
         namespace: nil,
         relay_count: 0,
         runner_count: 0,
-        backpressured: [],
         parked: 0,
         parked_seen: 0,
         stall: nil,
         stall_notice: nil,
         health: [],
-        busiest: [],
         skew: nil
       },
       fields
@@ -3376,35 +3476,23 @@ defmodule FlezhaConsoleWeb.Topology do
   Per-relay message rates from two snapshots and the milliseconds between
   them: in, out, and the records the relay filtered by returning nil.
 
-  Answers `%{relay_id => %{in: rate, out: rate, filtered: rate}}`, and nothing at all
-  without a baseline — a first tick has no elapsed time to divide by. A
-  negative delta means the controller restarted and its counters reset; that
-  clamps to zero for the one tick rather than rendering a nonsense figure.
+  Answers `%{{namespace, relay_id} => %{in: rate, out: rate, filtered: rate}}`,
+  a namespace's summed `totals` under `:totals`, and nothing at all without a
+  baseline — a first tick has no elapsed time to divide by. A negative delta
+  means a counter restarted at zero; that clamps to zero for the one tick
+  rather than rendering a nonsense figure.
   """
   def rates(snapshot, previous, elapsed_ms)
       when is_map(snapshot) and is_map(previous) and elapsed_ms > 0 do
     before = index_relays(previous)
     seconds = elapsed_ms / 1_000
 
-    snapshot
-    |> Map.get(:relays, [])
-    |> Enum.reduce(%{}, fn entry, acc ->
-      id = NodeManager.identifier_id(Map.get(entry, :relay_id))
-
-      case Map.fetch(before, id) do
-        {:ok, base} ->
-          Map.put(
-            acc,
-            id,
-            Map.new(advances(base, entry), fn {key, delta} ->
-              {key, per_second(delta, seconds)}
-            end)
-          )
-
-        :error ->
-          acc
-      end
-    end)
+    for {key, entry} <- index_relays(snapshot),
+        {:ok, base} <- [Map.fetch(before, key)],
+        into: %{},
+        do:
+          {key,
+           Map.new(advances(base, entry), fn {k, delta} -> {k, per_second(delta, seconds)} end)}
   end
 
   def rates(_snapshot, _previous, _elapsed_ms), do: %{}
@@ -3438,19 +3526,6 @@ defmodule FlezhaConsoleWeb.Topology do
   end
 
   @doc """
-  Several relays' histories, each newest first as `push_history/2` keeps it,
-  as one history oldest first: each tick's rates summed (`sum_rates/1`) over
-  the relays measured on that tick, so a relay started later adds to the
-  ticks it was there for.
-  """
-  def sum_history(histories) do
-    depth = histories |> Enum.map(&length/1) |> Enum.max(fn -> 0 end)
-
-    for index <- (depth - 1)..0//-1,
-        do: histories |> Enum.map(&Enum.at(&1, index)) |> sum_rates()
-  end
-
-  @doc """
   Appends this tick's rates to each relay's history, newest first.
 
   Capped at #{@history_limit} samples: the sparkline is a session-local view of
@@ -3462,25 +3537,33 @@ defmodule FlezhaConsoleWeb.Topology do
     end)
   end
 
+  # Each relay's counters by `{namespace, relay_id}`, and a namespace's
+  # summed totals under `:totals`.
   defp index_relays(snapshot) do
-    snapshot
-    |> Map.get(:relays, [])
-    |> Map.new(&{NodeManager.identifier_id(Map.get(&1, :relay_id)), &1})
+    relays =
+      snapshot
+      |> Map.get(:relays, [])
+      |> Map.new(fn row ->
+        {{to_string(Map.get(row, :namespace)),
+          NodeManager.identifier_id(Map.get(row, :relay_id))}, row}
+      end)
+
+    case snapshot do
+      %{totals: %{} = totals} -> Map.put(relays, :totals, totals)
+      _relays_only -> relays
+    end
   end
 
   # What the relay's input filters have skipped since its counters started.
   defp skipped_total(input) do
-    case relay_counters(input.snapshot, input.relay_id) do
+    case relay_counters(input.snapshot, {input.namespace, input.relay_id}) do
       %{} = counters -> Map.get(counters, :filtered_nil, 0)
       nil -> 0
     end
   end
 
-  defp relay_counters(nil, _relay_id), do: nil
-
-  defp relay_counters(snapshot, relay_id) do
-    Map.get(index_relays(snapshot), relay_id)
-  end
+  defp relay_counters(nil, _key), do: nil
+  defp relay_counters(snapshot, key), do: Map.get(index_relays(snapshot), key)
 
   defp channel_for(nil, _runner_id), do: nil
   defp channel_for(_snapshot, nil), do: nil
@@ -3492,8 +3575,6 @@ defmodule FlezhaConsoleWeb.Topology do
   # A channel is registered through the controller's process registry, so its
   # `name` arrives as the `:via` tuple rather than a plain id — the seam's
   # normaliser is what knows that.
-  defp channels_by_runner(nil), do: %{}
-
   defp channels_by_runner(snapshot) do
     snapshot
     |> Map.get(:channels, [])

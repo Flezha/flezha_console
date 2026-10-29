@@ -25,7 +25,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
   end
 
   defp steps(node, overwatch \\ %{}) do
-    FakeController.set(node, {Relay, :relay_rows}, FakeController.rows([row("relay_steps")]))
+    FakeController.set(node, {Relay, :list}, FakeController.rows([row("relay_steps")]))
 
     FakeController.set(
       node,
@@ -62,7 +62,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
     end
 
     test "a refused first read is tried again, and the panel follows", %{conn: conn, node: node} do
-      FakeController.set(node, {Relay, :relay_rows}, FakeController.rows([row("relay_steps")]))
+      FakeController.set(node, {Relay, :list}, FakeController.rows([row("relay_steps")]))
 
       FakeController.set(
         node,
@@ -76,11 +76,11 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
       steps(node)
       send(view.pid, :refresh)
 
-      assert render(view) =~ ~s(data-testid="steps-panel")
+      assert render_async(view) =~ ~s(data-testid="steps-panel")
     end
 
     test "a flow relay gets no steps panel", %{conn: conn, node: node} do
-      FakeController.set(node, {Relay, :relay_rows}, FakeController.rows([row("relay_steps")]))
+      FakeController.set(node, {Relay, :list}, FakeController.rows([row("relay_steps")]))
 
       FakeController.set(
         node,
@@ -136,7 +136,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
     end
 
     test "a field an older controller omits does not break the decode", %{conn: conn, node: node} do
-      FakeController.set(node, {Relay, :relay_rows}, FakeController.rows([row("relay_steps")]))
+      FakeController.set(node, {Relay, :list}, FakeController.rows([row("relay_steps")]))
 
       FakeController.set(
         node,
@@ -178,7 +178,10 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
       assert html =~ ~s(data-testid="journal-entry-2")
       # Newest first: seq 2's row is rendered before seq 1's.
       assert :binary.match(html, "journal-entry-2") < :binary.match(html, "journal-entry-1")
-      assert html =~ ~s(Committed iterations: <span class="fcon-num">3, 2, 1</span>)
+
+      assert text_of(html, ~s([data-testid="task-journal-committed"])) ==
+               "Committed iterations: 3, 2, 1."
+
       assert html =~ "The run has not ended yet."
     end
 
@@ -270,7 +273,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
 
       FakeController.set(
         node,
-        {Relay, :relay_rows},
+        {Relay, :list},
         FakeController.rows([row("relay_steps", %{node: :"flezha@node-b"})], unreachable)
       )
     end
@@ -302,7 +305,8 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
       assert open_section(view, "input-log") =~ ~r/data-testid="input-log-last-offset"[^>]*>\s*3/
 
       # Asked by the instance alone: the controller routes it to where its state is.
-      assert [["relay_steps", %{source: :ui}] | _] = FakeController.calls(node, {Steps, :journal})
+      assert [["relay_steps", _page, %{source: :ui}] | _] =
+               FakeController.calls(node, {Steps, :journal})
     end
 
     test "its hosting controller not answering is named once, above the sections", %{
@@ -353,7 +357,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
       {:ok, view, _html} = live(conn, @url)
 
       send(view.pid, :refresh)
-      render(view)
+      render_async(view)
 
       assert FakeController.calls(node, {Steps, :inbox}) == []
     end
@@ -384,10 +388,10 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
       {:ok, view, _html} = live(conn, @url)
       html = open_rewind(view)
 
-      assert html =~ ~s(value="2")
-      assert html =~ ~s(value="5")
+      assert html =~ ~s(data-testid="rewind-iteration-2")
+      assert html =~ ~s(data-testid="rewind-iteration-5")
       # Iterations the journal never committed are not offered at all.
-      refute html =~ ~s(value="3")
+      refute html =~ ~s(data-testid="rewind-iteration-3")
     end
 
     test "confirming rewinds the relay by its class to the chosen iteration", %{
@@ -401,8 +405,8 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
       open_rewind(view)
 
       view
-      |> form(~s(form[phx-change="select_rewind"]), %{"rewind" => %{"iteration" => "5"}})
-      |> render_change()
+      |> form(~s(form[phx-change="select_rewind"]))
+      |> render_change(%{"rewind" => %{"iteration" => "5"}})
 
       assert rewind(view) =~ "Rewound to iteration 5."
 
@@ -455,13 +459,8 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
         row("orders#p1", %{partition: %{group: "orders", index: 1, count: 2, range: {128, 255}}})
       ]
 
-      FakeController.set_fleet(node, rows: %{"default" => members})
-
-      FakeController.set(
-        node,
-        {Relay, :partition_groups},
-        {:ok, [%{group: "orders", declared: 2, members: members, coverage: :ok}]}
-      )
+      group = Map.merge(row("orders"), %{partitions: "2/2", members: members})
+      FakeController.set_fleet(node, rows: %{"default" => [group]})
     end
 
     test "confirming requests the new target", %{conn: conn, node: node} do
@@ -469,6 +468,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       open_section(view, "partition-groups")
+      render_async(view)
       view |> element(~s([data-testid="rescale-orders"])) |> render_click()
 
       view

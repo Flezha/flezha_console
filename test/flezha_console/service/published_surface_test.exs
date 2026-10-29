@@ -36,8 +36,10 @@ defmodule FlezhaConsole.Service.PublishedSurfaceTest do
     catalogue =
       core |> Path.join("crates/flz_transport/errors.json") |> File.read!() |> Jason.decode!()
 
+    published = names(File.read!(published_path))
+
     %{
-      allowed: MapSet.new(names(File.read!(published_path)) ++ @context_free ++ @door),
+      allowed: MapSet.new(published ++ with_opts(published, core) ++ @context_free ++ @door),
       calls: MapSet.new(names(out)),
       stubs: stubs(),
       classes: Map.new(catalogue["codes"], fn {code, entry} -> {code, entry["class"]} end)
@@ -80,6 +82,19 @@ defmodule FlezhaConsole.Service.PublishedSurfaceTest do
     for line <- String.split(text, "\n"),
         [name] <- [Regex.run(~r/^Flezha(?:\.\w+)+\.\w+[?!]?\/\d+/, line)],
         do: name
+  end
+
+  # The list names a verb at its arity without the trailing `opts \\ []` a
+  # paged read declares; the arity with it is the same published verb.
+  defp with_opts(published, core) do
+    sources = Path.wildcard(Path.join(core, "lib/**/*.ex"))
+
+    for name <- published,
+        [_, module, function, arity] = Regex.run(~r/^(.+)\.(\w+[?!]?)\/(\d+)$/, name),
+        source = Enum.find(sources, &String.contains?(File.read!(&1), "defmodule #{module} do")),
+        source != nil,
+        File.read!(source) =~ ~r/verb #{Regex.escape(function)}\([^)]*opts \\\\ \[\]/,
+        do: "#{module}.#{function}/#{String.to_integer(arity) + 1}"
   end
 
   defp stubs do

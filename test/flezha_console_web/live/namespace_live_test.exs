@@ -37,7 +37,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
 
       FakeController.set(
         node,
-        {Relay, :relay_rows},
+        {Relay, :list},
         FakeController.rows([FakeController.relay_row("a"), FakeController.relay_row("b")])
       )
 
@@ -61,7 +61,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
 
       FakeController.set(
         node,
-        {Relay, :relay_rows},
+        {Relay, :list},
         {:per_arg, 0, %{"default" => FakeController.error("controller.timeout")},
          FakeController.rows([FakeController.relay_row("a")])}
       )
@@ -125,14 +125,44 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       ]
     end
 
-    defp with_group(node, coverage \\ :ok) do
-      FakeController.set_fleet(node, rows: %{"default" => members()})
+    # The group as the controller lists it: one row as sick as its sickest
+    # member, its coverage stated by the namespace's summary.
+    defp with_group(node, complete? \\ true) do
+      group =
+        Map.merge(FakeController.relay_row("orders"), %{
+          health: :degraded,
+          partitions: "2/2",
+          members: members()
+        })
+
+      FakeController.set_fleet(node, rows: %{"default" => [group]})
 
       FakeController.set(
         node,
-        {Relay, :partition_groups},
-        {:ok, [%{group: "orders", declared: 2, members: members(), coverage: coverage}]}
+        {Relay, :list},
+        {:ok,
+         %{
+           rows: [Map.merge(group, %{run: :flow, plugins: 0})],
+           total: 1,
+           next: nil,
+           unreachable: [],
+           summary: %{
+             health: %{degraded: 1},
+             waiting: [],
+             faulted_groups:
+               if(complete?,
+                 do: [],
+                 else: [%{group: "orders", health: :degraded, complete: false}]
+               )
+           }
+         }}
       )
+    end
+
+    # The groups are read when their section opens, in the background.
+    defp open_groups(view) do
+      open_section(view, "partition-groups")
+      render_async(view)
     end
 
     test "a complete group shows its member count and is not faulted", %{conn: conn, node: node} do
@@ -140,7 +170,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
-      html = open_section(view, "partition-groups")
+      html = open_groups(view)
 
       assert html =~ ~s(data-testid="partition-group-orders")
       assert html =~ ~s(data-testid="group-members-orders")
@@ -153,7 +183,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
-      assert open_section(view, "partition-groups") =~ ~s(data-health="degraded")
+      assert open_groups(view) =~ ~s(data-health="degraded")
     end
 
     test "members are listed with partition index, key range and health", %{
@@ -164,7 +194,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
-      html = open_section(view, "partition-groups")
+      html = open_groups(view)
 
       assert html =~ "p0"
       assert html =~ "p1"
@@ -173,27 +203,20 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       assert html =~ "orders_p0"
     end
 
-    test "a coverage gap is a fault, and the uncovered range is named", %{conn: conn, node: node} do
-      with_group(node, {:error, %{gaps: [{128, 255}], overlaps: []}})
+    test "broken coverage is a fault, stated while the section is folded too", %{
+      conn: conn,
+      node: node
+    } do
+      with_group(node, false)
 
-      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
+      {view, html} = live_loaded(conn, ~p"/namespaces/default")
+      assert html =~ "1 with broken coverage"
 
-      html = open_section(view, "partition-groups")
+      html = open_groups(view)
 
       assert html =~ ~s(data-testid="group-faulted-orders")
       assert html =~ ~s(data-testid="group-coverage-orders")
-      assert html =~ "owned by no member"
-    end
-
-    test "overlapping owners are a fault, and both are named", %{conn: conn, node: node} do
-      with_group(node, {:error, %{gaps: [], overlaps: [{7, ["orders_p0", "orders_p1"]}]}})
-
-      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
-
-      html = open_section(view, "partition-groups")
-
-      assert html =~ ~s(data-testid="group-faulted-orders")
-      assert html =~ "claimed by orders_p0, orders_p1"
+      assert html =~ "owned by no member or by more than one"
     end
 
     test "a cancelled rescale target is dropped, and one below one is not taken", %{
@@ -203,7 +226,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       with_group(node)
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
-      open_section(view, "partition-groups")
+      open_groups(view)
 
       view |> element(~s([data-testid="rescale-orders"])) |> render_click()
       rescale_target(view, "3")
@@ -223,12 +246,12 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       |> render_change()
     end
 
-    test "a namespace with no groups renders no group panel", %{conn: conn, node: node} do
+    test "a namespace with no groups says so when the section opens", %{conn: conn, node: node} do
       with_relays(node, ["relay_a"])
 
-      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
+      {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
-      refute html =~ ~s(data-testid="partition-groups")
+      assert open_groups(view) =~ ~s(data-testid="partition-groups-none")
     end
   end
 
@@ -515,7 +538,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       with_relays(node, ["relay_a", "relay_b"])
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
-      FakeController.set(node, {Relay, :relay_rows}, FakeController.error("controller.timeout"))
+      FakeController.set(node, {Relay, :list}, FakeController.error("controller.timeout"))
       send(view.pid, :refresh)
       html = render_async(view)
 
@@ -525,7 +548,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
     end
 
     test "a first read whose relays failed still shows the rest", %{conn: conn, node: node} do
-      FakeController.set(node, {Relay, :relay_rows}, FakeController.error("controller.timeout"))
+      FakeController.set(node, {Relay, :list}, FakeController.error("controller.timeout"))
 
       {_view, html} = live_loaded(conn, "/namespaces/default?inspect=runner:runner-a")
 
@@ -540,7 +563,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       before = reads(node)
 
-      FakeController.set(node, {Relay, :relay_rows}, FakeController.error("controller.timeout"))
+      FakeController.set(node, {Relay, :list}, FakeController.error("controller.timeout"))
       send(view.pid, :refresh)
       render_async(view)
 
@@ -551,7 +574,11 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       with_relays(node, ["relay_a", "relay_b"])
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
-      FakeController.set(node, {Relay, :relay_rows}, FakeController.rows([:not_a_row]))
+      FakeController.set(
+        node,
+        {Relay, :list},
+        {:ok, %{rows: [:not_a_row], total: 1, next: nil, unreachable: [], summary: nil}}
+      )
 
       ExUnit.CaptureLog.capture_log(fn ->
         send(view.pid, :refresh)

@@ -19,7 +19,7 @@ defmodule FlezhaConsole.ControllerShapesTest do
 
   # {read, path into its answer, a fixture built for that place}
   @builders [
-    {"Relay.relay_rows", [1, "rows", :each], {:relay_row, ["relay_a"]}},
+    {"Relay.list", [1, "rows", :each], {:relay_row, ["relay_a"]}},
     {"Relay.graph", [1, "graph", "channels", :each],
      {:graph_channel, ["input", "input", "boundary", ["store"]]}},
     {"Relay.graph", [1, "graph", "tasklets", :each],
@@ -32,7 +32,6 @@ defmodule FlezhaConsole.ControllerShapesTest do
     {"Fleet.providers", [1, "rows", :each],
      {:provider_entry, ["relay_websocket", "Flezha.Plugin.Provider.Websocket", true]}},
     {"Fleet.provider", [1, "options", :each], {:option_row, ["url"]}},
-    {"Relay.registry", [1, :each], {:registry_entry, [:flow]}},
     {"Fleet.runners", [1, :each], {:runner_row, ["runner-a"]}},
     {"Logs.kinds", [1, :each], {:log_kind, ["relay_history"]}},
     {"Logs.read", [1, "records", :each], {:history_record, ["relay_a"]}},

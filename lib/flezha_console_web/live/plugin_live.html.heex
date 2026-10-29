@@ -37,9 +37,62 @@
 
 <.skeleton :if={!@loaded?} rows={4} testid="plugins-loading" />
 
+<form
+  :if={@loaded? and (@plugins != [] or searched?(@view))}
+  phx-change="view"
+  onsubmit="return false"
+  class="flex flex-wrap items-end gap-3 mb-5"
+  data-testid="plugins-view"
+>
+  <.input
+    type="search"
+    name="view[q]"
+    id="plugins-q"
+    label="Search"
+    value={@view["q"]}
+    placeholder="Plugin name"
+    phx-debounce="300"
+    compact
+    data-testid="plugins-q"
+  />
+  <.input
+    type="search"
+    name="view[provider]"
+    id="plugins-provider"
+    label="Provider"
+    value={@view["provider"]}
+    placeholder="Any"
+    phx-debounce="300"
+    compact
+    data-testid="plugins-provider"
+  />
+  <.input
+    type="search"
+    name="view[relay]"
+    id="plugins-relay"
+    label="Bound to relay"
+    value={@view["relay"]}
+    placeholder="Any"
+    phx-debounce="300"
+    compact
+    data-testid="plugins-relay"
+  />
+</form>
+
 <%!-- Enabled plugins --%>
+<p
+  :if={@loaded? and @plugins == [] and searched?(@view)}
+  class="fcon-figures"
+  data-testid="plugins-none-match"
+>
+  No plugin matches this search.
+</p>
+
 <.empty_state
-  :if={@loaded? and @plugins == [] and is_nil(@namespaces_error)}
+  :if={
+    @loaded? and @plugins == [] and is_nil(@namespaces_error) and
+      not searched?(@view)
+  }
   icon="hero-puzzle-piece"
   testid="plugins-empty"
 >
@@ -64,6 +117,7 @@
   paging={@paging}
   id="plugins"
   rows={@plugins}
+  total={@total}
   row_testid={&"plugin-row-#{&1.name}"}
   row_tone={&(&1[:lagging] not in [nil, []] && "warning")}
   row_label={&"Inspect #{&1.name}"}
@@ -105,7 +159,11 @@
   </:col>
   <:col :let={plugin} label="Relays">
     <span data-testid={"plugin-relays-#{plugin.name}"} class="fcon-num">
-      {join_or_dash(plugin[:relays])}
+      {join_or_dash(plugin[:relays])}<span
+        :if={relays_more(plugin) > 0}
+        class="fcon-figures"
+        data-testid={"plugin-relays-more-#{plugin.name}"}
+      > + {Format.count(relays_more(plugin))} more</span>
     </span>
     <.button
       :if={
@@ -179,6 +237,17 @@
         danger
       >
         Unbind {relay}
+      </:item>
+      <:item
+        :if={
+          relays_more(plugin) > 0 and NodeManager.granted?(@operations, "PluginManager.unbind")
+        }
+        click="unbind_other_open"
+        values={%{name: plugin.name, namespace: plugin.namespace}}
+        testid={"plugin-unbind-other-#{plugin.name}"}
+        danger
+      >
+        Unbind another relay…
       </:item>
       <:item
         :if={NodeManager.granted?(@operations, "PluginManager.disable")}
@@ -391,3 +460,52 @@
     </.grid>
   </div>
 </.section>
+
+<.dialog
+  :if={@unbind_other}
+  testid="plugin-unbind-other-modal"
+  size="confirm"
+  on_close="unbind_other_close"
+>
+  <:title>Unbind <span class="fcon-ident">{@unbind_other.name}</span> from a relay</:title>
+  <form phx-change="unbind_other_change" onsubmit="return false" data-testid="unbind-other-form">
+    <.combobox
+      id="unbind-other-relay"
+      name="unbind[relay]"
+      label="Relay"
+      value={@unbind_other.relay}
+      prompt="Search a relay..."
+      search="unbind_other_search"
+      query={@unbind_other.query}
+      matches={@unbind_other.matching}
+      testid="unbind-other-relay"
+    >
+      <:option :for={relay <- @unbind_other.relays} value={relay}>{relay}</:option>
+    </.combobox>
+  </form>
+  <p
+    :if={@unbind_other.error == :not_bound}
+    class="fcon-error"
+    data-testid="unbind-other-not-bound"
+  >
+    {@unbind_other.relay} is not bound to {@unbind_other.name}.
+  </p>
+  <.runtime_error
+    :if={@unbind_other.error not in [nil, :not_bound]}
+    error={@unbind_other.error}
+    action="the relay search"
+  />
+  <:actions>
+    <.button variant="ghost" phx-click="unbind_other_close" data-testid="unbind-other-cancel">
+      Cancel
+    </.button>
+    <.button
+      variant="danger"
+      phx-click="unbind_other_next"
+      disabled={@unbind_other.relay == ""}
+      data-testid="unbind-other-next"
+    >
+      Unbind
+    </.button>
+  </:actions>
+</.dialog>

@@ -6,7 +6,9 @@ defmodule FlezhaConsoleWeb.ProblemsLive do
 
   The screen reads the shell's pulse rather than reading anything itself, so
   the header's count and this list are one answer: a problem that clears
-  leaves both on the same pulse, without a reload.
+  leaves both on the same pulse, without a reload. The list shows a page at a
+  time, and growing a namespace's item that says how many more relays are not
+  healthy reads more of them on a pulse at once.
   """
 
   use FlezhaConsoleWeb, :live_view
@@ -20,6 +22,10 @@ defmodule FlezhaConsoleWeb.ProblemsLive do
      |> attention_init()
      |> assign(page_title: "Open problems")}
   end
+
+  @doc false
+  def listing_grown(socket, "problems-" <> _namespace), do: Layouts.pulse_now(socket)
+  def listing_grown(socket, _id), do: socket
 
   @impl true
   def render(assigns) do
@@ -80,6 +86,7 @@ defmodule FlezhaConsoleWeb.ProblemsLive do
       items={@shell_pulse.items}
       operations={@operations}
       diagnoses={@diagnoses}
+      paging={@paging}
       now={@shell_pulse.checked_at}
     />
     """

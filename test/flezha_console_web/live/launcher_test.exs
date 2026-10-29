@@ -364,12 +364,9 @@ defmodule FlezhaConsoleWeb.LauncherTest do
     test "offers each reachable namespace and opens on the one in scope", %{conn: conn} do
       view = open(conn, "/namespaces/staging/relays")
 
-      assert has_element?(view, ~s([data-testid="input-namespace"] option[value="default"]))
-
-      assert has_element?(
-               view,
-               ~s([data-testid="input-namespace"] option[value="staging"][selected])
-             )
+      assert has_element?(view, ~s([data-testid="input-namespace-default"]))
+      assert has_element?(view, ~s([data-testid="input-namespace-staging"][aria-checked="true"]))
+      assert has_element?(view, ~s(#input-namespace-value[value="staging"]))
     end
 
     test "choosing another namespace re-reads its factories, and the start goes there", %{
@@ -378,9 +375,10 @@ defmodule FlezhaConsoleWeb.LauncherTest do
     } do
       view = open(conn, "/relays")
 
+      # The namespace's option sets the form's hidden value in the browser.
       view
-      |> form(~s(form[phx-change="launcher_change"]), start: %{namespace: "staging"})
-      |> render_change()
+      |> form(~s(form[phx-change="launcher_change"]))
+      |> render_change(%{start: %{namespace: "staging"}})
 
       assert [["default", _], ["staging", _]] = FakeController.calls(node, {Fleet, :factories})
 

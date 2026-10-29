@@ -14,11 +14,14 @@ defmodule FlezhaConsoleWeb.CommandPalette do
   screen with that screen's confirmation open, and never acts on the
   keystroke alone.
 
-  The relay, factory and schedule index is the expensive part, so it is read on the
-  first open rather than on mount: a screen the operator never opens the
-  palette on pays nothing for it. Once read it is held on the component and
-  dropped again by `invalidate/1`, which `FlezhaConsoleWeb.Live.Refresh` calls on
-  the same lifecycle events the screens themselves refresh on.
+  Relays are searched on the controller as the operator types: a namespace
+  may run thousands, so each query reads at most 20 matches per reachable
+  namespace rather than holding every relay. The factory and schedule index is
+  read on the first open rather than on mount: a screen the operator never
+  opens the palette on pays nothing for it. Once read it is held on the
+  component and dropped again by `invalidate/1`, which
+  `FlezhaConsoleWeb.Live.Refresh` calls on the same lifecycle events the
+  screens themselves refresh on.
   """
 
   use FlezhaConsoleWeb, :live_component
@@ -56,6 +59,7 @@ defmodule FlezhaConsoleWeb.CommandPalette do
      |> assign_new(:open, fn -> false end)
      |> assign_new(:query, fn -> "" end)
      |> assign_new(:relays, fn -> nil end)
+     |> assign_new(:relays_unread, fn -> 0 end)
      |> assign_new(:schedules, fn -> [] end)
      |> assign_new(:factories, fn -> [] end)
      |> assign_new(:operations, fn -> nil end)}
@@ -63,7 +67,7 @@ defmodule FlezhaConsoleWeb.CommandPalette do
 
   @impl true
   def handle_event("open", _params, socket) do
-    {:noreply, socket |> load_index() |> assign(open: true, query: "")}
+    {:noreply, socket |> load_index() |> assign(open: true, query: "") |> search_relays()}
   end
 
   @impl true
@@ -72,27 +76,48 @@ defmodule FlezhaConsoleWeb.CommandPalette do
   end
 
   @impl true
-  def handle_event("search", %{"q" => query}, socket) do
-    {:noreply, assign(socket, query: query)}
+  def handle_event("search", %{"q" => query}, socket) when is_binary(query) do
+    {:noreply, socket |> assign(query: query) |> search_relays()}
   end
 
-  # One listing and one factory catalog read per reachable namespace, the
-  # reads the relays and factories screens make, and one schedule listing —
-  # never one call per relay or factory.
+  # The relays matching the query, at most @limit per reachable namespace: a
+  # search the controller makes. An action's verb is not part of a relay's
+  # name, so "stop ord" searches "ord".
+  defp search_relays(socket) do
+    %{namespaces: namespaces, token: token, query: query} = socket.assigns
+
+    reads =
+      for namespace <- namespaces || [],
+          do: {namespace, NodeManager.search_relays(namespace, token, relay_term(query), @limit)}
+
+    rows =
+      for {namespace, read} <- reads,
+          row <- NodeManager.ok_or(read, []),
+          do: %{id: to_string(row.id), namespace: namespace, health: row.health}
+
+    matching = Enum.sum(for {_namespace, {:ok, %{total: total}}} <- reads, do: total)
+    assign(socket, relays: rows, relays_unread: matching - length(rows))
+  end
+
+  @verbs ~w(stop diagnose listen)
+
+  defp relay_term(query) do
+    words = query |> to_string() |> String.trim() |> String.split(~r/\s+/, trim: true)
+
+    case words do
+      [verb | rest] -> if(String.downcase(verb) in @verbs, do: rest, else: words)
+      [] -> []
+    end
+    |> Enum.reject(&(String.downcase(&1) in ["to", "output"]))
+    |> Enum.join(" ")
+  end
+
+  # One factory catalog read per reachable namespace, the read the factories
+  # screen makes, and one schedule listing — never one call per factory.
   defp load_index(%{assigns: %{relays: rows}} = socket) when is_list(rows), do: socket
 
   defp load_index(socket) do
     %{namespaces: namespaces, token: token} = socket.assigns
-
-    rows =
-      Enum.flat_map(namespaces, fn namespace ->
-        namespace
-        |> NodeManager.relay_list(token)
-        |> NodeManager.ok_or([])
-        |> Enum.map(fn row ->
-          %{id: to_string(row.id), namespace: namespace, health: row.health}
-        end)
-      end)
 
     factories =
       for namespace <- namespaces,
@@ -105,7 +130,7 @@ defmodule FlezhaConsoleWeb.CommandPalette do
       |> NodeManager.ok_or([])
       |> Enum.map(&to_string(&1.name))
 
-    assign(socket, relays: rows, factories: factories, schedules: schedules)
+    assign(socket, factories: factories, schedules: schedules)
   end
 
   # The destinations and actions a typed string names. Screens come from the
@@ -207,6 +232,9 @@ defmodule FlezhaConsoleWeb.CommandPalette do
       |> assign(:limit, @limit)
       |> assign(:found, if(assigns.open, do: matches(assigns), else: []))
 
+    # Relays the search matched past those it read are matches too.
+    assigns = assign(assigns, :more, length(assigns.found) - @limit + assigns.relays_unread)
+
     ~H"""
     <div id={@id} phx-hook="FlzPalette" phx-target={@myself} data-open={to_string(@open)}>
       <div :if={@open} class="fcon-dialog fcon-palette">
@@ -270,12 +298,8 @@ defmodule FlezhaConsoleWeb.CommandPalette do
             </li>
           </ul>
 
-          <p
-            :if={length(@found) > @limit}
-            class="fcon-palette-note"
-            data-testid="command-palette-truncated"
-          >
-            {length(@found) - @limit} more match — keep typing to narrow them.
+          <p :if={@more > 0} class="fcon-palette-note" data-testid="command-palette-truncated">
+            {@more} more match — keep typing to narrow them.
           </p>
         </div>
       </div>

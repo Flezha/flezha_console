@@ -12,7 +12,14 @@
     as they happen. The listen holds only while this view is open.
   </:sentence>
   <:actions>
-    <Layouts.partition_menu ns={@ns} relay_id={@relay_id} view={:listen} members={@partitions} />
+    <Layouts.partition_menu
+      ns={@ns}
+      relay_id={@relay_id}
+      view={:listen}
+      members={@partitions}
+      paging={@paging}
+      searches={@searches}
+    />
     <span :if={@status == :connecting} class="fcon-figures self-center">Connecting…</span>
     <.segmented label="Direction">
       <:option

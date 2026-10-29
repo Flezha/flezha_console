@@ -207,7 +207,7 @@ export async function startRelay(
   // Before the factory: changing the namespace re-reads its catalog, which
   // re-renders the factory choices and drops whatever was chosen.
   if (opts.namespace) {
-    await page.getByTestId('input-namespace').selectOption(opts.namespace);
+    await choose(page, 'input-namespace', opts.namespace);
   }
 
   const factory = opts.factory ?? (await preferredFactory(page, run));
@@ -318,6 +318,33 @@ export async function choose(page: Page, testid: string, value: string): Promise
 }
 
 /**
+ * Chooses `value` in a combobox the console searches on the controller, named
+ * by its trigger's test id: it offers only the first matches, so the spec
+ * types `query`, the value or part of it, into its search first, as an
+ * operator would.
+ */
+export async function pick(page: Page, testid: string, value: string, query = value): Promise<void> {
+  await page.getByTestId(testid).click();
+  await page.getByTestId(`${testid}-search`).fill(query);
+  await page.getByTestId(`${testid}-${value}`).click();
+}
+
+/**
+ * The values a combobox offers, named by its trigger's test id, the prompt's
+ * empty one left out.
+ */
+export async function comboboxValues(page: Page, testid: string): Promise<string[]> {
+  return page
+    .locator(`#${testid} [role="option"]`)
+    .evaluateAll((options, prefix) =>
+      options
+        .map((option) => (option.getAttribute('data-testid') ?? '').slice(prefix.length))
+        .filter((value) => value !== ''),
+      `${testid}-`,
+    );
+}
+
+/**
  * The hidden input a combobox submits under, so a spec can assert on what it
  * currently holds with `toHaveValue`.
  */
@@ -418,8 +445,8 @@ export async function fillScheduleForm(
 ): Promise<void> {
   await page.getByTestId('schedule-input-name').fill(name);
   await page.getByTestId('schedule-input-cron').fill(cron);
-  await page.getByTestId('schedule-input-namespace').selectOption('default');
-  await page.getByTestId('schedule-input-factory').selectOption(factory);
+  await choose(page, 'schedule-input-namespace', 'default');
+  await choose(page, 'schedule-input-factory', factory);
 }
 
 /**
@@ -464,7 +491,7 @@ export async function fillPluginForm(page: Page, opener: string, fields: PluginF
   await expect(page.getByTestId('input-plugin-name')).toBeVisible();
 
   if (fields.name) await page.getByTestId('input-plugin-name').fill(fields.name);
-  if (fields.relay) await page.getByTestId('input-plugin-relay').selectOption(fields.relay);
+  if (fields.relay) await pick(page, 'input-plugin-relay', fields.relay);
   for (const hook of fields.hooks ?? []) await page.getByTestId(`input-hook-${hook}`).check();
   await page.getByTestId('attach-next-btn').click();
   await expect(page.getByTestId('plugin-options')).toBeVisible();

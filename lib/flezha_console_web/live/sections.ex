@@ -71,6 +71,7 @@ defmodule FlezhaConsoleWeb.Live.Sections do
   end
 
   @page_size 20
+  @reach 500
   # A count, an id and the number of grown listings are bounded, so forged
   # events cannot make a screen render an unbounded listing or hold an
   # unbounded map. Ids are built from data (a relay class, a factory), so the
@@ -90,17 +91,42 @@ defmodule FlezhaConsoleWeb.Live.Sections do
   `listing_grown(socket, id)`, called after each growth, and reads the next
   page there when the listing shows more rows than it holds.
 
+  `@searches` holds each searchable listing's search text, by listing id: one
+  `listing_search` event sets it and starts the listing again at its first
+  page. A screen whose listing is searched on the controller defines
+  `listing_searched(socket, id)`, called after each search, and reads the
+  matches there.
+
       live_session :authenticated, on_mount: [{FlezhaConsoleWeb.Live.Sections, :paging}]
   """
   def on_mount(:paging, _params, _session, socket) do
     {:cont,
      socket
-     |> Phoenix.Component.assign(:paging, %{})
-     |> Phoenix.LiveView.attach_hook(:paging, :handle_event, &grow/3)}
+     |> Phoenix.Component.assign(paging: %{}, searches: %{})
+     |> Phoenix.LiveView.attach_hook(:paging, :handle_event, &listing_event/3)}
   end
 
   # Named exactly, so a screen's own events pass through untouched.
-  @events ~w(grid_more)
+  @events ~w(grid_more listing_search)
+  @max_query_bytes 256
+
+  defp listing_event("listing_search", %{"listing" => id, "q" => query}, socket)
+       when is_binary(id) and byte_size(id) <= @max_id_bytes and is_binary(query) and
+              byte_size(query) <= @max_query_bytes do
+    searches = socket.assigns.searches
+
+    if Map.has_key?(searches, id) or map_size(searches) < @max_listings do
+      {:halt,
+       socket
+       |> Phoenix.Component.assign(searches: Map.put(searches, id, query))
+       |> Phoenix.Component.update(:paging, &Map.delete(&1, id))
+       |> notify(:listing_searched, id)}
+    else
+      {:halt, socket}
+    end
+  end
+
+  defp listing_event(event, params, socket), do: grow(event, params, socket)
 
   defp grow(event, %{"id" => id, "shown" => shown, "step" => step}, socket)
        when event in @events and is_binary(id) and byte_size(id) <= @max_id_bytes and
@@ -111,7 +137,11 @@ defmodule FlezhaConsoleWeb.Live.Sections do
          paging = socket.assigns.paging,
          true <- Map.has_key?(paging, id) or map_size(paging) < @max_listings do
       count = min(shown + step, @max_shown)
-      {:halt, socket |> Phoenix.Component.update(:paging, &Map.put(&1, id, count)) |> grown(id)}
+
+      {:halt,
+       socket
+       |> Phoenix.Component.update(:paging, &Map.put(&1, id, count))
+       |> notify(:listing_grown, id)}
     else
       _forged -> {:halt, socket}
     end
@@ -120,19 +150,35 @@ defmodule FlezhaConsoleWeb.Live.Sections do
   defp grow(event, _params, socket) when event in @events, do: {:halt, socket}
   defp grow(_event, _params, socket), do: {:cont, socket}
 
-  # A listing backed by a cursor holds only the rows read so far; its screen
-  # reads the next page in `listing_grown/2` once the listing grows past them.
-  defp grown(socket, id) do
-    if function_exported?(socket.view, :listing_grown, 2),
-      do: socket.view.listing_grown(socket, id),
+  # A listing backed by a cursor or the controller holds only the rows read so
+  # far; its screen reads more in `listing_grown/2` or `listing_searched/2`.
+  defp notify(socket, callback, id) do
+    if function_exported?(socket.view, callback, 2),
+      do: apply(socket.view, callback, [socket, id]),
       else: socket
   end
+
+  @doc "The search text of the listing `id`, blank until it is searched."
+  def search(searches, id), do: Map.get(searches || %{}, id, "")
 
   @doc "The rows a listing shows at first."
   def page_size, do: @page_size
 
   @doc "How many rows the listing `id` shows: its first page until it is grown."
   def shown(paging, id, page_size \\ @page_size), do: Map.get(paging || %{}, id, page_size)
+
+  @doc """
+  The most rows a listing of a controller collection reads, the controller's
+  own page limit. Past it the operator narrows the listing instead of
+  growing it.
+  """
+  def reach, do: @reach
+
+  @doc """
+  How many rows the controller listing `id` asks the controller for: its
+  shown count, at most `reach/0`.
+  """
+  def limit(paging, id, page_size \\ @page_size), do: min(shown(paging, id, page_size), @reach)
 
   @doc """
   Folds a section shut, or opens it.

@@ -70,10 +70,9 @@ defmodule FlezhaConsoleWeb.TopologyTest do
     Map.merge(
       %{
         namespace: "default",
-        relay_ids: [],
+        health: [],
+        relay_count: 0,
         runners: [],
-        snapshot: nil,
-        rates: %{},
         dlq: [],
         verdicts: [],
         skew: nil
@@ -393,7 +392,15 @@ defmodule FlezhaConsoleWeb.TopologyTest do
       quiet = Topology.pipeline(lr(chain()))
 
       skipped = %{
-        relays: [%{relay_id: "relay_a", io_in_received: 5, forwarded: 3, filtered_nil: 2}]
+        relays: [
+          %{
+            relay_id: "relay_a",
+            namespace: "default",
+            io_in_received: 5,
+            forwarded: 3,
+            filtered_nil: 2
+          }
+        ]
       }
 
       graph = Topology.pipeline(lr(chain(%{snapshot: skipped})))
@@ -958,7 +965,7 @@ defmodule FlezhaConsoleWeb.TopologyTest do
 
     test "a runner channel out of credit reads Stuck and marks the output edge" do
       snapshot = %{
-        relays: [%{relay_id: "relay_a", io_in_received: 1, forwarded: 1}],
+        relays: [%{relay_id: "relay_a", namespace: "default", io_in_received: 1, forwarded: 1}],
         channels: [
           %{name: "runner-a", runner_id: "runner-a", credit_active: 1, credit_ledger_level: 0}
         ]
@@ -1248,31 +1255,25 @@ defmodule FlezhaConsoleWeb.TopologyTest do
     test "counts what is running" do
       view =
         Topology.summary(
-          summary_input(%{relay_ids: ["relay_a", "relay_b"], runners: ["runner-a"]})
+          summary_input(%{
+            health: [healthy: 1, failed: 1],
+            relay_count: 2,
+            runners: ["runner-a"]
+          })
         )
 
       assert view.state == :ok
       assert view.relay_count == 2
       assert view.runner_count == 1
+
+      assert [
+               %{health: :healthy, count: 1},
+               %{health: :failed, count: 1, href: "/relays?namespace=default&health=failed"}
+             ] = view.health
     end
 
     test "a namespace with nothing in it is empty rather than zeroed" do
       assert Topology.summary(summary_input()).state == :empty
-    end
-
-    test "names the runners whose channels ran out of credit" do
-      snapshot = %{
-        channels: [
-          %{runner_id: "runner-a", name: :a, credit_active: 1, credit_ledger_level: 0},
-          %{runner_id: "runner-b", name: :b, credit_active: 1, credit_ledger_level: 2_048}
-        ],
-        relays: []
-      }
-
-      view =
-        Topology.summary(summary_input(%{runners: ["runner-a", "runner-b"], snapshot: snapshot}))
-
-      assert view.backpressured == ["runner-a"]
     end
 
     test "sums dead-letter pressure across classes" do
@@ -1283,50 +1284,26 @@ defmodule FlezhaConsoleWeb.TopologyTest do
 
       assert Topology.summary(summary_input(%{dlq: dlq})).parked == 7
     end
-
-    test "ranks the busiest relays and links each to its pipeline" do
-      rates = %{
-        "quiet" => %{in: 1.0, out: 1.0},
-        "busy" => %{in: 90.0, out: 80.0},
-        "middling" => %{in: 10.0, out: 10.0}
-      }
-
-      view =
-        Topology.summary(summary_input(%{relay_ids: ["quiet", "busy", "middling"], rates: rates}))
-
-      assert Enum.map(view.busiest, & &1.id) == ["busy", "middling", "quiet"]
-      assert hd(view.busiest).href == "/namespaces/default/relays/busy"
-    end
-
-    test "a relay that has gone away is not ranked on its last rate" do
-      rates = %{"gone" => %{in: 500.0, out: 500.0}, "here" => %{in: 1.0, out: 1.0}}
-
-      view = Topology.summary(summary_input(%{relay_ids: ["here"], rates: rates}))
-
-      assert Enum.map(view.busiest, & &1.id) == ["here"]
-    end
-
-    test "the ranking is capped so a large fleet cannot flood the panel" do
-      ids = Enum.map(1..20, &"relay_#{&1}")
-      rates = Map.new(ids, &{&1, %{in: 1.0, out: 1.0}})
-
-      assert length(Topology.summary(summary_input(%{relay_ids: ids, rates: rates})).busiest) ==
-               5
-    end
   end
 
   describe "rates/3" do
     defp snapshot(relays), do: %{channels: [], relays: relays}
 
     defp counters(id, received, forwarded, filtered \\ 0) do
-      %{relay_id: id, io_in_received: received, forwarded: forwarded, filtered_nil: filtered}
+      %{
+        relay_id: id,
+        namespace: "default",
+        io_in_received: received,
+        forwarded: forwarded,
+        filtered_nil: filtered
+      }
     end
 
     test "advancing counters over elapsed time become messages per second" do
       previous = snapshot([counters("relay_a", 100, 90, 4)])
       current = snapshot([counters("relay_a", 140, 120, 10)])
 
-      assert %{"relay_a" => %{in: 20.0, out: 15.0, filtered: 3.0}} =
+      assert %{{"default", "relay_a"} => %{in: 20.0, out: 15.0, filtered: 3.0}} =
                Topology.rates(current, previous, 2_000)
     end
 
@@ -1335,7 +1312,7 @@ defmodule FlezhaConsoleWeb.TopologyTest do
       previous = snapshot([with_bytes.(100, 10_000)])
       current = snapshot([with_bytes.(140, 14_096)])
 
-      assert %{"relay_a" => %{in: 20.0, bytes_in: 2048.0, bytes_out: 2048.0} = rate} =
+      assert %{{"default", "relay_a"} => %{in: 20.0, bytes_in: 2048.0, bytes_out: 2048.0} = rate} =
                Topology.rates(current, previous, 2_000)
 
       assert Topology.traffic_label(rate, :in) == "20.0 msgs/s · 2.0 KB/s"
@@ -1347,8 +1324,8 @@ defmodule FlezhaConsoleWeb.TopologyTest do
           2_000
         )
 
-      refute Map.has_key?(older["relay_a"], :bytes_in)
-      assert Topology.traffic_label(older["relay_a"], :in) == "20.0 msgs/s"
+      refute Map.has_key?(older[{"default", "relay_a"}], :bytes_in)
+      assert Topology.traffic_label(older[{"default", "relay_a"}], :in) == "20.0 msgs/s"
     end
 
     # {why, current received, previous received, elapsed ms}; nil is no snapshot.
@@ -1374,7 +1351,8 @@ defmodule FlezhaConsoleWeb.TopologyTest do
       previous = snapshot([counters("relay_a", 5_000, 4_900)])
       current = snapshot([counters("relay_a", 12, 8)])
 
-      assert %{"relay_a" => %{in: +0.0, out: +0.0}} = Topology.rates(current, previous, 2_000)
+      assert %{{"default", "relay_a"} => %{in: +0.0, out: +0.0}} =
+               Topology.rates(current, previous, 2_000)
     end
 
     test "a relay absent from the previous snapshot gets no rate until it has a baseline" do
@@ -1383,8 +1361,24 @@ defmodule FlezhaConsoleWeb.TopologyTest do
 
       rates = Topology.rates(current, previous, 1_000)
 
-      assert Map.has_key?(rates, "relay_a")
-      refute Map.has_key?(rates, "relay_b")
+      assert Map.has_key?(rates, {"default", "relay_a"})
+      refute Map.has_key?(rates, {"default", "relay_b"})
+    end
+
+    test "relays of the same id in two namespaces keep their own rates" do
+      other = &Map.put(counters("relay_a", &1, &1), :namespace, "billing")
+      previous = snapshot([counters("relay_a", 100, 90), other.(10)])
+      current = snapshot([counters("relay_a", 120, 110), other.(50)])
+
+      assert %{{"default", "relay_a"} => %{in: 20.0}, {"billing", "relay_a"} => %{in: 40.0}} =
+               Topology.rates(current, previous, 1_000)
+    end
+
+    test "a namespace's summed totals are measured as one series" do
+      previous = %{relays: [], channels: [], totals: %{io_in_received: 100, forwarded: 50}}
+      current = %{relays: [], channels: [], totals: %{io_in_received: 160, forwarded: 80}}
+
+      assert %{totals: %{in: 30.0, out: 15.0}} = Topology.rates(current, previous, 2_000)
     end
   end
 
@@ -1394,25 +1388,6 @@ defmodule FlezhaConsoleWeb.TopologyTest do
 
       assert Topology.sum_rates([%{in: 0.25, out: 1.0}, nil, %{in: 0.3, out: 0.0, bytes_in: 7}]) ==
                %{in: 0.6, out: 1.0, bytes_in: 7.0}
-    end
-  end
-
-  describe "sum_history/1" do
-    test "sums each tick's rates, oldest first, over the relays measured on it" do
-      # Newest first, as push_history/2 keeps them; `late` started a tick ago.
-      early = [%{in: 3.0, out: 1.0}, %{in: 2.0, out: 1.0}, %{in: 1.0, out: 0.0}]
-      late = [%{in: 10.0, out: 0.0}]
-
-      assert Topology.sum_history([early, late]) == [
-               %{in: 1.0, out: 0.0},
-               %{in: 2.0, out: 1.0},
-               %{in: 13.0, out: 1.0}
-             ]
-    end
-
-    test "no history is an empty one" do
-      assert Topology.sum_history([]) == []
-      assert Topology.sum_history([[], []]) == []
     end
   end
 

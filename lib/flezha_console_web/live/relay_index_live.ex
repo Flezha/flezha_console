@@ -4,9 +4,10 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
 
   "Where is everything, and what is unhealthy?" is a different question from
   "what is in this namespace", and it is the one an operator asks first when
-  something is wrong. It is affordable because the per-namespace read is flat:
-  one listing call, one plugins call and one registry call per namespace, never
-  a call per relay.
+  something is wrong. It is affordable because it reads only what it shows:
+  one page per namespace, searched, filtered and sorted by the controller,
+  whose rows carry their run and plugin count, and one liveness read naming
+  the relays on it.
 
   It also carries the start form, so an operator reading "everything, anywhere"
   can act on it without first working out which namespace to navigate into. The
@@ -28,14 +29,16 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
 
   A partition group is one row however wide it is: its partitions' rates
   summed, their nodes and runners counted, and the partitions themselves
-  listed as rows of their own only when the operator opens the group.
+  listed as a paged listing of their own only when the operator opens the
+  group.
   """
 
   use FlezhaConsoleWeb, :live_view
 
   use FlezhaConsoleWeb.Live.Refresh,
     every: 5_000,
-    on_events: [:runner_connected, :runner_disconnected, :runner_dropped, :runner_readmitted]
+    on_events: [:runner_connected, :runner_disconnected, :runner_dropped, :runner_readmitted],
+    background: true
 
   use FlezhaConsoleWeb.Live.Launcher
   use FlezhaConsoleWeb.River
@@ -43,7 +46,19 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
 
   alias FlezhaConsole.Format
   alias FlezhaConsole.Service.NodeManager
+  alias FlezhaConsoleWeb.ListingView
+  alias FlezhaConsoleWeb.Live.Sections
   alias FlezhaConsoleWeb.Topology
+
+  @listing "relay-rows"
+
+  # The namespace filter picks which namespaces are read; every other filter,
+  # the search and the sort are the controller's.
+  @view ListingView.declare(
+          search: :text,
+          filters: [namespace: nil, health: :health, run: :run, runner: :runner],
+          sorts: [id: "By id", severity: "Most severe first"]
+        )
 
   @impl true
   def mount(_params, _session, socket) do
@@ -56,10 +71,10 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
      |> assign(
        page_title: "Relays",
        loaded?: false,
-       filters: %{"namespace" => "", "health" => "", "run" => "", "runner" => ""},
+       filters: ListingView.default(@view),
        rows: [],
+       total: 0,
        unreachable: [],
-       run_options: [],
        namespaces: [],
        load_error: nil,
        confirm_stop: nil,
@@ -81,8 +96,8 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
     scope = socket.assigns.scoped_namespace
 
     filters =
-      ~w(namespace health run runner)
-      |> Map.new(fn key -> {key, to_string(params[key] || "")} end)
+      @view
+      |> ListingView.parse(params)
       |> then(&if(scope, do: Map.put(&1, "namespace", scope), else: &1))
 
     # Opening or closing an inspector patches the address too; it changes no
@@ -93,15 +108,14 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
         else:
           socket
           |> assign(filters: filters, page_title: Layouts.scoped_title("Relays", scope))
-          |> refresh_when_connected()
+          |> read_when_connected()
 
     {:noreply, inspect_params(socket, params)}
   end
 
   @impl true
   def handle_event("filter", %{"filters" => params}, socket) do
-    filters = Map.merge(socket.assigns.filters, params)
-
+    filters = Map.merge(socket.assigns.filters, ListingView.parse(@view, params))
     {:noreply, push_patch(socket, to: filtered_path(socket.assigns.scoped_namespace, filters))}
   end
 
@@ -160,11 +174,12 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
       |> Enum.find(&(to_string(&1.id) == id and &1.namespace == namespace))
 
     state = socket.assigns.topology_state
+    key = row && {row.namespace, id}
 
     %{
       row: row,
-      rate: Map.get(state.rates, id),
-      history: state.history |> Map.get(id, []) |> Enum.reverse()
+      rate: Map.get(state.rates, key),
+      history: state.history |> Map.get(key, []) |> Enum.reverse()
     }
   end
 
@@ -189,10 +204,9 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
   @doc false
   def filtered_path(scope, filters) do
     query =
-      filters
+      @view
+      |> ListingView.query(filters)
       |> then(&if(scope, do: Map.delete(&1, "namespace"), else: &1))
-      |> Enum.reject(fn {_key, value} -> to_string(value) == "" end)
-      |> Map.new()
 
     if scope,
       do: ~p"/namespaces/#{scope}/relays?#{query}",
@@ -200,129 +214,136 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
   end
 
   @impl FlezhaConsoleWeb.Live.Refresh
-  def refresh(socket) do
-    token = socket.assigns.flezha_token
+  def refresh_read(socket) do
+    %{flezha_token: token, scoped_namespace: scope, filters: filters} = socket.assigns
+    opts = ListingView.opts(@view, filters, Sections.limit(socket.assigns.paging, @listing))
+    fn -> read(token, scope, filters, opts) end
+  end
 
+  # One page per namespace read, merged by namespace, and the rates of the
+  # relays on it. A scoped screen reads its one namespace rather than reading
+  # them all and discarding the rest — and a scope the token cannot reach
+  # lists nothing.
+  defp read(token, scope, filters, opts) do
     {namespaces, load_error} = NodeManager.scoped_namespaces(token)
 
-    # A scoped screen reads its one namespace rather than reading them all and
-    # discarding the rest — and a scope the token cannot reach lists nothing.
-    read =
+    reads =
       namespaces
-      |> listed(socket.assigns.scoped_namespace)
-      |> Enum.map(&namespace_rows(&1, token))
+      |> listed(scope, filters["namespace"])
+      |> Enum.map(&{&1, NodeManager.relay_list(&1, token, opts)})
 
-    rows = Enum.flat_map(read, &elem(&1, 0))
+    rows =
+      reads
+      |> Enum.flat_map(&namespace_rows/1)
+      |> Enum.take(opts[:limit])
+      |> Enum.map(&on_runner(&1, filters["runner"]))
 
+    %{
+      namespaces: Enum.sort(namespaces),
+      load_error: load_error || Enum.find_value(reads, &read_error/1),
+      rows: rows,
+      total: reads |> Enum.map(fn {_ns, read} -> read_total(read) end) |> Enum.sum(),
+      unreachable: reads |> Enum.map(&elem(&1, 1)) |> NodeManager.unreachable(),
+      rates: Topology.read_rates(token, Enum.flat_map(rows, &rate_keys/1))
+    }
+  end
+
+  @impl FlezhaConsoleWeb.Live.Refresh
+  def refresh_apply(socket, {:ok, read}) do
     socket
     |> assign(
       loaded?: true,
-      namespaces: Enum.sort(namespaces),
-      rows: filter(rows, socket.assigns.filters),
-      unreachable: read |> Enum.flat_map(&elem(&1, 1)) |> NodeManager.unreachable(),
-      run_options: run_options(rows),
-      load_error: load_error
+      namespaces: read.namespaces,
+      rows: read.rows,
+      total: read.total,
+      unreachable: read.unreachable,
+      load_error: read.load_error
     )
-    |> Topology.load_rates(
-      Enum.flat_map(rows, fn row -> Enum.map([row | row[:members] || []], &to_string(&1.id)) end)
-    )
+    |> Topology.apply_rates(read.rates, group_keys(read.rows))
   end
 
-  defp listed(namespaces, nil), do: namespaces
-  defp listed(namespaces, scope), do: if(scope in namespaces, do: [scope], else: [])
+  def refresh_apply(socket, {:exit, _reason}),
+    do: assign(socket, loaded?: true, load_error: :read_failed)
 
-  # A namespace's rows and the answers they came from.
-  defp namespace_rows(namespace, token) do
-    read_plugins = NodeManager.relay_plugins(namespace, token)
-    plugins = read_plugins |> NodeManager.ok_or([]) |> NodeManager.plugin_counts()
-    runs = namespace |> NodeManager.relay_runs(token) |> NodeManager.ok_or(%{})
-    read_rows = NodeManager.relay_list(namespace, token)
-    unanswered = NodeManager.unreachable([read_rows])
+  @doc false
+  def listing_grown(socket, @listing), do: refresh(socket)
+  def listing_grown(socket, _id), do: socket
+
+  defp listed(namespaces, nil, ""), do: namespaces
+  defp listed(namespaces, nil, chosen), do: listed(namespaces, chosen, "")
+  defp listed(namespaces, scope, _chosen), do: if(scope in namespaces, do: [scope], else: [])
+
+  defp read_total({:ok, %{total: total}}), do: total
+  defp read_total(_failed), do: 0
+
+  defp read_error({_ns, {:error, reason}}), do: reason
+  defp read_error(_read), do: nil
+
+  # A namespace's page, each row with its namespace and whether the controller
+  # holding it answered.
+  defp namespace_rows({namespace, read}) do
+    unanswered = NodeManager.unreachable([read])
 
     decorate = fn row ->
-      # A group row is no registry entry of its own; its run and bindings are
-      # its first member's, which every member shares.
-      id = row |> Map.get(:members, [row]) |> hd() |> Map.fetch!(:id) |> to_string()
-
       row
       |> Map.put(:namespace, namespace)
-      |> Map.put(:run, Map.get(runs, id))
-      |> Map.put(:plugins, Map.get(plugins, id, 0))
       |> Map.put(:unanswered?, row[:node] != nil and row[:node] in unanswered)
     end
 
-    rows =
-      read_rows
-      |> NodeManager.ok_or([])
-      |> Enum.map(fn
-        %{members: [_ | _] = members} = group ->
-          group
-          |> decorate.()
-          |> Map.put(:members, members |> NodeManager.decorate_health() |> Enum.map(decorate))
+    read
+    |> NodeManager.ok_or([])
+    |> Enum.map(fn
+      %{members: [_ | _] = members} = group ->
+        group |> decorate.() |> Map.put(:members, Enum.map(members, decorate))
 
-        row ->
-          decorate.(row)
-      end)
+      row ->
+        decorate.(row)
+    end)
+  end
 
-    {rows, [read_rows, read_plugins]}
+  # A group spans runners, so asked about one it keeps the partitions there.
+  defp on_runner(%{members: [_ | _] = members} = group, runner) when runner not in [nil, ""],
+    do: %{group | members: Enum.filter(members, &(to_string(&1[:runner]) == runner))}
+
+  defp on_runner(row, _runner), do: row
+
+  # A group's rate is its partitions' summed, so its members are read.
+  defp rate_keys(row), do: Enum.map(row[:members] || [row], &rate_key(row.namespace, &1))
+
+  defp rate_key(namespace, row), do: {namespace, to_string(row.id)}
+
+  defp group_keys(rows) do
+    for %{members: [_ | _] = members} = group <- rows,
+        into: %{},
+        do: {rate_key(group.namespace, group), Enum.map(members, &rate_key(group.namespace, &1))}
   end
 
   # A scoped route's namespace comes from the path, so it is not a filter the
   # operator chose.
   defp filtered?(filters, scope) do
     filters
-    |> then(&if(scope, do: Map.delete(&1, "namespace"), else: &1))
+    |> Map.drop(["sort" | if(scope, do: ["namespace"], else: [])])
     |> Enum.any?(fn {_key, value} -> value != "" end)
   end
 
-  defp filter(rows, filters) do
-    rows
-    |> Enum.map(&on_runner(&1, filters["runner"]))
-    |> Enum.filter(fn row ->
-      matches?(filters["namespace"], to_string(row.namespace)) and
-        matches?(filters["health"], to_string(row.health)) and
-        matches?(filters["run"], to_string(row.run)) and
-        if(row[:partitions],
-          do: row.members != [],
-          else: matches?(filters["runner"], to_string(row[:runner]))
-        )
-    end)
-  end
-
-  # A group spans runners, so asked about one it keeps the partitions there.
-  defp on_runner(%{partitions: _, members: members} = group, runner) when runner not in [nil, ""],
-    do: %{group | members: Enum.filter(members, &(to_string(&1[:runner]) == runner))}
-
-  defp on_runner(row, _runner), do: row
-
-  defp matches?(value, _actual) when value in [nil, ""], do: true
-  defp matches?(value, actual), do: value == actual
-
-  @doc "The rows drawn under `row`: a group's partitions while it is open."
+  @doc """
+  The rows drawn under `row`: a group's partitions while it is open, as a
+  paged listing of their own.
+  """
   def open_members(row, expanded) do
     if row[:partitions] && MapSet.member?(expanded, group_key(row)),
-      do: row.members,
-      else: []
+      do: {"group-#{row.namespace}-#{row.id}", row.members}
   end
 
   @doc "How an open group is remembered."
   def group_key(row), do: "#{row.namespace}/#{row.id}"
 
   @doc "A row's measured rate; a group's is its partitions' summed."
-  def rate_of(%{partitions: _, members: members}, state),
-    do: members |> Enum.map(&Map.get(state.rates, to_string(&1.id))) |> Topology.sum_rates()
-
-  def rate_of(row, state), do: Map.get(state.rates, to_string(row.id))
+  def rate_of(row, state), do: Map.get(state.rates, rate_key(row.namespace, row))
 
   @doc "A row's rate history, oldest first; a group's sums its partitions' tick by tick."
-  def history_of(%{partitions: _, members: members}, state) do
-    members
-    |> Enum.map(&Map.get(state.history, to_string(&1.id), []))
-    |> Topology.sum_history()
-  end
-
   def history_of(row, state),
-    do: state.history |> Map.get(to_string(row.id), []) |> Enum.reverse()
+    do: state.history |> Map.get(rate_key(row.namespace, row), []) |> Enum.reverse()
 
   @doc """
   Where a row's relays sit by `key` (`:node` or `:runner`): `{:one, value}`
@@ -375,8 +396,9 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
   """
   def health_options, do: NodeManager.health_verdicts()
 
-  # The runs offered as filters are those present in the unfiltered listing,
-  # so choosing one cannot make the others disappear from the choice.
-  defp run_options(rows),
-    do: rows |> Enum.map(& &1.run) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort()
+  @doc "The runs offered as filters: every run a relay can have."
+  def run_options, do: ~w(flow steps)
+
+  @doc "The sorts the listing offers."
+  def sort_options, do: ListingView.sorts(@view)
 end

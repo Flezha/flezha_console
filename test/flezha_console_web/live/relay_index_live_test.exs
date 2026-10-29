@@ -14,28 +14,22 @@ defmodule FlezhaConsoleWeb.RelayIndexLiveTest do
 
   defp row(id, overrides \\ %{}), do: FakeController.relay_row(id, overrides)
 
-  # A group row as `Service.Relay.list/2` answers it, `width` partitions wide,
-  # each partition's fields overridden by `member.(index)`.
+  # A group row as `Service.Relay.list/3` answers it, `width` partitions wide,
+  # each over 512 key groups, its fields overridden by `member.(index)`.
   defp group(id, width, member \\ fn _index -> %{} end) do
-    members =
-      for index <- 0..(width - 1) do
-        row(
-          "#{id}#p#{index}",
-          Map.merge(
-            %{
-              partition: %{
-                group: id,
-                index: index,
-                count: width,
-                range: {index * 512, index * 512 + 511}
-              }
-            },
-            member.(index)
-          )
-        )
-      end
-
-    Map.merge(row(id), %{partitions: "#{width}/#{width}", members: members})
+    group_row(id, width, fn index ->
+      Map.merge(
+        %{
+          partition: %{
+            group: id,
+            index: index,
+            count: width,
+            range: {index * 512, index * 512 + 511}
+          }
+        },
+        member.(index)
+      )
+    end)
   end
 
   defp signal(name, metadata),
@@ -240,7 +234,7 @@ defmodule FlezhaConsoleWeb.RelayIndexLiveTest do
 
       view |> element(~s([data-testid="filter-runner-clear"])) |> render_click()
       assert_patch(view, ~p"/relays")
-      assert render(view) =~ ~s(data-testid="relay-index-row-relay_b")
+      assert render_async(view) =~ ~s(data-testid="relay-index-row-relay_b")
     end
   end
 
@@ -338,8 +332,11 @@ defmodule FlezhaConsoleWeb.RelayIndexLiveTest do
   end
 
   describe "filters" do
-    defp filter(view, fields),
-      do: view |> element(~s(form[phx-change="filter"])) |> render_change(%{"filters" => fields})
+    # A changed filter reads in the background, so its answer is awaited.
+    defp filter(view, fields) do
+      view |> element(~s(form[phx-change="filter"])) |> render_change(%{"filters" => fields})
+      render_async(view)
+    end
 
     setup %{node: node} do
       with_fleet(node,
@@ -449,8 +446,8 @@ defmodule FlezhaConsoleWeb.RelayIndexLiveTest do
 
       assert small == large
 
-      # The run rides one registry read per namespace, not one per relay.
-      assert length(FakeController.calls(node, {Relay, :registry})) == small
+      # Each row carries its run and plugins; no binding or per-relay read.
+      assert FakeController.calls(node, {Relay, :relay_plugins}) == []
       assert FakeController.calls(node, {Relay, :overwatch_state}) == []
     end
   end

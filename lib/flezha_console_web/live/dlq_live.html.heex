@@ -76,16 +76,20 @@
 <% end %>
 
 <%!-- Statistics: dead letters per tasklet --%>
-<dl :if={@stats != []} data-testid="dlq-stats" class="fcon-facts mb-6">
-  <.stat :for={stat <- @stats} label={"#{stat[:relay_class]}/#{stat[:tasklet_id]}"}>
-    <span class="fcon-figure">{stat[:entries]}</span> {if stat[:entries] == 1,
-      do: "dead letter",
-      else: "dead letters"}
-  </.stat>
-  <.stat label="Total size" testid="dlq-total-bytes">
-    {@stats |> Enum.map(&(&1[:bytes] || 0)) |> Enum.sum() |> Format.bytes()}
-  </.stat>
-</dl>
+<div :if={@stats != []} class="mb-6" data-testid="dlq-stats">
+  <.paged :let={page} id="dlq-stats" rows={@stats} paging={@paging}>
+    <dl class="fcon-facts">
+      <.stat :for={stat <- page} label={"#{stat[:relay_class]}/#{stat[:tasklet_id]}"}>
+        <span class="fcon-figure">{stat[:entries]}</span> {if stat[:entries] == 1,
+          do: "dead letter",
+          else: "dead letters"}
+      </.stat>
+      <.stat label="Total size" testid="dlq-total-bytes">
+        {@stats |> Enum.map(&(&1[:bytes] || 0)) |> Enum.sum() |> Format.bytes()}
+      </.stat>
+    </dl>
+  </.paged>
+</div>
 
 <.partial_empty :if={@entries == [] and @unreachable != []} noun="dead letter" />
 
@@ -133,7 +137,6 @@
       </.button>
     </h3>
     <.grid
-      paging={@paging}
       id={"dlq-#{group.relay_class}-#{group.tasklet_id}"}
       rows={group.entries}
       testid="dlq-table"
@@ -213,6 +216,7 @@
       </:menu>
     </.grid>
   </div>
+  <.more id="dlq" shown={length(@listed)} total={@total} reach={Sections.reach()} />
 </div>
 
 <.inspector inspected={@inspected} operations={@operations} />

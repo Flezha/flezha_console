@@ -25,8 +25,11 @@ defmodule FlezhaConsole.ControllerShapes do
     [
       {"Relay.list_namespaces", Flezha.Service.Relay, :list_namespaces, []},
       {"Relay.list", Flezha.Service.Relay, :list, ["default"]},
-      {"Relay.relay_rows", Flezha.Service.Relay, :relay_rows, ["default"]},
-      {"Relay.registry", Flezha.Service.Relay, :registry, ["default"]},
+      {"Relay.list page", Flezha.Service.Relay, :list,
+       ["default", [limit: 2, sort: :severity, filter: [health: ["unhealthy", "suspended"]]]]},
+      {"Relay.list ids", Flezha.Service.Relay, :list,
+       ["default", [filter: [ids: ["testnet_store_1"]]]]},
+      {"Relay.list totals", Flezha.Service.Relay, :list, ["default", [limit: 0]]},
       {"Relay.overwatch_state", Flezha.Service.Relay, :overwatch_state,
        ["default", "testnet_store_1"]},
       {"Relay.graph", Flezha.Service.Relay, :graph, ["default", "testnet_store_1"]},
@@ -48,8 +51,15 @@ defmodule FlezhaConsole.ControllerShapes do
       {"Namespace.roles", Flezha.Service.Namespace, :roles, ["default"]},
       {"Namespace.whoami", Flezha.Service.Namespace, :whoami, []},
       {"Dlq.list", Flezha.Service.Dlq, :list, [nil]},
+      {"Dlq.list page", Flezha.Service.Dlq, :list, [nil, [limit: 2]]},
       {"Dlq.stats", Flezha.Service.Dlq, :stats, []},
-      {"Dlq.tasklets", Flezha.Service.Dlq, :tasklets, [nil]},
+      {"PluginManager.enabled page", Flezha.Service.PluginManager, :enabled,
+       ["default", [limit: 2, filter: [text: "a"]]]},
+      {"Steps.cells page", Flezha.Service.Steps, :cells, ["orders", [limit: 2]]},
+      {"Steps.journal page", Flezha.Service.Steps, :journal, ["orders", [limit: 2]]},
+      {"Steps.committed_iterations page", Flezha.Service.Steps, :committed_iterations,
+       ["orders", [limit: 2]]},
+      {"Steps.undelivered total", Flezha.Service.Steps, :undelivered, ["orders", [limit: 0]]},
       {"Schedule.list", Flezha.Service.Schedule, :list, []},
       {"Observability.list_sources", Flezha.Service.Observability, :list_sources, []},
       {"Observability.list_sinks", Flezha.Service.Observability, :list_sinks, []},
@@ -63,6 +73,8 @@ defmodule FlezhaConsole.ControllerShapes do
       {"Controller.durability_status", Flezha.Service.Controller, :durability_status, []},
       {"Controller.mem_top", Flezha.Service.Controller, :mem_top, []},
       {"Controller.liveness_counters", Flezha.Service.Controller, :liveness_counters, []},
+      {"Controller.liveness_counters relays", Flezha.Service.Controller, :liveness_counters,
+       [[filter: [relays: [{"default", "testnet_store_1"}]]]]},
       {"Logs.kinds", Flezha.Service.Logs, :kinds, []},
       {"Logs.read", Flezha.Service.Logs, :read, [[kind: "relay_history", limit: 20]]},
       {"Logs.files", Flezha.Service.Logs, :files, [[kind: "relay_history"]]},
@@ -74,7 +86,7 @@ defmodule FlezhaConsole.ControllerShapes do
   # options, the hooks a relay's bindings use, one count per health verdict or
   # recent signal, and one value per controller. Which keys such a map holds
   # depends on what the stack runs.
-  @keyed_by_data ~w(opts chains request_subs relay_health signals statuses by_node refused)
+  @keyed_by_data ~w(opts chains request_subs relay_health health signals statuses by_node refused)
 
   @doc "The shape of `term`."
   def of(term) when is_binary(term), do: "string"

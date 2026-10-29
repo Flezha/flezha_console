@@ -61,9 +61,10 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
         params: %{},
         confirm_stop: nil,
         load_error: nil,
-        plugin_pairs: [],
+        plugins: %{total: 0, names: []},
         schedules: [],
-        groups: [],
+        groups: :unread,
+        broken_groups: 0,
         runners: [],
         runner_marks: [],
         declared: nil,
@@ -71,7 +72,8 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
         quota_breached: false,
         role_bindings: [],
         items: [],
-        rows: [],
+        health: [],
+        relay_count: 0,
         unreachable: [],
         runs: [],
         runs_next: nil,
@@ -157,6 +159,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   def handle_event("open_rescale", %{"group" => group}, socket) do
     members =
       socket.assigns.groups
+      |> List.wrap()
       |> Enum.find(%{}, &(to_string(&1.id) == group))
       |> Map.get(:members, [])
 
@@ -238,38 +241,42 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   def refresh_read(socket) do
     %{ns: ns, flezha_token: token, items: items, loaded?: loaded?} = socket.assigns
     previous = {items, socket.assigns[:serving]}
-    # Read on the first read, then only while someone looks at them.
-    runs? = not loaded? or socket.assigns.sections["recent-runs"]
+
+    asked = %{
+      relays: Attention.relay_opts(Attention.shown(socket.assigns.paging, ns)),
+      # Read on the first read, then only while someone looks at them.
+      runs?: not loaded? or socket.assigns.sections["recent-runs"],
+      groups?: socket.assigns.sections["partition-groups"] == true
+    }
 
     fn ->
-      runs = if runs?, do: recent_runs(ns, token)
-      ns |> read(token, previous, loaded?) |> Map.put(:runs, runs)
+      runs = if asked.runs?, do: recent_runs(ns, token)
+      ns |> read(token, previous, loaded?, asked) |> Map.put(:runs, runs)
     end
   end
 
   # Every call one Home read makes, run off the screen's process. Once the
-  # screen shows figures, a read whose relay rows failed stops there: its
-  # answer keeps them, so the rest would only delay the error.
-  defp read(ns, token, previous, loaded?) do
-    # One registry dump answers every relay's health, node, factory, runner and
-    # partition group; the summary and the tiles are built from it, not from a
-    # read per relay.
-    read_rows = NodeManager.relay_rows(ns, token)
+  # screen shows figures, a read whose relays failed stops there: its answer
+  # keeps them, so the rest would only delay the error.
+  defp read(ns, token, previous, loaded?, asked) do
+    # The most severe relays and the namespace's summary: the tiles and the
+    # problems are built from it, never from every relay's row.
+    read_page = NodeManager.relay_list(ns, token, asked.relays)
 
-    case NodeManager.ok_or_error(read_rows, []) do
+    case NodeManager.ok_or_error(read_page, []) do
       {_rows, error} when error != nil and loaded? ->
         if NodeManager.connected_node(),
           do: %{load_error: error},
-          else: read_with_rows(ns, token, previous, read_rows)
+          else: read_with_page(ns, token, previous, read_page, asked)
 
       _rows ->
-        read_with_rows(ns, token, previous, read_rows)
+        read_with_page(ns, token, previous, read_page, asked)
     end
   end
 
-  defp read_with_rows(ns, token, previous, read_rows) do
-    {rows, load_error} = NodeManager.ok_or_error(read_rows, [])
-    groups = rows |> NodeManager.partition_groups(token) |> with_group_health(rows)
+  defp read_with_page(ns, token, previous, read_page, asked) do
+    {_rows, load_error} = NodeManager.ok_or_error(read_page, [])
+    page = Attention.page(read_page)
     declared = NodeManager.ok_or(NodeManager.namespace_record(ns, token), nil)
     quotas = NodeManager.quota_usage(ns, declared && declared.quotas, token)
 
@@ -277,30 +284,30 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
       ns |> NodeManager.runners(token) |> NodeManager.ok_or_error([])
 
     catalog = NodeManager.factory_catalog(ns, token)
-    plugin_pairs = NodeManager.relay_plugins(ns, token)
+    plugins = NodeManager.plugins(ns, token, limit: 2)
     schedules = NodeManager.schedule_list(token)
 
     runners =
       FlezhaConsoleWeb.Runners.rows(
         connected_runners,
-        catalog |> NodeManager.ok_or([]) |> NodeManager.factories_by_runner(),
-        rows
+        catalog |> NodeManager.ok_or([]) |> NodeManager.factories_by_runner()
       )
 
     {tokens, tokens_error} = tokens(ns, token)
-    summary = Topology.read_summary(token, rows)
+    summary = Topology.read_summary(token, ns)
 
     %{
       assigns: [
-        rows: rows,
-        unreachable:
-          NodeManager.unreachable([read_rows, catalog, plugin_pairs, schedules | quotas]),
-        plugin_pairs: NodeManager.ok_or(plugin_pairs, []),
+        health: page.health,
+        relay_count: page.relay_count,
+        broken_groups: Enum.count(Map.get(page.summary, :faulted_groups, []), &(!&1.complete)),
+        unreachable: NodeManager.unreachable([read_page, catalog, plugins, schedules | quotas]),
+        plugins: plugin_figures(plugins),
         schedules:
           schedules
           |> NodeManager.ok_or([])
           |> FlezhaConsoleWeb.ScheduleLive.rows(ns),
-        groups: groups,
+        groups: if(asked.groups?, do: groups(ns, token, page), else: :unread),
         runners: runners,
         runners_read?: is_nil(runners_error),
         runner_marks: ns |> NodeManager.dropped_runners(token) |> NodeManager.ok_or([]),
@@ -318,8 +325,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
       runner_ids: Enum.map(connected_runners, &NodeManager.identifier_id/1),
       attention:
         attention(ns, token, previous, %{
-          rows: rows,
-          groups: groups,
+          page: page,
           quotas: quotas,
           runners: runners,
           runners_read?: is_nil(runners_error),
@@ -328,19 +334,42 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
     }
   end
 
+  # The namespace's partition groups, read only while their section is open:
+  # the group rows among the relays read by id, as far as one page reaches,
+  # each coverage as the summary states it.
+  defp groups(ns, token, page) do
+    broken =
+      for %{group: group, complete: false} <- Map.get(page.summary, :faulted_groups, []),
+          into: MapSet.new(),
+          do: to_string(group)
+
+    ns
+    |> NodeManager.relay_list(token, limit: FlezhaConsoleWeb.Live.Sections.reach(), sort: :id)
+    |> NodeManager.ok_or([])
+    |> Enum.filter(& &1[:partitions])
+    |> Enum.map(&Map.put(&1, :coverage_broken?, MapSet.member?(broken, to_string(&1.id))))
+  end
+
+  defp plugin_figures({:ok, %{rows: rows, total: total}}),
+    do: %{total: total, names: Enum.map(rows, &to_string(&1.name))}
+
+  defp plugin_figures(_failed), do: %{total: 0, names: []}
+
   # A whole read is shown whole: the first, one with the controller gone, and
   # every one whose relay rows answered. A later read whose rows failed, or one
   # that died, leaves the figures read before on screen and says why.
   @impl FlezhaConsoleWeb.Live.Refresh
   def refresh_apply(socket, {:ok, %{assigns: assigns} = read}) do
     first? = not socket.assigns.loaded?
+    # Groups read while their section was folded keep the last ones read.
+    assigns = if assigns[:groups] == :unread, do: Keyword.delete(assigns, :groups), else: assigns
 
     socket
     |> assign(assigns)
     |> assign(loaded?: true, load_error: read.load_error)
     |> Topology.apply_summary(socket.assigns.ns, read.summary, %{
-      rows: assigns[:rows],
-      groups: assigns[:groups],
+      health: assigns[:health],
+      relay_count: assigns[:relay_count],
       runners: read.runner_ids
     })
     |> track_attention(read.attention)
@@ -356,19 +385,20 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   # problems screen read, tracked against what the screen showed before.
   defp attention(ns, token, {previous, known}, read) do
     runners = if read.runners_read?, do: read.runners, else: :unread
+    factories = Attention.waiting_factories(read.page)
 
     serving =
       ns
-      |> NodeManager.serving_counts(Attention.waiting_factories(read.rows), token, runners)
-      |> Attention.keep_serving(known, read.rows)
+      |> NodeManager.serving_counts(factories, token, runners)
+      |> Attention.keep_serving(known, factories)
 
     items =
       Attention.derive(%{
         namespaces: [
           %{
             namespace: ns,
-            rows: read.rows,
-            faulted_groups: NodeManager.faulted_group_ids(read.groups),
+            page: read.page,
+            owns: Enum.map(read.dlq, &to_string(Map.get(&1, :relay_class))),
             quotas: read.quotas,
             serving: serving
           }
@@ -399,27 +429,32 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   # its own read.
   @impl FlezhaConsoleWeb.Inspect
   def inspect_context(socket, {"relay", id}) do
-    %{rows: rows, topology_state: state} = socket.assigns
-    row = NodeManager.relay_row(rows, id)
+    %{ns: ns, flezha_token: token} = socket.assigns
+    {_read, row, _partitions} = NodeManager.relay_and_partitions(ns, id, token)
     factory = row && row[:factory] && to_string(row.factory)
 
     %{
       row: row,
       serving: factory && Map.get(socket.assigns[:serving] || %{}, factory),
-      rate: Map.get(state.rates, id),
-      history: state.history |> Map.get(id, []) |> Enum.reverse(),
       factory_description: factory && Map.get(factory_descriptions(socket), factory)
     }
   end
 
   def inspect_context(socket, {"runner", id}) do
+    %{ns: ns, flezha_token: token} = socket.assigns
     runner = Enum.find(socket.assigns.runners, &(&1.id == id)) || %{}
+
+    relays =
+      ns
+      |> NodeManager.relay_list(token, limit: 20, filter: [runner: id])
+      |> NodeManager.ok_or([])
+      |> Enum.map(&to_string(&1.id))
 
     %{
       node: runner[:node],
       connected_at: runner[:connected_at],
       factories: runner[:factories] || [],
-      relays: runner[:relays] || []
+      relays: relays
     }
   end
 
@@ -427,7 +462,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
     %{ns: ns, flezha_token: token} = socket.assigns
 
     case ns
-         |> NodeManager.plugins(token)
+         |> NodeManager.plugins(token, filter: [text: name])
          |> NodeManager.ok_or([])
          |> Enum.find(&(to_string(&1.name) == name)) do
       nil ->
@@ -494,22 +529,25 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   namespace's summed rate smoothed over its newest readings, nil before two
   snapshots.
   """
-  def figures(%{state: :ok} = summary, rows, inbound) do
-    healthy = Enum.count(rows, &(NodeManager.row_health(&1) == :healthy))
-    suspended = Enum.count(rows, &(NodeManager.row_health(&1) == :suspended))
+  def figures(%{state: :ok} = summary, inbound) do
+    healthy = health_count(summary, :healthy)
+    suspended = health_count(summary, :suspended)
 
     [
-      "#{healthy} of #{Words.count(length(rows), "relay")} healthy" <>
+      "#{healthy} of #{Words.count(summary.relay_count, "relay")} healthy" <>
         if(suspended > 0, do: ", #{suspended} suspended", else: ""),
       Words.count(summary.runner_count, "runner"),
-      inbound && Topology.rate_label(inbound.in, " records/s in"),
+      inbound && summary.relay_count > 0 && Topology.rate_label(inbound.in, " records/s in"),
       summary.parked > 0 && Words.count(summary.parked, "dead letter")
     ]
     |> Enum.filter(& &1)
     |> Enum.join(" · ")
   end
 
-  def figures(_summary, _rows, _inbound), do: nil
+  def figures(_summary, _inbound), do: nil
+
+  defp health_count(summary, health),
+    do: Enum.find_value(summary.health, 0, &(&1.health == health && &1.count))
 
   # ---- Indicator tiles: each figure's tone and its words ----
 
@@ -547,33 +585,17 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
       else: Words.need_attention(length(items), "problem")
   end
 
-  # A registry row names the runner that last hosted a relay, so only a
-  # running relay's runner is counted as serving it.
-  defp runners_foot(rows) do
-    running = Enum.count(rows, &(&1[:runner] && NodeManager.row_health(&1) == :healthy))
-    "Running #{Words.count(running, "relay")}"
+  # Only a healthy relay is one a runner is running.
+  defp runners_foot(summary),
+    do: "Running #{Words.count(health_count(summary, :healthy), "relay")}"
+
+  defp plugin_names(%{total: total, names: names}) do
+    shown = Enum.join(names, ", ")
+    if total > length(names), do: "#{shown} +#{total - length(names)}", else: shown
   end
 
-  defp plugin_ids(pairs) do
-    pairs
-    |> Enum.flat_map(fn {_relay, plugins} -> Enum.map(plugins, &elem(&1, 0)) end)
-    |> Enum.uniq()
-  end
-
-  defp plugin_count(pairs), do: length(plugin_ids(pairs))
-
-  defp plugin_names(pairs) do
-    ids = plugin_ids(pairs)
-    shown = ids |> Enum.take(2) |> Enum.map_join(", ", &to_string/1)
-    if length(ids) > 2, do: "#{shown} +#{length(ids) - 2}", else: shown
-  end
-
-  defp plugins_condition(pairs) do
-    case Enum.count(pairs, fn {_relay, plugins} -> plugins != [] end) do
-      0 -> "None bound"
-      relays -> "Bound to #{Words.count(relays, "relay")}"
-    end
-  end
+  defp plugins_condition(%{total: 0}), do: "None enabled"
+  defp plugins_condition(%{total: _}), do: "Enabled in this namespace"
 
   defp schedules_condition([]), do: "None in this namespace"
 
@@ -621,21 +643,6 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
     end
   end
 
-  # A group is as healthy as its sickest member, by the controller's rank.
-  defp with_group_health(groups, rows) do
-    rank = NodeManager.health_verdicts()
-    health = Map.new(rows, &{to_string(&1.id), NodeManager.row_health(&1)})
-
-    Enum.map(groups, fn group ->
-      worst =
-        group.members
-        |> Enum.map(&Map.get(health, to_string(&1.id), :unknown))
-        |> Enum.max_by(&Enum.find_index(rank, fn h -> h == &1 end), fn -> :unknown end)
-
-      Map.put(group, :health, worst)
-    end)
-  end
-
   defp save_quotas(socket, limits) do
     case NodeManager.set_namespace_quotas(socket.assigns.ns, limits, socket.assigns.flezha_token) do
       {:error, reason} ->
@@ -675,11 +682,12 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   defp newest_first(records),
     do: records |> Enum.uniq() |> Enum.sort_by(&(&1["ts_us"] || 0), :desc)
 
-  def section_opened(socket, @runs_id), do: refresh(socket)
+  def section_opened(socket, key) when key in [@runs_id, "partition-groups"], do: refresh(socket)
   def section_opened(socket, _key), do: socket
 
   @doc false
   def listing_grown(socket, @runs_id), do: read_older_runs(socket)
+  def listing_grown(socket, "problems-" <> _namespace), do: refresh(socket)
   def listing_grown(socket, _id), do: socket
 
   defp read_older_runs(%{assigns: %{runs_next: next, runs: runs}} = socket)
@@ -782,8 +790,11 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
     "#{Words.count(length(bindings), "principal")} bound · #{Words.count(active, "active token")}"
   end
 
-  defp groups_digest(groups) do
-    case Enum.count(groups, &is_map(&1.coverage)) do
+  defp groups_digest(:unread, 0), do: "coverage whole"
+  defp groups_digest(:unread, broken), do: "#{broken} with broken coverage"
+
+  defp groups_digest(groups, _broken) do
+    case Enum.count(groups, & &1.coverage_broken?) do
       0 -> Words.count(length(groups), "group") <> ", coverage whole"
       faulted -> Words.count(length(groups), "group") <> ", #{faulted} with broken coverage"
     end

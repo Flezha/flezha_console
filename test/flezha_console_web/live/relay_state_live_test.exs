@@ -108,7 +108,7 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
 
       calls = FakeController.calls(node, {Steps, :cells})
       assert calls != []
-      assert Enum.all?(calls, &match?(["relay_a", %{source: :ui}], &1))
+      assert Enum.all?(calls, &match?(["relay_a", _page, %{source: :ui}], &1))
     end
 
     test "a builder's relay class is the class read", %{conn: conn, node: node} do
@@ -122,7 +122,7 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
 
       {:ok, _view, _html} = live(conn, @url)
 
-      assert [["orders_class", _ctx] | _] = FakeController.calls(node, {Steps, :cells})
+      assert [["orders_class", _page, _ctx] | _] = FakeController.calls(node, {Steps, :cells})
     end
 
     test "a relay with no durable state says so", %{conn: conn, node: node} do
@@ -144,7 +144,7 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
       cells(node, [cell("orders", "k1", %{fsync_durability_lag_ms: 40})])
       send(view.pid, :refresh)
 
-      refute render(view) =~ ~s(data-testid="cell-lagging-relay_a/orders/k1")
+      refute render_async(view) =~ ~s(data-testid="cell-lagging-relay_a/orders/k1")
     end
 
     test "a lag above a second that rises between readings is lagging", %{
@@ -159,11 +159,11 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
 
       cells(node, [cell("orders", "k1", %{fsync_durability_lag_ms: 1_800})])
       send(view.pid, :refresh)
-      assert render(view) =~ ~s(data-testid="cell-lagging-relay_a/orders/k1")
+      assert render_async(view) =~ ~s(data-testid="cell-lagging-relay_a/orders/k1")
 
       cells(node, [cell("orders", "k1", %{fsync_durability_lag_ms: 1_500})])
       send(view.pid, :refresh)
-      refute render(view) =~ ~s(data-testid="cell-lagging-relay_a/orders/k1")
+      refute render_async(view) =~ ~s(data-testid="cell-lagging-relay_a/orders/k1")
     end
 
     test "each column and the row actions are explained in place", %{conn: conn, node: node} do
@@ -397,7 +397,8 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
 
       cells_before = length(FakeController.calls(node, {Steps, :cells}))
       cells(node, [])
-      html = view |> element(~s([data-testid="state-confirm-btn"])) |> render_click()
+      view |> element(~s([data-testid="state-confirm-btn"])) |> render_click()
+      html = render_async(view)
 
       assert [["relay_a/orders/k1", _ctx]] = FakeController.calls(node, {Steps, :delete})
       assert length(FakeController.calls(node, {Steps, :cells})) > cells_before
@@ -470,7 +471,7 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
       # sample as though it were fresh.
       FakeController.set(node, {Steps, :cells}, FakeController.error("controller.timeout"))
       send(view.pid, :refresh)
-      html = render(view)
+      html = render_async(view)
 
       assert html =~ ~s(data-testid="runtime-error")
       refute html =~ ~s(data-testid="spark-relay_a/orders/k1")

@@ -22,33 +22,35 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       FakeController.rows([%{namespace: "default", running: true}])
     )
 
-    FakeController.set(
-      node,
-      {Relay, :relay_rows},
-      FakeController.rows(opts[:rows] || [], opts[:unreachable] || [])
-    )
-
+    rows = opts[:rows] || []
+    FakeController.set(node, {Relay, :list}, FakeController.rows(rows, opts[:unreachable] || []))
     FakeController.set(node, {Fleet, :factories}, FakeController.rows(opts[:factories] || []))
     FakeController.set(node, {Fleet, :runners}, {:ok, opts[:runners] || []})
 
     FakeController.set(
       node,
       {Controller, :cluster_status},
-      opts[:status] || {:ok, status(opts[:hub_nodes] || [])}
+      opts[:status] || {:ok, status(opts[:hub_nodes] || [], rows)}
     )
   end
 
   # The cluster as the namespace sees it: its hub nodes with their recovery
-  # state, as `Controller.cluster_status/2` answers it from every controller.
-  defp status(nodes) do
+  # state and the relays each hosts of `rows`, as `Controller.cluster_status/2`
+  # answers it from every controller.
+  defp status(nodes, rows \\ []) do
+    hosted = Enum.frequencies_by(rows, & &1[:node])
+
     %{
       namespace: "default",
       nodes:
         Enum.map(nodes, fn
-          {node, recovery} -> %{node: node, relay_count: 0, recovery_state: recovery}
-          node -> %{node: node, relay_count: 0, recovery_state: :normal}
+          {node, recovery} ->
+            %{node: node, relay_count: Map.get(hosted, node, 0), recovery_state: recovery}
+
+          node ->
+            %{node: node, relay_count: Map.get(hosted, node, 0), recovery_state: :normal}
         end),
-      unplaced_relays: 0,
+      unplaced_relays: Map.get(hosted, nil, 0),
       relay_health: %{},
       answered_by: :"flezha@node-a",
       unreachable: []
@@ -405,7 +407,7 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       before = length(FakeController.calls(node, {Fleet, :factories}))
 
       send(view.pid, :refresh)
-      _ = render(view)
+      render_async(view)
 
       assert length(FakeController.calls(node, {Fleet, :factories})) == before + 1
       assert FakeController.calls(node, {Fleet, :runners_for_factory}) == []
@@ -435,14 +437,17 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       FakeController.set(node, {Fleet, :runners}, {:ok, [%{id: "runner-late"}]})
       send(view.pid, {:flezha_event, :runner_connected, {"default", "runner-late"}})
 
-      assert render(view) =~ "runner-late"
+      assert render_async(view) =~ "runner-late"
     end
   end
 
   describe "per-node rollup" do
     defp row(id, overrides \\ %{}), do: FakeController.relay_row(id, overrides)
 
-    test "each node shows its relay count broken down by health", %{conn: conn, node: node} do
+    test "each node shows its relay count, and the namespace its relays by health", %{
+      conn: conn,
+      node: node
+    } do
       one_namespace(node,
         rows: [row("a"), row("b", %{health: :degraded}), row("c", %{node: :"flezha@node-b"})],
         hub_nodes: [:"flezha@node-a", :"flezha@node-b"]
@@ -473,10 +478,9 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       assert text_of(html, ~s([data-testid="node-count-flezha@node-a"])) == "1"
       assert text_of(html, ~s([data-testid="node-count-flezha@node-b"])) == "2"
 
-      node_b = text_of(html, ~s([data-testid="node-flezha@node-b"]))
-      assert node_b =~ "Degraded"
-      assert node_b =~ "Healthy"
-      refute text_of(html, ~s([data-testid="node-flezha@node-a"])) =~ "Degraded"
+      health = text_of(html, ~s([data-testid="ns-health-default"]))
+      assert health =~ "Degraded"
+      assert health =~ "Healthy"
       refute html =~ ~s(data-health="unknown")
     end
 
@@ -528,8 +532,11 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       refute html =~ ~s(data-testid="node-flezha@node-b")
     end
 
-    test "relays with no live node are named", %{conn: conn, node: node} do
-      one_namespace(node, rows: [row("stranded", %{node: nil})])
+    test "relays with no live node are counted, and the most severe named", %{
+      conn: conn,
+      node: node
+    } do
+      one_namespace(node, rows: [row("stranded", %{node: nil, health: :unbound})])
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -603,7 +610,7 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       assert html =~ ~r/data-testid="runner-contact-runner-b"[^>]*data-late="true"/
 
       assert html =~
-               ~r{href="/namespaces/default/relays\?runner=runner-a"[^>]*data-testid="runner-relays-runner-a"[^>]*>\s*2}
+               ~r{href="/namespaces/default/relays\?runner=runner-a"[^>]*data-testid="runner-relays-runner-a"[^>]*>\s*List them}
 
       # Late first, and counted in the summary.
       assert ["runner-runner-b" | _] = listed(html)

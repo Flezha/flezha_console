@@ -58,16 +58,20 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
     view
   end
 
+  # The namespace and factory are pickers whose options set the form's hidden
+  # values in the browser, so they ride the event rather than the form data.
+  @picked ~w(namespace factory_id)
+
   defp submit(view, fields) do
     view
-    |> form(~s(form[phx-submit="create"]), %{"schedule" => fields})
-    |> render_submit()
+    |> form(~s(form[phx-submit="create"]), %{"schedule" => Map.drop(fields, @picked)})
+    |> render_submit(%{"schedule" => Map.take(fields, @picked)})
   end
 
   defp change(view, fields) do
     view
-    |> form(~s(form[phx-change="form_change"]), %{"schedule" => fields})
-    |> render_change()
+    |> form(~s(form[phx-change="form_change"]), %{"schedule" => Map.drop(fields, @picked)})
+    |> render_change(%{"schedule" => Map.take(fields, @picked)})
   end
 
   defp confirm_remove(view) do
@@ -193,7 +197,7 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
       |> render_change(%{"filter" => %{"controller" => "flezha@hub-2"}})
 
       assert_patch(view, "/schedules?controller=flezha%40hub-2")
-      html = render(view)
+      html = render_async(view)
       assert html =~ ~s(data-testid="schedule-row-hourly")
       refute html =~ ~s(data-testid="schedule-row-nightly")
     end
@@ -354,9 +358,8 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
     test "the namespace field offers the namespaces the token can reach", %{conn: conn} do
       view = open_form(conn)
 
-      selector = ~s([data-testid="schedule-input-namespace"] option)
-      assert has_element?(view, selector <> ~s([value="default"]))
-      assert has_element?(view, selector <> ~s([value="staging"]))
+      assert has_element?(view, ~s([data-testid="schedule-input-namespace-default"]))
+      assert has_element?(view, ~s([data-testid="schedule-input-namespace-staging"]))
     end
 
     test "the factory field offers only the chosen namespace's steps factories", %{conn: conn} do
@@ -424,7 +427,7 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
     test "opening the form is what reads the catalog, not the tick", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, ~p"/schedules")
       send(view.pid, :refresh)
-      _rendered = render(view)
+      render_async(view)
 
       assert FakeController.calls(node, {Fleet, :factories}) == []
 
