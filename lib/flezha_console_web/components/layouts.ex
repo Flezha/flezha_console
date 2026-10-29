@@ -611,12 +611,14 @@ defmodule FlezhaConsoleWeb.Layouts do
 
   defp pulse_calls(token) do
     read_at = DateTime.utc_now()
-    {catalog, catalog_error} = NodeManager.ok_or_error(NodeManager.list_namespaces(token), [])
+    listed = NodeManager.list_namespaces(token)
+    {catalog, catalog_error} = NodeManager.ok_or_error(listed, [])
     names = catalog |> Enum.map(&to_string(&1.namespace)) |> Enum.sort()
 
     reads =
       for name <- names do
-        {rows, rows_error} = NodeManager.ok_or_error(NodeManager.relay_rows(name, token), [])
+        read_rows = NodeManager.relay_rows(name, token)
+        {rows, rows_error} = NodeManager.ok_or_error(read_rows, [])
         groups = NodeManager.partition_groups(rows, token)
         declared = NodeManager.ok_or(NodeManager.namespace_record(name, token), nil)
         quotas = NodeManager.quota_usage(name, declared && declared.quotas, token)
@@ -627,28 +629,33 @@ defmodule FlezhaConsoleWeb.Layouts do
           faulted_groups: NodeManager.faulted_group_ids(groups),
           quotas: quotas,
           serving: NodeManager.serving_counts(name, Attention.waiting_factories(rows), token),
-          error: rows_error
+          error: rows_error,
+          unreachable: NodeManager.unreachable([read_rows | quotas])
         }
       end
 
     {verdicts, _notice} = Topology.stall(token)
+    breaches = NodeManager.durability_breaches(token)
+    dlq = FlezhaConsole.DeadLetters.stats(token)
+    controllers = NodeManager.controllers(token)
 
     %{
       read_at: read_at,
       catalog_error: catalog_error,
       reads: reads,
       verdicts: verdicts,
-      breaches: NodeManager.ok_or(NodeManager.durability_breaches(token), []),
-      dlq: NodeManager.ok_or(FlezhaConsole.DeadLetters.stats(token), []),
+      breaches: NodeManager.ok_or(breaches, []),
+      dlq: NodeManager.ok_or(dlq, []),
       authz: NodeManager.authz_status(token),
-      controllers: NodeManager.ok_or(NodeManager.controllers(token), [])
+      controllers: NodeManager.ok_or(controllers, []),
+      unreachable: NodeManager.unreachable([listed, breaches, dlq, controllers | reads])
     }
   end
 
   @doc """
   Assigns one pulse's answer as `:shell_pulse`:
 
-      %{items:, checked_at:, error:, fleet:, serving:, controllers:}
+      %{items:, checked_at:, error:, fleet:, serving:, controllers:, unreachable:}
 
   Items keep the time they were first seen across pulses. `error` is why the
   namespaces could not be listed, so no problem list stands for an all-clear.
@@ -657,7 +664,8 @@ defmodule FlezhaConsoleWeb.Layouts do
   across every reachable namespace as `NodeManager.health_counts/1` pairs, and
   the durability `breaches`. `serving` is each namespace's runner counts per
   waiting factory. `controllers` are `NodeManager.controllers/1`'s rows, none
-  when they could not be read. A pulse that died keeps the last one.
+  when they could not be read, and `unreachable` the controllers its reads
+  lack. A pulse that died keeps the last one.
   """
   def pulse_apply(socket, {:exit, _reason}), do: socket
 
@@ -693,7 +701,8 @@ defmodule FlezhaConsoleWeb.Layouts do
         breaches: length(pulse.breaches)
       },
       serving: Map.new(reads, &{&1.namespace, &1.serving}),
-      controllers: pulse.controllers
+      controllers: pulse.controllers,
+      unreachable: pulse.unreachable
     })
   end
 

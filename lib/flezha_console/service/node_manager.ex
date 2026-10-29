@@ -173,6 +173,14 @@ defmodule FlezhaConsole.Service.NodeManager do
     do:
       console_error("remote_error", :internal, "The flezha controller raised: #{inspect(reason)}")
 
+  def error({:controller_unreachable, node}) do
+    console_error(
+      "controller_unreachable",
+      :unavailable,
+      "#{node} did not answer, so its facts could not be read."
+    )
+  end
+
   def error(:no_token), do: console_error("no_token", :denied, "No flezha token was presented.")
   def error(reason), do: console_error("unexpected", :internal, "Error: #{inspect(reason)}")
 
@@ -361,6 +369,22 @@ defmodule FlezhaConsole.Service.NodeManager do
     end
   end
 
+  # As `authorized_list_call/4`, for a read the controller answers for the
+  # whole cluster: `{:ok, %{rows:, unreachable:}}`, handed on whole.
+  defp authorized_rows_call(token, module, function, args, timeout \\ @default_timeout) do
+    case authorized_call(token, module, function, args, timeout) do
+      {:ok, %{rows: rows, unreachable: nodes}} = answer when is_list(rows) and is_list(nodes) ->
+        answer
+
+      other ->
+        unexpected(other)
+    end
+  end
+
+  # A cluster answer with its rows changed by `fun`, or an error as it came.
+  defp map_rows({:ok, %{rows: rows} = answer}, fun), do: {:ok, %{answer | rows: fun.(rows)}}
+  defp map_rows(error, _fun), do: error
+
   # An answer outside the shape a caller expects: an error is handed on, and
   # anything else is reported as the controller's, rather than matched wrongly.
   defp unexpected({:error, _reason} = error), do: error
@@ -546,12 +570,13 @@ defmodule FlezhaConsole.Service.NodeManager do
   end
 
   @doc """
-  The value out of a call result, or `default` when it failed.
+  The value out of a call result, or `default` when it failed. A cluster
+  answer's value is its rows; `unreachable/1` reads which controllers it lacks.
 
   For a screen that shows a section as empty when the controller cannot answer
   it, rather than failing the whole page.
   """
-  def ok_or({:ok, value}, _default), do: value
+  def ok_or({:ok, value}, _default), do: rows(value)
   def ok_or({:error, _reason}, default), do: default
 
   @doc """
@@ -561,18 +586,61 @@ defmodule FlezhaConsole.Service.NodeManager do
   to say why it is empty, so a screen states a refusal instead of writing the
   same two-branch `case` for every panel it loads.
   """
-  def ok_or_error({:ok, value}, _default), do: {value, nil}
+  def ok_or_error({:ok, value}, _default), do: {rows(value), nil}
   def ok_or_error({:error, reason}, default), do: {default, reason}
+
+  defp rows(%{rows: rows, unreachable: _nodes}), do: rows
+  defp rows(value), do: value
+
+  @doc """
+  The controllers that did not answer any of `answers`, sorted, once each.
+
+  An answer is a call result, or a value carrying `unreachable` such as a
+  `quota_usage/3` row. A screen gathers its reads' here on each refresh, so the
+  partial-answer notice says what that refresh is missing.
+  """
+  def unreachable(answers) when is_list(answers),
+    do: answers |> Enum.flat_map(&unreached/1) |> Enum.uniq() |> Enum.sort()
+
+  defp unreached({:ok, value}), do: unreached(value)
+  defp unreached(%{unreachable: nodes}) when is_list(nodes), do: nodes
+  defp unreached(_answer), do: []
+
+  @doc """
+  The rows of a per-controller read that belong to `node`, as `{:ok, rows}`,
+  or `{:error, {:controller_unreachable, node}}` when it did not answer.
+  `node` is matched by name, so a node named in a URL finds its rows.
+  """
+  def of_controller({:ok, %{rows: rows, unreachable: unreachable}}, node) do
+    if to_string(node) in Enum.map(unreachable, &to_string/1),
+      do: {:error, {:controller_unreachable, node}},
+      else: {:ok, rows_with(rows, :node, node)}
+  end
+
+  def of_controller(error, _node), do: error
+
+  @doc """
+  `node`'s own row of a read answering one row per controller, as `{:ok,
+  row}`, or an error as `of_controller/2` answers one.
+  """
+  def controller_row(answer, node) do
+    case of_controller(answer, node) do
+      {:ok, [row | _]} -> {:ok, row}
+      {:ok, []} -> {:error, {:controller_unreachable, node}}
+      error -> error
+    end
+  end
 
   # ---- Namespaces and relays ----
 
   @doc """
   The namespaces the caller may see, from the controller's durable catalog,
-  as `[%{namespace:, running:}]`: a declared namespace with no hub is listed
-  too. The controller narrows the listing to the caller.
+  as rows `%{namespace:, running:, nodes:}`: a declared namespace with no hub
+  is listed too, and `running` means a hub runs on any controller, `nodes`.
+  The controller narrows the listing to the caller.
   """
   def list_namespaces(token) do
-    authorized_list_call(token, Flezha.Service.Relay, :list_namespaces, [])
+    authorized_rows_call(token, Flezha.Service.Relay, :list_namespaces, [])
   end
 
   @doc """
@@ -588,32 +656,33 @@ defmodule FlezhaConsole.Service.NodeManager do
 
   @doc "The ids of `relay_list/2`'s rows."
   def list_relays(namespace, token) do
-    with {:ok, rows} <- relay_list(namespace, token), do: {:ok, Enum.map(rows, & &1.id)}
+    with {:ok, %{rows: rows}} <- relay_list(namespace, token),
+         do: {:ok, Enum.map(rows, & &1.id)}
   end
 
   @doc """
   A namespace's relays as listings show them, health resolved: one row each,
   with each partition group collapsed into one row carrying `partitions`
   ("3/4") and `members`, as healthy as its sickest member by the controller's
-  rule. One call answers the whole namespace.
+  rule. One call answers the whole cluster's relays of the namespace.
   """
   def relay_list(namespace, token) do
-    with {:ok, rows} <- authorized_list_call(token, Flezha.Service.Relay, :list, [namespace]) do
-      {:ok, decorate_health(rows)}
-    end
+    token
+    |> authorized_rows_call(Flezha.Service.Relay, :list, [namespace])
+    |> map_rows(&decorate_health/1)
   end
 
   @doc """
-  Every relay of a namespace, partition members included, health resolved:
-  `id`, `health`, `runner`, `factory`, `partition` (or `nil`) and the live
-  `node` (or `nil` for an unplaced row). The rows summaries and the cluster
-  rollup count.
+  Every relay of a namespace on every controller, partition members included,
+  health resolved: `id`, `health`, `runner`, `factory`, `partition` (or `nil`)
+  and the live `node` (or `nil` for an unplaced row). Each relay's health is
+  its hosting controller's verdict, `:unknown` while that controller has none
+  or did not answer. The rows summaries and the cluster rollup count.
   """
   def relay_rows(namespace, token) do
-    with {:ok, rows} <-
-           authorized_list_call(token, Flezha.Service.Relay, :relay_rows, [namespace]) do
-      {:ok, decorate_health(rows)}
-    end
+    token
+    |> authorized_rows_call(Flezha.Service.Relay, :relay_rows, [namespace])
+    |> map_rows(&decorate_health/1)
   end
 
   @doc """
@@ -628,7 +697,7 @@ defmodule FlezhaConsole.Service.NodeManager do
   `[{relay_id, [{plugin_id, plugin}]}]`. A relay with none is absent.
   """
   def relay_plugins(namespace, token) do
-    authorized_list_call(token, Flezha.Service.Relay, :relay_plugins, [namespace])
+    authorized_rows_call(token, Flezha.Service.Relay, :relay_plugins, [namespace])
   end
 
   @doc "`relay_id`'s row among `rows`, as `relay_rows/2` answers them, or nil."
@@ -656,7 +725,7 @@ defmodule FlezhaConsole.Service.NodeManager do
   """
   def serving_count(namespace, factory, token) do
     case runners_for_factory(namespace, to_string(factory), token) do
-      {:ok, runners} -> length(runners)
+      {:ok, %{rows: runners}} -> length(runners)
       {:error, _reason} -> nil
     end
   end
@@ -675,11 +744,6 @@ defmodule FlezhaConsole.Service.NodeManager do
     factories
     |> Map.new(&{&1, serving_count(namespace, &1, token)})
     |> Map.reject(fn {_factory, count} -> is_nil(count) end)
-  end
-
-  @doc "`partition_members/2` of a namespace's relays, read for one screen."
-  def relay_partitions(namespace, relay_id, token) do
-    namespace |> relay_rows(token) |> ok_or([]) |> partition_members(relay_id)
   end
 
   @doc """
@@ -799,16 +863,33 @@ defmodule FlezhaConsole.Service.NodeManager do
   end
 
   @doc """
-  `rows` narrowed to one namespace, or left whole when there is no scope.
+  `rows` narrowed to those whose `field` is `value`, compared as text, or left
+  whole for no value.
 
-  For a listing the controller answers globally — schedules — whose rows each
-  carry the namespace the call does not take. A row carrying none is bound to
-  nothing a scope can claim, so a scope excludes it.
+  For a listing a call answers wider than a screen shows it: schedules carry
+  the namespace the call does not take, and rows of a cluster answer the
+  `node` holding them. A row carrying no value is bound to nothing a filter
+  can claim, so a filter excludes it.
   """
-  def in_namespace(rows, nil) when is_list(rows), do: rows
+  def rows_with(rows, _field, value) when is_list(rows) and value in [nil, ""], do: rows
 
-  def in_namespace(rows, namespace) when is_list(rows),
-    do: Enum.filter(rows, &(to_string(&1.namespace) == namespace))
+  def rows_with(rows, field, value) when is_list(rows),
+    do: Enum.filter(rows, &(to_string(&1[field]) == to_string(value)))
+
+  @doc "The controllers `rows` live on, sorted, once each; a row naming none is left out."
+  def row_controllers(rows) when is_list(rows),
+    do: rows |> Enum.map(& &1[:node]) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort()
+
+  @doc """
+  Rows that are copies of one thing on several controllers, folded: one
+  `{row, copies}` per `key`, in the order the first copy of each is listed.
+  """
+  def copies(rows, key) when is_list(rows) do
+    rows
+    |> Enum.group_by(key)
+    |> Enum.map(fn {_key, [first | _] = copies} -> {first, copies} end)
+    |> Enum.sort_by(fn {first, _copies} -> Enum.find_index(rows, &(&1 == first)) end)
+  end
 
   @doc "The rows with no live node — placed nowhere, so serving nothing."
   def unplaced_rows(rows) when is_list(rows), do: Enum.filter(rows, &is_nil(&1[:node]))
@@ -820,6 +901,7 @@ defmodule FlezhaConsole.Service.NodeManager do
   The cluster's controller nodes, as `[%{name:, connected?:}]` sorted by name:
   every node holding a hub as the controller answers `hub_nodes`, and the node
   this UI reached, which is always a member even before it hosts a hub.
+  `connected?` marks the node this console calls, not "the" controller.
   """
   def cluster_nodes(hub_nodes, connected) when is_list(hub_nodes) do
     hub_nodes
@@ -885,9 +967,12 @@ defmodule FlezhaConsole.Service.NodeManager do
     authorized_list_call(token, Flezha.Service.Fleet, :runners, [namespace])
   end
 
-  @doc "The factories registered in `namespace`, each carrying its `run`."
+  @doc """
+  The factories registered in `namespace` on every controller, each carrying
+  its `run` and the controllers advertising it, `nodes`.
+  """
   def factories(namespace, token) do
-    authorized_list_call(token, Flezha.Service.Fleet, :factories, [namespace])
+    authorized_rows_call(token, Flezha.Service.Fleet, :factories, [namespace])
   end
 
   @doc """
@@ -914,18 +999,18 @@ defmodule FlezhaConsole.Service.NodeManager do
     authorized_list_call(token, Flezha.Service.Fleet, :dropped_runners, [namespace])
   end
 
-  @doc "The runners serving one factory in `namespace`."
+  @doc "The runners serving one factory in `namespace`, on any controller, as rows of ids."
   def runners_for_factory(namespace, factory_id, token) do
-    authorized_list_call(token, Flezha.Service.Fleet, :runners_for_factory, [
+    authorized_rows_call(token, Flezha.Service.Fleet, :runners_for_factory, [
       namespace,
       factory_id
     ])
   end
 
   @doc """
-  A namespace's registered factories with the runners serving each, as
-  `[%{id:, description:, run:, runners: [runner_id], servable?: boolean}]`
-  sorted by id.
+  A namespace's registered factories with the runners serving each, on every
+  controller, as rows `%{id:, description:, run:, runners: [runner_id],
+  servable?: boolean}` sorted by id.
 
   Every screen that names a factory reads it from here. One `factories/2` call,
   whose rows carry their runners, so a refresh tick may read it. A runner that
@@ -933,10 +1018,11 @@ defmodule FlezhaConsole.Service.NodeManager do
   refusal is still the authority.
   """
   def factory_catalog(namespace, token) do
-    with {:ok, factories} <- factories(namespace, token) do
-      {:ok, factories |> Enum.map(&factory_entry/1) |> Enum.sort_by(& &1.id)}
-    end
+    namespace |> factories(token) |> map_rows(&catalog_rows/1)
   end
+
+  defp catalog_rows(factories),
+    do: factories |> Enum.map(&factory_entry/1) |> Enum.sort_by(& &1.id)
 
   defp factory_entry(factory) do
     id = identifier_id(factory)
@@ -968,9 +1054,12 @@ defmodule FlezhaConsole.Service.NodeManager do
     end
   end
 
-  @doc "Plugin packages installed on the controller host, each with id, version and status."
+  @doc """
+  Plugin packages installed on every controller, each with id, version,
+  status and the `node` it is installed on.
+  """
   def installed_plugins(token) do
-    authorized_list_call(token, Flezha.Service.Fleet, :installed_plugins, [])
+    authorized_rows_call(token, Flezha.Service.Fleet, :installed_plugins, [])
   end
 
   # ---- Relay lifecycle ----
@@ -1160,8 +1249,9 @@ defmodule FlezhaConsole.Service.NodeManager do
   end
 
   @doc """
-  Every relay of a namespace as `Relay.info/2` reports it, live and finished.
-  Costs an overwatch read per live relay on the controller, so it is read on
+  Every relay of a namespace as `Relay.info/2` reports it, live and finished,
+  on every controller, with the controllers that did not answer in
+  `unreachable`. Costs an overwatch read per live relay, so it is read on
   open, never on a refresh tick.
   """
   def relay_info(namespace, token) do
@@ -1170,11 +1260,16 @@ defmodule FlezhaConsole.Service.NodeManager do
 
   @doc """
   The steps relays that have finished but are still retained, as the
-  controller selects them, each `%{id:, run:, status:, error:, finished_at:}`.
+  controllers select them, as rows `%{id:, run:, status:, error:,
+  finished_at:}`.
   """
   def finished_relays(namespace, token) do
-    with {:ok, %{relays: relays}} <- relay_info(namespace, token) do
-      {:ok, Enum.filter(relays, &(Map.get(&1, :phase) == "finished"))}
+    with {:ok, %{relays: relays} = info} <- relay_info(namespace, token) do
+      {:ok,
+       %{
+         rows: Enum.filter(relays, &(Map.get(&1, :phase) == "finished")),
+         unreachable: Map.get(info, :unreachable, [])
+       }}
     end
   end
 
@@ -1322,7 +1417,7 @@ defmodule FlezhaConsole.Service.NodeManager do
   """
   def feeding_providers(token) do
     case providers(token) do
-      {:ok, %{providers: [_ | _] = listed}} ->
+      {:ok, %{rows: [_ | _] = listed}} ->
         if Enum.all?(listed, &is_map_key(&1, :feeds)),
           do: for(%{feeds: true, module: module} <- listed, into: MapSet.new(), do: module)
 
@@ -1346,12 +1441,9 @@ defmodule FlezhaConsole.Service.NodeManager do
 
   # ---- Steps relays ----
 
-  @doc "The retention window, in hours, that applies to a relay class."
-  def completed_retention_hours(relay_class, metadata, token) do
-    authorized_call(token, Flezha.Service.Steps, :completed_retention_hours, [
-      relay_class,
-      metadata
-    ])
+  @doc "How long a finished instance of a relay class keeps its state, in hours."
+  def completed_retention_hours(relay_class, token) do
+    authorized_call(token, Flezha.Service.Steps, :completed_retention_hours, [relay_class])
   end
 
   @doc "A finished steps relay's completion record, or `{:error, :not_found}` for none."
@@ -1512,7 +1604,10 @@ defmodule FlezhaConsole.Service.NodeManager do
   }
 
   @doc """
-  A namespace's counters paired with the limits that apply to them.
+  A namespace's counters paired with the limits that apply to them. Each
+  `value` is the cluster's total and a breach is judged against it; `by_node`
+  splits it per controller and `unreachable` names the controllers that did
+  not count.
 
   `quotas` is the namespace record's quota map, or `nil` for a namespace with
   no record — every row then reports its value with no limit. Costs one call
@@ -1529,16 +1624,20 @@ defmodule FlezhaConsole.Service.NodeManager do
       limit_key = Map.get(@quota_limit_keys, kind)
       limit = quotas && Map.get(quotas, limit_key)
 
-      value =
+      usage =
         case authorized_call(token, Flezha.Service.Namespace, :quota, [namespace, kind]) do
-          {:ok, count} when is_integer(count) -> count
-          _unavailable -> nil
+          {:ok, %{total: total} = usage} when is_integer(total) -> usage
+          _unavailable -> %{total: nil, by_node: %{}, unreachable: []}
         end
+
+      value = usage.total
 
       %{
         kind: kind,
         limit_key: limit_key,
         value: value,
+        by_node: Map.get(usage, :by_node, %{}),
+        unreachable: Map.get(usage, :unreachable, []),
         limit: limit,
         breached?: is_integer(limit) and is_integer(value) and value >= limit
       }
@@ -1641,14 +1740,17 @@ defmodule FlezhaConsole.Service.NodeManager do
   end
 
   @doc """
-  The providers the controller can enable, each `%{id:, module:, type:}` and,
-  from a controller that says, `feeds:` (whether it feeds a relay), and how many
-  installed packages it refused at boot: `{:ok, %{providers:, refused:}}`.
+  The providers the cluster's controllers can enable, as rows `%{id:,
+  module:, type:, feeds:, nodes:}`, `nodes` naming the controllers that can
+  enable each, and how many installed packages each controller refused at
+  boot: `{:ok, %{rows:, refused: %{node => count}, unreachable:}}`.
   """
   def providers(token) do
-    case authorized_call(token, Flezha.Service.Fleet, :providers, []) do
-      {:ok, %{providers: _} = listing} -> {:ok, Map.put_new(listing, :refused, 0)}
-      other -> unexpected(other)
+    token
+    |> authorized_rows_call(Flezha.Service.Fleet, :providers, [])
+    |> case do
+      {:ok, listing} -> {:ok, Map.put_new(listing, :refused, %{})}
+      error -> error
     end
   end
 
@@ -1664,37 +1766,47 @@ defmodule FlezhaConsole.Service.NodeManager do
 
   # ---- Dead-letter queue ----
 
-  @doc "Parked entries, nearest-to-expiry first. `nil` lists every relay class."
+  @doc """
+  Parked entries on every controller, nearest-to-expiry first, each with the
+  `node` holding it. `nil` lists every relay class.
+  """
   def dlq_list(relay_class, token) do
-    authorized_list_call(token, Flezha.Service.Dlq, :list, [blank_to_nil(relay_class)])
+    authorized_rows_call(token, Flezha.Service.Dlq, :list, [blank_to_nil(relay_class)])
   end
 
-  @doc "One entry and its payload, as `{:ok, entry, payload}`."
+  @doc """
+  One entry, found on whichever controller holds it, and its payload, as
+  `{:ok, entry, payload}`.
+  """
   def dlq_get(entry_ref, token) do
     pair(authorized_call(token, Flezha.Service.Dlq, :get, [entry_ref]))
   end
 
+  @doc "Drops a parked entry on whichever controller holds it."
   def dlq_drop(entry_ref, token) do
     authorized_call(token, Flezha.Service.Dlq, :drop, [entry_ref])
   end
 
   @doc """
-  Re-sends a parked payload to its relay as a new input. The controller waits
-  out its replay grace and answers `{:ok, %{outcome: :removed | :re_parked,
-  generation:}}`.
+  Re-sends a parked payload to its relay as a new input, from whichever
+  controller holds it. The controller waits out its replay grace and answers
+  `{:ok, %{outcome: :removed | :re_parked, generation:}}`.
   """
   def dlq_replay(entry_ref, token) do
     authorized_call(token, Flezha.Service.Dlq, :replay, [entry_ref], 60_000)
   end
 
-  @doc "The `{relay_class, tasklet_id}` pairs that hold parked entries."
+  @doc "The tasklets that hold parked entries, as rows `%{relay_class:, tasklet_id:, node:}`."
   def dlq_tasklets(relay_class, token) do
-    authorized_list_call(token, Flezha.Service.Dlq, :tasklets, [blank_to_nil(relay_class)])
+    authorized_rows_call(token, Flezha.Service.Dlq, :tasklets, [blank_to_nil(relay_class)])
   end
 
-  @doc "Entry and byte counts per parked tasklet, keyed `relay_class` and `tasklet_id`."
+  @doc """
+  Entry and byte counts per parked tasklet on every controller, keyed
+  `relay_class` and `tasklet_id`, each with its `node`.
+  """
   def dlq_stats(token) do
-    authorized_list_call(token, Flezha.Service.Dlq, :stats, [])
+    authorized_rows_call(token, Flezha.Service.Dlq, :stats, [])
   end
 
   defp blank_to_nil(""), do: nil
@@ -1703,11 +1815,12 @@ defmodule FlezhaConsole.Service.NodeManager do
   # ---- Schedules ----
 
   @doc """
-  Every stored schedule joined with what the schedule hub holds for it: the
-  `node` that fires it, its `last_fire` and its `next_fire`.
+  Every schedule stored on any controller, joined with what the schedule hub
+  holds for it: the `node` holding the definition, `fires_on`, the node that
+  fires it, its `last_fire` and its `next_fire`.
   """
   def schedule_list(token) do
-    authorized_list_call(token, Flezha.Service.Schedule, :list, [])
+    authorized_rows_call(token, Flezha.Service.Schedule, :list, [])
   end
 
   @doc "Stores a schedule and asserts it on the hub, in one call."
@@ -1715,58 +1828,100 @@ defmodule FlezhaConsole.Service.NodeManager do
     authorized_call(token, Flezha.Service.Schedule, :add, [Map.to_list(fields)])
   end
 
-  @doc "Forgets a schedule and retracts it from the hub, in one call."
+  @doc """
+  Forgets a schedule on whichever controller holds it and retracts it from the
+  hub, in one call.
+  """
   def schedule_remove(name, token) do
     authorized_call(token, Flezha.Service.Schedule, :remove, [name])
   end
 
   @doc """
-  Fires a schedule once, now. Answers `{:ok, %{relay_id:, outcome: :spawned |
-  :already_running}}`, `relay_id` being `nil` when none was started.
+  Fires a schedule once, now, on whichever controller holds it. Answers
+  `{:ok, %{relay_id:, outcome: :spawned | :already_running}}`, `relay_id`
+  being `nil` when none was started.
   """
   def schedule_run(name, token) do
     authorized_call(token, Flezha.Service.Schedule, :run, [name])
   end
 
   # ---- Audit log ----
+  #
+  # The audit kind of the controller's logs service. A file lives on one
+  # controller, so the catalog, its statistics and rotation are this console's
+  # controller's, and a file is read there; a read without one covers every
+  # controller, newest first.
 
+  @audit [kind: "audit"]
+
+  # The most records the logs service answers to one read.
+  @audit_read_max 1_000
+
+  @doc "The rotated audit files of the connected controller."
   def audit_files(token) do
-    authorized_list_call(token, Flezha.Service.AuditLog, :list_files, [])
+    with {:ok, %{files: files}} <-
+           authorized_call(token, Flezha.Service.Logs, :files, [@audit]),
+         do: {:ok, Enum.filter(files, &(&1[:node] == connected_node()))}
   end
 
+  @doc """
+  Audit records, `%{limit:}` and optionally `file`, `source` and `name`, as
+  `{:ok, records}`.
+  """
   def audit_read(params, token) when is_map(params) do
-    authorized_call(token, Flezha.Service.AuditLog, :read, [params])
+    filters = Map.take(params, [:source, :name])
+
+    read =
+      @audit
+      |> Keyword.merge(filters: filters, limit: min(params.limit, @audit_read_max))
+      |> then(&if params[:file], do: &1 ++ [file: params.file, node: connected_node()], else: &1)
+
+    with {:ok, %{records: records}} <-
+           authorized_call(token, Flezha.Service.Logs, :read, [read]),
+         do: {:ok, records}
   end
 
+  @doc "The connected controller's audit writer statistics."
   def audit_stats(token) do
-    authorized_call(token, Flezha.Service.AuditLog, :stats, [])
+    with {:ok, %{controllers: rows}} <-
+           authorized_call(token, Flezha.Service.Logs, :stats, [@audit]) do
+      case Enum.find(rows, &(&1[:node] == connected_node())) do
+        nil -> {:error, {:controller_unreachable, connected_node()}}
+        stats -> {:ok, stats}
+      end
+    end
   end
 
-  @doc "Closes the current audit file and starts a new one."
+  @doc "Closes the connected controller's current audit file and starts a new one."
   def audit_rotate(token) do
-    authorized_call(token, Flezha.Service.AuditLog, :rotate, [])
+    authorized_call(token, Flezha.Service.Logs, :rotate, [@audit ++ [node: connected_node()]])
   end
 
-  @doc "Opens the live audit tail for `emit_pid`. See `authorized_stream/5`."
+  @doc "Opens the live audit tail of every controller for `emit_pid`. See `authorized_stream/5`."
   def audit_tail(token, emit_pid) do
-    authorized_stream(token, Flezha.Service.AuditLog, :tail, [[]], emit_pid)
+    authorized_stream(token, Flezha.Service.Logs, :tail, [@audit], emit_pid)
   end
 
   # ---- Observability ----
 
   @doc """
-  Recent signals from the controller's observability ring buffer. `params` is
-  the service's own query — `%{source:, limit:, from_ts:}`.
+  Recent signals from every controller's observability ring buffer, newest
+  last, each with the `node` that recorded it and `at_us`, the wall-clock
+  time it was recorded. `params` is the service's own query — `%{source:,
+  limit:, since_us:}`, `since_us` a wall-clock bound in microseconds.
   """
   def observability_query(params, token) when is_map(params) do
-    authorized_call(token, Flezha.Service.Observability, :query, [params])
+    authorized_rows_call(token, Flezha.Service.Observability, :query, [params])
   end
 
   @doc """
-  Whether a source is emitting. The controller carries `:status` (`:active` |
-  `:disabled`) on the entry, not an `:enabled` boolean.
+  How many of the controllers listing a source run it, as `{on, of}`. The
+  controller carries `statuses`, one `:active` or `:disabled` per node.
   """
-  def source_enabled?(source), do: Map.get(source, :status) == :active
+  def source_enabled(%{statuses: statuses}) when is_map(statuses),
+    do: {Enum.count(statuses, fn {_node, status} -> status == :active end), map_size(statuses)}
+
+  def source_enabled(_source), do: {0, 0}
 
   @doc """
   Whether a sink is running: a sink entry carries no enabled flag, only the
@@ -1774,27 +1929,35 @@ defmodule FlezhaConsole.Service.NodeManager do
   """
   def sink_running?(sink), do: is_pid(Map.get(sink, :pid))
 
+  @doc """
+  Every source once, with its state on each controller in `statuses` and its
+  recent signals counted across them.
+  """
   def observability_sources(token) do
-    authorized_list_call(token, Flezha.Service.Observability, :list_sources, [])
+    authorized_rows_call(token, Flezha.Service.Observability, :list_sources, [])
   end
 
+  @doc "Every controller's sinks, each with its `node`."
   def observability_sinks(token) do
-    authorized_list_call(token, Flezha.Service.Observability, :list_sinks, [])
+    authorized_rows_call(token, Flezha.Service.Observability, :list_sinks, [])
   end
 
   @doc """
-  Enables an observability source. `source` must be an atom the controller
-  already named, so a value typed into a form can never grow the atom table.
+  Enables an observability source on every controller, answering `{:ok,
+  %{applied: nodes, unreachable: nodes}}`. `source` must be an atom the
+  controller already named, so a value typed into a form can never grow the
+  atom table.
   """
   def enable_source(source, token) when is_atom(source) do
     authorized_call(token, Flezha.Service.Observability, :enable_source, [to_string(source)])
   end
 
+  @doc "As `enable_source/2`, switching it off."
   def disable_source(source, token) when is_atom(source) do
     authorized_call(token, Flezha.Service.Observability, :disable_source, [to_string(source)])
   end
 
-  @doc "Opens a live tail of `source` for `emit_pid`. See `authorized_stream/5`."
+  @doc "Opens a live tail of `source` on every controller for `emit_pid`. See `authorized_stream/5`."
   def observability_tail(source, token, emit_pid) when is_atom(source) do
     authorized_stream(token, Flezha.Service.Observability, :tail, [to_string(source)], emit_pid)
   end
@@ -1824,83 +1987,80 @@ defmodule FlezhaConsole.Service.NodeManager do
   end
 
   # ---- Controller ----
+  #
+  # Each controller's own facts are answered for every controller at once, one
+  # row each or rows carrying their `node`; `controller_row/2` and
+  # `of_controller/2` pick one controller's.
 
   @doc """
-  The controller's status in one read: durability backend and posture, RPO
-  breach and superseded counts, the shutdown state and configuration, its
-  node and its monotonic clock.
+  Every controller's status, one row each: durability backend and posture,
+  RPO breach and superseded counts, the shutdown state and configuration, and
+  its `node`.
   """
   def controller_status(token) do
-    authorized_call(token, Flezha.Service.Controller, :status, [])
+    authorized_rows_call(token, Flezha.Service.Controller, :status, [])
   end
 
-  @doc "References past their RPO target."
+  @doc "References past their RPO target on every controller, each with its `node`."
   def durability_breaches(token) do
-    authorized_list_call(token, Flezha.Service.Controller, :durability_breaches, [])
+    authorized_rows_call(token, Flezha.Service.Controller, :durability_breaches, [])
   end
 
   @doc """
-  The readiness verdict and each running namespace's hub recovery state, as
-  `%{readiness:, preconditions:, namespaces: [%{namespace:, recovery_state:}]}`.
+  Every controller's readiness verdict and each running namespace's hub
+  recovery state, one row each: `%{node:, readiness:, preconditions:,
+  namespaces: [%{namespace:, recovery_state:}]}`.
   """
   def boot_status(token) do
-    authorized_call(token, Flezha.Service.Controller, :boot_status, [])
+    authorized_rows_call(token, Flezha.Service.Controller, :boot_status, [])
   end
 
   @doc """
-  The durability shipper's own status, one entry per shipped reference:
-  `%{ref:, last_shipped_ms:, pending_since_ms:, failures:, retry_after_ms:,
-  superseded_by:, last_error:}`. Empty while no remote tier is configured.
+  The durability shippers' own status, one row per shipped reference with the
+  `node` shipping it: `%{ref:, last_shipped_ms:, pending_since_ms:, failures:,
+  retry_after_ms:, superseded_by:, last_error:}`. Empty while no remote tier
+  is configured.
   """
   def durability_status(token) do
-    authorized_list_call(token, Flezha.Service.Controller, :durability_status, [])
+    authorized_rows_call(token, Flezha.Service.Controller, :durability_status, [])
   end
 
   @doc """
-  The controller's memory hot spots. Expensive — a process scan — so it is
-  only taken when an operator asks, never on a refresh tick.
+  Every controller's memory hot spots, one row each. Expensive — a process
+  scan on each — so it is only taken when an operator asks, never on a
+  refresh tick.
   """
   def mem_top(token) do
-    authorized_call(token, Flezha.Service.Controller, :mem_top, [])
+    authorized_rows_call(token, Flezha.Service.Controller, :mem_top, [], 60_000)
   end
 
   @doc """
   The cluster as `namespace` sees it: its hub `nodes`, each with its relay
-  count and recovery state, the unplaced relay count and the health breakdown.
+  count and recovery state, the unplaced relay count and the health breakdown,
+  with the controllers that did not answer in `unreachable`.
   """
   def cluster_status(namespace, token) do
     authorized_call(token, Flezha.Service.Controller, :cluster_status, [namespace])
   end
 
   @doc """
-  Every connected controller, the one asked first: `%{node:, host:, host_node:,
-  version:, uptime_ms:, runners:, local?:, reachable?: true}`, or `%{node:,
-  local?: false, reachable?: false}` for one that did not answer in time.
-  `host_node` is the machine it runs on, nil when the controller is not told.
+  Every controller of the cluster, the one asked first, as rows `%{node:,
+  host:, host_node:, version:, uptime_ms:, runners:, local?:, reachable?:
+  true}`, or `%{node:, local?: false, reachable?: false}` for one that did not
+  answer in time. `host_node` is the machine it runs on, nil when the
+  controller is not told.
   """
   def controllers(token) do
-    authorized_list_call(token, Flezha.Service.Controller, :controllers, [])
+    authorized_rows_call(token, Flezha.Service.Controller, :controllers, [])
   end
 
   @doc """
-  The controller's always-on data-plane counters: `%{channels: [...],
-  relays: [...]}`, every value a monotonic count and each relay entry keyed by
-  `relay_id`. Rates are the caller's business.
+  Every controller's always-on data-plane counters: `%{channels: [...],
+  relays: [...], unreachable:}`, every value a monotonic count and each relay
+  entry keyed by `relay_id`. Rates are the caller's business.
   """
   def liveness_snapshot(token) do
     authorized_call(token, Flezha.Service.Controller, :liveness_counters, [])
-  end
-
-  @doc """
-  The controller's monotonic clock, in microseconds. Observability signals are
-  stamped with it, and it shares no epoch with this node's, so it is the only
-  clock a signal's age can be measured against.
-  """
-  def controller_monotonic_us(token) do
-    case controller_status(token) do
-      {:ok, %{monotonic_us: now}} when is_integer(now) -> now
-      other -> unexpected(other)
-    end
   end
 
   @doc """

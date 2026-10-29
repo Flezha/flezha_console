@@ -24,7 +24,12 @@ defmodule FlezhaConsoleWeb.ProblemsLiveTest do
   defp row_text(html, item, key), do: condition_value(html, "problem-state-#{item}", key)
 
   defp serve(node, runners),
-    do: FakeController.set(node, {Flezha.Service.Fleet, :runners_for_factory}, {:ok, runners})
+    do:
+      FakeController.set(
+        node,
+        {Flezha.Service.Fleet, :runners_for_factory},
+        FakeController.rows(runners)
+      )
 
   test "says nothing before the pulse has run", %{conn: conn, node: node} do
     fleet(node, [row("relay_h", :halted)])
@@ -134,6 +139,34 @@ defmodule FlezhaConsoleWeb.ProblemsLiveTest do
     refute html =~ ~s(data-testid="problem-relay:default:relay_d")
     assert html =~ ~s(data-testid="problems-clear")
     assert html =~ "All clear"
+  end
+
+  test "a relay hosted on another controller is judged by that controller's verdict", %{
+    conn: conn,
+    node: node
+  } do
+    fleet(node, [FakeController.relay_row("relay_d", %{health: :degraded, node: :flezha@c2})])
+
+    {_view, html} = live_loaded(conn, ~p"/problems")
+
+    assert html =~ ~s(data-testid="problem-relay:default:relay_d")
+  end
+
+  test "a pulse missing a controller says so, and never reads as all clear", %{
+    conn: conn,
+    node: node
+  } do
+    FakeController.set_fleet(node,
+      namespaces: ["default"],
+      rows: %{"default" => []},
+      unreachable: ["flezha@c2"]
+    )
+
+    {_view, html} = live_loaded(conn, ~p"/problems")
+
+    assert text_of(html, ~s([data-testid="partial-answer"])) =~ "flezha@c2 did not"
+    assert html =~ ~s(data-testid="partial-empty")
+    refute html =~ ~s(data-testid="problems-clear")
   end
 
   test "a runner connecting clears its factory's item", %{conn: conn, node: node} do

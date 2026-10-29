@@ -105,7 +105,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
     FakeController.set(
       node,
       {Fleet, :runners_for_factory},
-      {:ok, Keyword.get(opts, :serving, ["runner-a"])}
+      FakeController.rows(Keyword.get(opts, :serving, ["runner-a"]))
     )
 
     FakeController.set(
@@ -121,7 +121,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       {Fleet, :providers},
       {:ok,
        %{
-         providers: [
+         rows: [
            FakeController.provider_entry(
              "relay_websocket",
              "Flezha.Plugin.Provider.Websocket",
@@ -129,7 +129,8 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
            ),
            FakeController.provider_entry("relay_stdout", "Flezha.Plugin.Provider.StdOut")
          ],
-         refused: 0
+         refused: %{},
+         unreachable: []
        }}
     )
   end
@@ -191,25 +192,24 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
         do: call
       )
 
-  # Aged against the controller's own clock, which `Controller.status/1`
-  # reports and the stand-in reads from the peer.
-  defp stall_signal(node, layer, metadata, age_us) do
-    now = :erpc.call(node, :erlang, :monotonic_time, [:microsecond])
-
+  # A verdict `age_us` old by the wall-clock stamp `emitter` put on it, which
+  # is what a verdict is aged by, whichever controller emitted it.
+  defp stall_signal(node, layer, metadata, age_us, emitter \\ :"flezha@node-a") do
     FakeController.set(
       node,
       {Observability, :query},
-      {:ok,
-       [
-         %{
-           kind: :event,
-           source: :flezha_health,
-           name: :stall_localized,
-           measurements: %{count: 1},
-           metadata: Map.put(metadata, :layer, layer),
-           ts: now - age_us
-         }
-       ]}
+      FakeController.rows([
+        %{
+          kind: :event,
+          source: :flezha_health,
+          name: :stall_localized,
+          measurements: %{count: 1},
+          metadata: Map.put(metadata, :layer, layer),
+          ts: 0,
+          node: emitter,
+          at_us: System.os_time(:microsecond) - age_us
+        }
+      ])
     )
   end
 
@@ -247,7 +247,12 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Fleet, :providers},
-        {:ok, %{providers: [%{id: "relay_websocket", module: "x", type: :relay}], refused: 0}}
+        {:ok,
+         %{
+           rows: [%{id: "relay_websocket", module: "x", type: :relay}],
+           refused: %{},
+           unreachable: []
+         }}
       )
 
       {:ok, view, _html} = live(conn, @relay)
@@ -359,6 +364,29 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       refute html =~ ~s(data-testid="topology-stall")
     end
 
+    test "a verdict from another controller is aged by its own stamp: 20 s old banners, 70 s old does not",
+         %{conn: conn, node: node} do
+      other = :"flezha@node-b"
+
+      stall_signal(node, :relay_not_forwarding, %{relay_id: "relay_a"}, 20_000_000, other)
+      {:ok, view, html} = live(conn, @relay)
+
+      assert html =~ ~s(data-testid="topology-stall")
+      assert has_element?(view, ~s([data-testid="topo-stall-marker"]))
+
+      # Asked from the window's start, by this console's clock.
+      assert [[%{source: :flezha_health, since_us: since_us}, _ctx] | _] =
+               FakeController.calls(node, {Observability, :query})
+
+      assert_in_delta since_us, System.os_time(:microsecond) - 60_000_000, 10_000_000
+
+      stall_signal(node, :relay_not_forwarding, %{relay_id: "relay_a"}, 70_000_000, other)
+      {:ok, view, html} = live(conn, @relay)
+
+      refute html =~ ~s(data-testid="topology-stall")
+      refute has_element?(view, ~s([data-testid="topo-stall-marker"]))
+    end
+
     test "selecting the relay shows its facts, its channel's credit, its off-path bindings and links",
          %{conn: conn, node: node} do
       snapshot(node, [{"relay_a", 1, 1}], [
@@ -438,8 +466,9 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Dlq, :stats},
-        {:ok,
-         [%{relay_class: "relay_a", tasklet_id: "static_entry_tasklet", entries: 4, bytes: 128}]}
+        FakeController.rows([
+          %{relay_class: "relay_a", tasklet_id: "static_entry_tasklet", entries: 4, bytes: 128}
+        ])
       )
 
       {:ok, view, html} = live(conn, @relay)
@@ -1378,11 +1407,10 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Controller, :controllers},
-        {:ok,
-         [
-           FakeController.controller_row("rpi5"),
-           FakeController.controller_row("rpi4", %{host_node: "raspberrypi4", local?: false})
-         ]}
+        FakeController.rows([
+          FakeController.controller_row("rpi5"),
+          FakeController.controller_row("rpi4", %{host_node: "raspberrypi4", local?: false})
+        ])
       )
 
       {view, html} = live_loaded(conn, ~p"/namespaces/default")
@@ -1478,7 +1506,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Dlq, :stats},
-        {:ok, [%{relay_class: "relay_a", tasklet_id: "sh", entries: 7, bytes: 0}]}
+        FakeController.rows([%{relay_class: "relay_a", tasklet_id: "sh", entries: 7, bytes: 0}])
       )
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
@@ -1594,7 +1622,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Fleet, :runners_for_factory},
-        {:per_arg, 1, %{"orders" => {:ok, ["runner-a"]}}, {:ok, []}}
+        {:per_arg, 1, %{"orders" => FakeController.rows(["runner-a"])}, FakeController.rows([])}
       )
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
@@ -1809,11 +1837,10 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Dlq, :stats},
-        {:ok,
-         [
-           %{relay_class: "relay_a", tasklet_id: "sh", entries: 7, bytes: 0},
-           %{relay_class: "elsewhere", tasklet_id: "sh", entries: 5, bytes: 0}
-         ]}
+        FakeController.rows([
+          %{relay_class: "relay_a", tasklet_id: "sh", entries: 7, bytes: 0},
+          %{relay_class: "elsewhere", tasklet_id: "sh", entries: 5, bytes: 0}
+        ])
       )
 
       {view, html} = live_loaded(conn, ~p"/namespaces/default")
@@ -1832,7 +1859,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Dlq, :stats},
-        {:ok, [%{relay_class: "relay_a", tasklet_id: "sh", entries: 1, bytes: 0}]}
+        FakeController.rows([%{relay_class: "relay_a", tasklet_id: "sh", entries: 1, bytes: 0}])
       )
 
       {view, html} = live_loaded(conn, ~p"/namespaces/default")
@@ -1855,11 +1882,10 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Relay, :relay_plugins},
-        {:ok,
-         [
-           {"relay_a", [{"ws_in", %{}}, {"kafka_out", %{}}]},
-           {"relay_b", [{"ws_in", %{}}]}
-         ]}
+        FakeController.rows([
+          {"relay_a", [{"ws_in", %{}}, {"kafka_out", %{}}]},
+          {"relay_b", [{"ws_in", %{}}]}
+        ])
       )
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
@@ -1875,36 +1901,35 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Flezha.Service.Schedule, :list},
-        {:ok,
-         [
-           %{
-             name: "nightly",
-             cron: "0 2 * * *",
-             timezone: "Etc/UTC",
-             namespace: "default",
-             factory_id: "f",
-             node: :n,
-             next_fire: {:ok, ~U[2026-10-18 02:00:00Z]}
-           },
-           %{
-             name: "soon",
-             cron: "30 9 * * *",
-             timezone: "Etc/UTC",
-             namespace: "default",
-             factory_id: "f",
-             node: :n,
-             next_fire: soon
-           },
-           %{
-             name: "theirs",
-             cron: "* * * * *",
-             timezone: "Etc/UTC",
-             namespace: "staging",
-             factory_id: "f",
-             node: :n,
-             next_fire: ~U[2026-10-17 00:00:00Z]
-           }
-         ]}
+        FakeController.rows([
+          %{
+            name: "nightly",
+            cron: "0 2 * * *",
+            timezone: "Etc/UTC",
+            namespace: "default",
+            factory_id: "f",
+            node: :n,
+            next_fire: {:ok, ~U[2026-10-18 02:00:00Z]}
+          },
+          %{
+            name: "soon",
+            cron: "30 9 * * *",
+            timezone: "Etc/UTC",
+            namespace: "default",
+            factory_id: "f",
+            node: :n,
+            next_fire: soon
+          },
+          %{
+            name: "theirs",
+            cron: "* * * * *",
+            timezone: "Etc/UTC",
+            namespace: "staging",
+            factory_id: "f",
+            node: :n,
+            next_fire: ~U[2026-10-17 00:00:00Z]
+          }
+        ])
       )
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
@@ -1927,7 +1952,9 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Flezha.Service.Namespace, :quota},
-        {:per_arg, 1, %{relays: {:ok, 5}, runners: {:ok, 9}}, {:ok, 0}}
+        {:per_arg, 1,
+         %{relays: FakeController.quota_usage(5), runners: FakeController.quota_usage(9)},
+         FakeController.quota_usage(0)}
       )
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
@@ -1967,7 +1994,9 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Flezha.Service.Namespace, :quota},
-        {:per_arg, 1, %{relays: {:ok, 4}, runners: {:ok, 1}}, {:ok, 0}}
+        {:per_arg, 1,
+         %{relays: FakeController.quota_usage(4), runners: FakeController.quota_usage(1)},
+         FakeController.quota_usage(0)}
       )
 
       {view, html} = live_loaded(conn, ~p"/namespaces/default")
@@ -1990,7 +2019,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Relay, :relay_plugins},
-        {:ok, [{"relay_a", [{"ws_in", %{}}, {"kafka_out", %{}}, {"tap", %{}}]}]}
+        FakeController.rows([{"relay_a", [{"ws_in", %{}}, {"kafka_out", %{}}, {"tap", %{}}]}])
       )
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
@@ -2190,7 +2219,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Fleet, :factories},
-        {:ok, [%{id: "store_input", run: :flow, runners: ["runner-a"]}]}
+        FakeController.rows([%{id: "store_input", run: :flow, runners: ["runner-a"]}])
       )
 
       {view, html} = live_loaded(conn, "/namespaces/default?inspect=runner:runner-a")

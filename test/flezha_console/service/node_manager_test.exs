@@ -72,6 +72,55 @@ defmodule FlezhaConsole.Service.NodeManagerTest do
       assert [] = NodeManager.ok_or({:error, :node_not_connected}, [])
       assert nil == NodeManager.ok_or({:error, :timeout}, nil)
     end
+
+    test "takes a cluster answer's rows, partial or not" do
+      assert [1] = NodeManager.ok_or({:ok, %{rows: [1], unreachable: [:flezha@c2]}}, [])
+      assert {[1], nil} = NodeManager.ok_or_error({:ok, %{rows: [1], unreachable: []}}, [])
+    end
+  end
+
+  describe "unreachable/1" do
+    test "gathers the controllers a screen's reads lack, once each and sorted" do
+      answers = [
+        {:ok, %{rows: [], unreachable: [:flezha@c3]}},
+        {:ok, %{rows: [1], unreachable: []}},
+        {:error, :timeout},
+        {:ok, %{relays: [], unreachable: [:flezha@c2, :flezha@c3]}},
+        %{kind: :relays, value: 2, unreachable: [:flezha@c2]}
+      ]
+
+      assert NodeManager.unreachable(answers) == [:flezha@c2, :flezha@c3]
+      assert NodeManager.unreachable([{:ok, [1, 2]}]) == []
+    end
+  end
+
+  describe "rows by controller" do
+    @rows [%{id: 1, node: :flezha@c1}, %{id: 2, node: :flezha@c2}, %{id: 3, node: nil}]
+
+    test "names each controller the rows live on, once" do
+      assert NodeManager.row_controllers(@rows) == [:flezha@c1, :flezha@c2]
+    end
+
+    test "narrows to one controller by its name, and keeps every row for none" do
+      assert [%{id: 2}] = NodeManager.rows_with(@rows, :node, "flezha@c2")
+      assert NodeManager.rows_with(@rows, :node, "") == @rows
+      assert NodeManager.rows_with(@rows, :node, nil) == @rows
+    end
+
+    test "picks a controller's own rows, or says it did not answer" do
+      answer = {:ok, %{rows: @rows, unreachable: [:flezha@c3]}}
+
+      assert {:ok, [%{id: 1}]} = NodeManager.of_controller(answer, "flezha@c1")
+      assert {:ok, %{id: 2}} = NodeManager.controller_row(answer, :flezha@c2)
+
+      assert NodeManager.of_controller(answer, "flezha@c3") ==
+               {:error, {:controller_unreachable, "flezha@c3"}}
+
+      assert NodeManager.controller_row(answer, "flezha@c9") ==
+               {:error, {:controller_unreachable, "flezha@c9"}}
+
+      assert NodeManager.of_controller({:error, :timeout}, "flezha@c1") == {:error, :timeout}
+    end
   end
 
   describe "scoped_namespaces/1" do

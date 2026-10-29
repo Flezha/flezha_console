@@ -3,11 +3,11 @@
     <%= if @disabled? do %>
       Observability is switched off on this controller.
     <% else %>
-      Each part of the controller reports what it does as signals. See what each one said
-      recently, watch one live, or switch one off. {Words.count(
-        Enum.count(@sources, &NodeManager.source_enabled?/1),
+      Each part of every controller reports what it does as signals. See what each one said
+      recently, watch one live, or switch one off on every controller. {Words.count(
+        Enum.count(@sources, &(switch_state(&1) == true)),
         "source"
-      )} of {length(@sources)} are on.
+      )} of {length(@sources)} are on everywhere.
     <% end %>
   </:sentence>
 </.page_header>
@@ -20,18 +20,33 @@
 
 <.runtime_error error={@toggle_error} action="the source toggle" />
 
+<.notice :if={@toggle_missed} kind={:info} testid="toggle-missed">
+  <% {source, on?, missed} = @toggle_missed %>
+  {title(source)} was not switched {if on?, do: "on", else: "off"} on {Words.join(
+    Enum.map(missed, &to_string/1)
+  )}, which did not answer. Switch it again once {if length(missed) == 1,
+    do: "it does",
+    else: "they do"}.
+</.notice>
+
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
 <p :if={not @disabled? and @sinks != []} class="fcon-figures" data-testid="sinks-line">
   Signals go to
   <span
-    :for={{sink, index} <- Enum.with_index(@sinks)}
-    data-testid={"sink-#{sink[:name]}"}
+    :for={{group, index} <- Enum.with_index(sink_groups(@sinks))}
+    data-testid={"sink-#{group.name}"}
   >
-    <span class="fcon-num">{sink[:name]}</span>{if purpose = sink_purpose(sink),
+    <span class="fcon-num">{group.name}</span>{if purpose = sink_purpose(group.sink),
       do: " (#{purpose})"}<span
-      :if={!NodeManager.sink_running?(sink)}
+      :if={group.stopped != []}
       class="fcon-badge fcon-badge--negative ml-1"
-      data-testid={"sink-stopped-#{sink[:name]}"}
-    >Not running</span>{if index == length(@sinks) - 1, do: ".", else: ", "}
+      data-testid={"sink-stopped-#{group.name}"}
+    >Not running on <.controller_name
+        :for={node <- group.stopped}
+        node={node}
+        controllers={@shell_pulse[:controllers]}
+      /></span>{if index == length(sink_groups(@sinks)) - 1, do: ".", else: ", "}
   </span>
 </p>
 
@@ -56,9 +71,10 @@
       />
     </form>
   </:actions>
-  <.empty_state :if={@sources == []} icon="hero-signal">
+  <.empty_state :if={@sources == [] and @unreachable == []} icon="hero-signal">
     A source is a part of the controller that reports on itself. This controller reports none.
   </.empty_state>
+  <.partial_empty :if={@sources == [] and @unreachable != []} noun="source" />
   <div class="space-y-8">
     <div
       :for={group <- groups(@sources, @source_filter)}
@@ -97,17 +113,25 @@
         </:col>
         <:col :let={source} label="Emitting">
           <span
+            class="flex items-center gap-2"
             data-testid={"source-enabled-#{source[:name]}"}
-            data-enabled={to_string(NodeManager.source_enabled?(source))}
+            data-enabled={to_string(switch_state(source))}
           >
             <.switch
-              checked={NodeManager.source_enabled?(source)}
+              checked={switch_state(source)}
               label={to_string(source[:name])}
               show_label={false}
               phx-click="toggle_source"
               phx-value-source={source[:name]}
               testid={"toggle-#{source[:name]}"}
             />
+            <span
+              :if={enabled_words(source)}
+              class="fcon-figures"
+              data-testid={"source-partly-#{source[:name]}"}
+            >
+              {enabled_words(source)}
+            </span>
           </span>
         </:col>
         <:col :let={source} label="Live">
@@ -195,7 +219,7 @@
       :for={signal <- Enum.reject(@tail_records, & &1[:history?])}
       signal={signal}
       source={@tail_source}
-      offset_us={@clock_offset_us}
+      controllers={@shell_pulse[:controllers]}
     />
     <li
       :if={Enum.any?(@tail_records, & &1[:history?])}
@@ -208,7 +232,7 @@
       :for={signal <- Enum.filter(@tail_records, & &1[:history?])}
       signal={signal}
       source={@tail_source}
-      offset_us={@clock_offset_us}
+      controllers={@shell_pulse[:controllers]}
     />
   </ol>
 </.drawer>

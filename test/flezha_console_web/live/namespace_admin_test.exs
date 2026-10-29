@@ -37,16 +37,65 @@ defmodule FlezhaConsoleWeb.NamespaceAdminTest do
 
   defp with_catalog(node, opts) do
     catalog =
-      Enum.map(opts[:running] || [], &%{namespace: &1, running: true}) ++
-        Enum.map(opts[:cold] || [], &%{namespace: &1, running: false})
+      Enum.map(opts[:running] || [], &%{namespace: &1, running: true, nodes: [:"flezha@node-a"]}) ++
+        Enum.map(opts[:cold] || [], &%{namespace: &1, running: false, nodes: []})
 
-    FakeController.set(node, {Relay, :list_namespaces}, {:ok, catalog})
+    FakeController.set(
+      node,
+      {Relay, :list_namespaces},
+      FakeController.rows(catalog, opts[:unreachable] || [])
+    )
+
     FakeController.set(node, {Namespace, :list}, {:ok, opts[:records] || []})
 
     if get = opts[:get], do: FakeController.set(node, {Namespace, :get}, get)
   end
 
   describe "the listing reads the catalog with each record" do
+    test "a namespace whose hub runs only on another controller is listed as running", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Relay, :list_namespaces},
+        FakeController.rows([%{namespace: "second", running: true, nodes: [:"flezha@node-b"]}])
+      )
+
+      FakeController.set(node, {Namespace, :list}, {:ok, [record("second")]})
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces")
+
+      assert html =~ ~s(data-testid="namespace-row-second")
+      assert html =~ "Declared and running"
+      refute html =~ "Declared, no hub running"
+    end
+
+    test "an empty listing missing a controller says so, and not that nothing exists", %{
+      conn: conn,
+      node: node
+    } do
+      with_catalog(node, unreachable: ["flezha@node-b"])
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces")
+
+      assert length(testids(html, ~s([data-testid="partial-answer"]))) == 1
+      assert text_of(html, ~s([data-testid="partial-answer"])) =~ "flezha@node-b did not"
+
+      assert text_of(html, ~s([data-testid="partial-empty"])) ==
+               "No namespace was found on the controllers that answered."
+
+      refute html =~ ~s(data-testid="namespaces-empty")
+    end
+
+    test "a full answer shows no partial-answer notice", %{conn: conn, node: node} do
+      with_catalog(node, records: [record("default")], running: ["default"])
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces")
+
+      refute html =~ ~s(data-testid="partial-answer")
+    end
+
     test "a declared namespace with a hub is listed once, as running", %{conn: conn, node: node} do
       with_catalog(node, records: [record("default")], running: ["default"])
 
@@ -125,7 +174,7 @@ defmodule FlezhaConsoleWeb.NamespaceAdminTest do
 
     test "a breach is visible without opening the namespace", %{conn: conn, node: node} do
       with_catalog(node, records: [record("full", %{max_relays: 2})], running: ["full"])
-      FakeController.set(node, {Namespace, :quota}, {:ok, 2})
+      FakeController.set(node, {Namespace, :quota}, FakeController.quota_usage(2))
 
       {:ok, _view, html} = live(conn, ~p"/namespaces")
 
@@ -139,7 +188,7 @@ defmodule FlezhaConsoleWeb.NamespaceAdminTest do
       node: node
     } do
       with_catalog(node, running: ["default"], get: {:ok, record("default")})
-      FakeController.set(node, {Namespace, :quota}, {:ok, 7})
+      FakeController.set(node, {Namespace, :quota}, FakeController.quota_usage(7))
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
@@ -171,12 +220,37 @@ defmodule FlezhaConsoleWeb.NamespaceAdminTest do
       node: node
     } do
       with_catalog(node, running: ["default"], get: {:ok, record("default", %{max_relays: 5})})
-      FakeController.set(node, {Namespace, :quota}, {:per_arg, 1, %{relays: {:ok, 5}}, {:ok, 0}})
+
+      FakeController.set(
+        node,
+        {Namespace, :quota},
+        {:per_arg, 1, %{relays: FakeController.quota_usage(5)}, FakeController.quota_usage(0)}
+      )
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
 
       assert html =~ ~s(data-testid="quota-breached-relays")
       refute html =~ ~s(data-testid="quota-breached-runners")
+    end
+
+    test "relays on two controllers are counted as one total against the limit", %{
+      conn: conn,
+      node: node
+    } do
+      with_catalog(node, running: ["default"], get: {:ok, record("default", %{max_relays: 5})})
+
+      FakeController.set(
+        node,
+        {Namespace, :quota},
+        {:per_arg, 1,
+         %{relays: FakeController.quota_usage(5, %{"flezha@node-a": 3, "flezha@node-b": 2})},
+         FakeController.quota_usage(0)}
+      )
+
+      {_view, html} = live_loaded(conn, ~p"/namespaces/default")
+
+      assert html =~ ~s(data-testid="quota-breached-relays")
+      assert text_of(html, ~s([data-testid="quota-relays"])) =~ "5"
     end
 
     test "an undeclared namespace states that no limits apply", %{conn: conn, node: node} do

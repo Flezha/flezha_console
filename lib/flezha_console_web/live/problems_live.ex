@@ -50,8 +50,25 @@ defmodule FlezhaConsoleWeb.ProblemsLive do
 
     <.runtime_error :if={@shell_pulse} error={@shell_pulse.error} action="list the namespaces" />
 
+    <.partial_answer
+      :if={@shell_pulse}
+      unreachable={@shell_pulse.unreachable}
+      controllers={@shell_pulse.controllers}
+    />
+
+    <.partial_empty
+      :if={
+        @shell_pulse && is_nil(@shell_pulse.error) && @shell_pulse.items == [] &&
+          @shell_pulse.unreachable != []
+      }
+      noun="problem"
+    />
+
     <.empty_state
-      :if={@shell_pulse && is_nil(@shell_pulse.error) && @shell_pulse.items == []}
+      :if={
+        @shell_pulse && is_nil(@shell_pulse.error) && @shell_pulse.items == [] &&
+          @shell_pulse.unreachable == []
+      }
       icon="hero-check-circle"
       testid="problems-clear"
     >

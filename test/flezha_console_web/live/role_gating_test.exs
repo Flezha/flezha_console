@@ -16,7 +16,7 @@ defmodule FlezhaConsoleWeb.RoleGatingTest do
   alias Flezha.Service.Schedule
   alias Flezha.Service.Steps
 
-  @viewer ~w(AuditLog.list_files AuditLog.read AuditLog.stats AuditLog.tail
+  @viewer ~w(Logs.files Logs.read Logs.stats Logs.tail
              Controller.status Controller.boot_status Controller.cluster_status
              Fleet.factories Fleet.installed_plugins Fleet.provider Fleet.providers Fleet.runners
              Fleet.runners_for_factory Namespace.get Namespace.list Namespace.quota
@@ -27,7 +27,7 @@ defmodule FlezhaConsoleWeb.RoleGatingTest do
              Steps.completed_retention_hours Steps.time_travel)
 
   @ops @viewer ++
-         ~w(AuditLog.rotate Dlq.drop Dlq.replay PluginManager.bind PluginManager.disable
+         ~w(Logs.rotate Dlq.drop Dlq.replay PluginManager.bind PluginManager.disable
             PluginManager.enable PluginManager.unbind PluginManager.update Relay.call
             Relay.call_channel Relay.listen Relay.replay Relay.send Relay.start Relay.stop
             Schedule.add Schedule.remove Schedule.run Steps.inbox Steps.outbox Steps.rescale
@@ -44,7 +44,12 @@ defmodule FlezhaConsoleWeb.RoleGatingTest do
       {:ok, %{builder: %{run: :flow}, extensions: FakeController.hook_table("plug_1")}}
     )
 
-    FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
+    FakeController.set(
+      node,
+      {Relay, :relay_rows},
+      FakeController.rows([FakeController.relay_row("relay_a")])
+    )
+
     FakeController.set_fleet(node, rows: %{"default" => [FakeController.relay_row("relay_a")]})
 
     FakeController.set(
@@ -108,19 +113,18 @@ defmodule FlezhaConsoleWeb.RoleGatingTest do
     FakeController.set(
       node,
       {Schedule, :list},
-      {:ok,
-       [
-         %{
-           name: "nightly",
-           cron: "0 3 * * *",
-           timezone: "Etc/UTC",
-           namespace: "default",
-           factory_id: "echo_steps",
-           armed: true,
-           last_fire: nil,
-           next_fire: nil
-         }
-       ]}
+      FakeController.rows([
+        %{
+          name: "nightly",
+          cron: "0 3 * * *",
+          timezone: "Etc/UTC",
+          namespace: "default",
+          factory_id: "echo_steps",
+          armed: true,
+          last_fire: nil,
+          next_fire: nil
+        }
+      ])
     )
 
     :ok

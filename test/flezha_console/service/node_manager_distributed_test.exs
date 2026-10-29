@@ -133,7 +133,8 @@ defmodule FlezhaConsole.Service.NodeManagerDataPlaneTest do
   test "the liveness snapshot is passed through as the controller produced it", %{node: node} do
     snapshot = %{
       channels: [%{runner_id: "runner-a", name: :chan_a, io_in_received: 7}],
-      relays: [%{relay_id: "relay_a", io_in_received: 9, forwarded: 8, filtered_nil: 1}]
+      relays: [%{relay_id: "relay_a", io_in_received: 9, forwarded: 8, filtered_nil: 1}],
+      unreachable: [:"flezha@node-b"]
     }
 
     FakeController.set(node, {Flezha.Service.Controller, :liveness_counters}, {:ok, snapshot})
@@ -141,10 +142,16 @@ defmodule FlezhaConsole.Service.NodeManagerDataPlaneTest do
     assert NodeManager.liveness_snapshot(nil) == {:ok, snapshot}
   end
 
-  test "the observability query carries the UI's caller context", %{node: node} do
-    FakeController.set(node, {Flezha.Service.Observability, :query}, {:ok, [%{name: :stall}]})
+  test "the observability query carries the UI's caller context and answers every controller",
+       %{node: node} do
+    FakeController.set(
+      node,
+      {Flezha.Service.Observability, :query},
+      FakeController.rows([%{name: :stall, node: :"flezha@node-a", at_us: 1}], ["flezha@node-b"])
+    )
 
-    assert {:ok, [%{name: :stall}]} =
+    assert {:ok,
+            %{rows: [%{name: :stall, node: :"flezha@node-a"}], unreachable: [:"flezha@node-b"]}} =
              NodeManager.observability_query(%{source: :flezha_health, limit: 20}, nil)
 
     assert [[%{source: :flezha_health, limit: 20}, %{source: :ui}]] =
@@ -162,18 +169,46 @@ defmodule FlezhaConsole.Service.NodeManagerDataPlaneTest do
              NodeManager.observability_query(%{source: :flezha_health}, nil)
   end
 
-  test "the controller's monotonic clock is read from its published status", %{node: node} do
-    assert is_integer(NodeManager.controller_monotonic_us(nil))
-    assert [[%{source: :ui}]] = FakeController.calls(node, {Flezha.Service.Controller, :status})
+  test "one controller's status row is picked out of every controller's", %{node: node} do
+    FakeController.set(
+      node,
+      {Flezha.Service.Controller, :status},
+      FakeController.rows([
+        FakeController.status_row("node-a"),
+        FakeController.status_row("node-b", %{durability_posture: :remote_tier})
+      ])
+    )
+
+    assert {:ok, %{node: :"flezha@node-b", durability_posture: :remote_tier}} =
+             nil |> NodeManager.controller_status() |> NodeManager.controller_row("flezha@node-b")
   end
 
-  test "a refused status is the clock's answer, not a number", %{node: node} do
+  test "a controller that did not answer is that error, not an empty row", %{node: node} do
+    FakeController.set(
+      node,
+      {Flezha.Service.Controller, :status},
+      FakeController.rows([FakeController.status_row("node-a")], ["flezha@node-b"])
+    )
+
+    answer = NodeManager.controller_status(nil)
+
+    assert NodeManager.controller_row(answer, "flezha@node-b") ==
+             {:error, {:controller_unreachable, "flezha@node-b"}}
+
+    assert NodeManager.error({:controller_unreachable, "flezha@node-b"}).message ==
+             "flezha@node-b did not answer, so its facts could not be read."
+
+    assert NodeManager.unreachable([answer]) == [:"flezha@node-b"]
+  end
+
+  test "a refused status is that refusal for the chosen controller too", %{node: node} do
     FakeController.set(
       node,
       {Flezha.Service.Controller, :status},
       FakeController.error("authz.role_insufficient")
     )
 
-    assert {:error, %Flezha.Error{class: :denied}} = NodeManager.controller_monotonic_us(nil)
+    assert {:error, %Flezha.Error{class: :denied}} =
+             nil |> NodeManager.controller_status() |> NodeManager.controller_row("flezha@node-a")
   end
 end

@@ -45,6 +45,8 @@
 
 <.runtime_error error={@load_error} action="the relay listing" />
 
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
 <form phx-change="filter" class="flex flex-wrap items-end gap-3 mb-5">
   <.combobox
     :if={!@scoped_namespace}
@@ -101,7 +103,13 @@
 
 <.skeleton :if={!@loaded?} rows={6} testid="relays-loading" />
 
-<.empty_state :if={@loaded? and @rows == []} icon="hero-cpu-chip" testid="relays-empty">
+<.partial_empty :if={@loaded? and @rows == [] and @unreachable != []} noun="relay" />
+
+<.empty_state
+  :if={@loaded? and @rows == [] and @unreachable == []}
+  icon="hero-cpu-chip"
+  testid="relays-empty"
+>
   <%= cond do %>
     <% filtered?(@filters, @scoped_namespace) -> %>
       No running relay matches these filters.
@@ -191,16 +199,29 @@
     <span class="fcon-num">{row.namespace}</span>
   </:col>
   <:col :let={row} label="Factory"><span class="fcon-num">{row[:factory] || "—"}</span></:col>
-  <:col :let={row} label="Health"><.state_badge value={row.health} /></:col>
+  <:col :let={row} label="Health">
+    <.state_badge value={row.health} />
+    <span
+      :if={row[:unanswered?]}
+      class="fcon-figures block"
+      data-testid={"relay-unanswered-#{row.id}"}
+    >
+      its controller did not answer
+    </span>
+  </:col>
   <:col :let={row} label="Run">{row.run || "—"}</:col>
-  <:col :let={row} label="Node">
+  <:col :let={row} label="Controller">
     <%= case spread(row, :node) do %>
       <% {:one, nil} -> %>
         <span class="fcon-tone-warning">Unplaced</span>
       <% {:one, node} -> %>
-        <span class="fcon-num">{node}</span>
+        <.controller_name
+          node={node}
+          controllers={@shell_pulse[:controllers]}
+          testid={"relay-controller-#{row.id}"}
+        />
       <% {:many, nodes, unplaced} -> %>
-        <span class="fcon-num">{Words.count(nodes, "node")}</span>
+        <span class="fcon-num">{Words.count(nodes, "controller")}</span>
         <span :if={unplaced > 0} class="fcon-tone-warning">{unplaced} unplaced</span>
     <% end %>
   </:col>

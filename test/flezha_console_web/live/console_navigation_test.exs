@@ -180,7 +180,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
       FakeController.set(
         node,
         {Relay, :list_namespaces},
-        {:ok, [%{namespace: "default", running: true}]}
+        FakeController.rows([%{namespace: "default", running: true}])
       )
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
@@ -302,7 +302,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
       FakeController.set(
         node,
         {Relay, :list_namespaces},
-        {:ok, [%{namespace: "default", running: true}]}
+        FakeController.rows([%{namespace: "default", running: true}])
       )
 
       {:ok, view, _html} = live(conn, ~p"/problems")
@@ -523,16 +523,15 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
       FakeController.set(
         node,
         {Flezha.Service.Schedule, :list},
-        {:ok,
-         [
-           %{
-             name: "nightly",
-             cron: "0 * * * *",
-             timezone: "Etc/UTC",
-             namespace: "default",
-             factory_id: "f"
-           }
-         ]}
+        FakeController.rows([
+          %{
+            name: "nightly",
+            cron: "0 * * * *",
+            timezone: "Etc/UTC",
+            namespace: "default",
+            factory_id: "f"
+          }
+        ])
       )
 
       {:ok, view, _html} = live(conn, ~p"/audit")

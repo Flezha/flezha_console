@@ -18,8 +18,14 @@ defmodule FlezhaConsoleWeb.RelayCallsTest do
 
   setup %{node: node} do
     FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{factory_id: "orders"}})
-    FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
-    FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
+
+    FakeController.set(
+      node,
+      {Relay, :relay_rows},
+      FakeController.rows([FakeController.relay_row("relay_a")])
+    )
+
+    FakeController.set(node, {Fleet, :runners_for_factory}, FakeController.rows(["runner-a"]))
     :ok
   end
 
@@ -411,7 +417,7 @@ defmodule FlezhaConsoleWeb.RelayCallsTest do
   describe "a relay nothing can run" do
     setup %{node: node} do
       api(node, [])
-      FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, []})
+      FakeController.set(node, {Fleet, :runners_for_factory}, FakeController.rows([]))
       :ok
     end
 
@@ -482,7 +488,7 @@ defmodule FlezhaConsoleWeb.RelayCallsTest do
       {:ok, view, _html} = live(conn, @url)
       assert has_element?(view, ~s([data-testid="talk-unavailable"]))
 
-      FakeController.set(node, {Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
+      FakeController.set(node, {Fleet, :runners_for_factory}, FakeController.rows(["runner-a"]))
       send(view.pid, {:flezha_event, :runner_connected, {"default", "runner-a"}})
 
       refute has_element?(view, ~s([data-testid="talk-unavailable"]))

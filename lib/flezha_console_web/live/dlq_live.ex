@@ -1,6 +1,8 @@
 defmodule FlezhaConsoleWeb.DlqLive do
   @moduledoc """
-  Dead-letter queue: the payloads that failed and were parked.
+  Dead-letter queue: the payloads that failed and were parked, on every
+  controller. Each entry names the controller holding it, and replay and drop
+  reach it there.
 
   Replay and drop are the only destructive verbs this screen has. Both are
   confirm-gated. A replay re-sends the payload as a new input and the
@@ -28,11 +30,14 @@ defmodule FlezhaConsoleWeb.DlqLive do
       |> assign(
         page_title: "Dead-letter queue",
         filter: nil,
+        controller: nil,
         show_seen?: false,
         groups: [],
+        listed: [],
         entries: [],
         shown: [],
         stats: [],
+        unreachable: [],
         load_error: nil,
         confirm: nil,
         replay_outcome: nil
@@ -42,17 +47,23 @@ defmodule FlezhaConsoleWeb.DlqLive do
   end
 
   # `?class=` narrows the listing to one relay class, which is how an open
-  # problem about parked entries links here, and `?seen=shown` lists the seen
-  # ones too. A parked entry opens in the inspector from `?inspect=entry:<ref>`.
+  # problem about parked entries links here, `?controller=` to the entries one
+  # controller holds, and `?seen=shown` lists the seen ones too. A parked entry
+  # opens in the inspector from `?inspect=entry:<ref>`.
   @impl true
   def handle_params(params, _uri, socket) do
     filter = params["class"] || ""
+    controller = params["controller"] || ""
     show_seen? = params["seen"] == "shown"
+    %{filter: was_filter, controller: was_controller, show_seen?: was_seen} = socket.assigns
 
     socket =
-      if {filter, show_seen?} == {socket.assigns.filter, socket.assigns.show_seen?},
+      if {filter, controller, show_seen?} == {was_filter, was_controller, was_seen},
         do: socket,
-        else: socket |> assign(filter: filter, show_seen?: show_seen?) |> refresh()
+        else:
+          socket
+          |> assign(filter: filter, controller: controller, show_seen?: show_seen?)
+          |> refresh()
 
     {:noreply, inspect_params(socket, params)}
   end
@@ -66,7 +77,11 @@ defmodule FlezhaConsoleWeb.DlqLive do
   @impl true
   def handle_event("filter", %{"filter" => filter}, socket) do
     query =
-      [class: filter["relay_class"], seen: filter["show_seen"] == "true" && "shown"]
+      [
+        class: filter["relay_class"],
+        controller: filter["controller"],
+        seen: filter["show_seen"] == "true" && "shown"
+      ]
       |> Enum.reject(fn {_key, value} -> value in [nil, "", false] end)
 
     {:noreply, push_patch(socket, to: ~p"/dlq?#{query}")}
@@ -154,30 +169,60 @@ defmodule FlezhaConsoleWeb.DlqLive do
 
   @impl FlezhaConsoleWeb.Live.Refresh
   def refresh(socket) do
-    %{filter: filter, show_seen?: show_seen?, flezha_token: token} = socket.assigns
+    %{filter: filter, controller: controller, show_seen?: show_seen?, flezha_token: token} =
+      socket.assigns
 
     case NodeManager.dlq_list(filter, token) do
-      {:ok, entries} ->
+      {:ok, %{rows: entries}} = listed ->
         decorated = Enum.map(entries, &decorate/1)
         seen = DeadLetters.seen(decorated)
 
         decorated =
           Enum.map(decorated, &%{&1 | seen?: MapSet.member?(seen, {&1.ref, &1.generation})})
 
-        shown = if show_seen?, do: decorated, else: Enum.reject(decorated, & &1.seen?)
+        held = NodeManager.rows_with(decorated, :node, controller)
+        shown = if show_seen?, do: held, else: Enum.reject(held, & &1.seen?)
+        tasklets = NodeManager.dlq_tasklets(filter, token)
+        stats = NodeManager.dlq_stats(token)
 
         assign(socket,
-          entries: decorated,
+          listed: decorated,
+          entries: held,
           shown: shown,
-          groups: group_by_tasklet(decorated, shown, filter, token),
+          groups: group_by_tasklet(held, shown, tasklets, controller),
           load_error: nil,
           stats:
-            token |> NodeManager.dlq_stats() |> NodeManager.ok_or([]) |> Enum.filter(&parked?/1)
+            stats |> NodeManager.ok_or([]) |> NodeManager.rows_with(:node, controller) |> merged(),
+          unreachable: NodeManager.unreachable([listed, tasklets, stats])
         )
 
       {:error, reason} ->
-        assign(socket, entries: [], shown: [], groups: [], stats: [], load_error: reason)
+        assign(socket,
+          listed: [],
+          entries: [],
+          shown: [],
+          groups: [],
+          stats: [],
+          unreachable: [],
+          load_error: reason
+        )
     end
+  end
+
+  # One figure per tasklet, however many controllers park its entries.
+  defp merged(stats) do
+    stats
+    |> Enum.filter(&parked?/1)
+    |> Enum.group_by(&{to_string(&1[:relay_class]), to_string(&1[:tasklet_id])})
+    |> Enum.sort()
+    |> Enum.map(fn {{class, tasklet}, rows} ->
+      %{
+        relay_class: class,
+        tasklet_id: tasklet,
+        entries: rows |> Enum.map(&(&1[:entries] || 0)) |> Enum.sum(),
+        bytes: rows |> Enum.map(&(&1[:bytes] || 0)) |> Enum.sum()
+      }
+    end)
   end
 
   @doc ~S|"2 dead letters are marked seen and hidden."|
@@ -189,20 +234,20 @@ defmodule FlezhaConsoleWeb.DlqLive do
   # the tier has shipped it, and reports it at zero meanwhile.
   defp parked?(stat), do: (stat[:entries] || 0) > 0
 
-  # Grouped the way the controller stores and ships them: one directory per
-  # `{relay_class, tasklet_id}` pair. The controller is asked which pairs exist
-  # so a tasklet whose entries are filtered out still shows as a group with a
-  # count, rather than vanishing. A group lists what is `shown` and counts
-  # every entry, and how many of them are seen.
-  defp group_by_tasklet(entries, shown, filter, token) do
+  # Grouped the way the controllers store and ship them: one directory per
+  # `{relay_class, tasklet_id}` pair. The controllers are asked which pairs
+  # exist so a tasklet whose entries are filtered out still shows as a group
+  # with a count, rather than vanishing. A group lists what is `shown` and
+  # counts every entry, and how many of them are seen.
+  defp group_by_tasklet(entries, shown, tasklets, controller) do
     parked = Enum.group_by(entries, &{&1.relay_class, &1.tasklet_id})
     listed = Enum.group_by(shown, &{&1.relay_class, &1.tasklet_id})
 
     known =
-      filter
-      |> NodeManager.dlq_tasklets(token)
+      tasklets
       |> NodeManager.ok_or([])
-      |> Enum.map(fn {class, tasklet} -> {to_string(class), to_string(tasklet)} end)
+      |> NodeManager.rows_with(:node, controller)
+      |> Enum.map(&{to_string(&1.relay_class), to_string(&1.tasklet_id)})
 
     (known ++ Map.keys(parked))
     |> Enum.uniq()
@@ -227,6 +272,7 @@ defmodule FlezhaConsoleWeb.DlqLive do
   defp decorate(entry) do
     %{
       ref: DeadLetters.ref(entry),
+      node: entry[:node],
       relay_class: entry["relay_class"],
       tasklet_id: entry["tasklet_id"],
       cell_key: entry["cell_key"],

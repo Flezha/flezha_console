@@ -20,36 +20,39 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
     :ok
   end
 
-  # `Controller.status/1` answers the durability posture and the shutdown state
-  # in one map.
+  # `Controller.status/1` answers each controller's durability posture and
+  # shutdown state, one row each; the default controller listing marks
+  # `flezha@node-a` as this console's, so its row is the one shown.
   defp with_status(node, overrides) do
-    status =
-      Map.merge(
-        %{
-          shutdown_in_progress: false,
-          shutdown_phase: nil,
-          signal_handler_status: :installed,
-          graceful_shutdown_enabled: true,
-          graceful_shutdown_timeout_ms: 60_000,
-          durability_backend: :none,
-          durability_posture: :local_only,
-          durability_rpo_breaches: 0,
-          durability_levels: %{},
-          durability_superseded: 0,
-          node: :"flezha@node-a",
-          monotonic_us: 1
-        },
-        overrides
-      )
+    FakeController.set(
+      node,
+      {Controller, :status},
+      FakeController.rows([
+        FakeController.status_row("node-a", overrides)
+      ])
+    )
+  end
 
-    FakeController.set(node, {Controller, :status}, {:ok, status})
+  # Two controllers, node-a this console's, node-b the other.
+  defp two_controllers(node, unreachable \\ []) do
+    FakeController.set(
+      node,
+      {Controller, :controllers},
+      FakeController.rows(
+        [
+          FakeController.controller_row("node-a", %{host_node: "board-a"}),
+          FakeController.controller_row("node-b", %{host_node: "board-b", local?: false})
+        ],
+        unreachable
+      )
+    )
   end
 
   defp snapshot(overrides) do
     Map.merge(
       %{
         captured_at: "2026-08-24T02:00:00Z",
-        node: "flezha@controller",
+        node: "flezha@node-a",
         erlang_memory: %{},
         top_processes: [],
         ets_tables: [],
@@ -80,15 +83,14 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
       FakeController.set(
         node,
         {Controller, :controllers},
-        {:ok,
-         [
-           FakeController.controller_row("rpi5", %{host_node: "rpi5-board"}),
-           FakeController.controller_row("rpi4", %{
-             host_node: "rpi4-board",
-             local?: false,
-             runners: 3
-           })
-         ]}
+        FakeController.rows([
+          FakeController.controller_row("rpi5", %{host_node: "rpi5-board"}),
+          FakeController.controller_row("rpi4", %{
+            host_node: "rpi4-board",
+            local?: false,
+            runners: 3
+          })
+        ])
       )
 
       {:ok, _view, html} = live(conn, ~p"/controller")
@@ -106,11 +108,10 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
       FakeController.set(
         node,
         {Controller, :controllers},
-        {:ok,
-         [
-           FakeController.controller_row("rpi5"),
-           %{node: :flezha@rpi4, local?: false, reachable?: false}
-         ]}
+        FakeController.rows([
+          FakeController.controller_row("rpi5"),
+          %{node: :flezha@rpi4, local?: false, reachable?: false}
+        ])
       )
 
       {:ok, _view, html} = live(conn, ~p"/controller")
@@ -140,6 +141,148 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
 
       refute html =~ ~s(data-testid="controllers-table")
       assert html =~ ~s(data-testid="boot-panel")
+    end
+  end
+
+  describe "choosing a controller" do
+    test "the controller marked as this console's is chosen on open", %{conn: conn, node: node} do
+      two_controllers(node)
+
+      {:ok, _view, html} = live(conn, ~p"/controller")
+
+      assert text_of(html, ~s([data-testid="chosen-machine"])) == "board-a"
+      assert html =~ ~s(data-testid="choose-controller-flezha@node-b")
+    end
+
+    test "choosing another controller in the listing shows its own facts and names it in the address",
+         %{conn: conn, node: node} do
+      two_controllers(node)
+
+      FakeController.set(
+        node,
+        {Controller, :status},
+        FakeController.rows([
+          FakeController.status_row("node-a", %{durability_posture: :local_only}),
+          FakeController.status_row("node-b", %{
+            durability_backend: :s3,
+            durability_posture: :remote_tier,
+            durability_superseded: 4
+          })
+        ])
+      )
+
+      FakeController.set(
+        node,
+        {Controller, :boot_status},
+        FakeController.rows([
+          FakeController.boot_row("node-a", %{
+            namespaces: [%{namespace: "default", recovery_state: :normal, registry_rows: 1}]
+          }),
+          FakeController.boot_row("node-b", %{
+            namespaces: [%{namespace: "second", recovery_state: :normal, registry_rows: 1}]
+          })
+        ])
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/controller")
+      assert has_element?(view, ~s([data-testid="boot-default"]))
+
+      view |> element(~s([data-testid="choose-controller-flezha@node-b"])) |> render_click()
+      assert_patch(view, ~p"/controller?#{[controller: "flezha@node-b"]}")
+      html = render(view)
+
+      assert text_of(html, ~s([data-testid="chosen-machine"])) == "board-b"
+      assert html =~ ~s(data-testid="boot-second")
+      refute html =~ ~s(data-testid="boot-default")
+      assert text_of(html, ~s([data-testid="durability-superseded"])) =~ "4"
+      assert text_of(html, ~s([data-testid="durability-posture"])) =~ "shipped to a remote tier"
+    end
+
+    test "a chosen controller that does not answer says its facts could not be read, and the listing renders",
+         %{conn: conn, node: node} do
+      two_controllers(node)
+
+      FakeController.set(
+        node,
+        {Controller, :status},
+        FakeController.rows([FakeController.status_row("node-a")], ["flezha@node-b"])
+      )
+
+      FakeController.set(
+        node,
+        {Controller, :boot_status},
+        FakeController.rows([FakeController.boot_row("node-a")], ["flezha@node-b"])
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/controller?controller=flezha@node-b")
+
+      assert html =~ ~s(data-testid="controllers-table")
+      assert html =~ ~s(data-testid="controller-flezha@node-a")
+
+      assert text_of(html, ~s([data-testid="durability-panel"] [data-testid="runtime-error"])) =~
+               "flezha@node-b did not answer, so its facts could not be read."
+
+      assert text_of(html, ~s([data-testid="boot-panel"] [data-testid="runtime-error"])) =~
+               "did not answer"
+    end
+
+    test "a memory snapshot is of the chosen controller and names its machine", %{
+      conn: conn,
+      node: node
+    } do
+      two_controllers(node)
+
+      FakeController.set(
+        node,
+        {Controller, :mem_top},
+        FakeController.rows([
+          snapshot(%{node: "flezha@node-a", captured_at: "2026-08-24T01:00:00Z"}),
+          snapshot(%{node: "flezha@node-b", captured_at: "2026-08-24T03:00:00Z"})
+        ])
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/controller?controller=flezha@node-b")
+      view |> element(~s([data-testid="memory-snapshot-btn"])) |> render_click()
+      render_async(view)
+
+      captured = view |> element(~s([data-testid="memory-captured-at"])) |> render()
+      assert captured =~ "2026-08-24T03:00:00Z"
+      assert captured =~ "board-b"
+      refute captured =~ "2026-08-24T01:00:00Z"
+    end
+
+    test "a partial answer is stated once, naming the controller that did not answer", %{
+      conn: conn,
+      node: node
+    } do
+      two_controllers(node)
+
+      FakeController.set(
+        node,
+        {Controller, :durability_breaches},
+        FakeController.rows([], ["flezha@node-c"])
+      )
+
+      FakeController.set(
+        node,
+        {Controller, :boot_status},
+        FakeController.rows([FakeController.boot_row("node-a")], ["flezha@node-c"])
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/controller")
+
+      assert length(testids(html, ~s([data-testid="partial-answer"]))) == 1
+
+      assert text_of(html, ~s([data-testid="partial-answer"])) =~
+               "2 of 3 controllers answered; flezha@node-c did not"
+    end
+
+    test "a full answer shows no partial-answer notice", %{conn: conn, node: node} do
+      two_controllers(node)
+
+      {:ok, _view, html} = live(conn, ~p"/controller")
+
+      refute html =~ ~s(data-testid="partial-answer")
     end
   end
 
@@ -182,7 +325,10 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
       FakeController.set(
         node,
         {Controller, :durability_breaches},
-        {:ok, [%{ref: "orders/p0", lag_ms: 90_000, pending_since_ms: 1}]}
+        FakeController.rows([
+          %{ref: "orders/p0", lag_ms: 90_000, pending_since_ms: 1, node: :"flezha@node-a"},
+          %{ref: "elsewhere/p1", lag_ms: 1_000, pending_since_ms: 1, node: :"flezha@node-b"}
+        ])
       )
 
       {:ok, _view, html} = live(conn, ~p"/controller")
@@ -190,6 +336,8 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
       assert html =~ ~s(data-testid="durability-breach-table")
       assert html =~ "orders/p0"
       assert html =~ "1m 30s"
+      # Another controller's breach is its own screen's.
+      refute html =~ "elsewhere/p1"
     end
   end
 
@@ -209,15 +357,14 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
       FakeController.set(
         node,
         {Controller, :boot_status},
-        {:ok,
-         %{
-           readiness: :ready,
-           preconditions: [],
-           namespaces: [
-             %{namespace: "default", recovery_state: :normal, registry_rows: 3},
-             %{namespace: "cold", recovery_state: :unknown, registry_rows: 0}
-           ]
-         }}
+        FakeController.rows([
+          FakeController.boot_row("node-a", %{
+            namespaces: [
+              %{namespace: "default", recovery_state: :normal, registry_rows: 3},
+              %{namespace: "cold", recovery_state: :unknown, registry_rows: 0}
+            ]
+          })
+        ])
       )
 
       {:ok, view, _html} = live(conn, ~p"/controller")
@@ -258,26 +405,27 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
       FakeController.set(
         node,
         {Controller, :mem_top},
-        {:ok,
-         snapshot(%{
-           erlang_memory: %{total: 2048},
-           top_processes: [
-             %{
-               pid: "<0.410.0>",
-               registered_name: "busy_worker",
-               initial_call: "{:gen_server, :init_it, 6}",
-               memory: 1024,
-               message_queue_len: 17
-             },
-             %{
-               pid: "<0.977.0>",
-               registered_name: nil,
-               initial_call: "{:proc_lib, :init_p, 5}",
-               memory: 512,
-               message_queue_len: 0
-             }
-           ]
-         })}
+        FakeController.rows([
+          snapshot(%{
+            erlang_memory: %{total: 2048},
+            top_processes: [
+              %{
+                pid: "<0.410.0>",
+                registered_name: "busy_worker",
+                initial_call: "{:gen_server, :init_it, 6}",
+                memory: 1024,
+                message_queue_len: 17
+              },
+              %{
+                pid: "<0.977.0>",
+                registered_name: nil,
+                initial_call: "{:proc_lib, :init_p, 5}",
+                memory: 512,
+                message_queue_len: 0
+              }
+            ]
+          })
+        ])
       )
 
       {:ok, view, _html} = live(conn, ~p"/controller")
@@ -308,7 +456,7 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
       conn: conn,
       node: node
     } do
-      FakeController.set(node, {Controller, :mem_top}, {:ok, snapshot(%{})})
+      FakeController.set(node, {Controller, :mem_top}, FakeController.rows([snapshot(%{})]))
 
       {:ok, view, _html} = live(conn, ~p"/controller")
       snapshot_now(view)
@@ -343,19 +491,19 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
       FakeController.set(
         node,
         {Controller, :durability_status},
-        {:ok,
-         [
-           %{
-             ref: {:cell, "default", "orders"},
-             last_shipped_ms: 1_760_000_000_000,
-             pending_since_ms: nil,
-             failures: 3,
-             retry_after_ms: -576_460_748_123,
-             retry_in_ms: 12_000,
-             superseded_by: nil,
-             last_error: "{:error, :timeout}"
-           }
-         ]}
+        FakeController.rows([
+          %{
+            ref: {:cell, "default", "orders"},
+            last_shipped_ms: 1_760_000_000_000,
+            pending_since_ms: nil,
+            failures: 3,
+            retry_after_ms: -576_460_748_123,
+            retry_in_ms: 12_000,
+            superseded_by: nil,
+            last_error: "{:error, :timeout}",
+            node: :"flezha@node-a"
+          }
+        ])
       )
 
       {:ok, view, _html} = live(conn, ~p"/controller")
@@ -376,7 +524,7 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
 
     test "a remote tier with nothing shipped yet says so", %{conn: conn, node: node} do
       with_status(node, %{durability_backend: :s3, durability_posture: :remote_tier})
-      FakeController.set(node, {Controller, :durability_status}, {:ok, []})
+      FakeController.set(node, {Controller, :durability_status}, FakeController.rows([]))
 
       {:ok, view, _html} = live(conn, ~p"/controller")
 

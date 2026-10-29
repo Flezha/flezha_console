@@ -425,8 +425,9 @@ together SHALL be capped at 200.
 Each signal in a tail SHALL be shown as:
 
 - the time of day it was emitted, shown as the console's other live streams show
-  theirs. It SHALL be derived from the signal's controller timestamp and one
-  reading of the controller's clock taken when the tail is opened;
+  theirs. It SHALL be the wall-clock time the emitting controller stamped on the
+  signal;
+- the controller that emitted it, by its machine name;
 - one sentence about its subject, built from the signal's sentence template. The
   subject SHALL be the first present label of `relay`, `relay_id`, `plugin_id`,
   `runner`, `runner_id`, `hub` and `namespace`. When the template names a value
@@ -458,8 +459,13 @@ scroll sideways.
 
 #### Scenario: Buffered and live signals share one clock
 
-- **WHEN** a buffered signal was emitted 60 seconds of controller time before a live one
+- **WHEN** a buffered signal was emitted 60 seconds before a live one
 - **THEN** their shown times are 60 seconds apart
+
+#### Scenario: Signals from two controllers
+
+- **WHEN** a tail receives a signal from `flezha@c1` and one from `flezha@c2`
+- **THEN** each line names its controller and shows the time its controller stamped
 
 ### Requirement: The tail drawer separates what it shows
 

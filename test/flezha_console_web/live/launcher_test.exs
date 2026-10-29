@@ -23,11 +23,10 @@ defmodule FlezhaConsoleWeb.LauncherTest do
     FakeController.set(
       node,
       {Fleet, :factories},
-      {:ok,
-       [
-         %{id: "store_input", description: "stores its input", run: :flow, runners: ["runner-a"]},
-         %{id: "chat_loop_steps", description: nil, run: :steps, runners: ["runner-a"]}
-       ]}
+      FakeController.rows([
+        %{id: "store_input", description: "stores its input", run: :flow, runners: ["runner-a"]},
+        %{id: "chat_loop_steps", description: nil, run: :steps, runners: ["runner-a"]}
+      ])
     )
 
     :ok
@@ -143,16 +142,15 @@ defmodule FlezhaConsoleWeb.LauncherTest do
       FakeController.set(
         node,
         {Fleet, :factories},
-        {:ok,
-         [
-           %{
-             id: "store_input",
-             description: "stores its input",
-             run: :flow,
-             runners: ["runner-a"]
-           },
-           %{id: "chat_loop_steps", description: nil, run: :steps, runners: []}
-         ]}
+        FakeController.rows([
+          %{
+            id: "store_input",
+            description: "stores its input",
+            run: :flow,
+            runners: ["runner-a"]
+          },
+          %{id: "chat_loop_steps", description: nil, run: :steps, runners: []}
+        ])
       )
 
       html = conn |> open() |> render()
@@ -319,7 +317,7 @@ defmodule FlezhaConsoleWeb.LauncherTest do
       conn: conn,
       node: node
     } do
-      FakeController.set(node, {Fleet, :factories}, {:ok, []})
+      FakeController.set(node, {Fleet, :factories}, FakeController.rows([]))
 
       view = open(conn)
       html = render(view)

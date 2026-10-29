@@ -41,7 +41,7 @@ defmodule FlezhaConsoleWeb.RelayStateTest do
     {:degraded, nil, "Flezha", "Repaired in place by Flezha"},
     {:halted, 0, "You", "Fix the cause; Flezha retries its bind with a growing delay"},
     {:halted, 2, "You", "Fix the cause; Flezha retries its bind with a growing delay"},
-    {:unknown, nil, "Flezha", "Checked on the next tick"},
+    {:unknown, nil, "Flezha", "Read again on the next tick"},
     {:unplaced, 1, "Flezha", "Placed by Flezha"},
     {:coverage, 1, "You", "Fix the group's key ranges"},
     {:healthy, 1, "Nobody", nil}
@@ -61,6 +61,11 @@ defmodule FlezhaConsoleWeb.RelayStateTest do
       assert is_binary(rows[:cause]), "#{state}"
       assert is_binary(rows[:impact]) == (state != :healthy), "#{state}"
     end
+  end
+
+  test "an unknown relay is one its controller did not answer for, or has not judged yet" do
+    assert RelayState.condition_facts(:unknown)[:cause] ==
+             "Its controller did not answer, or has not checked it yet"
   end
 
   test "a finding that no runner can take the relay outranks the count of serving runners" do

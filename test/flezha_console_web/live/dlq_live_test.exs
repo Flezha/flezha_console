@@ -36,7 +36,8 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
     )
   end
 
-  defp with_entries(node, entries), do: FakeController.set(node, {Dlq, :list}, {:ok, entries})
+  defp with_entries(node, entries),
+    do: FakeController.set(node, {Dlq, :list}, FakeController.rows(entries))
 
   # Each verb opens its confirm gate from the row's menu and confirms it.
   defp drop(view) do
@@ -106,11 +107,10 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       FakeController.set(
         node,
         {Dlq, :stats},
-        {:ok,
-         [
-           %{relay_class: "orders", tasklet_id: "charge", entries: 3, bytes: 1_024},
-           %{relay_class: "refunds", tasklet_id: "settle", entries: 1, bytes: 1_024}
-         ]}
+        FakeController.rows([
+          %{relay_class: "orders", tasklet_id: "charge", entries: 3, bytes: 1_024},
+          %{relay_class: "refunds", tasklet_id: "settle", entries: 1, bytes: 1_024}
+        ])
       )
 
       {:ok, _view, html} = live(conn, ~p"/dlq")
@@ -124,11 +124,10 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       FakeController.set(
         node,
         {Dlq, :stats},
-        {:ok,
-         [
-           %{relay_class: "orders", tasklet_id: "charge", entries: 3, bytes: 120},
-           %{relay_class: "refunds", tasklet_id: "settle", entries: 0, bytes: 0}
-         ]}
+        FakeController.rows([
+          %{relay_class: "orders", tasklet_id: "charge", entries: 3, bytes: 120},
+          %{relay_class: "refunds", tasklet_id: "settle", entries: 0, bytes: 0}
+        ])
       )
 
       {:ok, view, _html} = live(conn, ~p"/dlq")
@@ -146,7 +145,9 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       FakeController.set(
         node,
         {Dlq, :stats},
-        {:ok, [%{relay_class: "refunds", tasklet_id: "settle", entries: 0, bytes: 0}]}
+        FakeController.rows([
+          %{relay_class: "refunds", tasklet_id: "settle", entries: 0, bytes: 0}
+        ])
       )
 
       {:ok, _view, html} = live(conn, ~p"/dlq")
@@ -354,12 +355,91 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       node: node
     } do
       with_entries(node, [])
-      FakeController.set(node, {Dlq, :tasklets}, {:ok, [{"relay_a", "orders"}]})
+
+      FakeController.set(
+        node,
+        {Dlq, :tasklets},
+        FakeController.rows([%{relay_class: "relay_a", tasklet_id: "orders", node: :flezha@c1}])
+      )
 
       {:ok, _view, html} = live(conn, ~p"/dlq")
 
       # An empty queue reads as empty, not as a list of empty groups.
       assert html =~ ~s(data-testid="dlq-empty")
+    end
+  end
+
+  describe "entries on several controllers" do
+    defp held_by(entry, node), do: Map.put(entry, :node, node)
+
+    test "one controller's entries name it and offer no controller filter", %{
+      conn: conn,
+      node: node
+    } do
+      with_entries(node, [held_by(entry(), :flezha@c1)])
+
+      {:ok, _view, html} = live(conn, ~p"/dlq")
+
+      assert text_of(html, ~s([data-testid="row-controller"])) == "c1"
+      assert html =~ ~s(title="flezha@c1")
+      refute html =~ ~s(data-testid="filter-controller")
+    end
+
+    test "two controllers' entries offer a filter that narrows them to one", %{
+      conn: conn,
+      node: node
+    } do
+      with_entries(node, [
+        held_by(entry(), :flezha@c1),
+        held_by(entry(%{"id" => "18"}), :flezha@c2)
+      ])
+
+      {:ok, view, html} = live(conn, ~p"/dlq")
+
+      assert html =~ ~s(data-testid="filter-controller")
+      assert html =~ ~s(data-testid="dlq-row-orders/charge/18")
+
+      view
+      |> element(~s(form[phx-change="filter"]))
+      |> render_change(%{"filter" => %{"relay_class" => "", "controller" => "flezha@c1"}})
+
+      assert_patch(view, "/dlq?controller=flezha%40c1")
+      html = render(view)
+      assert html =~ ~s(data-testid="dlq-row-#{@ref}")
+      refute html =~ ~s(data-testid="dlq-row-orders/charge/18")
+    end
+
+    test "a partial answer is stated, and an empty one is not called an empty queue", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {Dlq, :list}, FakeController.rows([], ["flezha@c2"]))
+
+      {:ok, _view, html} = live(conn, ~p"/dlq")
+
+      assert text_of(html, ~s([data-testid="partial-answer"])) =~ "flezha@c2 did not"
+      assert text_of(html, ~s([data-testid="partial-empty"])) =~ "No dead letter was found"
+      refute html =~ ~s(data-testid="dlq-empty")
+    end
+
+    test "drop, replay and mark seen reach an entry another controller holds", %{
+      conn: conn,
+      node: node
+    } do
+      with_entries(node, [held_by(entry(), :flezha@c2)])
+      {:ok, view, _html} = live(conn, ~p"/dlq")
+
+      assert drop(view) =~ "Entry dropped"
+      assert [[@ref, %{source: :ui}]] = FakeController.calls(node, {Dlq, :drop})
+
+      assert replayed(view) =~ ~s(data-testid="replay-succeeded")
+      assert [[@ref, %{source: :ui}]] = FakeController.calls(node, {Dlq, :replay})
+
+      html = view |> element(~s([data-testid="dlq-mark-seen-#{@ref}"])) |> render_click()
+      refute html =~ ~s(data-testid="dlq-row-#{@ref}")
+
+      assert [%{relay_class: "orders"}] =
+               FlezhaConsole.Repo.all(FlezhaConsole.DeadLetters.Acknowledgement)
     end
   end
 
@@ -381,7 +461,7 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
           %{relay_class: class, tasklet_id: tasklet, entries: length(rows), bytes: 0}
         end)
 
-      FakeController.set(node, {Dlq, :stats}, {:ok, stats})
+      FakeController.set(node, {Dlq, :stats}, FakeController.rows(stats))
     end
 
     test "a seen dead letter leaves the listing, and Show seen lists it badged", %{
@@ -461,7 +541,7 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       send(view.pid, :refresh)
 
       assert render(view) =~ ~s(data-testid="dlq-row-#{@ref}")
-      assert {:ok, [%{seen: 0}]} = DeadLetters.stats(nil)
+      assert {:ok, %{rows: [%{seen: 0}]}} = DeadLetters.stats(nil)
       # The mark of the generation that left is forgotten.
       assert Repo.all(Acknowledgement) == []
     end

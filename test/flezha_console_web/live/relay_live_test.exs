@@ -24,7 +24,7 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
   defp registry_row(node, overrides) do
     row = FakeController.relay_row("relay_a", overrides)
 
-    FakeController.set(node, {Relay, :relay_rows}, {:ok, [row]})
+    FakeController.set(node, {Relay, :relay_rows}, FakeController.rows([row]))
   end
 
   describe "registry facts" do
@@ -37,6 +37,41 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
       assert text_of(html, ~s([data-testid="relay-health"])) =~ "It is degraded"
       assert html =~ ~s(data-testid="relay-node")
       assert html =~ "flezha@node-b"
+    end
+
+    test "a relay hosted on another controller reads as that controller judged it, every section with it",
+         %{conn: conn, node: node} do
+      overwatch(node, %{factory_id: "store_input"})
+      registry_row(node, %{health: :healthy, node: :"flezha@node-b"})
+      FakeController.set(node, {Relay, :graph}, FakeController.one_tasklet_graph("relay_a"))
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert text_of(html, ~s([data-testid="relay-health"])) =~ "It is healthy"
+      assert html =~ "flezha@node-b"
+      refute html =~ ~s(data-testid="partial-answer")
+
+      for section <- ~w(topology-graph diagnose-panel calls-panel api-panel bindings-panel),
+          do: assert(html =~ ~s(data-testid="#{section}"), section)
+    end
+
+    test "a hosting controller that did not answer is named, and its relay reads unknown", %{
+      conn: conn,
+      node: node
+    } do
+      overwatch(node, %{factory_id: "store_input"})
+      row = FakeController.relay_row("relay_a", %{health: :unknown, node: :"flezha@node-b"})
+
+      FakeController.set(
+        node,
+        {Relay, :relay_rows},
+        FakeController.rows([row], ["flezha@node-b"])
+      )
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert text_of(html, ~s([data-testid="partial-answer"])) =~ "flezha@node-b did not answer"
+      assert text_of(html, ~s([data-testid="relay-health"])) =~ "unknown"
     end
 
     test "a partition member shows its index, key range and group", %{conn: conn, node: node} do
@@ -173,7 +208,12 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
       node: node
     } do
       overwatch(node, %{factory_id: "store_input", phase: :suspended})
-      FakeController.set(node, {Flezha.Service.Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Fleet, :runners_for_factory},
+        FakeController.rows(["runner-a"])
+      )
 
       FakeController.set(
         node,
@@ -235,7 +275,12 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
 
     test "a suspended relay a runner serves wakes on the next message", %{conn: conn, node: node} do
       overwatch(node, %{factory_id: "store_input", phase: :suspended})
-      FakeController.set(node, {Flezha.Service.Fleet, :runners_for_factory}, {:ok, ["runner-a"]})
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Fleet, :runners_for_factory},
+        FakeController.rows(["runner-a"])
+      )
 
       {:ok, _view, html} = live(conn, @url)
 
@@ -332,14 +377,13 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
       FakeController.set(
         node,
         {Flezha.Service.Relay, :relay_plugins},
-        {:ok,
-         [
-           {"relay_a",
-            [
-              {"plug_1", %{hooks: [on_input: []], provider: Flezha.Plugin.Provider.StdOut}},
-              {"gone_1", %{hooks: [on_output: []], provider: Flezha.Plugin.Provider.StdOut}}
-            ]}
-         ]}
+        FakeController.rows([
+          {"relay_a",
+           [
+             {"plug_1", %{hooks: [on_input: []], provider: Flezha.Plugin.Provider.StdOut}},
+             {"gone_1", %{hooks: [on_output: []], provider: Flezha.Plugin.Provider.StdOut}}
+           ]}
+        ])
       )
 
       {:ok, view, _html} = live(conn, @url)
@@ -411,8 +455,9 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
         {Fleet, :providers},
         {:ok,
          %{
-           providers: [%{id: "relay_stdout", module: "Flezha.Plugin.Provider.StdOut", type: :io}],
-           refused: 0
+           rows: [%{id: "relay_stdout", module: "Flezha.Plugin.Provider.StdOut", type: :io}],
+           refused: %{},
+           unreachable: []
          }}
       )
 
@@ -507,11 +552,12 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
         {Fleet, :providers},
         {:ok,
          %{
-           providers: [
+           rows: [
              %{id: "relay_stdout", module: "Flezha.Plugin.Provider.StdOut", type: :io},
              %{id: "hook_webhook", module: "Flezha.Plugin.Provider.Webhook", type: :controller}
            ],
-           refused: 0
+           refused: %{},
+           unreachable: []
          }}
       )
 

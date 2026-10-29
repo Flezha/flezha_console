@@ -47,7 +47,7 @@ defmodule FlezhaConsoleWeb.AuditLive do
   # rest of the filter kept. Only a file the catalog lists is opened.
   @impl true
   def handle_event("open_file", %{"file" => file}, socket) when is_binary(file) do
-    if NodeManager.granted?(socket.assigns.operations, "AuditLog.read") and
+    if NodeManager.granted?(socket.assigns.operations, "Logs.read") and
          file in Enum.map(socket.assigns.catalog, & &1.filename) do
       {:noreply,
        socket

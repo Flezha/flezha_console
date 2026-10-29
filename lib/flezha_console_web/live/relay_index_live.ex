@@ -58,6 +58,7 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
        loaded?: false,
        filters: %{"namespace" => "", "health" => "", "run" => "", "runner" => ""},
        rows: [],
+       unreachable: [],
        run_options: [],
        namespaces: [],
        load_error: nil,
@@ -206,16 +207,19 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
 
     # A scoped screen reads its one namespace rather than reading them all and
     # discarding the rest — and a scope the token cannot reach lists nothing.
-    rows =
+    read =
       namespaces
       |> listed(socket.assigns.scoped_namespace)
-      |> Enum.flat_map(&namespace_rows(&1, token))
+      |> Enum.map(&namespace_rows(&1, token))
+
+    rows = Enum.flat_map(read, &elem(&1, 0))
 
     socket
     |> assign(
       loaded?: true,
       namespaces: Enum.sort(namespaces),
       rows: filter(rows, socket.assigns.filters),
+      unreachable: read |> Enum.flat_map(&elem(&1, 1)) |> NodeManager.unreachable(),
       run_options: run_options(rows),
       load_error: load_error
     )
@@ -227,14 +231,13 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
   defp listed(namespaces, nil), do: namespaces
   defp listed(namespaces, scope), do: if(scope in namespaces, do: [scope], else: [])
 
+  # A namespace's rows and the answers they came from.
   defp namespace_rows(namespace, token) do
-    plugins =
-      namespace
-      |> NodeManager.relay_plugins(token)
-      |> NodeManager.ok_or([])
-      |> NodeManager.plugin_counts()
-
+    read_plugins = NodeManager.relay_plugins(namespace, token)
+    plugins = read_plugins |> NodeManager.ok_or([]) |> NodeManager.plugin_counts()
     runs = namespace |> NodeManager.relay_runs(token) |> NodeManager.ok_or(%{})
+    read_rows = NodeManager.relay_list(namespace, token)
+    unanswered = NodeManager.unreachable([read_rows])
 
     decorate = fn row ->
       # A group row is no registry entry of its own; its run and bindings are
@@ -245,20 +248,23 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
       |> Map.put(:namespace, namespace)
       |> Map.put(:run, Map.get(runs, id))
       |> Map.put(:plugins, Map.get(plugins, id, 0))
+      |> Map.put(:unanswered?, row[:node] != nil and row[:node] in unanswered)
     end
 
-    namespace
-    |> NodeManager.relay_list(token)
-    |> NodeManager.ok_or([])
-    |> Enum.map(fn
-      %{members: [_ | _] = members} = group ->
-        group
-        |> decorate.()
-        |> Map.put(:members, members |> NodeManager.decorate_health() |> Enum.map(decorate))
+    rows =
+      read_rows
+      |> NodeManager.ok_or([])
+      |> Enum.map(fn
+        %{members: [_ | _] = members} = group ->
+          group
+          |> decorate.()
+          |> Map.put(:members, members |> NodeManager.decorate_health() |> Enum.map(decorate))
 
-      row ->
-        decorate.(row)
-    end)
+        row ->
+          decorate.(row)
+      end)
+
+    {rows, [read_rows, read_plugins]}
   end
 
   # A scoped route's namespace comes from the path, so it is not a filter the

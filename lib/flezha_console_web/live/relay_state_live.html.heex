@@ -22,6 +22,8 @@
 
 <.runtime_error error={@load_error} action="the state listing" />
 
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
 <%!-- Steps facts, as sentences --%>
 <.section :if={@run == :steps and @facts} id="steps" testid="steps-panel" flush>
   <:title>Steps</:title>

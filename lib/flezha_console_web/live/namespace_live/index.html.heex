@@ -17,6 +17,8 @@
 
 <.runtime_error error={@load_error} />
 
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
 <.notice
   :if={@declarations_unavailable?}
   kind={:info}
@@ -27,7 +29,13 @@
   quota breach can be shown.
 </.notice>
 
-<.empty_state :if={@namespaces == []} icon="hero-rectangle-stack" testid="namespaces-empty">
+<.partial_empty :if={@namespaces == [] and @unreachable != []} noun="namespace" />
+
+<.empty_state
+  :if={@namespaces == [] and @unreachable == []}
+  icon="hero-rectangle-stack"
+  testid="namespaces-empty"
+>
   A namespace is where relays, runners and plugins live. None is reachable with this console's token.
 </.empty_state>
 

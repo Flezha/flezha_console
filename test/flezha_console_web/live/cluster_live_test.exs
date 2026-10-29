@@ -18,11 +18,16 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
     FakeController.set(
       node,
       {Relay, :list_namespaces},
-      {:ok, [%{namespace: "default", running: true}]}
+      FakeController.rows([%{namespace: "default", running: true}])
     )
 
-    FakeController.set(node, {Relay, :relay_rows}, {:ok, opts[:rows] || []})
-    FakeController.set(node, {Fleet, :factories}, {:ok, opts[:factories] || []})
+    FakeController.set(
+      node,
+      {Relay, :relay_rows},
+      FakeController.rows(opts[:rows] || [], opts[:unreachable] || [])
+    )
+
+    FakeController.set(node, {Fleet, :factories}, FakeController.rows(opts[:factories] || []))
     FakeController.set(node, {Fleet, :runners}, {:ok, opts[:runners] || []})
 
     FakeController.set(
@@ -33,7 +38,7 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
   end
 
   # The cluster as the namespace sees it: its hub nodes with their recovery
-  # state, as `Controller.cluster_status/2` answers it.
+  # state, as `Controller.cluster_status/2` answers it from every controller.
   defp status(nodes) do
     %{
       namespace: "default",
@@ -43,7 +48,9 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
           node -> %{node: node, relay_count: 0, recovery_state: :normal}
         end),
       unplaced_relays: 0,
-      relay_health: %{}
+      relay_health: %{},
+      answered_by: :"flezha@node-a",
+      unreachable: []
     }
   end
 
@@ -54,9 +61,16 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
     # for both.
     defp two_namespaces(node, rows) do
       FakeController.set_fleet(node, rows: %{"staging" => rows, "default" => rows})
-      FakeController.set(node, {Fleet, :factories}, {:ok, []})
+      FakeController.set(node, {Fleet, :factories}, FakeController.rows([]))
       FakeController.set(node, {Fleet, :runners}, {:ok, [FakeController.runner_row("runner-a")]})
       FakeController.set(node, {Controller, :cluster_status}, {:ok, status([])})
+
+      # The one controller is the node this console calls.
+      FakeController.set(
+        node,
+        {Controller, :controllers},
+        FakeController.rows([FakeController.controller_row("peer", %{node: node})])
+      )
     end
 
     test "count every reachable namespace, node, runner and relay", %{conn: conn, node: node} do
@@ -87,13 +101,33 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       assert attrs(html, ~s([data-testid="sys-controller"]), "data-tone") == ["positive"]
     end
 
+    test "a controller that did not give its status makes the controller tile partial", %{
+      conn: conn,
+      node: node
+    } do
+      two_namespaces(node, [FakeController.relay_row("a")])
+
+      FakeController.set(
+        node,
+        {Controller, :status},
+        FakeController.rows([FakeController.status_row("node-a")], ["flezha@node-b"])
+      )
+
+      {_view, html} = live_loaded(conn, ~p"/cluster")
+
+      assert attrs(html, ~s([data-testid="sys-controller"]), "data-tone") == ["warning"]
+
+      assert text_of(html, ~s([data-testid="sys-controller-condition"])) ==
+               "1 of 2 controllers answered"
+    end
+
     test "a durability breach is stated on the controller tile", %{conn: conn, node: node} do
       two_namespaces(node, [FakeController.relay_row("a")])
 
       FakeController.set(
         node,
         {Controller, :durability_breaches},
-        {:ok, [%{ref: "r1", age_ms: 90_000, rpo_ms: 60_000}]}
+        FakeController.rows([%{ref: "r1", age_ms: 90_000, rpo_ms: 60_000}])
       )
 
       {_view, html} = live_loaded(conn, ~p"/cluster")
@@ -155,6 +189,26 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       # Membership comes from the controller's answer, never `:erlang.nodes/1`.
       refute html =~ ~s(data-testid="cluster-node-#{Node.self()}")
     end
+
+    test "lists a controller that holds no hub, from the controllers listing", %{
+      conn: conn,
+      node: node
+    } do
+      one_namespace(node, hub_nodes: [:"flezha@node-a"])
+
+      FakeController.set(
+        node,
+        {Controller, :controllers},
+        FakeController.rows([
+          FakeController.controller_row("node-a"),
+          FakeController.controller_row("idle", %{local?: false})
+        ])
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert html =~ ~s(data-testid="cluster-node-flezha@idle")
+    end
   end
 
   describe "connected controllers" do
@@ -164,12 +218,11 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       FakeController.set(
         node,
         {Controller, :controllers},
-        {:ok,
-         [
-           FakeController.controller_row("rpi5", %{host_node: "rpi5-board"}),
-           FakeController.controller_row("rpi4", %{local?: false}),
-           %{node: :flezha@rpi3, local?: false, reachable?: false}
-         ]}
+        FakeController.rows([
+          FakeController.controller_row("rpi5", %{host_node: "rpi5-board"}),
+          FakeController.controller_row("rpi4", %{local?: false}),
+          %{node: :flezha@rpi3, local?: false, reachable?: false}
+        ])
       )
 
       {_view, html} = live_loaded(conn, ~p"/cluster")
@@ -289,7 +342,7 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       FakeController.set(
         node,
         {Fleet, :factories},
-        {:ok, [factory("store_input", ["runner-a", "runner-b"])]}
+        FakeController.rows([factory("store_input", ["runner-a", "runner-b"])])
       )
 
       {:ok, view, _html} = live(conn, ~p"/cluster")
@@ -325,7 +378,10 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       FakeController.set(
         node,
         {Fleet, :factories},
-        {:ok, [factory("store_input", ["runner-a"]), factory("compare_filter", ["runner-a"])]}
+        FakeController.rows([
+          factory("store_input", ["runner-a"]),
+          factory("compare_filter", ["runner-a"])
+        ])
       )
 
       {:ok, view, _html} = live(conn, ~p"/cluster")
@@ -380,6 +436,51 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       assert html =~ ~s(data-testid="node-rollup-default")
       assert html =~ ~s(data-testid="node-count-flezha@node-a")
       assert html =~ ~s(data-health="degraded")
+    end
+
+    test "relays hosted on two controllers are counted on each under its own verdict", %{
+      conn: conn,
+      node: node
+    } do
+      one_namespace(node,
+        rows: [
+          row("a", %{health: :healthy}),
+          row("b", %{health: :degraded, node: :"flezha@node-b"}),
+          row("c", %{health: :healthy, node: :"flezha@node-b"})
+        ],
+        hub_nodes: [:"flezha@node-a", :"flezha@node-b"]
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert text_of(html, ~s([data-testid="node-count-flezha@node-a"])) == "1"
+      assert text_of(html, ~s([data-testid="node-count-flezha@node-b"])) == "2"
+
+      node_b = text_of(html, ~s([data-testid="node-flezha@node-b"]))
+      assert node_b =~ "Degraded"
+      assert node_b =~ "Healthy"
+      refute text_of(html, ~s([data-testid="node-flezha@node-a"])) =~ "Degraded"
+      refute html =~ ~s(data-health="unknown")
+    end
+
+    test "a controller the relay rows lack is stated once, above the screen", %{
+      conn: conn,
+      node: node
+    } do
+      one_namespace(node, rows: [row("a")], unreachable: ["flezha@node-b"])
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      assert length(testids(html, ~s([data-testid="partial-answer"]))) == 1
+      assert text_of(html, ~s([data-testid="partial-answer"])) =~ "flezha@node-b did not"
+    end
+
+    test "every controller answering shows no partial-answer notice", %{conn: conn, node: node} do
+      one_namespace(node, rows: [row("a")])
+
+      {:ok, _view, html} = live(conn, ~p"/cluster")
+
+      refute html =~ ~s(data-testid="partial-answer")
     end
 
     test "relays moving off a dead runner are counted under their own verdicts", %{

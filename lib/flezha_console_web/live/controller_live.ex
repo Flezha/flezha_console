@@ -1,11 +1,13 @@
 defmodule FlezhaConsoleWeb.ControllerLive do
   @moduledoc """
-  "Is this controller healthy?" — the controllers connected with it,
-  durability posture, RPO breaches, the shipper, shutdown and boot state, and
-  the authorization posture.
+  "Is this controller healthy?" — every controller of the cluster, and one
+  chosen controller's durability posture, RPO breaches, shipper, shutdown and
+  boot state, and the authorization posture.
 
   Everything here is a controller-wide fact rather than a namespace one, which
-  is why it is its own screen rather than a panel on another.
+  is why it is its own screen rather than a panel on another. The listing is
+  the chooser: `?controller=` names the chosen one, and the controller this
+  console is connected to is chosen when it names none.
   """
 
   use FlezhaConsoleWeb, :live_view
@@ -21,11 +23,25 @@ defmodule FlezhaConsoleWeb.ControllerLive do
      |> start_refresh()
      |> assign(
        page_title: "Controller",
+       asked: nil,
        memory: nil,
        memory_error: nil,
        memory_loading: false
-     )
-     |> refresh()}
+     )}
+  end
+
+  # A snapshot belongs to the controller it was taken of, so choosing another
+  # one puts it away.
+  @impl true
+  def handle_params(params, _uri, socket) do
+    asked = params["controller"]
+
+    socket =
+      if asked == socket.assigns.asked,
+        do: socket,
+        else: assign(socket, asked: asked, memory: nil, memory_error: nil)
+
+    {:noreply, refresh(socket)}
   end
 
   # Deliberately not on the tick: a process scan is far too expensive to run
@@ -36,12 +52,14 @@ defmodule FlezhaConsoleWeb.ControllerLive do
     do: {:noreply, socket}
 
   def handle_event("memory_snapshot", _params, socket) do
-    token = socket.assigns.flezha_token
+    %{flezha_token: token, chosen: chosen} = socket.assigns
 
     {:noreply,
      socket
      |> assign(memory_loading: true)
-     |> start_async(:memory_snapshot, fn -> NodeManager.mem_top(token) end)}
+     |> start_async(:memory_snapshot, fn ->
+       token |> NodeManager.mem_top() |> NodeManager.controller_row(chosen)
+     end)}
   end
 
   # A scan that crashed is a failure like a refused one.
@@ -63,23 +81,42 @@ defmodule FlezhaConsoleWeb.ControllerLive do
     {:noreply, reveal(socket, "memory-panel")}
   end
 
-  # One status read answers the durability posture and the shutdown state; a
-  # refused or unavailable read is stated on its panel and the rest renders.
+  # Each read answers every controller; the chosen one's share fills the
+  # panels. A controller that did not answer, or a refused read, is stated on
+  # its panel and the rest renders.
   @impl FlezhaConsoleWeb.Live.Refresh
   def refresh(socket) do
     token = socket.assigns.flezha_token
-    {status, status_error} = NodeManager.ok_or_error(NodeManager.controller_status(token), nil)
-    {boot, boot_error} = NodeManager.ok_or_error(NodeManager.boot_status(token), nil)
-    {shipper, shipper_error} = NodeManager.ok_or_error(NodeManager.durability_status(token), [])
-    {controllers, controllers_error} = NodeManager.ok_or_error(NodeManager.controllers(token), [])
+    listed = NodeManager.controllers(token)
+    {controllers, controllers_error} = NodeManager.ok_or_error(listed, [])
+    chosen = chosen(socket.assigns.asked, controllers)
+
+    reads = %{
+      status: NodeManager.controller_status(token),
+      boot: NodeManager.boot_status(token),
+      shipper: NodeManager.durability_status(token),
+      breaches: NodeManager.durability_breaches(token)
+    }
+
+    {status, status_error} =
+      reads.status |> NodeManager.controller_row(chosen) |> NodeManager.ok_or_error(nil)
+
+    {boot, boot_error} =
+      reads.boot |> NodeManager.controller_row(chosen) |> NodeManager.ok_or_error(nil)
+
+    {shipper, shipper_error} =
+      reads.shipper |> NodeManager.of_controller(chosen) |> NodeManager.ok_or_error([])
 
     socket
     |> assign(
       controllers: controllers,
       controllers_error: controllers_error,
+      chosen: chosen,
+      chosen_row: Enum.find(controllers, &(to_string(&1.node) == chosen)),
+      unreachable: NodeManager.unreachable([listed | Map.values(reads)]),
       status: status,
       status_error: status_error,
-      breaches: token |> NodeManager.durability_breaches() |> NodeManager.ok_or([]),
+      breaches: reads.breaches |> NodeManager.of_controller(chosen) |> NodeManager.ok_or([]),
       shipper: shipper,
       shipper_error: shipper_error,
       boot: boot,
@@ -87,6 +124,22 @@ defmodule FlezhaConsoleWeb.ControllerLive do
       authz: NodeManager.authz_status(token)
     )
   end
+
+  @doc """
+  The node name of the chosen controller: the one `asked` names, else the one
+  the listing marks as this console's, else the one this console calls.
+  """
+  def chosen(asked, _controllers) when asked not in [nil, ""], do: asked
+
+  def chosen(_asked, controllers) do
+    case Enum.find(controllers, & &1[:local?]) do
+      %{node: node} -> to_string(node)
+      nil -> to_string(NodeManager.connected_node())
+    end
+  end
+
+  @doc "The address that chooses `node` on this screen."
+  def choose_path(node), do: ~p"/controller?#{[controller: to_string(node)]}"
 
   @doc """
   "2 controllers connected: rpi5 and raspberrypi4", naming the machine each
@@ -114,11 +167,6 @@ defmodule FlezhaConsoleWeb.ControllerLive do
 
     "#{Words.count(length(rows), "controller")} connected: #{Words.join(machines)}"
   end
-
-  @doc "The machine a `NodeManager.controllers/1` row runs on, or its host when it does not say."
-  def machine(%{host_node: "" <> machine}), do: machine
-  def machine(%{host: "" <> host}), do: host
-  def machine(%{node: node}), do: node |> to_string() |> String.split("@") |> List.last()
 
   @doc "A backend name in words, whether it is an atom or a `{module, opts}` pair."
   def backend_label({module, _opts}), do: Words.humanize(module)

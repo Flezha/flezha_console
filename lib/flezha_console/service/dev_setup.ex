@@ -104,7 +104,7 @@ defmodule FlezhaConsole.Service.DevSetup do
   # namespace screens real quota data.
   defp ensure_namespace(ns, quotas, token) do
     with :ok <- declare_namespace(ns, quotas, token),
-         {:ok, catalog} <- NodeManager.list_namespaces(token) do
+         {:ok, %{rows: catalog}} <- NodeManager.list_namespaces(token) do
       if Enum.any?(catalog, &(to_string(&1.namespace) == ns and &1.running)),
         do: :ok,
         else: {:error, {:namespace_not_running, ns}}
@@ -141,7 +141,7 @@ defmodule FlezhaConsole.Service.DevSetup do
   # The kept seeds lose the flag, which is the seed's and not the controller's.
   defp drop_unannounced(ns, relays, token) do
     if Enum.any?(relays, & &1[:optional]) do
-      with {:ok, factories} <- NodeManager.factories(ns, token) do
+      with {:ok, %{rows: factories}} <- NodeManager.factories(ns, token) do
         known = MapSet.new(factories, &to_string(&1.id))
 
         {kept, skipped} =

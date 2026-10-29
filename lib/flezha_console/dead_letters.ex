@@ -62,17 +62,17 @@ defmodule FlezhaConsole.DeadLetters do
 
   @doc """
   `NodeManager.dlq_stats/1`, each row carrying how many of its entries are
-  `:seen`.
+  `:seen`, in the cluster answer's shape.
 
   A class's entries are listed only when something in it was marked seen, so
   the usual answer costs one call. Listing a class also forgets the marks of
   its entries that left the queue or parked again.
   """
   def stats(token) do
-    with {:ok, stats} <- NodeManager.dlq_stats(token) do
+    with {:ok, %{rows: stats} = answer} <- NodeManager.dlq_stats(token) do
       seen = seen_counts(stats, token)
 
-      {:ok, Enum.map(stats, &Map.put(&1, :seen, Map.get(seen, key(&1), 0)))}
+      {:ok, %{answer | rows: Enum.map(stats, &Map.put(&1, :seen, Map.get(seen, key(&1), 0)))}}
     end
   end
 
@@ -105,7 +105,7 @@ defmodule FlezhaConsole.DeadLetters do
   # A class whose listing fails counts nothing seen and forgets nothing.
   defp seen_in(class, marks, token) do
     case NodeManager.dlq_list(class, token) do
-      {:ok, entries} ->
+      {:ok, %{rows: entries}} ->
         parked = Map.new(entries, &{{ref(&1), generation(&1)}, to_string(&1["tasklet_id"])})
         {held, gone} = Enum.split_with(marks, fn {pair, _id} -> Map.has_key?(parked, pair) end)
         forget(Enum.map(gone, &elem(&1, 1)))

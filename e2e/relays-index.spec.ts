@@ -13,6 +13,7 @@ import {
   uniqueId,
   visitLive,
 } from './fixtures';
+import { CONTROLLERS, machine, SECOND_FACTORY, SECOND_NAMESPACE } from './global-setup';
 
 /**
  * The cross-namespace relays index.
@@ -23,9 +24,16 @@ import {
  * any absolute count is somebody else's number. Which rows each filter keeps
  * and which choices it offers are asserted in `relay_index_live_test.exs`.
  */
+/**
+ * How many relays every namespace holds is the stack's to say, so the listing
+ * is narrowed to `default`, where the seeded relays live, rather than relying
+ * on them landing on its first page.
+ */
+const DEFAULT_ONLY = '/relays?namespace=default';
+
 test.describe('Relays index', () => {
   test.beforeEach(async ({ live }) => {
-    await live('/relays');
+    await live(DEFAULT_ONLY);
   });
 
   test('lists seeded relays with their namespace, health and run, and a row opens its relay', async ({
@@ -61,11 +69,11 @@ test.describe('Relays index', () => {
     await expect(page.getByTestId('inspector-relay')).toHaveCount(0);
     await expect(page.getByTestId('topology-graph')).toBeVisible();
 
-    await live('/relays');
+    await live(DEFAULT_ONLY);
     await page.getByTestId('open-relay-testnet_store_1').click();
     await expect(page).toHaveURL(relayUrl);
 
-    await live('/relays');
+    await live(DEFAULT_ONLY);
     await menuAction(page, 'relay-menu-testnet_store_1', 'view-relay-testnet_store_1');
     await expect(page).toHaveURL(relayUrl);
     await expect(page.getByTestId('relay-runner')).toBeVisible();
@@ -93,7 +101,7 @@ test.describe('Relays index', () => {
       await stopRelay(page, id);
     }
 
-    await visitLive(page, '/relays');
+    await visitLive(page, DEFAULT_ONLY);
     await expect(page.getByTestId(`relay-index-row-${id}`)).toHaveCount(0);
   });
 
@@ -113,6 +121,24 @@ test.describe('Relays index', () => {
       await expect(page.getByTestId(`relay-index-row-${id}`)).toHaveCount(0);
     } finally {
       await stopRelayCli(id);
+    }
+  });
+
+  test('a relay hosted on the other controller shows the health its controller decided and names it', async ({
+    page,
+  }) => {
+    const id = uniqueId('pw_remote');
+
+    try {
+      await startRelayCli(id, SECOND_FACTORY, SECOND_NAMESPACE);
+      await visitLive(page, `/namespaces/${SECOND_NAMESPACE}/relays`);
+
+      // Unknown only until its controller first judges it, within a second.
+      await expect(healthBadge(page, `relay-index-row-${id}`)).toHaveText('Healthy');
+      await expect(page.getByTestId(`relay-controller-${id}`)).toHaveText(machine(CONTROLLERS[1]));
+      await expect(page.getByTestId(`relay-controller-${id}`)).toHaveAttribute('title', CONTROLLERS[1]);
+    } finally {
+      await stopRelayCli(id, SECOND_NAMESPACE);
     }
   });
 });

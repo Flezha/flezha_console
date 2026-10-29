@@ -72,6 +72,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
         role_bindings: [],
         items: [],
         rows: [],
+        unreachable: [],
         finished: [],
         finished_error: nil,
         finished_loading?: false,
@@ -251,18 +252,21 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
     # One registry dump answers every relay's health, node, factory, runner and
     # partition group; the summary and the tiles are built from it, not from a
     # read per relay.
-    case NodeManager.ok_or_error(NodeManager.relay_rows(ns, token), []) do
+    read_rows = NodeManager.relay_rows(ns, token)
+
+    case NodeManager.ok_or_error(read_rows, []) do
       {_rows, error} when error != nil and loaded? ->
         if NodeManager.connected_node(),
           do: %{load_error: error},
-          else: read_with_rows(ns, token, previous, [], error)
+          else: read_with_rows(ns, token, previous, read_rows)
 
-      {rows, load_error} ->
-        read_with_rows(ns, token, previous, rows, load_error)
+      _rows ->
+        read_with_rows(ns, token, previous, read_rows)
     end
   end
 
-  defp read_with_rows(ns, token, previous, rows, load_error) do
+  defp read_with_rows(ns, token, previous, read_rows) do
+    {rows, load_error} = NodeManager.ok_or_error(read_rows, [])
     groups = rows |> NodeManager.partition_groups(token) |> with_group_health(rows)
     declared = NodeManager.ok_or(NodeManager.namespace_record(ns, token), nil)
     quotas = NodeManager.quota_usage(ns, declared && declared.quotas, token)
@@ -270,13 +274,14 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
     {connected_runners, runners_error} =
       ns |> NodeManager.runners(token) |> NodeManager.ok_or_error([])
 
+    catalog = NodeManager.factory_catalog(ns, token)
+    plugin_pairs = NodeManager.relay_plugins(ns, token)
+    schedules = NodeManager.schedule_list(token)
+
     runners =
       FlezhaConsoleWeb.Runners.rows(
         connected_runners,
-        ns
-        |> NodeManager.factory_catalog(token)
-        |> NodeManager.ok_or([])
-        |> NodeManager.factories_by_runner(),
+        catalog |> NodeManager.ok_or([]) |> NodeManager.factories_by_runner(),
         rows
       )
 
@@ -286,10 +291,11 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
     %{
       assigns: [
         rows: rows,
-        plugin_pairs: ns |> NodeManager.relay_plugins(token) |> NodeManager.ok_or([]),
+        unreachable:
+          NodeManager.unreachable([read_rows, catalog, plugin_pairs, schedules | quotas]),
+        plugin_pairs: NodeManager.ok_or(plugin_pairs, []),
         schedules:
-          token
-          |> NodeManager.schedule_list()
+          schedules
           |> NodeManager.ok_or([])
           |> FlezhaConsoleWeb.ScheduleLive.rows(ns),
         groups: groups,
@@ -667,7 +673,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
     end
   end
 
-  defp finished_answered(socket, {:ok, {:ok, finished}}),
+  defp finished_answered(socket, {:ok, {:ok, %{rows: finished}}}),
     do: assign(socket, finished: finished, finished_error: nil)
 
   defp finished_answered(socket, {:ok, {:error, reason}}),

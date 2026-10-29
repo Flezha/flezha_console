@@ -69,9 +69,44 @@ defmodule FlezhaConsoleWeb.ListenLiveTest do
                FakeController.calls(node, @listen)
     end
 
+    test "listens to a relay hosted on another controller as to one on this", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Relay, :relay_rows},
+        FakeController.rows([FakeController.relay_row("relay_a", %{node: :"flezha@node-b"})])
+      )
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Fleet, :runners_for_factory},
+        FakeController.rows(["runner-b"])
+      )
+
+      html = render(listening(conn))
+
+      assert html =~ ~s(data-testid="listen-send")
+      refute html =~ ~s(data-testid="listen-unservable")
+
+      # The relay is named, never its controller: the controller routes the listen.
+      assert [["default", "relay_a", :output, [], %{source: :ui}]] =
+               FakeController.calls(node, @listen)
+    end
+
     test "offers a send but no call to a relay no runner can run", %{conn: conn, node: node} do
-      FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
-      FakeController.set(node, {Flezha.Service.Fleet, :runners_for_factory}, {:ok, []})
+      FakeController.set(
+        node,
+        {Relay, :relay_rows},
+        FakeController.rows([FakeController.relay_row("relay_a")])
+      )
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Fleet, :runners_for_factory},
+        FakeController.rows([])
+      )
 
       view = listening(conn)
       html = render(view)
@@ -90,9 +125,19 @@ defmodule FlezhaConsoleWeb.ListenLiveTest do
       conn: conn,
       node: node
     } do
-      FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
+      FakeController.set(
+        node,
+        {Relay, :relay_rows},
+        FakeController.rows([FakeController.relay_row("relay_a")])
+      )
+
       FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{phase: :suspended}})
-      FakeController.set(node, {Flezha.Service.Fleet, :runners_for_factory}, {:ok, []})
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Fleet, :runners_for_factory},
+        FakeController.rows([])
+      )
 
       note = text_of(render(listening(conn)), ~s([data-testid="listen-unservable"]))
       assert note =~ "No runner serves store_input yet; the message is kept until one connects."

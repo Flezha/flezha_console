@@ -42,7 +42,8 @@ defmodule FlezhaConsoleWeb.PluginLive do
        refused: [],
        namespaces_error: nil,
        available_providers: [],
-       refused_packages: 0,
+       refused_packages: %{},
+       unreachable: [],
        providers_error: nil,
        catalog: [],
        catalog_error: nil
@@ -98,22 +99,72 @@ defmodule FlezhaConsoleWeb.PluginLive do
   @impl FlezhaConsoleWeb.Live.Refresh
   def refresh(socket) do
     token = socket.assigns.flezha_token
-    {catalog, catalog_error} = NodeManager.ok_or_error(NodeManager.installed_plugins(token), [])
+    installed = NodeManager.installed_plugins(token)
+    {catalog, catalog_error} = NodeManager.ok_or_error(installed, [])
+    listed = NodeManager.providers(token)
 
     {listing, providers_error} =
-      NodeManager.ok_or_error(NodeManager.providers(token), %{providers: [], refused: 0})
+      case listed do
+        {:ok, listing} -> {listing, nil}
+        {:error, reason} -> {%{rows: [], refused: %{}}, reason}
+      end
 
     socket
     |> assign(
       loaded?: true,
-      available_providers: listing.providers,
+      available_providers: listing.rows,
       refused_packages: listing.refused,
       providers_error: providers_error,
-      catalog: catalog,
-      catalog_error: catalog_error
+      catalog: installed_rows(catalog),
+      catalog_error: catalog_error,
+      unreachable: NodeManager.unreachable([installed, listed])
     )
     |> assign_plugins()
   end
+
+  @doc """
+  The installed packages once per id, version and status, with the
+  controllers holding each copy in `nodes`: copies that agree are one row.
+  """
+  def installed_rows(catalog) do
+    catalog
+    |> NodeManager.copies(&{&1[:id], &1[:version], &1[:status]})
+    |> Enum.map(fn {first, copies} ->
+      Map.put(first, :nodes, NodeManager.row_controllers(copies))
+    end)
+    |> Enum.sort_by(&{to_string(&1[:id]), to_string(&1[:version])})
+  end
+
+  @doc ~S|"The controller refused 1 installed package", or per controller when their counts differ; nil for none.|
+  def refused_words(refused) when is_map(refused) do
+    case refused |> Map.values() |> Enum.uniq() do
+      [0] ->
+        nil
+
+      [count] when map_size(refused) == 1 ->
+        "The controller refused #{Words.count(count, "installed package")} at boot"
+
+      [count] ->
+        "Each controller refused #{Words.count(count, "installed package")} at boot"
+
+      _differ ->
+        refused
+        |> Enum.reject(fn {_node, count} -> count == 0 end)
+        |> Enum.sort()
+        |> Enum.map(fn {node, count} -> "#{node} refused #{Words.count(count, "package")}" end)
+        |> Words.join()
+        |> Kernel.<>(" at boot")
+    end
+  end
+
+  def refused_words(_refused), do: nil
+
+  @doc """
+  The controllers of `answered` that cannot enable `provider`, or `[]` when
+  every one can.
+  """
+  def lacking(provider, answered),
+    do: answered |> Enum.reject(&(&1 in (provider[:nodes] || answered))) |> Enum.sort()
 
   # One read per namespace. A namespace the controller refuses is stated on
   # its own, so the others still list.

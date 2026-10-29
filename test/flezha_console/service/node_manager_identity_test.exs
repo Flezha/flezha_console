@@ -209,7 +209,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
 
       FakeController.set(
         node,
-        {Flezha.Service.AuditLog, :list_files},
+        {Flezha.Service.Logs, :files},
         FakeController.error("authz.principal_not_bound")
       )
 
@@ -229,8 +229,8 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
       assert {:error, %Flezha.Error{code: "authz.registry_unavailable"}} =
                NodeManager.audit_tail(token, self())
 
-      assert FakeController.calls(node, {Flezha.Service.AuditLog, :stats}) == []
-      assert FakeController.calls(node, {Flezha.Service.AuditLog, :tail}) == []
+      assert FakeController.calls(node, {Flezha.Service.Logs, :stats}) == []
+      assert FakeController.calls(node, {Flezha.Service.Logs, :tail}) == []
     end
 
     test "a refusal evicts the token, so a removed binding costs one call", %{
@@ -243,7 +243,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
 
       FakeController.set(
         node,
-        {Flezha.Service.AuditLog, :stats},
+        {Flezha.Service.Logs, :stats},
         FakeController.error("authz.role_insufficient")
       )
 
@@ -276,12 +276,22 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
 
     test "an authorized call carries the bound context last", %{node: node, token: token} do
       bind(node, identity(%{principal: "alice", namespace: "acme", role: :viewer}))
-      FakeController.set(node, {Flezha.Service.AuditLog, :list_files}, {:ok, []})
+
+      FakeController.set(
+        node,
+        {Flezha.Service.Logs, :files},
+        {:ok, %{files: [], unreachable: []}}
+      )
 
       assert {:ok, []} = NodeManager.audit_files(token)
 
-      assert [[%{source: :ui, principal: "alice", namespace: "acme", role: :viewer}]] =
-               FakeController.calls(node, {Flezha.Service.AuditLog, :list_files})
+      assert [
+               [
+                 [kind: "audit"],
+                 %{source: :ui, principal: "alice", namespace: "acme", role: :viewer}
+               ]
+             ] =
+               FakeController.calls(node, {Flezha.Service.Logs, :files})
     end
 
     test "an operation is run through the door by its catalogue name", %{
@@ -291,7 +301,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
       bind(node, identity())
 
       assert {:ok, []} = NodeManager.audit_files(token)
-      assert ["AuditLog.list_files"] in FakeController.calls(node, {Flezha.Service.Admin, :run})
+      assert ["Logs.files"] in FakeController.calls(node, {Flezha.Service.Admin, :run})
     end
 
     test "an operation the door does not publish is version skew, named as called", %{
@@ -315,7 +325,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
 
       FakeController.set(
         node,
-        {Flezha.Service.AuditLog, :list_files},
+        {Flezha.Service.Logs, :files},
         FakeController.error("audit.disabled")
       )
 
@@ -389,7 +399,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
 
       FakeController.set(
         node,
-        {Flezha.Service.AuditLog, :tail},
+        {Flezha.Service.Logs, :tail},
         FakeController.error("authz.role_insufficient")
       )
 

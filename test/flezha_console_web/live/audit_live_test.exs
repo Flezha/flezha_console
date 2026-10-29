@@ -11,9 +11,26 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
 
   use FlezhaConsoleWeb.LiveCase
 
-  alias Flezha.Service.AuditLog
+  alias Flezha.Service.Logs
 
   defp record(n), do: %{"source" => "ui", "name" => "audit_read", "seq" => n}
+
+  # The logs service's answers for the audit kind. A file and the writer's
+  # statistics are the controller's that holds them: here, the one connected.
+  defp files(node, rows),
+    do: {:ok, %{files: Enum.map(rows, &Map.put(&1, :node, node)), unreachable: []}}
+
+  defp stats(node, stats),
+    do: {:ok, %{controllers: [Map.put(stats, :node, node)], unreachable: []}}
+
+  defp records(records), do: {:ok, %{records: records, next: nil, unreachable: []}}
+
+  # The params of the latest audit read.
+  defp last_read(node) do
+    assert [params, %{source: :ui}] = node |> FakeController.calls({Logs, :read}) |> List.last()
+    assert params[:kind] == "audit"
+    params
+  end
 
   defp read(view), do: view |> element(~s([data-testid="audit-read-btn"])) |> render_click()
 
@@ -28,7 +45,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
 
   describe "when the subsystem is off" do
     test "names the flag that turns audit logging on", %{conn: conn, node: node} do
-      FakeController.set(node, {AuditLog, :list_files}, FakeController.error("audit.disabled"))
+      FakeController.set(node, {Logs, :files}, FakeController.error("audit.disabled"))
 
       {:ok, _view, html} = live(conn, ~p"/audit")
 
@@ -40,7 +57,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
     test "names the flag that turns observability on", %{conn: conn, node: node} do
       FakeController.set(
         node,
-        {AuditLog, :list_files},
+        {Logs, :files},
         FakeController.error("observability.disabled")
       )
 
@@ -56,7 +73,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
     } do
       FakeController.set(
         node,
-        {AuditLog, :list_files},
+        {Logs, :files},
         FakeController.error("controller.timeout")
       )
 
@@ -72,14 +89,14 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
     test "renders the statistics the controller reports", %{conn: conn, node: node} do
       FakeController.set(
         node,
-        {AuditLog, :list_files},
-        {:ok, [%{filename: "audit-1.log", record_count: 7, size_bytes: 2048, sha256: "ab"}]}
+        {Logs, :files},
+        files(node, [%{filename: "audit-1.log", record_count: 7, size_bytes: 2048, sha256: "ab"}])
       )
 
       FakeController.set(
         node,
-        {AuditLog, :stats},
-        {:ok, %{record_count: 42, total_files: 3, total_bytes: 2048, fsync_mode: :always}}
+        {Logs, :stats},
+        stats(node, %{record_count: 42, total_files: 3, total_bytes: 2048, fsync_mode: :always})
       )
 
       {:ok, _view, html} = live(conn, ~p"/audit")
@@ -92,8 +109,8 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
     end
 
     test "explains an empty catalog rather than looking broken", %{conn: conn, node: node} do
-      FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
-      FakeController.set(node, {AuditLog, :stats}, {:ok, %{current_file: "audit-now.log"}})
+      FakeController.set(node, {Logs, :files}, files(node, []))
+      FakeController.set(node, {Logs, :stats}, stats(node, %{current_file: "audit-now.log"}))
 
       {:ok, _view, html} = live(conn, ~p"/audit")
 
@@ -105,12 +122,12 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
 
   describe "reading records" do
     setup %{node: node} do
-      FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
+      FakeController.set(node, {Logs, :files}, files(node, []))
       :ok
     end
 
     test "renders the records the controller returned", %{conn: conn, node: node} do
-      FakeController.set(node, {AuditLog, :read}, {:ok, [record(1), record(2)]})
+      FakeController.set(node, {Logs, :read}, records([record(1), record(2)]))
 
       {:ok, view, _html} = live(conn, ~p"/audit")
       html = read(view)
@@ -121,7 +138,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
     end
 
     test "reports when nothing matched", %{conn: conn, node: node} do
-      FakeController.set(node, {AuditLog, :read}, {:ok, []})
+      FakeController.set(node, {Logs, :read}, records([]))
 
       {:ok, view, _html} = live(conn, ~p"/audit")
 
@@ -130,7 +147,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
 
     test "says so when the limit cut the result off", %{conn: conn, node: node} do
       # The screen asks for limit + 1; getting it back is how it knows.
-      FakeController.set(node, {AuditLog, :read}, {:ok, Enum.map(1..3, &record/1)})
+      FakeController.set(node, {Logs, :read}, records(Enum.map(1..3, &record/1)))
 
       {:ok, view, _html} = live(conn, ~p"/audit")
       filter(view, %{"limit" => "2"})
@@ -148,8 +165,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
       filter(view, %{"limit" => "25"})
       read(view)
 
-      assert [%{limit: 26}, %{source: :ui}] =
-               node |> FakeController.calls({AuditLog, :read}) |> List.last()
+      assert last_read(node)[:limit] == 26
     end
 
     test "passes the filter down rather than filtering locally", %{conn: conn, node: node} do
@@ -159,8 +175,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
 
       read(view)
 
-      assert [%{source: "cli", name: "relay_start"}, _ctx] =
-               node |> FakeController.calls({AuditLog, :read}) |> List.last()
+      assert last_read(node)[:filters] == %{source: "cli", name: "relay_start"}
     end
 
     test "an out-of-range limit falls back rather than being sent on", %{
@@ -171,8 +186,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
       filter(view, %{"limit" => "not a number"})
       read(view)
 
-      assert [%{limit: 101}, _ctx] =
-               node |> FakeController.calls({AuditLog, :read}) |> List.last()
+      assert last_read(node)[:limit] == 101
     end
 
     test "explains a refusal caused by configuration, not by malfunction", %{
@@ -181,7 +195,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
     } do
       FakeController.set(
         node,
-        {AuditLog, :read},
+        {Logs, :read},
         FakeController.error(
           "authz.principal_not_bound",
           "the call carries no verifiable identity"
@@ -202,7 +216,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
       conn: conn,
       node: node
     } do
-      FakeController.set(node, {AuditLog, :read}, FakeController.error("authz.role_insufficient"))
+      FakeController.set(node, {Logs, :read}, FakeController.error("authz.role_insufficient"))
 
       {:ok, view, _html} = live(conn, ~p"/audit")
       html = read(view)
@@ -219,17 +233,16 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
     @rotated %{filename: "audit-1.jsonl", record_count: 7, size_bytes: 2048, sha256: "ab"}
 
     setup %{node: node} do
-      FakeController.set(node, {AuditLog, :list_files}, {:ok, [@rotated]})
+      FakeController.set(node, {Logs, :files}, files(node, [@rotated]))
 
       FakeController.set(
         node,
-        {AuditLog, :stats},
-        {:ok,
-         %{
-           current_file: "storage/app/audit/audit-current.jsonl",
-           record_count: 12,
-           current_file_bytes: 4096
-         }}
+        {Logs, :stats},
+        stats(node, %{
+          current_file: "storage/app/audit/audit-current.jsonl",
+          record_count: 12,
+          current_file_bytes: 4096
+        })
       )
 
       :ok
@@ -253,14 +266,16 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
       conn: conn,
       node: node
     } do
-      FakeController.set(node, {AuditLog, :read}, {:ok, [record(1)]})
+      FakeController.set(node, {Logs, :read}, records([record(1)]))
       {:ok, view, _html} = live(conn, ~p"/audit")
       filter(view, %{"source" => "cli"})
 
       html = open(view, "audit-open-audit-1.jsonl")
 
-      assert [%{file: "audit-1.jsonl", source: "cli"}, _ctx] =
-               node |> FakeController.calls({AuditLog, :read}) |> List.last()
+      params = last_read(node)
+      assert params[:file] == "audit-1.jsonl"
+      assert params[:node] == node
+      assert params[:filters] == %{source: "cli"}
 
       assert html =~ ~s(data-testid="audit-record")
       assert has_element?(view, ~s(input[name="filter[file]"][value="audit-1.jsonl"]))
@@ -271,14 +286,13 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
       {:ok, view, _html} = live(conn, ~p"/audit")
       open(view, "audit-open-audit-current.jsonl")
 
-      assert [%{file: "audit-current.jsonl"}, _ctx] =
-               node |> FakeController.calls({AuditLog, :read}) |> List.last()
+      assert last_read(node)[:file] == "audit-current.jsonl"
     end
 
     test "without the read nothing in the catalog opens", %{conn: conn, node: node, user: user} do
       identity = %{principal: "x@default", namespace: "default", role: :viewer}
       enforce_operations(node, user, identity)
-      grant_operations(node, identity, ["AuditLog.list_files", "AuditLog.stats"])
+      grant_operations(node, identity, ["Logs.files", "Logs.stats"])
 
       {:ok, view, _html} = live(conn, ~p"/audit")
 
@@ -293,13 +307,13 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
       {:ok, view, _html} = live(conn, ~p"/audit")
       render_click(view, "open_file", %{"file" => "../../etc/passwd"})
 
-      assert FakeController.calls(node, {AuditLog, :read}) == []
+      assert FakeController.calls(node, {Logs, :read}) == []
     end
   end
 
   describe "a read record" do
     setup %{node: node} do
-      FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
+      FakeController.set(node, {Logs, :files}, files(node, []))
       :ok
     end
 
@@ -327,7 +341,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
           "metadata" => %{"reason" => "authz.role_insufficient"}
         })
 
-      FakeController.set(node, {AuditLog, :read}, {:ok, [audited(1, 10), denied]})
+      FakeController.set(node, {Logs, :read}, records([audited(1, 10), denied]))
       {:ok, view, _html} = live(conn, ~p"/audit")
       html = read(view)
 
@@ -351,15 +365,15 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
     } do
       FakeController.set(
         node,
-        {AuditLog, :read},
-        {:ok, [audited(1, 10), audited(2, 20), audited(3, 30)]}
+        {Logs, :read},
+        records([audited(1, 10), audited(2, 20), audited(3, 30)])
       )
 
       {:ok, view, _html} = live(conn, ~p"/audit")
       filter(view, %{"limit" => "2"})
       read(view)
 
-      FakeController.set(node, {AuditLog, :read}, FakeController.error("controller.timeout"))
+      FakeController.set(node, {Logs, :read}, FakeController.error("controller.timeout"))
       html = view |> element(~s([data-testid="audit-read-more"])) |> render_click()
 
       assert html =~ "controller.timeout"
@@ -368,7 +382,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
     end
 
     test "Read more stops at the cap and says to narrow the filter", %{conn: conn, node: node} do
-      FakeController.set(node, {AuditLog, :read}, {:ok, for(n <- 1..5_001, do: audited(1, n))})
+      FakeController.set(node, {Logs, :read}, records(for(n <- 1..5_001, do: audited(1, n))))
 
       {:ok, view, _html} = live(conn, ~p"/audit")
       filter(view, %{"limit" => "1000"})
@@ -382,8 +396,8 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
       assert text_of(html, ~s([data-testid="audit-capped"])) =~ "read past the first 5000"
       refute has_element?(view, ~s([data-testid="audit-read-more"]))
 
-      assert [%{limit: 5_001}, _ctx] =
-               node |> FakeController.calls({AuditLog, :read}) |> List.last()
+      # The logs service answers at most 1000 records to one read.
+      assert last_read(node)[:limit] == 1_000
     end
 
     test "Read more reads on past the records shown, by position, with the read's own filter",
@@ -391,7 +405,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
       # Timestamps are a VM's monotonic clock, so a restart makes them run
       # backwards in one file: position is the order.
       file = [audited(1, 50), audited(2, 60), audited(3, 5), audited(4, 6)]
-      FakeController.set(node, {AuditLog, :read}, {:ok, Enum.take(file, 3)})
+      FakeController.set(node, {Logs, :read}, records(Enum.take(file, 3)))
 
       {:ok, view, _html} = live(conn, ~p"/audit")
       filter(view, %{"limit" => "2"})
@@ -399,14 +413,13 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
 
       # A filter edited after the read does not leak into reading on.
       filter(view, %{"source" => "cli"})
-      FakeController.set(node, {AuditLog, :read}, {:ok, file})
+      FakeController.set(node, {Logs, :read}, records(file))
       html = view |> element(~s([data-testid="audit-read-more"])) |> render_click()
 
-      assert [%{limit: 5} = params, _ctx] =
-               node |> FakeController.calls({AuditLog, :read}) |> List.last()
-
-      refute Map.has_key?(params, :since_us)
-      refute Map.has_key?(params, :source)
+      params = last_read(node)
+      assert params[:limit] == 5
+      refute Keyword.has_key?(params, :since_us)
+      assert params[:filters] == %{}
 
       seqs = for i <- 0..3, do: text_of(html, ~s([data-testid="audit-record-#{i}"]))
 
@@ -419,10 +432,10 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
   end
 
   describe "the tail" do
-    @tail {AuditLog, :tail}
+    @tail {Logs, :tail}
 
     setup %{node: node} do
-      FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
+      FakeController.set(node, {Logs, :files}, files(node, []))
       :ok
     end
 
@@ -442,7 +455,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
       start_tail(view)
 
       assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
-      assert [[[], %{source: :ui, emit: emit}]] = FakeController.calls(node, @tail)
+      assert [[[kind: "audit"], %{source: :ui, emit: emit}]] = FakeController.calls(node, @tail)
       assert is_pid(emit)
 
       FakeController.emit(node, @tail, record(7))
@@ -453,7 +466,7 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
 
     test "a refused tail is stated, and the reads still work", %{conn: conn, node: node} do
       FakeController.set(node, @tail, FakeController.error("authz.role_insufficient"))
-      FakeController.set(node, {AuditLog, :read}, {:ok, [record(1)]})
+      FakeController.set(node, {Logs, :read}, records([record(1)]))
 
       {:ok, view, _html} = live(conn, ~p"/audit")
       start_tail(view)
@@ -469,15 +482,15 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
       conn: conn,
       node: node
     } do
-      FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
+      FakeController.set(node, {Logs, :files}, files(node, []))
       {:ok, view, _html} = live(conn, ~p"/audit")
 
       closed = %{filename: "audit-20261006T120000.jsonl", size_bytes: 512, record_count: 3}
-      FakeController.set(node, {AuditLog, :list_files}, {:ok, [closed]})
+      FakeController.set(node, {Logs, :files}, files(node, [closed]))
 
       html = view |> element(~s([data-testid="audit-rotate-btn"])) |> render_click()
 
-      assert [[_ctx]] = FakeController.calls(node, {AuditLog, :rotate})
+      assert [[[kind: "audit", node: ^node], _ctx]] = FakeController.calls(node, {Logs, :rotate})
       assert html =~ "audit-20261006T120000.jsonl"
       assert html =~ "Audit log rotated"
     end
@@ -486,8 +499,8 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
       conn: conn,
       node: node
     } do
-      FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
-      FakeController.set(node, {AuditLog, :read}, {:ok, [%{"name" => "a"}, %{"name" => "b"}]})
+      FakeController.set(node, {Logs, :files}, files(node, []))
+      FakeController.set(node, {Logs, :read}, records([%{"name" => "a"}, %{"name" => "b"}]))
       {:ok, view, _html} = live(conn, ~p"/audit")
       filter(view, %{"limit" => "1"})
       read(view)
@@ -507,22 +520,22 @@ defmodule FlezhaConsoleWeb.AuditLiveTest do
       conn: conn,
       node: node
     } do
-      FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
+      FakeController.set(node, {Logs, :files}, files(node, []))
 
       FakeController.set(
         node,
-        {AuditLog, :rotate},
+        {Logs, :rotate},
         FakeController.error("authz.role_insufficient", "viewer may not rotate the audit log")
       )
 
       {:ok, view, _html} = live(conn, ~p"/audit")
-      files_before = length(FakeController.calls(node, {AuditLog, :list_files}))
+      files_before = length(FakeController.calls(node, {Logs, :files}))
 
       html = view |> element(~s([data-testid="audit-rotate-btn"])) |> render_click()
 
       assert html =~ ~s(data-testid="audit-rotate-error")
       assert html =~ "viewer may not rotate the audit log"
-      assert length(FakeController.calls(node, {AuditLog, :list_files})) == files_before
+      assert length(FakeController.calls(node, {Logs, :files})) == files_before
     end
   end
 end

@@ -208,12 +208,29 @@ export async function submitLogin(
   await form.getByRole('button', { name: /log in/i }).click();
 }
 
+/** The dev stack's controllers: the console's own, then the second. */
+export const CONTROLLERS = ['flezha@flezha_controller', 'flezha@flezha_controller_2'];
+
+/** The machine a controller node runs on, as the console names it. */
+export const machine = (node: string) => node.split('@')[1];
+
+/**
+ * The namespace only the second controller's runner serves, so a relay
+ * started there from `SECOND_FACTORY` runs on the second controller.
+ */
+export const SECOND_NAMESPACE = 'second';
+export const SECOND_FACTORY = 'store_input';
+
 type BootStatus = {
-  preconditions: { key: string; met: boolean }[];
-  namespaces: { namespace: string; recovery_state: string }[];
+  rows: {
+    node: string;
+    preconditions: { key: string; met: boolean }[];
+    namespaces: { namespace: string; recovery_state: string }[];
+  }[];
+  unreachable: string[];
 };
 
-/** What keeps the controller from serving, or nothing once it is ready. */
+/** What keeps a controller from serving, or nothing once every one is ready. */
 async function notReady(): Promise<string[]> {
   let status: BootStatus;
   try {
@@ -223,19 +240,35 @@ async function notReady(): Promise<string[]> {
     return [`the controller does not answer: ${String(error).split('\n').slice(0, 3).join(' ')}`];
   }
 
-  // The readiness verdict is its preconditions folded; each unmet one is named.
+  const answered = new Set(status.rows.map(({ node }) => node));
+
+  // Each readiness verdict is its preconditions folded; each unmet one is named.
   return [
-    ...status.preconditions.filter(({ met }) => !met).map(({ key }) => `${key} is unmet`),
-    ...status.namespaces
-      .filter(({ recovery_state }) => recovery_state !== 'normal')
-      .map(({ namespace, recovery_state }) => `${namespace} is ${recovery_state}`),
+    ...CONTROLLERS.filter((node) => !answered.has(node)).map((node) => `${node} is not in the cluster`),
+    ...status.rows.flatMap(({ node, preconditions, namespaces }) => [
+      ...preconditions.filter(({ met }) => !met).map(({ key }) => `${node}: ${key} is unmet`),
+      ...namespaces
+        .filter(({ recovery_state }) => recovery_state !== 'normal')
+        .map(({ namespace, recovery_state }) => `${node}: ${namespace} is ${recovery_state}`),
+    ]),
+    ...(await secondFactoryMissing()),
   ];
 }
 
+/** Names the second runner's factory while no runner of the second controller serves it. */
+async function secondFactoryMissing(): Promise<string[]> {
+  const { rows } = (await cliCall('Fleet.factories', [SECOND_NAMESPACE]).catch(() => ({ rows: [] }))) as {
+    rows: { id: string; nodes: string[] }[];
+  };
+  const served = rows.some(({ id, nodes }) => id === SECOND_FACTORY && nodes.includes(CONTROLLERS[1]));
+  return served ? [] : [`${CONTROLLERS[1]}'s runner does not serve ${SECOND_NAMESPACE}/${SECOND_FACTORY}`];
+}
+
 /**
- * Waits until the controller is ready and every namespace's hub serves, so no
- * test meets a half-recovered controller. A ready controller answers at once;
- * past `READY_WITHIN_MS` this fails naming what is still not ready.
+ * Waits until both controllers are ready, every namespace's hub serves and the
+ * second controller's runner serves its factory, so no test meets a
+ * half-recovered cluster. A ready cluster answers at once; past
+ * `READY_WITHIN_MS` this fails naming what is still not ready.
  */
 async function awaitReady(): Promise<void> {
   const deadline = Date.now() + READY_WITHIN_MS;
@@ -247,14 +280,15 @@ async function awaitReady(): Promise<void> {
   }
 
   if (blockers.length > 0) {
-    throw new Error(`The controller was not ready within ${READY_WITHIN_MS / 1000} s: ${blockers.join('; ')}`);
+    throw new Error(`The cluster was not ready within ${READY_WITHIN_MS / 1000} s: ${blockers.join('; ')}`);
   }
 }
 
 /** The run ids behind the worker namespaces on the stack, each with its namespaces. */
 async function workerRuns(): Promise<Map<string, string[]>> {
   const runs = new Map<string, string[]>();
-  for (const { namespace } of (await cliCall('Relay.list_namespaces', [])) as { namespace: string }[]) {
+  const { rows } = (await cliCall('Relay.list_namespaces', [])) as { rows: { namespace: string }[] };
+  for (const { namespace } of rows) {
     const run = WORKER_NAMESPACE.exec(namespace)?.[1];
     if (run) runs.set(run, [...(runs.get(run) ?? []), namespace]);
   }

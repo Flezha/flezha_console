@@ -135,7 +135,7 @@ defmodule FlezhaConsoleWeb.RelayState do
     failed: {"Its runner is gone past its grace", "Processes nothing until it is rebound"},
     degraded: {"Runs, but not as declared", "Its output may differ from its declaration"},
     halted: {"A fault the system cannot fix by itself", "Processes no input"},
-    unknown: {"Not observed yet", "Not known yet"},
+    unknown: {"Its controller did not answer, or has not checked it yet", "Not known yet"},
     unplaced: {"No live node runs it", "Processes nothing until a node runs it"},
     coverage:
       {"Its partition group's coverage is broken", "Traffic for uncovered key groups is lost"}
@@ -162,7 +162,7 @@ defmodule FlezhaConsoleWeb.RelayState do
   defp next_step(:halted, _handler, _factory),
     do: "Fix the cause; Flezha retries its bind with a growing delay"
 
-  defp next_step(:unknown, _handler, _factory), do: "Checked on the next tick"
+  defp next_step(:unknown, _handler, _factory), do: "Read again on the next tick"
   defp next_step(:unplaced, _handler, _factory), do: "Placed by Flezha"
   defp next_step(:coverage, _handler, _factory), do: "Fix the group's key ranges"
   defp next_step(_state, _handler, _factory), do: nil

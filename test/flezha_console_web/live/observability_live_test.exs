@@ -12,10 +12,12 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
 
   alias Flezha.Service.Observability
 
+  @node :"flezha@node-a"
+
   # Entries as a live controller answers them, trimmed to what the screen reads.
   @file_sink %{
     name: :flezha_file_sink,
-    status: :active,
+    statuses: %{"flezha@node-a": :active},
     kinds: [:metric, :event],
     flavour: :declarative,
     cardinality_budget: 1000,
@@ -53,7 +55,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
 
   @http_poll %{
     name: :flezha_http_poll,
-    status: :active,
+    statuses: %{"flezha@node-a": :active},
     kinds: [:metric, :event],
     flavour: :declarative,
     cardinality_budget: 1000,
@@ -74,7 +76,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
 
   @authz %{
     name: :platform_authz,
-    status: :disabled,
+    statuses: %{"flezha@node-a": :disabled},
     kinds: [:event, :metric],
     flavour: :declarative,
     cardinality_budget: 256,
@@ -95,7 +97,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
   }
 
   defp sources(node, list) do
-    FakeController.set(node, {Observability, :list_sources}, {:ok, list})
+    FakeController.set(node, {Observability, :list_sources}, FakeController.rows(list))
   end
 
   defp source_order(view, group) do
@@ -247,7 +249,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       conn: conn,
       node: node
     } do
-      sources(node, [%{name: :flezha_health, status: :active}])
+      sources(node, [%{name: :flezha_health, statuses: %{@node => :active}}])
       {:ok, _view, html} = live(conn, ~p"/observability")
 
       assert html =~ ~s(data-testid="source-group-other")
@@ -287,12 +289,16 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       FakeController.set(
         node,
         {Observability, :list_sinks},
-        {:ok,
-         [
-           %{name: :pubsub, module: Flezha.Observability.PubSubSink, pid: self()},
-           %{name: :ring_buffer, module: Flezha.Observability.RingBufferSink, pid: nil},
-           %{name: :custom, module: Some.Sink, pid: self()}
-         ]}
+        FakeController.rows([
+          %{name: :pubsub, module: Flezha.Observability.PubSubSink, pid: self(), node: @node},
+          %{
+            name: :ring_buffer,
+            module: Flezha.Observability.RingBufferSink,
+            pid: nil,
+            node: @node
+          },
+          %{name: :custom, module: Some.Sink, pid: self(), node: @node}
+        ])
       )
 
       {:ok, view, _html} = live(conn, ~p"/observability")
@@ -303,6 +309,95 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       assert line =~ "custom"
       assert line =~ ~s(data-testid="sink-stopped-ring_buffer")
       refute line =~ ~s(data-testid="sink-stopped-pubsub")
+    end
+
+    test "a sink is listed once however many controllers run it, and stopped where it stopped",
+         %{conn: conn, node: node} do
+      sources(node, [@file_sink])
+      ring = %{name: :ring_buffer, module: Flezha.Observability.RingBufferSink}
+
+      FakeController.set(
+        node,
+        {Observability, :list_sinks},
+        FakeController.rows([
+          Map.merge(ring, %{pid: self(), node: @node}),
+          Map.merge(ring, %{pid: nil, node: :"flezha@node-b"})
+        ])
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/observability")
+      line = view |> element(~s([data-testid="sinks-line"])) |> render()
+
+      assert length(Regex.scan(~r/data-testid="sink-ring_buffer"/, line)) == 1
+      stopped = view |> element(~s([data-testid="sink-stopped-ring_buffer"])) |> render()
+      assert stopped =~ "Not running on"
+      assert stopped =~ ~r/title="flezha@node-b"[^>]*>\s*node-b\s*</
+      refute stopped =~ "node-a"
+    end
+
+    test "a source on part of the cluster says on how many, with its switch half on", %{
+      conn: conn,
+      node: node
+    } do
+      partly = %{
+        @file_sink
+        | statuses: %{@node => :active, "flezha@node-b": :active, "flezha@node-c": :disabled}
+      }
+
+      sources(node, [partly, @http_poll])
+      {:ok, view, html} = live(conn, ~p"/observability")
+
+      switch = view |> element(~s([data-testid="toggle-flezha_file_sink"])) |> render()
+      assert switch =~ ~s(aria-checked="mixed")
+      assert html =~ ~r/data-testid="source-enabled-flezha_file_sink"[^>]*data-enabled="mixed"/
+
+      assert view |> element(~s([data-testid="source-partly-flezha_file_sink"])) |> render() =~
+               "On 2 of 3 controllers"
+
+      refute html =~ ~s(data-testid="source-partly-flezha_http_poll")
+      # Only a source on everywhere counts as on.
+      assert view |> element(~s([data-testid="source-group-count-plugins"])) |> render() =~
+               "1 of 2 on"
+    end
+
+    test "a partial listing is noted once, naming the controller that did not answer", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Observability, :list_sources},
+        FakeController.rows([@file_sink], ["flezha@node-c"])
+      )
+
+      FakeController.set(
+        node,
+        {Observability, :list_sinks},
+        FakeController.rows([], ["flezha@node-c"])
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/observability")
+
+      assert length(testids(html, ~s([data-testid="partial-answer"]))) == 1
+      assert text_of(html, ~s([data-testid="partial-answer"])) =~ "flezha@node-c did not"
+    end
+
+    test "with no source from the controllers that answered, it says so rather than none", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Observability, :list_sources},
+        FakeController.rows([], ["flezha@node-c"])
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/observability")
+
+      assert text_of(html, ~s([data-testid="partial-empty"])) =~
+               "No source was found on the controllers that answered."
+
+      refute html =~ "This controller reports none."
     end
 
     test "a switched-off subsystem is stated as switched off", %{conn: conn, node: node} do
@@ -335,13 +430,45 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
     end
 
     test "disabling an enabled source calls disable_source", %{conn: conn, node: node} do
-      sources(node, [%{@authz | status: :active}])
+      sources(node, [%{@authz | statuses: %{@node => :active}}])
 
       {:ok, view, _html} = live(conn, ~p"/observability")
       toggle(view, "platform_authz")
 
       assert [["platform_authz", _ctx]] =
                FakeController.calls(node, {Observability, :disable_source})
+    end
+
+    test "a source on part of the cluster is switched on everywhere", %{conn: conn, node: node} do
+      sources(node, [%{@authz | statuses: %{@node => :active, "flezha@node-b": :disabled}}])
+
+      {:ok, view, _html} = live(conn, ~p"/observability")
+      toggle(view, "platform_authz")
+
+      assert [["platform_authz", _ctx]] =
+               FakeController.calls(node, {Observability, :enable_source})
+
+      assert FakeController.calls(node, {Observability, :disable_source}) == []
+    end
+
+    test "a switch some controllers did not apply names them", %{conn: conn, node: node} do
+      sources(node, [@authz])
+
+      FakeController.set(
+        node,
+        {Observability, :enable_source},
+        {:ok, %{applied: [@node], unreachable: [:"flezha@node-c"]}}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/observability")
+      html = toggle(view, "platform_authz")
+
+      missed = text_of(html, ~s([data-testid="toggle-missed"]))
+
+      assert missed =~
+               "Access control was not switched on on flezha@node-c, which did not answer."
+
+      refute html =~ ~s(data-testid="runtime-error")
     end
 
     test "a refused toggle is shown and the source is unchanged", %{conn: conn, node: node} do
@@ -383,12 +510,15 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       :ok
     end
 
-    defp signal(name, ts, fields \\ %{}) do
+    # `at_us` is the wall-clock time its controller stamped on it.
+    defp signal(name, at_us, fields \\ %{}) do
       Map.merge(
         %{
           __struct__: Flezha.Observability.Signal,
           kind: :metric,
-          ts: ts,
+          ts: 0,
+          at_us: at_us,
+          node: @node,
           source: :flezha_file_sink,
           name: name,
           measurements: %{count: 1},
@@ -398,12 +528,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       )
     end
 
-    defp controller_now(node) do
-      {:ok, %{monotonic_us: now}} =
-        :erpc.call(node, Flezha.Service.Controller, :status, [%{source: :ui}])
-
-      now
-    end
+    defp now_us, do: System.os_time(:microsecond)
 
     defp open(conn) do
       {:ok, view, _html} = live(conn, ~p"/observability")
@@ -474,7 +599,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       FakeController.emit(
         node,
         @tail,
-        signal(:flushed, controller_now(node), %{
+        signal(:flushed, now_us(), %{
           measurements: %{count: 1},
           metadata: %{plugin_id: "showcase_orders", path: "/data/out.log"}
         })
@@ -503,13 +628,37 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       refute render(view) =~ ~s(data-testid="tail-history-divider")
     end
 
+    test "a line names the controller that emitted it and the time it stamped", %{
+      conn: conn,
+      node: node
+    } do
+      view = start_tail(conn, node)
+      at = ~U[2026-10-29 09:15:42.123456Z]
+
+      FakeController.emit(
+        node,
+        @tail,
+        signal(:flushed, DateTime.to_unix(at, :microsecond), %{
+          node: :"flezha@node-b",
+          metadata: %{plugin_id: "orders", path: "/data/out.log"}
+        })
+      )
+
+      assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tail-record") end)
+      line = view |> element(~s([data-testid="tail-record"])) |> render()
+
+      assert line =~ ~r/data-testid="tail-controller"[^>]*>\s*node-b\s*</
+      assert line =~ ~s(title="flezha@node-b")
+      assert line =~ FlezhaConsole.Format.time_of_day(at)
+    end
+
     test "a count reads with its noun and a large one compactly", %{conn: conn, node: node} do
       view = start_tail(conn, node)
 
       FakeController.emit(
         node,
         @tail,
-        signal(:flushed, controller_now(node), %{
+        signal(:flushed, now_us(), %{
           measurements: %{count: 12_400},
           metadata: %{plugin_id: "orders", path: "/var/out/day.log"}
         })
@@ -526,7 +675,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       FakeController.emit(
         node,
         @tail,
-        signal(:failed, controller_now(node), %{
+        signal(:failed, now_us(), %{
           kind: :event,
           metadata: %{plugin_id: "orders", path: "/data/out.log", reason: :enospc}
         })
@@ -536,7 +685,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       line = view |> element(~s([data-testid="tail-record"])) |> render()
 
       assert line =~ ~s(data-outcome="failure")
-      assert line =~ ~r/class="min-w-0 fcon-tone-warning"/
+      assert line =~ ~r/class="block fcon-tone-warning"/
       assert line =~ "⚠"
       assert line =~ "orders could not write to out.log"
     end
@@ -550,7 +699,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       FakeController.emit(
         node,
         @tail,
-        signal(:flushed, controller_now(node), %{metadata: %{plugin_id: "orders"}})
+        signal(:flushed, now_us(), %{metadata: %{plugin_id: "orders"}})
       )
 
       assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tail-record") end)
@@ -562,7 +711,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
 
     test "a signal the source does not declare reads by its name", %{conn: conn, node: node} do
       view = start_tail(conn, node)
-      FakeController.emit(node, @tail, signal(:rotated, controller_now(node)))
+      FakeController.emit(node, @tail, signal(:rotated, now_us()))
 
       assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tail-record") end)
 
@@ -577,7 +726,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       FakeController.emit(
         node,
         @tail,
-        signal(:failed, controller_now(node), %{metadata: %{transport: :uds, error: long}})
+        signal(:failed, now_us(), %{metadata: %{transport: :uds, error: long}})
       )
 
       assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tail-record") end)
@@ -592,12 +741,15 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       conn: conn,
       node: node
     } do
-      now = controller_now(node)
+      now = now_us()
 
       FakeController.set(
         node,
         @query,
-        {:ok, [signal(:failed, now - 120_000_000), signal(:flushed, now - 60_000_000)]}
+        FakeController.rows([
+          signal(:failed, now - 120_000_000),
+          signal(:flushed, now - 60_000_000)
+        ])
       )
 
       view = start_tail(conn, node)
@@ -606,7 +758,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       assert html =~ ~r/class="fcon-eyebrow pt-3 pb-1"\s+data-testid="tail-history-divider"/
       assert html =~ "Before you opened the tail"
       assert [[_, a], [_, b]] = Regex.scan(~r/(\d\d:\d\d:\d\d)\.\d\d\d/, html)
-      # Newest first, and a minute of controller time apart.
+      # Newest first, a minute apart by the times their controllers stamped.
       assert (seconds(a) - seconds(b)) in [60, 60 - 86_400]
 
       FakeController.emit(node, @tail, signal(:flushed, now))
@@ -619,9 +771,9 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
     end
 
     test "history and live signals together keep at most 200", %{conn: conn, node: node} do
-      now = controller_now(node)
+      now = now_us()
       history = for i <- 1..50, do: signal(:flushed, now - i * 1_000_000)
-      FakeController.set(node, @query, {:ok, Enum.reverse(history)})
+      FakeController.set(node, @query, FakeController.rows(Enum.reverse(history)))
 
       view = start_tail(conn, node)
       for _ <- 1..160, do: FakeController.emit(node, @tail, signal(:flushed, now))
@@ -639,7 +791,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       view = start_tail(conn, node)
 
       assert render(view) =~ "the source&#39;s recent history"
-      FakeController.emit(node, @tail, signal(:flushed, controller_now(node)))
+      FakeController.emit(node, @tail, signal(:flushed, now_us()))
       assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tail-record") end)
     end
 
@@ -647,7 +799,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLiveTest do
       conn: conn,
       node: node
     } do
-      FakeController.set(node, @query, {:ok, [signal(:flushed, controller_now(node))]})
+      FakeController.set(node, @query, FakeController.rows([signal(:flushed, now_us())]))
       FakeController.set(node, @tail, FakeController.error("observability.pubsub_disabled"))
 
       view = open(conn)

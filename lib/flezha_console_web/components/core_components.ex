@@ -489,11 +489,12 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   An on/off setting. A button with `role="switch"`, labelled with what it
   switches and reporting its state through `aria-checked`; the click is the
   caller's (`phx-click` and `phx-value-*` ride the global attributes).
+  `checked` is `:mixed` for a setting on for only part of what it switches.
 
       <.switch checked={source.enabled} label={source.name} phx-click="toggle_source"
         phx-value-source={source.name} />
   """
-  attr :checked, :boolean, required: true
+  attr :checked, :any, required: true, values: [true, false, :mixed]
   attr :label, :string, required: true
   attr :show_label, :boolean, default: true
   attr :testid, :string, default: nil
@@ -1750,6 +1751,120 @@ defmodule FlezhaConsoleWeb.CoreComponents do
     </div>
     """
   end
+
+  @doc """
+  That a screen's cluster reads are partial: how many of the cluster's
+  controllers answered, and which did not. Nothing when every one answered.
+
+  `unreachable` is `NodeManager.unreachable/1` of the screen's reads, and
+  `controllers` the controllers listing the shell's pulse holds, `nil` before
+  it is read. A screen renders it once, above the region its reads fill.
+  """
+  attr :unreachable, :list, required: true
+  attr :controllers, :list, default: nil
+
+  def partial_answer(assigns) do
+    ~H"""
+    <.notice :if={@unreachable != []} icon="hero-signal-slash" testid="partial-answer">
+      <p>{partial_words(@unreachable, @controllers)}</p>
+    </.notice>
+    """
+  end
+
+  defp partial_words(unreachable, controllers) do
+    missing = unreachable |> Enum.map(&to_string/1) |> Words.join()
+    {holds, they} = if length(unreachable) == 1, do: {"holds", "it"}, else: {"hold", "they"}
+    rest = "so what #{they} #{holds} is missing here."
+
+    case controllers do
+      [_ | _] ->
+        total = controllers |> Enum.map(& &1.node) |> Enum.concat(unreachable) |> Enum.uniq()
+
+        "#{answered_words(length(total) - length(unreachable), length(total))}; " <>
+          "#{missing} did not, #{rest}"
+
+      _unread ->
+        "#{missing} did not answer, #{rest}"
+    end
+  end
+
+  @doc ~S|"2 of 3 controllers answered"|
+  def answered_words(answered, total),
+    do: "#{answered} of #{Words.count(total, "controller")} answered"
+
+  @doc """
+  What a listing says in place of its empty state when its read is partial:
+  nothing was found on the controllers that answered, which says nothing of
+  the ones that did not.
+  """
+  attr :noun, :string, required: true, doc: "what the listing holds, singular"
+  attr :testid, :string, default: "partial-empty"
+
+  def partial_empty(assigns) do
+    ~H"""
+    <.empty_state icon="hero-signal-slash" testid={@testid}>
+      No {@noun} was found on the controllers that answered.
+    </.empty_state>
+    """
+  end
+
+  @doc """
+  The controller a row lives on, by the machine it runs on, with its node name
+  on hover. `controllers` is the controllers listing that names machines; a
+  node it does not list is named by its host.
+  """
+  attr :node, :any, required: true
+  attr :controllers, :list, default: nil
+  attr :testid, :string, default: "row-controller"
+
+  def controller_name(assigns) do
+    row = Enum.find(assigns.controllers || [], &(&1.node == assigns.node))
+    assigns = assign(assigns, :machine, machine(row || %{node: assigns.node}))
+
+    ~H"""
+    <span :if={@node} class="fcon-num" title={to_string(@node)} data-testid={@testid}>
+      {@machine}
+    </span>
+    """
+  end
+
+  @doc """
+  A listing's filter by the controller its rows live on, inside the listing's
+  own filter form. Only offered when `rows` come from more than one
+  controller; `NodeManager.rows_with(rows, :node, value)` applies it.
+  """
+  attr :rows, :list, required: true
+  attr :name, :string, required: true
+  attr :value, :string, default: nil
+  attr :controllers, :list, default: nil
+  attr :class, :string, default: "w-44"
+
+  def controller_filter(assigns) do
+    assigns = assign(assigns, :nodes, NodeManager.row_controllers(assigns.rows))
+
+    ~H"""
+    <.combobox
+      :if={length(@nodes) > 1 or @value not in [nil, ""]}
+      label="Controller"
+      id="filter-controller"
+      name={@name}
+      value={@value}
+      testid="filter-controller"
+      prompt="All"
+      class={@class}
+    >
+      <:option value="">All</:option>
+      <:option :for={node <- @nodes} value={to_string(node)}>
+        {machine(Enum.find(@controllers || [], &(&1.node == node)) || %{node: node})}
+      </:option>
+    </.combobox>
+    """
+  end
+
+  @doc "The machine a controllers-listing row runs on, or its host when it does not say."
+  def machine(%{host_node: "" <> machine}), do: machine
+  def machine(%{host: "" <> host}), do: host
+  def machine(%{node: node}), do: node |> to_string() |> String.split("@") |> List.last()
 
   @doc """
   What a screen shows in the shape of what it will show, before its first

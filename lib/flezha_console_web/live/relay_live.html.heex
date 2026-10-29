@@ -84,6 +84,8 @@
 
 <.runtime_error :if={is_nil(@completion)} error={@load_error} />
 
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
 <div
   :if={
     is_nil(@completion) and FlezhaConsoleWeb.RelayState.unservable(@serving, @factory_id) != nil and

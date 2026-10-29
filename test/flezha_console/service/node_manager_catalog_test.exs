@@ -26,7 +26,7 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
   end
 
   defp with_factories(node, factories) do
-    FakeController.set(node, {Flezha.Service.Fleet, :factories}, {:ok, factories})
+    FakeController.set(node, {Flezha.Service.Fleet, :factories}, FakeController.rows(factories))
   end
 
   describe "factory_catalog/2" do
@@ -41,7 +41,8 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
         %{id: "chat_loop_steps", description: "loops", run: :steps, runners: ["runner-a"]}
       ])
 
-      assert {:ok, catalog} = NodeManager.factory_catalog("default", nil)
+      assert {:ok, %{rows: catalog, unreachable: []}} =
+               NodeManager.factory_catalog("default", nil)
 
       # One listing carries the runners; no factory is looked up on its own.
       assert [_one] = FakeController.calls(node, {Flezha.Service.Fleet, :factories})
@@ -68,14 +69,33 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
     test "a registered factory no runner serves is present and not servable", %{node: node} do
       with_factories(node, [%{id: "store_input", description: nil, run: :flow, runners: []}])
 
-      assert {:ok, [%{id: "store_input", runners: [], servable?: false}]} =
+      assert {:ok, %{rows: [%{id: "store_input", runners: [], servable?: false}]}} =
                NodeManager.factory_catalog("default", nil)
     end
 
     test "a namespace with no registered factories answers an empty catalog", %{node: node} do
       with_factories(node, [])
 
-      assert {:ok, []} = NodeManager.factory_catalog("default", nil)
+      assert {:ok, %{rows: []}} = NodeManager.factory_catalog("default", nil)
+    end
+
+    test "a catalog missing a controller names it, with the factories the rest serve", %{
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Flezha.Service.Fleet, :factories},
+        FakeController.rows(
+          [%{id: "store_input", description: nil, run: :flow, runners: ["runner-b"]}],
+          ["flezha@node-c"]
+        )
+      )
+
+      answer = NodeManager.factory_catalog("default", nil)
+
+      assert {:ok, %{rows: [%{id: "store_input", servable?: true}]}} = answer
+      assert NodeManager.unreachable([answer]) == [:"flezha@node-c"]
+      assert NodeManager.ok_or(answer, []) |> Enum.map(& &1.id) == ["store_input"]
     end
 
     test "a refused listing is the catalog's answer, not an empty one", %{node: node} do
@@ -94,7 +114,7 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
       # only which runners serve one is not.
       with_factories(node, [%{id: "store_input", description: nil, run: :flow}])
 
-      assert {:ok, [%{id: "store_input", runners: [], servable?: false}]} =
+      assert {:ok, %{rows: [%{id: "store_input", runners: [], servable?: false}]}} =
                NodeManager.factory_catalog("default", nil)
     end
   end
@@ -212,10 +232,27 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
       FakeController.set(
         node,
         {Flezha.Service.Relay, :list},
-        {:ok, [FakeController.relay_row("r1", %{health: nil})]}
+        FakeController.rows([FakeController.relay_row("r1", %{health: nil})])
       )
 
-      assert {:ok, [%{id: "r1", health: :unknown}]} = NodeManager.relay_list("default", nil)
+      assert {:ok, %{rows: [%{id: "r1", health: :unknown}]}} =
+               NodeManager.relay_list("default", nil)
+    end
+
+    test "a relay hosted on another controller keeps the health that controller decided", %{
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Flezha.Service.Relay, :list},
+        FakeController.rows([
+          FakeController.relay_row("here"),
+          FakeController.relay_row("there", %{node: :"flezha@node-b", health: :degraded})
+        ])
+      )
+
+      assert {:ok, %{rows: [%{id: "here", health: :healthy}, %{id: "there", health: :degraded}]}} =
+               NodeManager.relay_list("default", nil)
     end
   end
 
@@ -229,11 +266,13 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
            relays: [
              %{id: "live", phase: "running"},
              %{id: "done", phase: "finished", status: "ok", finished_at: 1}
-           ]
+           ],
+           unreachable: [:"flezha@node-b"]
          }}
       )
 
-      assert {:ok, [%{id: "done"}]} = NodeManager.finished_relays("default", nil)
+      assert {:ok, %{rows: [%{id: "done"}], unreachable: [:"flezha@node-b"]}} =
+               NodeManager.finished_relays("default", nil)
     end
   end
 end

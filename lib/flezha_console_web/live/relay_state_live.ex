@@ -67,12 +67,16 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
       )
 
     # Read once, on the connected mount: it resolves the whole namespace.
-    partitions =
+    read_rows =
       if connected?(socket),
-        do: NodeManager.relay_partitions(ns, id, socket.assigns[:flezha_token]),
-        else: []
+        do: NodeManager.relay_rows(ns, socket.assigns[:flezha_token]),
+        else: {:ok, []}
 
-    socket = assign(socket, partitions: partitions)
+    socket =
+      assign(socket,
+        partitions: read_rows |> NodeManager.ok_or([]) |> NodeManager.partition_members(id),
+        unreachable: NodeManager.unreachable([read_rows])
+      )
 
     {:ok, refresh(socket)}
   end
@@ -105,7 +109,7 @@ defmodule FlezhaConsoleWeb.RelayStateLive do
   defp load_retention(%{assigns: %{run: run}} = socket) when run in [:steps, nil] do
     %{relay_class: class, flezha_token: token} = socket.assigns
 
-    case NodeManager.completed_retention_hours(class, %{}, token) do
+    case NodeManager.completed_retention_hours(class, token) do
       {:ok, hours} when is_number(hours) -> assign(socket, retention_hours: hours)
       _unavailable -> assign(socket, retention_hours: nil)
     end

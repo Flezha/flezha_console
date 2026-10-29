@@ -126,20 +126,6 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 - **WHEN** the controller's observability subsystem is disabled
 - **THEN** `observability_query` answers the controller's error with code `observability.disabled`, and callers can render the affected region as absent rather than failed
 
-### Requirement: Controller clock reference
-
-`NodeManager` SHALL expose `controller_monotonic_us`, answering the connected controller's monotonic time in microseconds, read through the published consumer API like every other controller read. Observability signals are stamped with the controller's monotonic clock, which shares no epoch with this node's, so a caller judging a signal's age SHALL measure it against this reading rather than a local clock.
-
-#### Scenario: Ageing a signal
-
-- **WHEN** a caller holds a signal stamped with the controller's monotonic time
-- **THEN** `controller_monotonic_us` answers a reading on that same clock, from which the signal's age follows
-
-#### Scenario: The clock is read through a published function
-
-- **WHEN** the call `controller_monotonic_us` makes is inspected
-- **THEN** it names a published `Flezha.Service.*` function and passes the caller context last
-
 ### Requirement: Overwatch state decoding
 
 `NodeManager` SHALL expose `overwatch_facts`, answering the facts screens read out of a relay's overwatch state — factory, runner binding, run, suspension, effectively-once, default input type, start time, uptime, relay class, and the hook-table entries — with each field's decoding rule applied once. The read SHALL go through `Flezha.Service.Relay.overwatch_state/3`. `overwatch_facts/0` SHALL answer the same shape with nothing in it, for a screen whose read failed.

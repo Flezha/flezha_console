@@ -9,7 +9,7 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
 
   use ExUnit.Case, async: false
 
-  alias Flezha.Service.AuditLog
+  alias Flezha.Service.Logs
   alias Flezha.Service.Namespace
   alias Flezha.Service.PluginManager
   alias Flezha.Service.Relay
@@ -30,8 +30,9 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
   end
 
   # Each wrapper with the published function it reaches and the arguments that
-  # function must receive before the caller context.
-  defp wrappers do
+  # function must receive before the caller context. `node` is the controller
+  # the console is connected to.
+  defp wrappers(node) do
     [
       {&NodeManager.diagnose_relay("ns", "r1", &1), {Relay, :diagnose}, ["ns", "r1"]},
       {&NodeManager.relay_api("ns", "r1", &1), {Relay, :api}, ["ns", "r1"]},
@@ -59,13 +60,13 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
       {&NodeManager.delete_cell("rc/t/k", &1), {Steps, :delete}, ["rc/t/k"]},
       {&NodeManager.set_retention("rc", 6, &1), {Steps, :set_retention}, ["rc", 6]},
       {&NodeManager.schedule_run("nightly", &1), {Schedule, :run}, ["nightly"]},
-      {&NodeManager.audit_rotate(&1), {AuditLog, :rotate}, []}
+      {&NodeManager.audit_rotate(&1), {Logs, :rotate}, [[kind: "audit", node: node]]}
     ]
   end
 
   describe "the wrappers" do
     test "call the published function with the caller context last", %{node: node} do
-      for {call, key, args} <- wrappers() do
+      for {call, key, args} <- wrappers(node) do
         call.(nil)
 
         assert [recorded] = FakeController.calls(node, key), "#{inspect(key)} was not called"
@@ -77,7 +78,7 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
     test "hand a controller error on unchanged", %{node: node} do
       error = Flezha.Error.new("relay.not_found", "no relay r1", "flz relay list")
 
-      for {call, key, _args} <- wrappers() do
+      for {call, key, _args} <- wrappers(node) do
         FakeController.set(node, key, {:error, error})
         assert call.(nil) == {:error, error}, "#{inspect(key)} changed the error"
       end
@@ -119,7 +120,7 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
       FakeController.set(
         node,
         {Relay, :list},
-        {:ok, [FakeController.relay_row("r1"), FakeController.relay_row("r2")]}
+        FakeController.rows([FakeController.relay_row("r1"), FakeController.relay_row("r2")])
       )
 
       assert NodeManager.list_relays("ns", nil) == {:ok, ["r1", "r2"]}
@@ -133,15 +134,28 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
                NodeManager.call_relay("ns", "r1", "ping", "", [deadline_ms: 50], nil)
     end
 
-    test "the provider listing carries the refused package count", %{node: node} do
+    test "the provider listing carries each controller's refused package count", %{node: node} do
       FakeController.set(
         node,
         {Flezha.Service.Fleet, :providers},
-        {:ok, %{providers: [%{id: "relay_stdout"}], refused: 2}}
+        {:ok,
+         %{
+           rows: [%{id: "relay_stdout", nodes: [:"flezha@node-a"]}],
+           refused: %{"flezha@node-a": 2},
+           unreachable: []
+         }}
       )
 
-      assert {:ok, %{providers: [%{id: "relay_stdout"}], refused: 2}} =
+      assert {:ok, %{rows: [%{id: "relay_stdout"}], refused: %{"flezha@node-a": 2}}} =
                NodeManager.providers(nil)
+    end
+
+    test "a cluster listing that is not rows is reported, never matched as success", %{
+      node: node
+    } do
+      FakeController.set(node, {Flezha.Service.Dlq, :list}, {:ok, [%{"ref" => "a/b/c"}]})
+
+      assert {:error, {:remote_error, {:ok, [_]}}} = NodeManager.dlq_list(nil, nil)
     end
   end
 

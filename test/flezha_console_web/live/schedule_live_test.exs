@@ -15,7 +15,8 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
   alias Flezha.Service.Schedule
 
   # A stored entry as `Schedule.list/1` answers it, joined by the controller
-  # with what the schedule hub holds for it.
+  # with what the schedule hub holds for it: `node` holds the definition and
+  # `fires_on` fires it.
   defp entry(overrides \\ %{}) do
     Map.merge(
       %{
@@ -26,6 +27,7 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
         factory_id: "echo_steps",
         init_values: %{},
         node: :"flezha@hub-1",
+        fires_on: :"flezha@hub-1",
         last_fire: nil,
         next_fire: ~U[2031-06-01 03:00:00Z]
       },
@@ -34,7 +36,7 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
   end
 
   defp with_entries(node, entries),
-    do: FakeController.set(node, {Schedule, :list}, {:ok, entries})
+    do: FakeController.set(node, {Schedule, :list}, FakeController.rows(entries))
 
   defp valid_form(overrides \\ %{}) do
     Map.merge(
@@ -139,7 +141,7 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
     end
 
     test "an entry no node fires is distinguished, not left blank", %{conn: conn, node: node} do
-      with_entries(node, [entry(%{node: nil, next_fire: :none})])
+      with_entries(node, [entry(%{fires_on: nil, next_fire: :none})])
 
       {:ok, view, _html} = live(conn, ~p"/schedules")
 
@@ -162,18 +164,86 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
     end
   end
 
+  describe "schedules on several controllers" do
+    test "one controller's schedules name it and offer no controller filter", %{
+      conn: conn,
+      node: node
+    } do
+      with_entries(node, [entry()])
+
+      {:ok, _view, html} = live(conn, ~p"/schedules")
+
+      assert text_of(html, ~s([data-testid="row-controller"])) == "hub-1"
+      refute html =~ ~s(data-testid="filter-controller")
+    end
+
+    test "two controllers' schedules offer a filter that narrows them to one", %{
+      conn: conn,
+      node: node
+    } do
+      with_entries(node, [entry(), entry(%{name: "hourly", node: :"flezha@hub-2"})])
+
+      {:ok, view, html} = live(conn, ~p"/schedules")
+
+      assert html =~ ~s(data-testid="filter-controller")
+      assert html =~ ~s(data-testid="schedule-row-hourly")
+
+      view
+      |> element(~s(form[phx-change="filter"]))
+      |> render_change(%{"filter" => %{"controller" => "flezha@hub-2"}})
+
+      assert_patch(view, "/schedules?controller=flezha%40hub-2")
+      html = render(view)
+      assert html =~ ~s(data-testid="schedule-row-hourly")
+      refute html =~ ~s(data-testid="schedule-row-nightly")
+    end
+
+    test "an empty partial answer says nothing was found where it was looked for", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(node, {Schedule, :list}, FakeController.rows([], ["flezha@hub-2"]))
+
+      {:ok, _view, html} = live(conn, ~p"/schedules")
+
+      assert text_of(html, ~s([data-testid="partial-answer"])) =~ "flezha@hub-2 did not"
+
+      assert text_of(html, ~s([data-testid="partial-empty"])) ==
+               "No schedule was found on the controllers that answered."
+
+      refute html =~ ~s(data-testid="schedule-empty")
+    end
+
+    test "running and removing reach a schedule another controller holds", %{
+      conn: conn,
+      node: node
+    } do
+      with_entries(node, [entry(%{node: :"flezha@hub-2"})])
+
+      {:ok, view, _html} = live(conn, ~p"/schedules")
+      view |> element(~s([data-testid="schedule-run-nightly"])) |> render_click()
+      html = view |> element(~s([data-testid="schedule-run-confirm"])) |> render_click()
+
+      assert html =~ "nightly ran now and started"
+      assert [["nightly", %{source: :ui}]] = FakeController.calls(node, {Schedule, :run})
+
+      assert confirm_remove(view) =~ "Schedule nightly removed."
+      assert [["nightly", %{source: :ui}]] = FakeController.calls(node, {Schedule, :remove})
+    end
+  end
+
   describe "creating" do
     setup %{node: node} do
       FakeController.set(
         node,
         {Relay, :list_namespaces},
-        {:ok, [%{namespace: "default", running: true}]}
+        FakeController.rows([%{namespace: "default", running: true}])
       )
 
       FakeController.set(
         node,
         {Fleet, :factories},
-        {:ok, [%{id: "echo_steps", description: "echoes", run: :steps}]}
+        FakeController.rows([%{id: "echo_steps", description: "echoes", run: :steps}])
       )
 
       :ok
@@ -240,7 +310,10 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
       FakeController.set(
         node,
         {Relay, :list_namespaces},
-        {:ok, [%{namespace: "default", running: true}, %{namespace: "staging", running: true}]}
+        FakeController.rows([
+          %{namespace: "default", running: true},
+          %{namespace: "staging", running: true}
+        ])
       )
 
       FakeController.set(
@@ -249,32 +322,30 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
         {:per_arg, 0,
          %{
            "default" =>
-             {:ok,
-              [
-                %{
-                  id: "default_steps",
-                  description: "spawns things",
-                  run: :steps,
-                  runners: ["runner-a"]
-                },
-                %{
-                  id: "default_flow",
-                  description: "forwards things",
-                  run: :flow,
-                  runners: ["runner-a"]
-                }
-              ]},
+             FakeController.rows([
+               %{
+                 id: "default_steps",
+                 description: "spawns things",
+                 run: :steps,
+                 runners: ["runner-a"]
+               },
+               %{
+                 id: "default_flow",
+                 description: "forwards things",
+                 run: :flow,
+                 runners: ["runner-a"]
+               }
+             ]),
            "staging" =>
-             {:ok,
-              [
-                %{
-                  id: "staging_steps",
-                  description: "spawns things",
-                  run: :steps,
-                  runners: ["runner-a"]
-                }
-              ]}
-         }, {:ok, []}}
+             FakeController.rows([
+               %{
+                 id: "staging_steps",
+                 description: "spawns things",
+                 run: :steps,
+                 runners: ["runner-a"]
+               }
+             ])
+         }, FakeController.rows([])}
       )
 
       :ok
@@ -302,7 +373,9 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
       FakeController.set(
         node,
         {Fleet, :factories},
-        {:ok, [%{id: "default_steps", description: "spawns things", run: :steps, runners: []}]}
+        FakeController.rows([
+          %{id: "default_steps", description: "spawns things", run: :steps, runners: []}
+        ])
       )
 
       assert conn |> open_form() |> render() =~ "(no runner)"

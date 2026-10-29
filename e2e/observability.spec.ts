@@ -1,4 +1,5 @@
-import { test, expect } from './fixtures';
+import { test, expect, startRelayCli, stopRelayCli, uniqueId } from './fixtures';
+import { CONTROLLERS, machine, SECOND_FACTORY, SECOND_NAMESPACE } from './global-setup';
 import type { Locator } from '@playwright/test';
 
 /**
@@ -92,6 +93,26 @@ test.describe('Observability', () => {
     await expect(panel).toHaveCount(0);
     await expect(records).toHaveCount(0);
     await expect(button).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('a tail hears a relay on the other controller and names that controller', async ({ page, live }) => {
+    await live('/observability');
+    await page.getByTestId('tail-flezha_relay').click();
+    await expect(page.getByTestId('tail-panel')).toBeInViewport();
+
+    const id = uniqueId('pw_tail');
+    try {
+      await startRelayCli(id, SECOND_FACTORY, SECOND_NAMESPACE);
+      await stopRelayCli(id, SECOND_NAMESPACE);
+
+      const lines = page.getByTestId('tail-record').filter({ hasText: id });
+      await expect(lines.filter({ hasText: 'stopped' })).toHaveCount(1);
+      for (const line of await lines.all()) {
+        await expect(line.getByTestId('tail-controller')).toHaveText(machine(CONTROLLERS[1]));
+      }
+    } finally {
+      await stopRelayCli(id, SECOND_NAMESPACE);
+    }
   });
 
   test('a waiting tail sets the lead, status, empty state and catalogue apart', async ({ page, live }) => {

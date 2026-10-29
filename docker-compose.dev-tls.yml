@@ -30,9 +30,11 @@ services:
       - sh
       - /flezha_console_dev/dist_tls_certs.sh
       - flezha_controller
+      - flezha_controller_2
       - fcon_web
       - fcon_bootstrap
       - fcon_sandbox_bootstrap
+      - fcon_second_bootstrap
     volumes:
       - ./priv/dev:/flezha_console_dev:ro
       - fcon_dist_tls:/dist_tls
@@ -41,6 +43,11 @@ services:
     <<: *dist-tls
     environment:
       ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/flezha_controller.conf
+
+  controller_2:
+    <<: *dist-tls
+    environment:
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/flezha_controller_2.conf
 
   bootstrap:
     <<: *dist-tls
@@ -51,6 +58,11 @@ services:
     <<: *dist-tls
     environment:
       ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fcon_sandbox_bootstrap.conf
+
+  second_bootstrap:
+    <<: *dist-tls
+    environment:
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fcon_second_bootstrap.conf
 
   web:
     <<: *dist-tls

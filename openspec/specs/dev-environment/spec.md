@@ -305,3 +305,22 @@ The console image SHALL refuse to start its node when `ERLANG_COOKIE` is unset o
 - **WHEN** the stack runs with `docker-compose.dev.yml` alone
 - **THEN** no service sets `-proto_dist`, and the links run over plain TCP as before
 
+### Requirement: The dev stack runs two controllers
+
+`docker compose -f docker-compose.dev.yml up` SHALL start a second controller that joins the first in one cluster, under the same cookie and distribution settings, with storage of its own. The console SHALL stay connected to the first controller. A second runner SHALL connect only to the second controller and SHALL serve at least one factory that no runner of the first controller serves, so a relay started from that factory runs on the second controller. Before any test runs, the browser suite's global setup SHALL wait for both controllers to be ready and for the second runner's factories to be listed, and SHALL fail naming whichever is not.
+
+#### Scenario: Cold start with two controllers
+
+- **WHEN** an operator brings the stack up from a clean state
+- **THEN** the Controller screen lists two controllers, with the first marked as the one the console is connected to
+
+#### Scenario: A relay runs on the second controller
+
+- **WHEN** a relay is started from a factory only the second runner serves
+- **THEN** its row names the second controller as its host
+
+#### Scenario: Global setup waits for both controllers
+
+- **WHEN** the second controller is not ready within global setup's bound
+- **THEN** the run fails before any test, naming the second controller
+

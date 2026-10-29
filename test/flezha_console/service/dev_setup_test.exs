@@ -34,7 +34,7 @@ defmodule FlezhaConsole.Service.DevSetupTest do
     FakeController.set(
       node,
       {Relay, :list_namespaces},
-      {:ok, [%{namespace: @namespace, running: true}]}
+      FakeController.rows([%{namespace: @namespace, running: true}])
     )
   end
 
@@ -130,7 +130,12 @@ defmodule FlezhaConsole.Service.DevSetupTest do
     end
 
     test "a relay that is already running is left alone", %{node: node} do
-      FakeController.set(node, {Relay, :list}, {:ok, [FakeController.relay_row("relay_a")]})
+      FakeController.set(
+        node,
+        {Relay, :list},
+        FakeController.rows([FakeController.relay_row("relay_a")])
+      )
+
       configure(relays: [relay("relay_a")])
 
       assert seed!().ready
@@ -153,7 +158,7 @@ defmodule FlezhaConsole.Service.DevSetupTest do
       FakeController.set(
         node,
         {Relay, :list_namespaces},
-        {:ok, [%{namespace: @namespace, running: false}]}
+        FakeController.rows([%{namespace: @namespace, running: false}])
       )
 
       configure(relays: [relay("relay_a")])
@@ -177,7 +182,12 @@ defmodule FlezhaConsole.Service.DevSetupTest do
 
     test "is skipped with one log line, with its plugins, when no runner announces its factory",
          %{node: node} do
-      FakeController.set(node, {Fleet, :factories}, {:ok, [%{id: "store_input", run: :flow}]})
+      FakeController.set(
+        node,
+        {Fleet, :factories},
+        FakeController.rows([%{id: "store_input", run: :flow}])
+      )
+
       configure(relays: [relay("relay_a"), @showcase], plugins: [@showcase_plugin])
 
       log = capture_log(fn -> assert seed!().ready end)
@@ -190,7 +200,12 @@ defmodule FlezhaConsole.Service.DevSetupTest do
 
     test "is started like any other when its factory is announced, and again leaves it alone",
          %{node: node} do
-      FakeController.set(node, {Fleet, :factories}, {:ok, [%{id: "showcase", run: :flow}]})
+      FakeController.set(
+        node,
+        {Fleet, :factories},
+        FakeController.rows([%{id: "showcase", run: :flow}])
+      )
+
       configure(relays: [@showcase], plugins: [@showcase_plugin])
 
       assert seed!().ready
@@ -206,7 +221,7 @@ defmodule FlezhaConsole.Service.DevSetupTest do
       FakeController.set(
         node,
         {Relay, :list},
-        {:ok, [FakeController.relay_row("testnet_showcase")]}
+        FakeController.rows([FakeController.relay_row("testnet_showcase")])
       )
 
       assert seed!().ready

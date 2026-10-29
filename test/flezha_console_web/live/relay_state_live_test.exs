@@ -208,7 +208,7 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
       assert html =~ ~r/data-testid="history-retention"[^>]*>\s*12 hours/
       assert html =~ ~r/data-testid="finished-retention"[^>]*>\s*48 hours/
 
-      assert [["relay_a", %{}, %{source: :ui}] | _] =
+      assert [["relay_a", %{source: :ui}] | _] =
                FakeController.calls(node, {Steps, :completed_retention_hours})
     end
 

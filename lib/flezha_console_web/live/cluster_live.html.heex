@@ -22,6 +22,8 @@
 
 <.runtime_error error={@load_error} />
 
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
 <%!-- Everything the operator reaches --%>
 <.section
   flush

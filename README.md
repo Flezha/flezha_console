@@ -74,12 +74,12 @@ scope switch moves between the two forms.
 | `/namespaces/:ns/relays/:id` | **Live** — one sentence on what the relay is and how it is faring, the pipeline graph — its sources, input filters, entry channels, tasklets, output channels and the plugins and called relays they end at, in one layout drawn left to right or top to bottom and fitted to its panel, records moving in the order they pass, what each channel carries beside its name, each tasklet's input rate, backlog, shed and dead-letter badges and a table of its Cells, a payload tap opened from any channel port, and a sentence and timeline of what the relay is doing — and as sections that fold: its condition — state, cause, impact, runner, handled by, next step and, on request, the diagnosis — the calls made to it from anywhere as they happen, its API and its plugin bindings; send to it, call it, or call an entry channel from a form built from its schema — Send stays open when no runner serves its factory, saying what will happen to the message, while Call waits for a runner; a partition member's menu opens any partition of its group on the same view, here and on Listen and State |
 | `/namespaces/:ns/relays/:id/listen` | **Listen** — the relay's live outputs or inputs |
 | `/namespaces/:ns/relays/:id/state` | **State** — steps facts as sentences, the task journal and input log, SDK state, and durable cells with their sequences and lag, each column and row action explained beside it; point-in-time reads, a cell's outbox, replay, rotate, delete; retention, the history one settable |
-| `/plugins` | Enabled plugins per namespace, the providers on offer, and the packages installed on the controller with why one was refused |
+| `/plugins` | Enabled plugins per namespace, the providers on offer and the controllers lacking one, and the packages installed on each controller with why one was refused |
 | `/cluster` | How many controllers are connected and on which machines, cluster nodes, per-node health rollup, hub recovery per node (a notice only while a hub is recovering), runners — each with its node, connection time, last contact (late ones flagged and listed first), relay count and what it serves, with a summary, a filter, a node choice, "Late only" and a sort — and which runners serve a factory; drop a runner and readmit its process |
-| `/observability` | Every source the controller reports through, grouped by area and headed by its plain title, each saying what it is, whether anything failed in the last 15 minutes (failing sources first) and what else it said, with a filter, an on/off switch, the sinks in one line, and a tail that opens with the source's recent history, tells each signal as a sentence about its subject with its raw fields behind Details, and lists what the source can say, failures first |
-| `/controller` | Readiness, authorization and durability in one sentence; every connected controller with its machine, address, version, uptime and runners, the one this console reached marked; durability posture, RPO breaches and the shipper with the time left to each retry, shutdown and boot state, memory hot spots by name with their queue and initial call |
-| `/schedules` | Cron schedules with their status (active, inactive or dormant), creation time, last fire with its outcome and the relay it started, and the next fire the job is armed for; run one now, after a confirmation |
-| `/dlq` | Dead letters grouped by tasklet, each with when it was dead-lettered, its attempts, size and whether it waits or is replaying, and the queue's total size; inspect an entry's payload in place, replay, drop, or mark one or a whole tasklet's seen — seen ones are listed only with "Show seen" and raise no problem |
+| `/observability` | Every source the controllers report through, listed once, grouped by area and headed by its plain title, each saying what it is, whether anything failed in the last 15 minutes (failing sources first) and what else it said, with a filter, an on/off switch that applies to every controller (half-way, with "On 2 of 3 controllers", while it is on for some), the sinks in one line, and a tail that opens with the source's recent history, tells each signal as a sentence about its subject with its time and controller and its raw fields behind Details, and lists what the source can say, failures first |
+| `/controller` | Readiness, authorization and durability in one sentence; every controller of the cluster with its machine, address, version, uptime and runners, the one this console reached marked; choose one (`?controller=`, this console's by default) for its durability posture, RPO breaches and the shipper with the time left to each retry, shutdown and boot state, and memory hot spots by name with their queue and initial call |
+| `/schedules` | Cron schedules on every controller with their status (active, inactive or dormant), the controller holding each (filterable when there are several), creation time, last fire with its outcome and the relay it started, and the next fire the job is armed for; run one now, after a confirmation |
+| `/dlq` | Dead letters on every controller grouped by tasklet, each with the controller holding it (filterable when there are several), when it was dead-lettered, its attempts, size and whether it waits or is replaying, and the queue's total size; inspect an entry's payload in place, replay, drop, or mark one or a whole tasklet's seen — seen ones are listed only with "Show seen" and raise no problem |
 | `/audit` | Audit file catalog with the file being written first — open any file to read its records — filtered reads as rows that open to the whole record, Read more past the limit, live tail, rotation |
 
 Starting a relay is a guided flow: choose a factory (each says what it is, how
@@ -126,6 +126,12 @@ namespace and some are not, and it says which is which.
 - **A relay's Live, Listen and State are tabs on the object**, and each stays
   its own route: Listen holds a live listener, State does point-in-time reads,
   Live polls overwatch.
+- **The whole cluster, or what is missing.** Every screen reads every
+  controller through the one it is connected to. When a controller does not
+  answer, one notice says how many answered and names the ones that did not,
+  and an empty listing says nothing was found on the controllers that
+  answered rather than that there is nothing. A row that lives on one
+  controller names its machine.
 - **Objects open in place.** A relay, a runner, a plugin or a dead letter
   opens in an inspector drawer on the current screen, addressed by
   `?inspect=<kind>:<id>` so the link can be shared; Escape closes it.
@@ -173,8 +179,12 @@ still scrolled into view.
 
 ## Dev setup
 
-The compose file brings up the controller, a Rust runner, this console, Postgres,
-and Kafka in one command. It expects two sibling checkouts alongside this one:
+The compose file brings up a cluster of two controllers, a Rust runner on each,
+this console, Postgres and Kafka in one command. The console connects to the
+first controller; the second joins it with storage of its own, and its runner
+serves the namespace `second`, so every screen has a relay, a runner and
+signals on a controller it is not connected to. It expects two sibling
+checkouts alongside this one:
 
 | Path | Why |
 | --- | --- |
@@ -529,7 +539,7 @@ looking at.
 
 Live data rides `FlezhaConsole.Service.EventFeed`, and **no code of this
 application runs on the controller**. A feed holds one published stream
-operation — `Observability.tail/2`, `AuditLog.tail/2` or `Relay.listen/5` —
+operation — `Observability.tail/2`, `Logs.tail/2` or `Relay.listen/5` —
 open with `:erpc.send_request/4`, passing its own pid as the caller context's
 `:emit`; the controller hands each event to it as `{:flezha_emit, event}`.
 Runner connects and disconnects are observability signals on `:flezha_runner`,

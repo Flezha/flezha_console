@@ -6,11 +6,13 @@
   </:sentence>
 </.page_header>
 
+<.partial_answer unreachable={@unreachable} controllers={@controllers} />
+
 <%!-- Every controller of the cluster --%>
 <.section
   flush
   testid="controllers-panel"
-  help="Every controller connected in this cluster, the machine it runs on and how many runners it serves. The console reads them through the controller marked as this console's."
+  help="Every controller connected in this cluster, the machine it runs on and how many runners it serves. The console reads them through the controller marked as this console's. Choose one to see its own facts below."
 >
   <:title>Controllers</:title>
   <.runtime_error error={@controllers_error} action="the controller listing" />
@@ -22,9 +24,19 @@
     testid="controllers-table"
     row_testid={&"controller-#{&1.node}"}
     row_tone={&(!&1.reachable? && "warning")}
+    row_label={&"Show #{machine(&1)}'s facts"}
+    row_selected={&(to_string(&1.node) == @chosen)}
+    row_activate={&JS.patch(choose_path(&1.node))}
   >
     <:col :let={row} label="Machine">
-      <span class="fcon-num font-medium">{machine(row)}</span>
+      <.link
+        patch={choose_path(row.node)}
+        class="fcon-num font-medium"
+        aria-current={to_string(row.node) == @chosen && "true"}
+        data-testid={"choose-controller-#{row.node}"}
+      >
+        {machine(row)}
+      </.link>
       <span
         :if={!row.reachable?}
         class="fcon-badge fcon-badge--warning ml-1"
@@ -41,6 +53,9 @@
       <span :if={row.local?} data-testid={"controller-local-#{row.node}"}>Connected here</span>
     </:col>
   </.grid>
+  <p class="fcon-figures mt-3 px-4" data-testid="chosen-controller">
+    The facts below are <span class="fcon-strong" data-testid="chosen-machine">{(@chosen_row && machine(@chosen_row)) || machine(%{node: @chosen})}</span>'s ({@chosen}).
+  </p>
 </.section>
 
 <%!-- Readiness --%>
@@ -235,11 +250,12 @@
     Not taken. A snapshot scans every process and the allocator, so it runs only when asked.
   </p>
   <p :if={@memory_loading} class="fcon-figures" data-testid="memory-loading">
-    Scanning every process on the controller. This takes a few seconds.
+    Scanning every process on {(@chosen_row && machine(@chosen_row)) || @chosen}. This takes a few seconds.
   </p>
   <div :if={@memory} class="space-y-4">
     <p data-testid="memory-captured-at" class="fcon-figures">
-      Captured at {@memory[:captured_at]} on {@memory[:node]} — a point reading, not live.
+      Captured at {@memory[:captured_at]} on {(@chosen_row && machine(@chosen_row)) ||
+        @memory[:node]} — a point reading, not live.
     </p>
     <dl class="fcon-facts">
       <.stat

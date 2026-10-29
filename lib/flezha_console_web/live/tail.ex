@@ -24,6 +24,18 @@ defmodule FlezhaConsoleWeb.Live.Tail do
   @doc "The record a forwarded event carries, unwrapped from its envelope."
   @callback unwrap_tail(term()) :: term()
 
+  @doc false
+  # `newest` and the `tag` records already in the mailbox, up to `max`, newest first.
+  def waiting(newest, _tag, max) when length(newest) >= max, do: newest
+
+  def waiting(newest, tag, max) do
+    receive do
+      {:feed_event, ^tag, event} -> waiting([event | newest], tag, max)
+    after
+      0 -> newest
+    end
+  end
+
   defmacro __using__(opts) do
     tag = Keyword.fetch!(opts, :tag)
     max = Keyword.get(opts, :max, 200)
@@ -78,9 +90,17 @@ defmodule FlezhaConsoleWeb.Live.Tail do
         Phoenix.Component.assign(socket, tailing: nil, tail_feed: nil, tail_error: nil)
       end
 
+      # Every record already waiting is taken with this one, so a busy tail —
+      # a chatty source on every controller — renders once per batch and an
+      # operator's click is never queued behind a backlog of renders.
       @impl Phoenix.LiveView
       def handle_info({:feed_event, @tail_tag, event}, socket) do
-        records = Enum.take([unwrap_tail(event) | socket.assigns.tail_records], @tail_max)
+        records =
+          [event]
+          |> FlezhaConsoleWeb.Live.Tail.waiting(@tail_tag, @tail_max)
+          |> Enum.map(&unwrap_tail/1)
+          |> Enum.concat(socket.assigns.tail_records)
+          |> Enum.take(@tail_max)
 
         {:noreply, Phoenix.Component.assign(socket, tail_records: records)}
       end

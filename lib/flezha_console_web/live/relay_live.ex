@@ -62,7 +62,8 @@ defmodule FlezhaConsoleWeb.RelayLive do
         calls: nil,
         talk: nil,
         talk_results: [],
-        serving: nil
+        serving: nil,
+        unreachable: []
       )
       |> assign_feeding()
       |> load_data()
@@ -632,12 +633,14 @@ defmodule FlezhaConsoleWeb.RelayLive do
     # Health, live node and partition identity are registry facts, not
     # overwatch ones — they come from the same namespace-wide read the listing
     # makes, so this screen agrees with the listing it was reached from.
-    rows = ns |> NodeManager.relay_rows(token) |> NodeManager.ok_or([])
+    read_rows = NodeManager.relay_rows(ns, token)
+    rows = NodeManager.ok_or(read_rows, [])
 
     socket =
       assign(socket,
         row: NodeManager.relay_row(rows, relay_id),
-        partitions: NodeManager.partition_members(rows, relay_id)
+        partitions: NodeManager.partition_members(rows, relay_id),
+        unreachable: NodeManager.unreachable([read_rows])
       )
 
     socket =

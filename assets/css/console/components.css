@@ -473,6 +473,11 @@
   transform: translateX(0.875rem);
 }
 
+/* On for part of what it switches: the knob rests halfway. */
+.fcon-switch[aria-checked="mixed"] .fcon-switch-track::after {
+  transform: translateX(0.4375rem);
+}
+
 .fcon-switch:disabled {
   cursor: not-allowed;
   opacity: 0.5;

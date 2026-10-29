@@ -10,10 +10,10 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
 
   use FlezhaConsoleWeb.LiveCase
 
-  alias Flezha.Service.AuditLog
   alias Flezha.Service.Controller
   alias Flezha.Service.Dlq
   alias Flezha.Service.Fleet
+  alias Flezha.Service.Logs
   alias Flezha.Service.Namespace
   alias Flezha.Service.Observability
   alias Flezha.Service.PluginManager
@@ -35,7 +35,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
     FakeController.set(
       node,
       {Relay, :list_namespaces},
-      {:ok, [%{namespace: "default", running: true}]}
+      FakeController.rows([%{namespace: "default", running: true}])
     )
 
     plugin = %{
@@ -70,7 +70,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
     FakeController.set(
       node,
       {Relay, :list_namespaces},
-      {:ok, [%{namespace: "default", running: true}]}
+      FakeController.rows([%{namespace: "default", running: true}])
     )
 
     FakeController.set(node, {Namespace, :list}, {:ok, []})
@@ -105,7 +105,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
     FakeController.set(
       node,
       {Relay, :list_namespaces},
-      {:ok, Enum.map(names, &%{namespace: &1, running: true})}
+      FakeController.rows(Enum.map(names, &%{namespace: &1, running: true}))
     )
   end
 
@@ -143,37 +143,11 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
     FakeController.set(node, {Namespace, :roles}, {:ok, bindings})
   end
 
-  defp arrange(:dlq, node, _user) do
-    entry = %{
-      "relay_class" => "orders",
-      "tasklet_id" => "charge",
-      "id" => "17",
-      "cell_key" => "cust-9",
-      "channel" => "payments",
-      "generation" => 2,
-      "status" => "parked",
-      "ts_ms" => System.system_time(:millisecond) - 30_000,
-      "error" => "upstream refused"
-    }
+  defp arrange(:dlq, node, _user),
+    do: FakeController.set(node, {Dlq, :list}, FakeController.rows([dlq_entry()]))
 
-    FakeController.set(node, {Dlq, :list}, {:ok, [entry]})
-  end
-
-  defp arrange(:schedules, node, _user) do
-    entry = %{
-      name: "nightly",
-      cron: "0 3 * * *",
-      timezone: "Etc/UTC",
-      namespace: "default",
-      factory_id: "echo_steps",
-      init_values: %{},
-      node: :"flezha@hub-1",
-      last_fire: nil,
-      next_fire: ~U[2031-06-01 03:00:00Z]
-    }
-
-    FakeController.set(node, {Schedule, :list}, {:ok, [entry]})
-  end
+  defp arrange(:schedules, node, _user),
+    do: FakeController.set(node, {Schedule, :list}, FakeController.rows([schedule_entry()]))
 
   defp arrange(:cells, node, _user) do
     cell = %{
@@ -196,7 +170,9 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
     FakeController.set(
       node,
       {Relay, :relay_rows},
-      {:ok, [FakeController.relay_row("relay_steps", %{factory: "chat_loop_steps"})]}
+      FakeController.rows([
+        FakeController.relay_row("relay_steps", %{factory: "chat_loop_steps"})
+      ])
     )
 
     FakeController.set(
@@ -244,7 +220,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
     FakeController.set(
       node,
       {Relay, :list_namespaces},
-      {:ok, [%{namespace: "default", running: true}]}
+      FakeController.rows([%{namespace: "default", running: true}])
     )
 
     FakeController.set(node, {Fleet, :runners}, {:ok, [%{id: "runner-a", pid: 4242}]})
@@ -264,6 +240,88 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
          }
        ]}
     )
+  end
+
+  # A screen's cluster read answered without the controllers in `unreachable`,
+  # holding one row, or none when `empty?`.
+  defp answer_partly(:relays, node, unreachable, empty?) do
+    rows = if empty?, do: [], else: [FakeController.relay_row("relay_a")]
+    FakeController.set_fleet(node, rows: %{"default" => rows}, unreachable: unreachable)
+  end
+
+  defp answer_partly(:namespaces, node, unreachable, true),
+    do: FakeController.set(node, {Relay, :list_namespaces}, FakeController.rows([], unreachable))
+
+  defp answer_partly(:namespaces, node, unreachable, false),
+    do: answer_partly(:relays, node, unreachable, false)
+
+  defp answer_partly(:dlq, node, unreachable, empty?) do
+    entries = if empty?, do: [], else: [dlq_entry()]
+    FakeController.set(node, {Dlq, :list}, FakeController.rows(entries, unreachable))
+  end
+
+  defp answer_partly(:schedules, node, unreachable, empty?) do
+    entries = if empty?, do: [], else: [schedule_entry()]
+    FakeController.set(node, {Schedule, :list}, FakeController.rows(entries, unreachable))
+  end
+
+  defp answer_partly(:sources, node, unreachable, empty?) do
+    source = %{name: :flezha_health, statuses: %{"flezha@node-a": :active}}
+    sources = if empty?, do: [], else: [source]
+
+    FakeController.set(
+      node,
+      {Observability, :list_sources},
+      FakeController.rows(sources, unreachable)
+    )
+  end
+
+  defp answer_partly(:controllers, node, unreachable, _empty?) do
+    FakeController.set(
+      node,
+      {Controller, :controllers},
+      FakeController.rows([FakeController.controller_row("node-a")], unreachable)
+    )
+  end
+
+  defp answer_partly(:installed, node, unreachable, empty?) do
+    package = %{id: "http", version: "1.0.0", status: :loaded, error: nil, node: :"flezha@node-a"}
+    packages = if empty?, do: [], else: [package]
+
+    FakeController.set(
+      node,
+      {Fleet, :installed_plugins},
+      FakeController.rows(packages, unreachable)
+    )
+  end
+
+  defp dlq_entry do
+    %{
+      "relay_class" => "orders",
+      "tasklet_id" => "charge",
+      "id" => "17",
+      "cell_key" => "cust-9",
+      "channel" => "payments",
+      "generation" => 2,
+      "status" => "parked",
+      "ts_ms" => System.system_time(:millisecond) - 30_000,
+      "error" => "upstream refused"
+    }
+  end
+
+  defp schedule_entry do
+    %{
+      name: "nightly",
+      cron: "0 3 * * *",
+      timezone: "Etc/UTC",
+      namespace: "default",
+      factory_id: "echo_steps",
+      init_values: %{},
+      node: :"flezha@hub-1",
+      fires_on: :"flezha@hub-1",
+      last_fire: nil,
+      next_fire: ~U[2031-06-01 03:00:00Z]
+    }
   end
 
   defp namespace_record(name) do
@@ -684,7 +742,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
       %{
         screen: "audit log",
         route: "/audit",
-        tail: {AuditLog, :tail},
+        tail: {Logs, :tail},
         start: "audit-tail-toggle",
         stop: "audit-tail-toggle"
       },
@@ -698,12 +756,10 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
     ]
 
     setup %{node: node} do
-      FakeController.set(node, {AuditLog, :list_files}, {:ok, []})
-
       FakeController.set(
         node,
         {Observability, :list_sources},
-        {:ok, [%{name: :flezha_health, status: :active}]}
+        FakeController.rows([%{name: :flezha_health, statuses: %{"flezha@node-a": :active}}])
       )
     end
 
@@ -739,6 +795,96 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         Process.exit(view.pid, :kill)
 
         assert PeerNode.eventually(fn -> FakeController.streams(node, @row.tail) == [] end)
+      end
+    end
+  end
+
+  describe "a partial cluster answer" do
+    # Each screen's cluster read, answered without one controller. `teaching`
+    # is the screen's own empty state, which a partial empty answer must not
+    # show, and `partly_empty` where it says nothing was found instead.
+    @partials [
+      %{
+        screen: "namespace home",
+        route: "/namespaces/default",
+        read: :relays,
+        teaching: "topology-empty"
+      },
+      %{screen: "cluster", route: "/cluster", read: :relays},
+      %{
+        screen: "relays in a namespace",
+        route: "/namespaces/default/relays",
+        read: :relays,
+        teaching: "relays-empty"
+      },
+      %{screen: "every relay", route: "/relays", read: :relays, teaching: "relays-empty"},
+      %{
+        screen: "namespaces",
+        route: "/namespaces",
+        read: :namespaces,
+        teaching: "namespaces-empty"
+      },
+      %{screen: "problems", route: "/problems", read: :relays, teaching: "problems-clear"},
+      %{screen: "relay detail", route: "/namespaces/default/relays/relay_a", read: :relays},
+      %{screen: "relay state", route: "/namespaces/default/relays/relay_a/state", read: :relays},
+      %{screen: "dead-letter queue", route: "/dlq", read: :dlq, teaching: "dlq-empty"},
+      %{screen: "schedules", route: "/schedules", read: :schedules, teaching: "schedule-empty"},
+      %{
+        screen: "observability",
+        route: "/observability",
+        read: :sources,
+        teaching_text: "This controller reports none"
+      },
+      %{screen: "controller", route: "/controller", read: :controllers},
+      %{
+        screen: "plugins",
+        route: "/plugins",
+        read: :installed,
+        partly_empty: "catalog-partial-empty",
+        teaching_text: "No plugins are installed"
+      }
+    ]
+
+    defp partial_notices(html), do: testids(html, ~s([data-testid="partial-answer"]))
+
+    for row <- @partials do
+      @row row
+
+      test "#{row.screen}: a partial answer is said once, naming the missing controller", %{
+        conn: conn,
+        node: node
+      } do
+        answer_partly(@row.read, node, ["flezha@c9"], false)
+
+        {_view, html} = live_loaded(conn, @row.route)
+
+        assert length(partial_notices(html)) == 1
+        assert text_of(html, ~s([data-testid="partial-answer"])) =~ "flezha@c9 did not"
+      end
+
+      test "#{row.screen}: a whole answer says nothing of it", %{conn: conn, node: node} do
+        answer_partly(@row.read, node, [], false)
+
+        {_view, html} = live_loaded(conn, @row.route)
+
+        assert partial_notices(html) == []
+      end
+
+      if row[:teaching] || row[:teaching_text] do
+        test "#{row.screen}: an empty partial answer is not called empty", %{
+          conn: conn,
+          node: node
+        } do
+          answer_partly(@row.read, node, ["flezha@c9"], true)
+
+          {_view, html} = live_loaded(conn, @row.route)
+
+          assert text_of(html, ~s([data-testid="#{@row[:partly_empty] || "partial-empty"}"])) =~
+                   "was found on the controllers that answered"
+
+          if teaching = @row[:teaching], do: refute(html =~ ~s(data-testid="#{teaching}"))
+          if text = @row[:teaching_text], do: refute(html =~ text)
+        end
       end
     end
   end

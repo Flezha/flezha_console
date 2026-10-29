@@ -31,7 +31,7 @@ defmodule FlezhaConsoleWeb.RunnerDropTest do
     FakeController.set(
       node,
       {Relay, :list_namespaces},
-      {:ok, [%{namespace: "default", running: true}]}
+      FakeController.rows([%{namespace: "default", running: true}])
     )
 
     FakeController.set(node, {Fleet, :runners}, {:ok, [@runner]})

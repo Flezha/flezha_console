@@ -27,7 +27,7 @@
       <:title>Files</:title>
       <:actions>
         <.button
-          :if={NodeManager.granted?(@operations, "AuditLog.rotate")}
+          :if={NodeManager.granted?(@operations, "Logs.rotate")}
           variant="secondary"
           size="sm"
           icon="hero-arrow-path-rounded-square"
@@ -46,7 +46,7 @@
         A rotated file holds the records written before a rotation. None has been rotated yet;
         records are being written to <span class="fcon-num">{current_file(@stats)}</span>.
       </p>
-      <% readable? = NodeManager.granted?(@operations, "AuditLog.read") %>
+      <% readable? = NodeManager.granted?(@operations, "Logs.read") %>
       <p :if={readable? and @catalog != []} class="fcon-figures mb-2">
         Open a file to read its records.
       </p>

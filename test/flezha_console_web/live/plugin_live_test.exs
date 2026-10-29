@@ -32,7 +32,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
 
   defp with_namespaces(node, plugins_by_namespace) do
     catalog = Enum.map(Map.keys(plugins_by_namespace), &%{namespace: &1, running: true})
-    FakeController.set(node, {Relay, :list_namespaces}, {:ok, catalog})
+    FakeController.set(node, {Relay, :list_namespaces}, FakeController.rows(catalog))
 
     FakeController.set(
       node,
@@ -132,11 +132,12 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
         {Fleet, :providers},
         {:ok,
          %{
-           providers: [
+           rows: [
              %{id: "relay_stdout", module: "Flezha.Plugin.Provider.StdOut", type: :relay},
              %{id: "relay_websocket", module: "Flezha.Plugin.Provider.Websocket", type: :relay}
            ],
-           refused: 0
+           refused: %{"flezha@node-a": 0},
+           unreachable: []
          }}
       )
 
@@ -203,17 +204,16 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       FakeController.set(
         node,
         {Fleet, :installed_plugins},
-        {:ok,
-         [
-           %{id: "kafka", version: "1.2.0", status: :loaded, error: nil},
-           %{
-             id: "s3",
-             version: "0.9.0",
-             status: :refused,
-             providers: ["file_s3"],
-             error: refusal("digest mismatch")
-           }
-         ]}
+        FakeController.rows([
+          %{id: "kafka", version: "1.2.0", status: :loaded, error: nil},
+          %{
+            id: "s3",
+            version: "0.9.0",
+            status: :refused,
+            providers: ["file_s3"],
+            error: refusal("digest mismatch")
+          }
+        ])
       )
 
       {:ok, view, html} = live(conn, ~p"/plugins")
@@ -248,17 +248,16 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       FakeController.set(
         node,
         {Fleet, :installed_plugins},
-        {:ok,
-         [
-           %{id: "http", version: "1.0.0", status: :loaded, providers: ["http_push"], error: nil},
-           %{
-             id: "s3",
-             version: "0.9.0",
-             status: :refused,
-             providers: ["file_s3"],
-             error: refusal("bad manifest")
-           }
-         ]}
+        FakeController.rows([
+          %{id: "http", version: "1.0.0", status: :loaded, providers: ["http_push"], error: nil},
+          %{
+            id: "s3",
+            version: "0.9.0",
+            status: :refused,
+            providers: ["file_s3"],
+            error: refusal("bad manifest")
+          }
+        ])
       )
 
       {:ok, _view, html} = live(conn, ~p"/plugins")
@@ -287,17 +286,16 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       FakeController.set(
         node,
         {Fleet, :installed_plugins},
-        {:ok,
-         [
-           %{
-             id: "http",
-             version: "1.1.0",
-             status: :pending,
-             loaded_version: "1.0.0",
-             providers: [],
-             error: nil
-           }
-         ]}
+        FakeController.rows([
+          %{
+            id: "http",
+            version: "1.1.0",
+            status: :pending,
+            loaded_version: "1.0.0",
+            providers: [],
+            error: nil
+          }
+        ])
       )
 
       {:ok, _view, html} = live(conn, ~p"/plugins")
@@ -312,7 +310,90 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       html = open_section(view, "providers")
 
       assert html =~ ~s(data-testid="providers-refused")
-      assert html =~ "refused 2 installed packages"
+      assert html =~ "The controller refused 2 installed packages at boot"
+    end
+  end
+
+  describe "packages and providers on several controllers" do
+    test "copies that agree are one row naming every controller holding them", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Fleet, :installed_plugins},
+        FakeController.rows([
+          %{id: "http", version: "1.0.0", status: :loaded, node: :flezha@c1, error: nil},
+          %{id: "http", version: "1.0.0", status: :loaded, node: :flezha@c2, error: nil}
+        ])
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/plugins")
+
+      assert length(Regex.scan(~r/data-testid="installed-http"/, html)) == 1
+      assert text_of(html, ~s([data-testid="installed-nodes-http"])) =~ ~r/c1\s+c2/
+    end
+
+    test "copies that differ are a row each, each naming its controller", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Fleet, :installed_plugins},
+        FakeController.rows([
+          %{id: "http", version: "1.0.0", status: :loaded, node: :flezha@c1, error: nil},
+          %{id: "http", version: "1.1.0", status: :pending, node: :flezha@c2, error: nil}
+        ])
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/plugins")
+
+      assert length(Regex.scan(~r/data-testid="installed-http"/, html)) == 2
+      assert html =~ ~s(title="flezha@c1")
+      assert html =~ ~s(title="flezha@c2")
+    end
+
+    test "a provider one controller cannot enable says where it is not offered", %{
+      conn: conn,
+      node: node
+    } do
+      FakeController.set(
+        node,
+        {Fleet, :providers},
+        {:ok,
+         %{
+           rows: [
+             Map.put(provider("relay_stdout", :relay), :nodes, [:flezha@c1, :flezha@c2]),
+             Map.put(provider("relay_kafka", :relay), :nodes, [:flezha@c1])
+           ],
+           refused: %{flezha@c1: 0, flezha@c2: 1},
+           unreachable: []
+         }}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/plugins")
+      html = open_section(view, "providers")
+
+      assert text_of(html, ~s([data-testid="provider-lacking-relay_kafka"])) =~
+               ~r/Not offered on\s+c2/
+
+      refute html =~ ~s(data-testid="provider-lacking-relay_stdout")
+      assert text_of(html, ~s([data-testid="providers-refused"])) =~ "flezha@c2 refused 1 package"
+    end
+
+    test "each controller refusing as many packages is said once", %{conn: conn, node: node} do
+      FakeController.set(
+        node,
+        {Fleet, :providers},
+        {:ok, %{rows: [], refused: %{flezha@c1: 1, flezha@c2: 1}, unreachable: []}}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/plugins")
+      html = open_section(view, "providers")
+
+      assert text_of(html, ~s([data-testid="providers-refused"])) =~
+               "Each controller refused 1 installed package at boot"
     end
   end
 
@@ -325,7 +406,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       FakeController.set(
         node,
         {Relay, :list},
-        {:ok, Enum.map(["relay_a", "relay_b"], &FakeController.relay_row/1)}
+        FakeController.rows(Enum.map(["relay_a", "relay_b"], &FakeController.relay_row/1))
       )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
@@ -435,8 +516,8 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       FakeController.set(
         node,
         {Relay, :list},
-        {:per_arg, 0, %{"staging" => {:ok, [FakeController.relay_row("stage_1")]}},
-         {:ok, [FakeController.relay_row("relay_a")]}}
+        {:per_arg, 0, %{"staging" => FakeController.rows([FakeController.relay_row("stage_1")])},
+         FakeController.rows([FakeController.relay_row("relay_a")])}
       )
 
       {:ok, view, _html} = live(conn, ~p"/plugins")
@@ -582,7 +663,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       FakeController.set(
         node,
         {Relay, :list},
-        {:ok, Enum.map(["relay_a"], &FakeController.relay_row/1)}
+        FakeController.rows(Enum.map(["relay_a"], &FakeController.relay_row/1))
       )
 
       {:ok, view, _html} = live(conn, ~p"/namespaces/default/plugins")
@@ -654,7 +735,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       FakeController.set(
         node,
         {Relay, :list},
-        {:ok, Enum.map(["relay_a", "relay_b"], &FakeController.relay_row/1)}
+        FakeController.rows(Enum.map(["relay_a", "relay_b"], &FakeController.relay_row/1))
       )
 
       :ok
@@ -1374,7 +1455,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       FakeController.set(
         node,
         {Fleet, :providers},
-        {:ok, %{providers: providers, refused: refused}}
+        {:ok, %{rows: providers, refused: %{"flezha@node-a": refused}, unreachable: []}}
       )
 
   # `:absent` answers as a controller that predates the option list.

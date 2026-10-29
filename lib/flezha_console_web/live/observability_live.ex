@@ -1,12 +1,14 @@
 defmodule FlezhaConsoleWeb.ObservabilityLive do
   @moduledoc """
-  What each part of the controller reports about itself, what it reported
+  What each part of the controllers reports about itself, what it reported
   recently, and a live view of it.
 
-  The controller describes every source and signal and counts what its ring
-  buffer holds, so this screen explains and summarises without a table of its
-  own. The tail rides `FlezhaConsole.Service.EventFeed`, the same feed the runtime
-  events use, and opens with the source's buffered history.
+  The controllers describe every source and signal and count what their ring
+  buffers hold, so this screen explains and summarises without a table of its
+  own. Each source is listed once with its state on every controller, and a
+  switch applies to every one. The tail rides `FlezhaConsole.Service.EventFeed`,
+  the same feed the runtime events use, and opens with the source's buffered
+  history; each line names the controller that emitted it.
   """
 
   use FlezhaConsoleWeb, :live_view
@@ -33,8 +35,9 @@ defmodule FlezhaConsoleWeb.ObservabilityLive do
        load_error: nil,
        disabled?: false,
        toggle_error: nil,
+       toggle_missed: nil,
+       unreachable: [],
        history_error: nil,
-       clock_offset_us: nil,
        tail_source: nil
      )
      |> refresh()}
@@ -86,53 +89,81 @@ defmodule FlezhaConsoleWeb.ObservabilityLive do
     token = socket.assigns.flezha_token
 
     case NodeManager.observability_sources(token) do
-      {:ok, sources} ->
+      {:ok, %{rows: sources}} = listed ->
+        sinks = NodeManager.observability_sinks(token)
+
         assign(socket,
           sources: sources,
-          sinks: NodeManager.ok_or(NodeManager.observability_sinks(token), []),
+          sinks: NodeManager.ok_or(sinks, []),
+          unreachable: NodeManager.unreachable([listed, sinks]),
           load_error: nil,
           disabled?: false
         )
 
       {:error, reason} ->
+        socket = assign(socket, sources: [], sinks: [], unreachable: [])
+
         if NodeManager.error(reason).code == "observability.disabled",
-          do: assign(socket, sources: [], sinks: [], load_error: nil, disabled?: true),
-          else: assign(socket, sources: [], sinks: [], load_error: reason, disabled?: false)
+          do: assign(socket, load_error: nil, disabled?: true),
+          else: assign(socket, load_error: reason, disabled?: false)
     end
   end
 
-  # The buffered history first, under one reading of the controller's clock
-  # that every signal's time is then placed against, live ones included.
+  # The buffered history first, newest first, as the live lines will be.
   defp open_tail(socket, name) do
     token = socket.assigns.flezha_token
 
     {history, history_error} =
       case NodeManager.observability_query(%{source: name, limit: @history}, token) do
-        {:ok, signals} when is_list(signals) ->
+        {:ok, %{rows: signals}} ->
           {signals
            |> Enum.reverse()
            |> Enum.map(&(&1 |> unwrap_tail() |> Map.put(:history?, true))), nil}
 
         {:error, reason} ->
           {[], reason}
-
-        _other ->
-          {[], nil}
-      end
-
-    offset =
-      case NodeManager.controller_monotonic_us(token) do
-        now when is_integer(now) -> System.os_time(:microsecond) - now
-        _unknown -> nil
       end
 
     socket
     |> start_tail(&NodeManager.observability_tail(name, token, &1), name, seed: history)
     |> assign(
       history_error: history_error,
-      clock_offset_us: offset,
       tail_source: Enum.find(socket.assigns.sources, &(&1[:name] == name))
     )
+  end
+
+  @doc """
+  A source's switch: `true` when every controller listing it runs it, `false`
+  when none does and `:mixed` in between.
+  """
+  def switch_state(source) do
+    case NodeManager.source_enabled(source) do
+      {0, _of} -> false
+      {on, on} -> true
+      _part -> :mixed
+    end
+  end
+
+  @doc ~S|"On 2 of 3 controllers" for a source on part of the cluster, else nil.|
+  def enabled_words(source) do
+    case NodeManager.source_enabled(source) do
+      {on, of} when on > 0 and on < of -> "On #{on} of #{Words.count(of, "controller")}"
+      _all_or_none -> nil
+    end
+  end
+
+  @doc """
+  The sinks once each by name, in the order listed, with `stopped`: the
+  controllers on which it is not running.
+  """
+  def sink_groups(sinks) do
+    for {sink, copies} <- NodeManager.copies(sinks, & &1[:name]) do
+      %{
+        name: sink[:name],
+        sink: sink,
+        stopped: for(copy <- copies, !NodeManager.sink_running?(copy), do: copy[:node])
+      }
+    end
   end
 
   @areas [
@@ -159,7 +190,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLive do
       %{
         key: key,
         label: Keyword.fetch!(@areas, key),
-        enabled: Enum.count(members, &NodeManager.source_enabled?/1),
+        enabled: Enum.count(members, &(switch_state(&1) == true)),
         total: length(members),
         sources:
           members
@@ -314,13 +345,14 @@ defmodule FlezhaConsoleWeb.ObservabilityLive do
   end
 
   @doc """
-  One signal of a tail: when, one sentence about its subject, a warning mark
-  on a failure, and its labels and numbers behind a toggle. `source` is the
-  tailed source's listing entry, which carries the declarations.
+  One signal of a tail: when and on which controller, one sentence about its
+  subject, a warning mark on a failure, and its labels and numbers behind a
+  toggle. `source` is the tailed source's listing entry, which carries the
+  declarations; `controllers` names the controllers' machines.
   """
   attr :signal, :map, required: true
   attr :source, :map, default: nil
-  attr :offset_us, :integer, default: nil
+  attr :controllers, :list, default: nil
 
   def tail_line(assigns) do
     assigns =
@@ -331,13 +363,18 @@ defmodule FlezhaConsoleWeb.ObservabilityLive do
 
     ~H"""
     <li class="fcon-river-event" data-testid="tail-record" data-outcome={@failure? && "failure"}>
-      <span class="fcon-river-time">{emitted_at(@signal, @offset_us)}</span>
-      <span
-        class={["min-w-0", if(@failure?, do: "fcon-tone-warning", else: "fcon-strong")]}
-        data-testid="tail-sentence"
-      >
-        <span :if={@failure?} aria-label="Failure" data-testid="tail-failure-mark">⚠</span>
-        {sentence(@source, @signal)}
+      <span class="fcon-river-time">{emitted_at(@signal)}</span>
+      <span class="min-w-0">
+        <span :if={@signal[:node]} class="block fcon-figures text-xs">
+          <.controller_name node={@signal[:node]} controllers={@controllers} testid="tail-controller" />
+        </span>
+        <span
+          class={["block", if(@failure?, do: "fcon-tone-warning", else: "fcon-strong")]}
+          data-testid="tail-sentence"
+        >
+          <span :if={@failure?} aria-label="Failure" data-testid="tail-failure-mark">⚠</span>
+          {sentence(@source, @signal)}
+        </span>
       </span>
       <details id={@id} phx-mounted={JS.ignore_attributes(["open"])} data-testid="tail-details">
         <summary class="fcon-muted text-xs">Details</summary>
@@ -437,15 +474,15 @@ defmodule FlezhaConsoleWeb.ObservabilityLive do
   defp failure?(%{outcome: :failure}), do: true
   defp failure?(_declared), do: false
 
-  @doc "When a signal was emitted, placed on this node's clock through `offset_us`."
-  def emitted_at(%{ts: ts}, offset_us) when is_integer(ts) and is_integer(offset_us) do
-    case DateTime.from_unix(ts + offset_us, :microsecond) do
+  @doc "When a signal was emitted, by the wall-clock time its controller stamped on it."
+  def emitted_at(%{at_us: at_us}) when is_integer(at_us) do
+    case DateTime.from_unix(at_us, :microsecond) do
       {:ok, at} -> Format.time_of_day(at)
       {:error, _} -> "—"
     end
   end
 
-  def emitted_at(_signal, _offset_us), do: "—"
+  def emitted_at(_signal), do: "—"
 
   @doc "A signal's labels as sorted `key=value` pairs, each value cut to a readable length."
   def labels(metadata) when is_map(metadata) and map_size(metadata) > 0 do
@@ -461,11 +498,7 @@ defmodule FlezhaConsoleWeb.ObservabilityLive do
   defp label_value(value) when is_binary(value), do: Format.printable(value, limit: 120)
   defp label_value(value), do: inspect(value, limit: 10, printable_limit: 120)
 
-  @doc """
-  A signal's measurements as `key value` pairs. Its own timestamp is the
-  emitting node's monotonic clock, which says nothing to a reader, so it is
-  not shown as a number.
-  """
+  @doc "A signal's measurements as `key value` pairs."
   def measurements(values) when is_map(values) do
     values
     |> Enum.sort()
@@ -490,19 +523,26 @@ defmodule FlezhaConsoleWeb.ObservabilityLive do
     Enum.find(socket.assigns.sources, &(to_string(&1[:name]) == name))
   end
 
+  # A source on everywhere is switched off; one off or on part of the cluster
+  # is switched on everywhere.
   defp apply_toggle(socket, source) do
     token = socket.assigns.flezha_token
+    on? = switch_state(source) == true
 
     result =
-      if NodeManager.source_enabled?(source) do
-        NodeManager.disable_source(source[:name], token)
-      else
-        NodeManager.enable_source(source[:name], token)
-      end
+      if on?,
+        do: NodeManager.disable_source(source[:name], token),
+        else: NodeManager.enable_source(source[:name], token)
 
     case result do
-      {:error, reason} -> assign(socket, toggle_error: reason)
-      _ok -> assign(socket, toggle_error: nil)
+      {:error, reason} ->
+        assign(socket, toggle_error: reason, toggle_missed: nil)
+
+      {:ok, %{unreachable: [_ | _] = missed}} ->
+        assign(socket, toggle_error: nil, toggle_missed: {source, !on?, missed})
+
+      _applied ->
+        assign(socket, toggle_error: nil, toggle_missed: nil)
     end
   end
 end

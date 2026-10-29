@@ -34,6 +34,9 @@ defmodule FlezhaConsoleWeb.ScheduleLive do
         confirm_remove: nil,
         target: Target.new(nil),
         schedules: [],
+        listed: [],
+        controller: nil,
+        unreachable: [],
         loaded?: false,
         load_error: nil,
         confirm_run: nil,
@@ -45,10 +48,15 @@ defmodule FlezhaConsoleWeb.ScheduleLive do
 
   # `?run=<name>` lands the command palette's "run now" on this screen's own
   # confirmation: a schedule is never fired by a keystroke alone.
+  # `?controller=` lists the schedules one controller holds.
   @impl true
   def handle_params(params, _uri, socket) do
     title = Layouts.scoped_title("Schedules", socket.assigns.scoped_namespace)
-    socket = socket |> assign(page_title: title) |> refresh_when_connected()
+
+    socket =
+      socket
+      |> assign(page_title: title, controller: params["controller"] || "")
+      |> refresh_when_connected()
 
     case params["run"] do
       name when is_binary(name) and name != "" ->
@@ -189,27 +197,49 @@ defmodule FlezhaConsoleWeb.ScheduleLive do
     end
   end
 
+  def handle_event("filter", %{"filter" => filter}, socket) do
+    path = socket.assigns.current_path
+
+    to =
+      if filter["controller"] in [nil, ""],
+        do: path,
+        else: "#{path}?#{URI.encode_query(controller: filter["controller"])}"
+
+    {:noreply, push_patch(socket, to: to)}
+  end
+
   @impl FlezhaConsoleWeb.Live.Refresh
   def refresh(socket) do
     case NodeManager.schedule_list(socket.assigns.flezha_token) do
-      {:ok, entries} ->
+      {:ok, %{rows: entries}} = listed ->
+        listed_rows = rows(entries, socket.assigns.scoped_namespace)
+
         assign(socket,
           loaded?: true,
-          schedules: rows(entries, socket.assigns.scoped_namespace),
+          listed: listed_rows,
+          schedules: NodeManager.rows_with(listed_rows, :node, socket.assigns.controller),
+          unreachable: NodeManager.unreachable([listed]),
           load_error: nil
         )
 
       {:error, reason} ->
-        assign(socket, schedules: [], load_error: reason, loaded?: true)
+        assign(socket,
+          schedules: [],
+          listed: [],
+          unreachable: [],
+          load_error: reason,
+          loaded?: true
+        )
     end
   end
 
   @doc """
   The schedules `NodeManager.schedule_list/1` answered, as the console shows
-  them, narrowed to `namespace` when there is one.
+  them, narrowed to `namespace` when there is one. `node` is the controller
+  holding a schedule, `fires_on` the one firing it.
   """
   def rows(entries, namespace) do
-    entries |> Enum.map(&decorate/1) |> NodeManager.in_namespace(namespace)
+    entries |> Enum.map(&decorate/1) |> NodeManager.rows_with(:namespace, namespace)
   end
 
   # The controller joins each stored entry with what the schedule hub holds
@@ -227,6 +257,7 @@ defmodule FlezhaConsoleWeb.ScheduleLive do
       factory_id: Map.get(entry, :factory_id) || "—",
       status: status(entry),
       node: Map.get(entry, :node),
+      fires_on: Map.get(entry, :fires_on),
       created_at: created_at(Map.get(entry, :created_at)),
       last_fire: last_fire(Map.get(entry, :last_fire)),
       next_fire: next_fire(Map.get(entry, :next_fire))
@@ -234,7 +265,7 @@ defmodule FlezhaConsoleWeb.ScheduleLive do
   end
 
   defp status(%{dormant?: true}), do: :dormant
-  defp status(%{node: node}) when not is_nil(node), do: :active
+  defp status(%{fires_on: node}) when not is_nil(node), do: :active
   defp status(_entry), do: :inactive
 
   @doc "What a schedule's status means, for its badge's tooltip."

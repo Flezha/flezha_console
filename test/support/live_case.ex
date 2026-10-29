@@ -124,14 +124,15 @@ defmodule FlezhaConsoleWeb.LiveCase do
     FakeController.set(
       node,
       {Flezha.Service.Relay, :relay_rows},
-      {:ok,
-       members ++
-         [
-           FakeController.relay_row("relay_a"),
-           FakeController.relay_row("other#p0", %{
-             partition: %{group: "other", index: 0, count: 2, range: {0, 127}}
-           })
-         ]}
+      FakeController.rows(
+        members ++
+          [
+            FakeController.relay_row("relay_a"),
+            FakeController.relay_row("other#p0", %{
+              partition: %{group: "other", index: 0, count: 2, range: {0, 127}}
+            })
+          ]
+      )
     )
   end
 

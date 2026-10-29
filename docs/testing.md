@@ -143,9 +143,11 @@ state therefore never cross workers.
 
 Before it changes anything on the stack, global setup:
 
-- **waits for the controller**: it reads `Controller.boot_status` until the
-  controller is ready and every namespace's hub is `normal`, and fails after
-  30 s naming what is not, so no test meets a controller still recovering;
+- **waits for both controllers**: it reads `Controller.boot_status` until
+  `flezha@flezha_controller` and `flezha@flezha_controller_2` both answer
+  ready with every namespace's hub `normal`, and until the second controller's
+  runner serves `second/store_input`; it fails after 30 s naming what is not,
+  so no test meets a cluster still recovering;
 - **takes the stack's lock**: it creates the namespace `e2e-run-lock`, which
   the controller refuses to create twice. A second run against a held stack
   stops there, naming the run that holds it and how long ago it started, and
@@ -159,6 +161,15 @@ Before it changes anything on the stack, global setup:
 - **makes each worker a namespace**, `e2e-w<n>-<run>`, where the run id is the
   run's start time in base 36, and deletes the worker namespaces of runs that
   have gone. The worker fixture `workerNamespace` names it.
+
+The dev stack is a cluster of two controllers. The console is connected to
+`flezha_controller`; `flezha_controller_2` joins it and keeps its storage in a
+volume of its own. The second runner is a second copy of the Rust runner rather
+than the sandbox Elixir runner: it shares the first one's build, so it adds no
+compile and little CPU. It connects only to the second controller and serves the
+namespace `second`, which no runner of the first serves, so a relay started
+there runs on the second controller. A test reaching the other controller uses
+`CONTROLLERS`, `SECOND_NAMESPACE` and `SECOND_FACTORY` from `global-setup.ts`.
 
 The teardown global setup answers deletes the run's worker namespaces and its
 lock, whether the tests passed or not. A lock left behind by hand is removed

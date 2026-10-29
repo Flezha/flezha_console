@@ -53,7 +53,8 @@ defmodule FlezhaConsoleWeb.RelayIndexLiveTest do
       namespaces: namespaces,
       rows: Map.new(namespaces, &{&1, opts[:rows] || []}),
       runs: opts[:runs] || %{},
-      plugins: opts[:plugins] || []
+      plugins: opts[:plugins] || [],
+      unreachable: opts[:unreachable] || []
     )
   end
 
@@ -135,7 +136,7 @@ defmodule FlezhaConsoleWeb.RelayIndexLiveTest do
       row = view |> element(~s([data-testid="relay-index-row-demo"])) |> render()
       assert row =~ "Show 100 partitions"
       assert row =~ "2 not healthy"
-      assert row =~ "3 nodes"
+      assert row =~ "3 controllers"
       assert row =~ "1 unplaced"
       assert row =~ "4 runners"
       refute html =~ "demo#p42"
@@ -272,9 +273,67 @@ defmodule FlezhaConsoleWeb.RelayIndexLiveTest do
       assert row =~ "compare_filter"
       assert row =~ ~s(data-health="degraded")
       assert row =~ "steps"
-      assert row =~ "flezha@node-z"
+      assert text_of(row, ~s([data-testid="relay-controller-relay_a"])) == "node-z"
+      assert row =~ ~s(title="flezha@node-z")
       assert row =~ "runner-a"
       assert row =~ ~r/<td[^>]*class="fcon-cell-num"[^>]*>\s*2\s*<\/td>/
+    end
+  end
+
+  describe "a relay hosted on another controller" do
+    test "is listed with the health its controller judged, and counted under it", %{
+      conn: conn,
+      node: node
+    } do
+      with_fleet(node,
+        rows: [
+          row("relay_a", %{health: :healthy, node: :"flezha@node-a"}),
+          row("relay_b", %{health: :healthy, node: :"flezha@node-b"})
+        ]
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default/relays")
+
+      row = text_of(html, ~s([data-testid="relay-index-row-relay_b"]))
+      assert row =~ "Healthy"
+      assert text_of(html, ~s([data-testid="relay-controller-relay_b"])) == "node-b"
+      refute html =~ ~s(data-testid="relay-unanswered-relay_b")
+      refute html =~ ~s(data-testid="partial-answer")
+    end
+
+    test "says its controller did not answer when that controller is named unreachable", %{
+      conn: conn,
+      node: node
+    } do
+      with_fleet(node,
+        rows: [
+          row("relay_a", %{health: :healthy, node: :"flezha@node-a"}),
+          row("relay_b", %{health: :unknown, node: :"flezha@node-b"})
+        ],
+        unreachable: ["flezha@node-b"]
+      )
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default/relays")
+
+      assert text_of(html, ~s([data-testid="relay-unanswered-relay_b"])) ==
+               "its controller did not answer"
+
+      refute html =~ ~s(data-testid="relay-unanswered-relay_a")
+      assert text_of(html, ~s([data-testid="partial-answer"])) =~ "flezha@node-b did not answer"
+    end
+
+    test "an empty answer missing a controller is not shown as an empty namespace", %{
+      conn: conn,
+      node: node
+    } do
+      with_fleet(node, rows: [], unreachable: ["flezha@node-b"])
+
+      {:ok, _view, html} = live(conn, ~p"/namespaces/default/relays")
+
+      assert text_of(html, ~s([data-testid="partial-empty"])) ==
+               "No relay was found on the controllers that answered."
+
+      refute html =~ ~s(data-testid="relays-empty")
     end
   end
 

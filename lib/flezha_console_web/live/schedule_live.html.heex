@@ -8,7 +8,7 @@
   </:sentence>
   <:figures :if={@scoped_namespace}>
     <span data-testid="schedule-scope-notice">
-      The controller keeps one schedule list for the cluster, so {@scoped_namespace} is a filter over it here.
+      Every controller's schedules are listed together, so {@scoped_namespace} is a filter over that list here.
     </span>
   </:figures>
   <:actions>
@@ -38,6 +38,21 @@
 
 <.runtime_error error={@load_error} />
 
+<form
+  :if={length(NodeManager.row_controllers(@listed)) > 1 or @controller not in [nil, ""]}
+  phx-change="filter"
+  class="flex flex-wrap items-end gap-3 mb-5"
+>
+  <.controller_filter
+    rows={@listed}
+    name="filter[controller]"
+    value={@controller}
+    controllers={@shell_pulse[:controllers]}
+  />
+</form>
+
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
 <div :if={@ran} data-testid="schedule-ran" class="mb-5">
   <.runtime_error :if={@ran[:error]} error={@ran[:error]} action={"the run of #{@ran.name}"} />
   <.notice :if={@ran[:answer] && @ran.answer.outcome == :spawned} icon="hero-play">
@@ -54,7 +69,13 @@
 
 <.skeleton :if={!@loaded?} rows={3} testid="schedules-loading" />
 
-<.empty_state :if={@loaded? and @schedules == []} icon="hero-clock" testid="schedule-empty">
+<.partial_empty :if={@loaded? and @schedules == [] and @unreachable != []} noun="schedule" />
+
+<.empty_state
+  :if={@loaded? and @schedules == [] and @unreachable == []}
+  icon="hero-clock"
+  testid="schedule-empty"
+>
   A schedule starts a relay from a steps factory on a cron expression.
   <span :if={@scoped_namespace}>None starts relays in {@scoped_namespace}.</span>
   <span :if={!@scoped_namespace}>None has been created.</span>
@@ -81,6 +102,9 @@
     <span class="fcon-num">{schedule.namespace}</span>
   </:col>
   <:col :let={schedule} label="Factory"><span class="fcon-num">{schedule.factory_id}</span></:col>
+  <:col :let={schedule} label="Controller">
+    <.controller_name node={schedule.node} controllers={@shell_pulse[:controllers]} />
+  </:col>
   <:col :let={schedule} label="Status">
     <span title={status_title(schedule.status)}>
       <.state_badge

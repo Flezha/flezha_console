@@ -41,6 +41,8 @@
 
 <.runtime_error error={@namespaces_error} action="list the namespaces" />
 
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
 <.skeleton :if={!@loaded?} rows={4} testid="plugins-loading" />
 
 <%!-- Enabled plugins --%>
@@ -206,17 +208,22 @@
   open={@sections["providers"]}
   digest={Words.count(length(@available_providers), "provider")}
 >
-  <:title>Providers this controller offers</:title>
+  <:title>Providers the controllers offer</:title>
   <.runtime_error error={@providers_error} action="the provider listing" />
-  <.notice :if={@refused_packages > 0} kind={:error} testid="providers-refused">
-    The controller refused {Words.count(@refused_packages, "installed package")} at boot; their
-    providers are not offered. The installed catalog below says why.
+  <.notice :if={refused_words(@refused_packages)} kind={:error} testid="providers-refused">
+    {refused_words(@refused_packages)}; their providers are not offered there. The installed
+    catalog below says why.
   </.notice>
+  <.partial_empty
+    :if={@available_providers == [] and is_nil(@providers_error) and @unreachable != []}
+    noun="provider"
+    testid="providers-partial-empty"
+  />
   <.empty_state
-    :if={@available_providers == [] and is_nil(@providers_error)}
+    :if={@available_providers == [] and is_nil(@providers_error) and @unreachable == []}
     icon="hero-puzzle-piece"
   >
-    This controller offers no plugin providers.
+    The controllers offer no plugin providers.
   </.empty_state>
   <.paged :let={page} id="providers" rows={@available_providers} paging={@paging}>
     <div :if={@available_providers != []} class="fcon-tiles">
@@ -241,6 +248,18 @@
           </.chip>
         </p>
         <p class="fcon-muted text-xs">Runs on the {provider.type}.</p>
+        <p
+          :if={lacking(provider, Map.keys(@refused_packages)) != []}
+          class="fcon-tone-warning text-xs"
+          data-testid={"provider-lacking-#{provider.id}"}
+        >
+          Not offered on
+          <.controller_name
+            :for={node <- lacking(provider, Map.keys(@refused_packages))}
+            node={node}
+            controllers={@shell_pulse[:controllers]}
+          />
+        </p>
         <details data-testid={"provider-module-#{provider.id}"}>
           <summary class="fcon-label cursor-pointer">Implementation</summary>
           <p class="fcon-num text-xs mt-1">{provider.module}</p>
@@ -305,7 +324,7 @@
 <.plugin_form_dialog form={@plugin_form} />
 
 <.section testid="installed-catalog" digest={Words.count(length(@catalog), "package")}>
-  <:title>Installed on the controller</:title>
+  <:title>Installed on the controllers</:title>
 
   <p class="fcon-figures mb-3">
     Installing, upgrading and uninstalling move files on the controller host — those are
@@ -322,8 +341,16 @@
     still list normally.
   </.notice>
 
-  <.empty_state :if={@catalog == [] and is_nil(@catalog_error)} icon="hero-archive-box">
-    No plugins are installed on the controller host.
+  <.partial_empty
+    :if={@catalog == [] and is_nil(@catalog_error) and @unreachable != []}
+    noun="installed plugin"
+    testid="catalog-partial-empty"
+  />
+  <.empty_state
+    :if={@catalog == [] and is_nil(@catalog_error) and @unreachable == []}
+    icon="hero-archive-box"
+  >
+    No plugins are installed on the controllers.
   </.empty_state>
 
   <div :if={@catalog != []} class="mt-3">
@@ -342,6 +369,15 @@
           class="block fcon-muted"
         >
           {plugin[:loaded_version]} still loaded until the next boot
+        </span>
+      </:col>
+      <:col :let={plugin} label="Controllers">
+        <span class="flex flex-wrap gap-2" data-testid={"installed-nodes-#{plugin[:id]}"}>
+          <.controller_name
+            :for={node <- plugin.nodes}
+            node={node}
+            controllers={@shell_pulse[:controllers]}
+          />
         </span>
       </:col>
       <:col :let={plugin} label="Status">

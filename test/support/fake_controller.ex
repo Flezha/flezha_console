@@ -65,7 +65,7 @@ defmodule FakeController do
   Shipped to a peer and configured from the test:
 
       {peer, node} = PeerNode.start_controller!()
-      FakeController.set(node, {Flezha.Service.Relay, :list_namespaces}, {:ok, []})
+      FakeController.set(node, {Flezha.Service.Relay, :list_namespaces}, FakeController.rows([]))
 
   A stream operation registers the context's `:emit` pid and holds the call
   open until that pid exits, as core does; `emit/3` hands it an event and
@@ -80,7 +80,7 @@ defmodule FakeController do
   @doc """
   Every stand-in module, in the order a peer must load them.
 
-  `FakeController` comes first because the rest call it. The audit stand-in
+  `FakeController` comes first because the rest call it. The logs stand-in
   lives in its own file but is part of the same roster — a peer missing one
   answers `:undef` for that whole subsystem.
   """
@@ -96,7 +96,7 @@ defmodule FakeController do
       Flezha.Service.Schedule,
       Flezha.Service.Controller,
       Flezha.Service.PluginManager,
-      Flezha.Service.AuditLog,
+      Flezha.Service.Logs,
       Flezha.Service.Observability,
       Flezha.Service.Admin,
       Flezha.AuthZ
@@ -128,7 +128,7 @@ defmodule FakeController do
   `{:gate_reached, gate}`, so a test can wait for a read to get that far.
 
       FakeController.close_gate(node, :slow)
-      FakeController.set(node, {Relay, :relay_rows}, {:gated, :slow, {:ok, rows}})
+      FakeController.set(node, {Relay, :relay_rows}, {:gated, :slow, FakeController.rows(rows)})
       assert_receive {:gate_reached, :slow}
   """
   def close_gate(node, gate), do: set(node, {:gate, gate}, {:closed, self()})
@@ -155,6 +155,33 @@ defmodule FakeController do
   def error(code, message \\ nil), do: {:error, Flezha.Error.new(code, message)}
 
   @doc """
+  A cluster read's answer: `rows` from the controllers that answered, and
+  the ones in `unreachable` that did not.
+
+      FakeController.set(node, {Flezha.Service.Dlq, :list},
+        FakeController.rows([entry], ["flezha@c3"]))
+  """
+  def rows(rows, unreachable \\ []),
+    do: {:ok, %{rows: rows, unreachable: Enum.map(unreachable, &to_node/1)}}
+
+  @doc """
+  `Namespace.quota/3`'s answer: the cluster's `total`, all on
+  `flezha@node-a` unless `by_node` splits it, and the controllers that did not
+  count.
+  """
+  def quota_usage(total, by_node \\ nil, unreachable \\ []) do
+    {:ok,
+     %{
+       total: total,
+       by_node: by_node || %{"flezha@node-a": total},
+       unreachable: Enum.map(unreachable, &to_node/1)
+     }}
+  end
+
+  defp to_node(node) when is_atom(node), do: node
+  defp to_node(node) when is_binary(node), do: String.to_atom(node)
+
+  @doc """
   A running relay's hook table holding one `on_input` binding of `plugin_id`,
   as the `extensions` of `Relay.overwatch_state/2`'s answer.
   """
@@ -173,6 +200,10 @@ defmodule FakeController do
       consumers: consumers,
       plugin_end: plugin_end,
       call_target: nil,
+      call_create: nil,
+      call_deadline_ms: nil,
+      retry_max: nil,
+      retry_backoff_ms: nil,
       overflow: "drop_nothing"
     }
   end
@@ -266,10 +297,11 @@ defmodule FakeController do
 
   @doc """
   A provider of `Fleet.providers/1`'s listing: `feeds` says whether its
-  plugins inject records into a relay.
+  plugins inject records into a relay, and `nodes` names the controllers that
+  can enable it.
   """
   def provider_entry(id, module, feeds \\ false),
-    do: %{id: id, module: module, type: :relay, feeds: feeds}
+    do: %{id: id, module: module, type: :relay, feeds: feeds, nodes: [:"flezha@node-a"]}
 
   @doc """
   A relay row shaped as `Flezha.Service.Relay.relay_rows/2` answers one, with
@@ -313,6 +345,43 @@ defmodule FakeController do
       overrides
     )
   end
+
+  @doc """
+  A row of `Flezha.Service.Controller.status/1`'s answer for the controller
+  `flezha@<host>`, with `overrides` applied.
+  """
+  def status_row(host, overrides \\ %{}) do
+    Map.merge(
+      %{
+        shutdown_in_progress: false,
+        shutdown_phase: nil,
+        signal_handler_status: :ok,
+        graceful_shutdown_enabled: true,
+        graceful_shutdown_timeout_ms: 60_000,
+        durability_backend: :none,
+        durability_posture: :local_only,
+        durability_rpo_breaches: 0,
+        durability_levels: %{},
+        durability_superseded: 0,
+        node: :"flezha@#{host}",
+        file_plugin_root: "/flezha/storage/app/files",
+        state_root: "/flezha/storage/app/state",
+        monotonic_us: System.monotonic_time(:microsecond)
+      },
+      overrides
+    )
+  end
+
+  @doc """
+  A row of `Flezha.Service.Controller.boot_status/1`'s answer for the
+  controller `flezha@<host>`, ready, with `overrides` applied.
+  """
+  def boot_row(host, overrides \\ %{}),
+    do:
+      Map.merge(
+        %{node: :"flezha@#{host}", readiness: :ready, preconditions: [], namespaces: []},
+        overrides
+      )
 
   @doc """
   A runner row shaped as `Flezha.Service.Fleet.runners/2` answers one, with
@@ -365,15 +434,16 @@ defmodule FakeController do
   plugin pairs and its registry.
 
   `:rows` maps a namespace to its rows, `:plugins` is the `relay_plugins/2`
-  answer, and `:runs` maps a relay id to its run — every row defaults to
-  `:flow`. The registry also carries a `{:plugin, name}` entry, as a real one
+  answer's rows, `:runs` maps a relay id to its run — every row defaults to
+  `:flow` — and `:unreachable` names controllers the row reads lack. The registry also carries a `{:plugin, name}` entry, as a real one
   does, so the decoder that skips it is exercised by every listing test.
   """
   def set_fleet(node, opts) do
     rows = Keyword.get(opts, :rows, %{})
     runs = Keyword.get(opts, :runs, %{})
+    unreachable = Keyword.get(opts, :unreachable, [])
     namespaces = Keyword.get(opts, :namespaces, Map.keys(rows))
-    catalog = Enum.map(namespaces, &%{namespace: &1, running: true})
+    catalog = Enum.map(namespaces, &%{namespace: &1, running: true, nodes: [:"flezha@node-a"]})
 
     registry =
       Map.new(rows, fn {namespace, ns_rows} ->
@@ -385,12 +455,13 @@ defmodule FakeController do
         {namespace, {:ok, Map.put(entries, {:plugin, "fixture-plugin"}, {%{}, [], %{}})}}
       end)
 
-    by_namespace = Map.new(rows, fn {namespace, ns_rows} -> {namespace, {:ok, ns_rows}} end)
+    by_namespace =
+      Map.new(rows, fn {namespace, ns_rows} -> {namespace, rows(ns_rows, unreachable)} end)
 
-    set(node, {Flezha.Service.Relay, :list_namespaces}, {:ok, catalog})
-    set(node, {Flezha.Service.Relay, :list}, {:per_arg, 0, by_namespace, {:ok, []}})
-    set(node, {Flezha.Service.Relay, :relay_rows}, {:per_arg, 0, by_namespace, {:ok, []}})
-    set(node, {Flezha.Service.Relay, :relay_plugins}, {:ok, Keyword.get(opts, :plugins, [])})
+    set(node, {Flezha.Service.Relay, :list_namespaces}, rows(catalog))
+    set(node, {Flezha.Service.Relay, :list}, {:per_arg, 0, by_namespace, rows([])})
+    set(node, {Flezha.Service.Relay, :relay_rows}, {:per_arg, 0, by_namespace, rows([])})
+    set(node, {Flezha.Service.Relay, :relay_plugins}, rows(Keyword.get(opts, :plugins, [])))
     set(node, {Flezha.Service.Relay, :registry}, {:per_arg, 0, registry, {:ok, %{}}})
   end
 
@@ -585,15 +656,15 @@ defmodule Flezha.Service.Relay do
   @moduledoc "Stand-in for the published relay surface. See `FakeController`."
   use FakeController.Stub
 
-  defstub list_namespaces(%{source: :ui} = ctx), do: {:ok, []}
-  defstub list(ns, %{source: :ui} = ctx), do: {:ok, []}
-  defstub relay_rows(ns, %{source: :ui} = ctx), do: {:ok, []}
-  defstub relay_plugins(ns, %{source: :ui} = ctx), do: {:ok, []}
+  defstub list_namespaces(%{source: :ui} = ctx), do: FakeController.rows([])
+  defstub list(ns, %{source: :ui} = ctx), do: FakeController.rows([])
+  defstub relay_rows(ns, %{source: :ui} = ctx), do: FakeController.rows([])
+  defstub relay_plugins(ns, %{source: :ui} = ctx), do: FakeController.rows([])
   defstub registry(ns, %{source: :ui} = ctx), do: {:ok, %{}}
   defstub partition_groups(rows, %{source: :ui} = ctx), do: {:ok, []}
 
   defstub info(ns, %{source: :ui} = ctx),
-    do: {:ok, %{namespace: ns, groups: [], relays: [], key_groups: 0}}
+    do: {:ok, %{namespace: ns, groups: [], relays: [], key_groups: 0, unreachable: []}}
 
   defstub cell_state(ns, id, cell, %{source: :ui} = ctx), do: {:ok, "{}", 0}
   defstub overwatch_state(ns, id, %{source: :ui} = ctx), do: {:ok, %{}}
@@ -650,7 +721,7 @@ defmodule Flezha.Service.Steps do
     do:
       {:ok, %{cell: cell, target: target, terminal_seq: 0, snapshot_size: 0, change_log_size: 0}}
 
-  defstub completed_retention_hours(relay_class, metadata, %{source: :ui} = ctx), do: {:ok, 24}
+  defstub completed_retention_hours(relay_class, %{source: :ui} = ctx), do: {:ok, 24}
   # The real one answers a bare `:error` when there is no record.
   defstub completion(id, %{source: :ui} = ctx), do: :error
 
@@ -693,14 +764,16 @@ defmodule Flezha.Service.Fleet do
   use FakeController.Stub
 
   defstub runners(ns, %{source: :ui} = ctx), do: {:ok, []}
-  defstub factories(ns, %{source: :ui} = ctx), do: {:ok, []}
-  defstub runners_for_factory(ns, factory_id, %{source: :ui} = ctx), do: {:ok, []}
+  defstub factories(ns, %{source: :ui} = ctx), do: FakeController.rows([])
+  defstub runners_for_factory(ns, factory_id, %{source: :ui} = ctx), do: FakeController.rows([])
 
   defstub runner_caller_context(ns, %{source: :ui} = ctx),
     do: {:ok, %{source: :sdk, principal: "runner@#{ns}", namespace: ns, roles: [:runner]}}
 
-  defstub installed_plugins(%{source: :ui} = ctx), do: {:ok, []}
-  defstub providers(%{source: :ui} = ctx), do: {:ok, %{providers: [], refused: 0}}
+  defstub installed_plugins(%{source: :ui} = ctx), do: FakeController.rows([])
+
+  defstub providers(%{source: :ui} = ctx),
+    do: {:ok, %{rows: [], refused: %{"flezha@node-a": 0}, unreachable: []}}
 
   defstub provider(provider_id, %{source: :ui} = ctx),
     do:
@@ -751,7 +824,8 @@ defmodule Flezha.Service.Namespace do
   defstub quota_kinds(%{source: :ui} = ctx),
     do: {:ok, [:relays, :cells, :mailbox_bytes, :runners, :disk_bytes]}
 
-  defstub quota(name, kind, %{source: :ui} = ctx), do: {:ok, 0}
+  defstub quota(name, kind, %{source: :ui} = ctx), do: FakeController.quota_usage(0)
+
   defstub roles(name, %{source: :ui} = ctx), do: {:ok, []}
 
   # Without `operations`, as a core older than that field answers, so every
@@ -766,22 +840,22 @@ defmodule Flezha.Service.Dlq do
   @moduledoc "Stand-in for the published dead-letter surface. See `FakeController`."
   use FakeController.Stub
 
-  defstub list(relay_class, %{source: :ui} = ctx), do: {:ok, []}
+  defstub list(relay_class, %{source: :ui} = ctx), do: FakeController.rows([])
   defstub get(entry_ref, %{source: :ui} = ctx), do: FakeController.error("dlq.not_found")
   defstub drop(entry_ref, %{source: :ui} = ctx), do: :ok
 
   defstub replay(entry_ref, %{source: :ui} = ctx),
     do: {:ok, %{outcome: :removed, generation: nil}}
 
-  defstub tasklets(relay_class, %{source: :ui} = ctx), do: {:ok, []}
-  defstub stats(%{source: :ui} = ctx), do: {:ok, []}
+  defstub tasklets(relay_class, %{source: :ui} = ctx), do: FakeController.rows([])
+  defstub stats(%{source: :ui} = ctx), do: FakeController.rows([])
 end
 
 defmodule Flezha.Service.Schedule do
   @moduledoc "Stand-in for the published schedule surface. See `FakeController`."
   use FakeController.Stub
 
-  defstub list(%{source: :ui} = ctx), do: {:ok, []}
+  defstub list(%{source: :ui} = ctx), do: FakeController.rows([])
 
   defstub add(fields, %{source: :ui} = ctx),
     do: {:ok, %{entry: Map.new(fields), next_fire: nil, runner_missing: false}}
@@ -797,27 +871,10 @@ defmodule Flezha.Service.Controller do
   use FakeController.Stub
 
   defstub status(%{source: :ui} = ctx),
-    do:
-      {:ok,
-       %{
-         shutdown_in_progress: false,
-         shutdown_phase: nil,
-         signal_handler_status: :ok,
-         graceful_shutdown_enabled: true,
-         graceful_shutdown_timeout_ms: 60_000,
-         durability_backend: :none,
-         durability_posture: :local_only,
-         durability_rpo_breaches: 0,
-         durability_levels: %{},
-         durability_superseded: 0,
-         node: :"flezha@node-a",
-         file_plugin_root: "/flezha/storage/app/files",
-         state_root: "/flezha/storage/app/state",
-         monotonic_us: System.monotonic_time(:microsecond)
-       }}
+    do: FakeController.rows([FakeController.status_row("node-a")])
 
   defstub boot_status(%{source: :ui} = ctx),
-    do: {:ok, %{readiness: :ready, preconditions: [], namespaces: []}}
+    do: FakeController.rows([FakeController.boot_row("node-a")])
 
   defstub cluster_status(ns, %{source: :ui} = ctx),
     do:
@@ -827,18 +884,20 @@ defmodule Flezha.Service.Controller do
          nodes: [],
          unplaced_relays: 0,
          relay_health: %{},
-         is_leader: true,
-         leader: :"flezha@node-a",
-         local_node: :"flezha@node-a"
+         answered_by: :"flezha@node-a",
+         unreachable: []
        }}
 
-  defstub controllers(%{source: :ui} = ctx), do: {:ok, [FakeController.controller_row("node-a")]}
+  defstub controllers(%{source: :ui} = ctx),
+    do: FakeController.rows([FakeController.controller_row("node-a")])
 
-  defstub durability_breaches(%{source: :ui} = ctx), do: {:ok, []}
-  defstub mem_top(%{source: :ui} = ctx), do: {:ok, %{}}
-  defstub liveness_counters(%{source: :ui} = ctx), do: {:ok, %{channels: [], relays: []}}
+  defstub durability_breaches(%{source: :ui} = ctx), do: FakeController.rows([])
+  defstub mem_top(%{source: :ui} = ctx), do: FakeController.rows([])
 
-  defstub durability_status(%{source: :ui} = ctx), do: {:ok, []}
+  defstub liveness_counters(%{source: :ui} = ctx),
+    do: {:ok, %{channels: [], relays: [], unreachable: []}}
+
+  defstub durability_status(%{source: :ui} = ctx), do: FakeController.rows([])
 end
 
 defmodule Flezha.Service.PluginManager do
@@ -861,11 +920,15 @@ defmodule Flezha.Service.Observability do
   @moduledoc "Stand-in for the published observability surface. See `FakeController`."
   use FakeController.Stub
 
-  defstub query(params, %{source: :ui} = ctx), do: {:ok, []}
-  defstub list_sources(%{source: :ui} = ctx), do: {:ok, []}
-  defstub list_sinks(%{source: :ui} = ctx), do: {:ok, []}
-  defstub enable_source(name, %{source: :ui} = ctx), do: :ok
-  defstub disable_source(name, %{source: :ui} = ctx), do: :ok
+  defstub query(params, %{source: :ui} = ctx), do: FakeController.rows([])
+  defstub list_sources(%{source: :ui} = ctx), do: FakeController.rows([])
+  defstub list_sinks(%{source: :ui} = ctx), do: FakeController.rows([])
+
+  defstub enable_source(name, %{source: :ui} = ctx),
+    do: {:ok, %{applied: [:"flezha@node-a"], unreachable: []}}
+
+  defstub disable_source(name, %{source: :ui} = ctx),
+    do: {:ok, %{applied: [:"flezha@node-a"], unreachable: []}}
 
   def tail(source, %{source: :ui} = ctx),
     do: FakeController.stream({__MODULE__, :tail}, [source, ctx], ctx)

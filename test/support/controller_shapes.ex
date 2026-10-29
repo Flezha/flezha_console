@@ -24,6 +24,7 @@ defmodule FlezhaConsole.ControllerShapes do
   def reads do
     [
       {"Relay.list_namespaces", Flezha.Service.Relay, :list_namespaces, []},
+      {"Relay.list", Flezha.Service.Relay, :list, ["default"]},
       {"Relay.relay_rows", Flezha.Service.Relay, :relay_rows, ["default"]},
       {"Relay.info", Flezha.Service.Relay, :info, ["default"]},
       {"Relay.registry", Flezha.Service.Relay, :registry, ["default"]},
@@ -36,28 +37,40 @@ defmodule FlezhaConsole.ControllerShapes do
       {"Relay.relay_plugins", Flezha.Service.Relay, :relay_plugins, ["default"]},
       {"Fleet.runners", Flezha.Service.Fleet, :runners, ["default"]},
       {"Fleet.factories", Flezha.Service.Fleet, :factories, ["default"]},
+      {"Fleet.runners_for_factory", Flezha.Service.Fleet, :runners_for_factory,
+       ["default", "store_input"]},
       {"Fleet.providers", Flezha.Service.Fleet, :providers, []},
       {"Fleet.provider", Flezha.Service.Fleet, :provider, ["relay_http_push"]},
       {"Fleet.installed_plugins", Flezha.Service.Fleet, :installed_plugins, []},
       {"Namespace.list", Flezha.Service.Namespace, :list, []},
       {"Namespace.quota_kinds", Flezha.Service.Namespace, :quota_kinds, []},
+      {"Namespace.quota", Flezha.Service.Namespace, :quota, ["default", :relays]},
       {"Namespace.roles", Flezha.Service.Namespace, :roles, ["default"]},
       {"Namespace.whoami", Flezha.Service.Namespace, :whoami, []},
+      {"Dlq.list", Flezha.Service.Dlq, :list, [nil]},
       {"Dlq.stats", Flezha.Service.Dlq, :stats, []},
+      {"Dlq.tasklets", Flezha.Service.Dlq, :tasklets, [nil]},
       {"Schedule.list", Flezha.Service.Schedule, :list, []},
+      {"Observability.list_sources", Flezha.Service.Observability, :list_sources, []},
+      {"Observability.list_sinks", Flezha.Service.Observability, :list_sinks, []},
+      {"Observability.query", Flezha.Service.Observability, :query,
+       [%{source: :flezha_relay, limit: 20}]},
       {"Controller.status", Flezha.Service.Controller, :status, []},
       {"Controller.boot_status", Flezha.Service.Controller, :boot_status, []},
       {"Controller.cluster_status", Flezha.Service.Controller, :cluster_status, ["default"]},
       {"Controller.controllers", Flezha.Service.Controller, :controllers, []},
       {"Controller.durability_breaches", Flezha.Service.Controller, :durability_breaches, []},
+      {"Controller.durability_status", Flezha.Service.Controller, :durability_status, []},
+      {"Controller.mem_top", Flezha.Service.Controller, :mem_top, []},
       {"Controller.liveness_counters", Flezha.Service.Controller, :liveness_counters, []}
     ]
   end
 
   # Keys whose map is keyed by data rather than by fields: a provider's
-  # options, the hooks a relay's bindings use, one count per health verdict.
-  # Which keys such a map holds depends on what the stack runs.
-  @keyed_by_data ~w(opts chains request_subs relay_health)
+  # options, the hooks a relay's bindings use, one count per health verdict or
+  # recent signal, and one value per controller. Which keys such a map holds
+  # depends on what the stack runs.
+  @keyed_by_data ~w(opts chains request_subs relay_health signals statuses by_node refused)
 
   @doc "The shape of `term`."
   def of(term) when is_binary(term), do: "string"

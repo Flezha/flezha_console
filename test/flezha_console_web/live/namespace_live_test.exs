@@ -31,13 +31,13 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       FakeController.set(
         node,
         {Relay, :list_namespaces},
-        {:ok, [%{namespace: "default", running: true}]}
+        FakeController.rows([%{namespace: "default", running: true}])
       )
 
       FakeController.set(
         node,
         {Relay, :relay_rows},
-        {:ok, [FakeController.relay_row("a"), FakeController.relay_row("b")]}
+        FakeController.rows([FakeController.relay_row("a"), FakeController.relay_row("b")])
       )
 
       FakeController.set(node, {Fleet, :runners}, {:ok, [%{id: "runner-a", pid: nil}]})
@@ -52,14 +52,17 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       FakeController.set(
         node,
         {Relay, :list_namespaces},
-        {:ok, [%{namespace: "default", running: true}, %{namespace: "staging", running: true}]}
+        FakeController.rows([
+          %{namespace: "default", running: true},
+          %{namespace: "staging", running: true}
+        ])
       )
 
       FakeController.set(
         node,
         {Relay, :relay_rows},
         {:per_arg, 0, %{"default" => FakeController.error("controller.timeout")},
-         {:ok, [FakeController.relay_row("a")]}}
+         FakeController.rows([FakeController.relay_row("a")])}
       )
 
       {:ok, _view, html} = live(conn, ~p"/namespaces")
@@ -462,7 +465,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       with_relays(node, ["relay_a", "relay_b"])
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
-      FakeController.set(node, {Relay, :relay_rows}, {:ok, [:not_a_row]})
+      FakeController.set(node, {Relay, :relay_rows}, FakeController.rows([:not_a_row]))
 
       ExUnit.CaptureLog.capture_log(fn ->
         send(view.pid, :refresh)
@@ -500,7 +503,13 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       before = length(FakeController.calls(node, {Controller, :durability_breaches}))
 
       FakeController.close_gate(node, :pulse)
-      FakeController.set(node, {Controller, :durability_breaches}, {:gated, :pulse, {:ok, []}})
+
+      FakeController.set(
+        node,
+        {Controller, :durability_breaches},
+        {:gated, :pulse, FakeController.rows([])}
+      )
+
       send(view.pid, :shell_pulse)
       send(view.pid, :shell_pulse)
       assert_receive {:gate_reached, :pulse}
@@ -518,7 +527,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
       read_at = checked_at(view)
 
-      FakeController.set(node, {Relay, :list_namespaces}, {:ok, [%{running: true}]})
+      FakeController.set(node, {Relay, :list_namespaces}, FakeController.rows([%{running: true}]))
 
       ExUnit.CaptureLog.capture_log(fn ->
         send(view.pid, :shell_pulse)

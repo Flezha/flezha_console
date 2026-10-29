@@ -54,31 +54,67 @@ defmodule FlezhaConsole.Service.QuotaTest do
     end
 
     defp counters(node, by_kind),
-      do: FakeController.set(node, {Namespace, :quota}, {:per_arg, 1, by_kind, {:ok, 0}})
+      do:
+        FakeController.set(
+          node,
+          {Namespace, :quota},
+          {:per_arg, 1, by_kind, FakeController.quota_usage(0)}
+        )
 
     defp row(rows, kind), do: Enum.find(rows, &(&1.kind == kind))
 
+    defp judged(rows),
+      do: Enum.map(rows, &Map.take(&1, [:kind, :limit_key, :value, :limit, :breached?]))
+
     test "a counter at its limit is breached, one below it is not", %{node: node} do
       FakeController.set(node, {Namespace, :quota_kinds}, {:ok, [:relays, :runners]})
-      counters(node, %{relays: {:ok, 5}, runners: {:ok, 3}})
 
-      assert NodeManager.quota_usage("default", %{max_relays: 5, max_runners: 4}, nil) == [
-               %{kind: :relays, limit_key: :max_relays, value: 5, limit: 5, breached?: true},
-               %{kind: :runners, limit_key: :max_runners, value: 3, limit: 4, breached?: false}
-             ]
+      counters(node, %{
+        relays: FakeController.quota_usage(5),
+        runners: FakeController.quota_usage(3)
+      })
+
+      assert judged(NodeManager.quota_usage("default", %{max_relays: 5, max_runners: 4}, nil)) ==
+               [
+                 %{kind: :relays, limit_key: :max_relays, value: 5, limit: 5, breached?: true},
+                 %{kind: :runners, limit_key: :max_runners, value: 3, limit: 4, breached?: false}
+               ]
+    end
+
+    test "relays on two controllers count against one quota as their total", %{node: node} do
+      FakeController.set(node, {Namespace, :quota_kinds}, {:ok, [:relays]})
+      counters(node, %{relays: FakeController.quota_usage(5, %{flezha@c1: 3, flezha@c2: 2})})
+
+      assert [relays] = NodeManager.quota_usage("default", %{max_relays: 5}, nil)
+      assert relays.value == 5
+      assert relays.breached?
+      assert relays.by_node == %{flezha@c1: 3, flezha@c2: 2}
+      assert relays.unreachable == []
+    end
+
+    test "a counter missing a controller names it, and still judges the total it has", %{
+      node: node
+    } do
+      FakeController.set(node, {Namespace, :quota_kinds}, {:ok, [:runners]})
+      counters(node, %{runners: FakeController.quota_usage(2, %{flezha@c1: 2}, [:flezha@c2])})
+
+      rows = NodeManager.quota_usage("default", %{max_runners: 4}, nil)
+
+      assert [%{value: 2, breached?: false, unreachable: [:flezha@c2]}] = rows
+      assert NodeManager.unreachable(rows) == [:flezha@c2]
     end
 
     test "a kind with no limit, or a namespace with no record, is never breached", %{node: node} do
       FakeController.set(node, {Namespace, :quota_kinds}, {:ok, [:relays]})
-      counters(node, %{relays: {:ok, 1_000}})
+      counters(node, %{relays: FakeController.quota_usage(1_000)})
 
       unlimited = %{kind: :relays, limit_key: :max_relays, value: 1_000, limit: nil}
 
-      assert NodeManager.quota_usage("default", %{max_runners: 4}, nil) == [
+      assert judged(NodeManager.quota_usage("default", %{max_runners: 4}, nil)) == [
                Map.put(unlimited, :breached?, false)
              ]
 
-      assert NodeManager.quota_usage("default", nil, nil) == [
+      assert judged(NodeManager.quota_usage("default", nil, nil)) == [
                Map.put(unlimited, :breached?, false)
              ]
     end
@@ -88,10 +124,12 @@ defmodule FlezhaConsole.Service.QuotaTest do
 
       counters(node, %{
         relays: FakeController.error("authz.role_insufficient"),
-        cells: {:ok, 2}
+        cells: FakeController.quota_usage(2)
       })
 
-      assert NodeManager.quota_usage("default", %{max_relays: 0, max_cells_per_relay: 2}, nil) ==
+      assert judged(
+               NodeManager.quota_usage("default", %{max_relays: 0, max_cells_per_relay: 2}, nil)
+             ) ==
                [
                  %{kind: :relays, limit_key: :max_relays, value: nil, limit: 0, breached?: false},
                  %{
@@ -111,28 +149,28 @@ defmodule FlezhaConsole.Service.QuotaTest do
         FakeController.error("authz.role_insufficient")
       )
 
-      counters(node, %{relays: {:ok, 2}})
+      counters(node, %{relays: FakeController.quota_usage(2)})
 
       rows = NodeManager.quota_usage("default", %{max_relays: 2}, nil)
 
       assert rows |> Enum.map(& &1.kind) |> Enum.sort() ==
                ~w(cells disk_bytes mailbox_bytes relays runners)a
 
-      assert row(rows, :relays) == %{
+      assert %{
                kind: :relays,
                limit_key: :max_relays,
                value: 2,
                limit: 2,
                breached?: true
-             }
+             } = row(rows, :relays)
 
-      assert row(rows, :disk_bytes) == %{
+      assert %{
                kind: :disk_bytes,
                limit_key: :max_state_bytes,
                value: 0,
                limit: nil,
                breached?: false
-             }
+             } = row(rows, :disk_bytes)
 
       asked = node |> FakeController.calls({Namespace, :quota}) |> Enum.map(&Enum.at(&1, 1))
       assert Enum.sort(asked) == ~w(cells disk_bytes mailbox_bytes relays runners)a

@@ -756,14 +756,15 @@ defmodule FlezhaConsoleWeb.Topology do
   subsystem are stated, and every other failure stays silent, because a
   transport blip is not news about the data plane.
 
-  The controller's clock is only read when there is something to age, so a
-  quiet ring buffer costs one call per tick rather than two.
+  Verdicts come from every controller and are aged by the wall-clock time
+  their controller stamped on them, against this console's clock.
   """
-  def stall(token) do
-    case NodeManager.observability_query(@stall_query, token) do
-      {:ok, signals} when is_list(signals) -> {recent(signals, token), nil}
+  def stall(token, now_us \\ System.os_time(:microsecond)) do
+    query = Map.put(@stall_query, :since_us, now_us - @stall_window_us)
+
+    case NodeManager.observability_query(query, token) do
+      {:ok, %{rows: signals}} -> {recent(signals, now_us), nil}
       {:error, reason} -> {[], stall_notice(reason)}
-      _other -> {[], nil}
     end
   end
 
@@ -775,19 +776,15 @@ defmodule FlezhaConsoleWeb.Topology do
     end
   end
 
-  defp recent(signals, token) do
-    with [_ | _] = stalls <- Enum.filter(signals, &(Map.get(&1, :name) == :stall_localized)),
-         now when is_integer(now) <- NodeManager.controller_monotonic_us(token) do
-      stalls
-      |> Enum.filter(fn signal -> now - signal_ts(signal) < @stall_window_us end)
-      |> Enum.sort_by(&signal_ts/1, :desc)
-      |> Enum.map(&verdict/1)
-    else
-      _none -> []
-    end
+  defp recent(signals, now_us) do
+    signals
+    |> Enum.filter(&(Map.get(&1, :name) == :stall_localized))
+    |> Enum.filter(fn signal -> now_us - signal_at(signal) < @stall_window_us end)
+    |> Enum.sort_by(&signal_at/1, :desc)
+    |> Enum.map(&verdict/1)
   end
 
-  defp signal_ts(signal), do: Map.get(signal, :ts) || 0
+  defp signal_at(signal), do: Map.get(signal, :at_us) || 0
 
   defp verdict(signal) do
     metadata = Map.get(signal, :metadata) || %{}

@@ -161,7 +161,7 @@ The graph and the summary SHALL refresh their snapshot-derived data on a periodi
 **Stalls:**
 - The system SHALL query recent observability signals for data-plane stall verdicts each tick. Verdicts younger than 60 seconds SHALL render as a banner naming the stalled layer and the affected relay, runner or channel.
 - When the verdict's subject is the relay on display, its runner or its channel, the relay boundary SHALL carry a stall mark.
-- Verdict age SHALL be measured against the controller's own clock, since the controller stamps those signals with its monotonic time.
+- Verdict age SHALL be measured from the wall-clock time the emitting controller stamps on the signal, against the console's own clock, so a verdict from any controller in the cluster ages correctly.
 - When the observability query is refused, the graph SHALL state that stall detection is unavailable and why, rather than rendering as though no stall exists.
 
 #### Scenario: Channel exhausts credit
@@ -178,6 +178,11 @@ The graph and the summary SHALL refresh their snapshot-derived data on a periodi
 
 - **WHEN** a recent `stall_localized` event names the relay on display, its runner, or its channel
 - **THEN** the relay boundary carries a stall mark as well as the banner
+
+#### Scenario: A verdict from another controller
+
+- **WHEN** a `stall_localized` event emitted 20 seconds ago by a controller the console is not connected to names the relay on display
+- **THEN** the banner and the stall mark render, as for a verdict from the connected controller
 
 #### Scenario: Stall verdict is stale
 

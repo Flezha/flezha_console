@@ -322,11 +322,11 @@ defmodule FlezhaConsoleWeb.Live.PluginForm do
 
   # ---- Providers and relays ----
 
-  # The controller lists only the providers of packages it loaded, so a refused
-  # package's are never offered.
+  # The controllers list only the providers of packages they loaded, so a
+  # refused package's are never offered.
   defp load_providers(form, token) do
     case NodeManager.providers(token) do
-      {:ok, %{providers: providers}} -> %{form | providers: providers}
+      {:ok, %{rows: providers}} -> %{form | providers: providers}
       {:error, reason} -> %{form | providers_error: reason}
     end
   end

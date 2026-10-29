@@ -24,7 +24,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
   end
 
   defp steps(node, overwatch \\ %{}) do
-    FakeController.set(node, {Relay, :relay_rows}, {:ok, [row("relay_steps")]})
+    FakeController.set(node, {Relay, :relay_rows}, FakeController.rows([row("relay_steps")]))
 
     FakeController.set(
       node,
@@ -61,7 +61,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
     end
 
     test "a refused first read is tried again, and the panel follows", %{conn: conn, node: node} do
-      FakeController.set(node, {Relay, :relay_rows}, {:ok, [row("relay_steps")]})
+      FakeController.set(node, {Relay, :relay_rows}, FakeController.rows([row("relay_steps")]))
 
       FakeController.set(
         node,
@@ -79,7 +79,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
     end
 
     test "a flow relay gets no steps panel", %{conn: conn, node: node} do
-      FakeController.set(node, {Relay, :relay_rows}, {:ok, [row("relay_steps")]})
+      FakeController.set(node, {Relay, :relay_rows}, FakeController.rows([row("relay_steps")]))
 
       FakeController.set(
         node,
@@ -135,7 +135,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
     end
 
     test "a field an older controller omits does not break the decode", %{conn: conn, node: node} do
-      FakeController.set(node, {Relay, :relay_rows}, {:ok, [row("relay_steps")]})
+      FakeController.set(node, {Relay, :relay_rows}, FakeController.rows([row("relay_steps")]))
 
       FakeController.set(
         node,
@@ -260,6 +260,61 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
       assert html =~ ~s(data-testid="steps-panel")
       refute html =~ ~s(data-testid="task-journal-panel")
       refute html =~ ~s(data-testid="input-log-panel")
+    end
+  end
+
+  describe "a steps relay hosted on another controller" do
+    defp elsewhere(node, unreachable \\ []) do
+      steps(node)
+
+      FakeController.set(
+        node,
+        {Relay, :relay_rows},
+        FakeController.rows([row("relay_steps", %{node: :"flezha@node-b"})], unreachable)
+      )
+    end
+
+    test "its State tab lists its journal and input log as for one on this controller", %{
+      conn: conn,
+      node: node
+    } do
+      elsewhere(node)
+
+      FakeController.set(
+        node,
+        {Steps, :journal},
+        {:ok,
+         %{
+           instance: "relay_steps",
+           entries: [%{seq: 1, type: "iter_committed", iter: 1, task_idx: 0}],
+           outcome: nil
+         }}
+      )
+
+      FakeController.set(node, {Steps, :last_offset}, {:ok, 3})
+
+      {:ok, view, html} = live(conn, @url)
+
+      assert html =~ ~s(data-testid="steps-panel")
+      refute html =~ ~s(data-testid="partial-answer")
+      assert open_section(view, "journal") =~ ~s(data-testid="journal-entry-1")
+      assert open_section(view, "input-log") =~ ~r/data-testid="input-log-last-offset"[^>]*>\s*3/
+
+      # Asked by the instance alone: the controller routes it to where its state is.
+      assert [["relay_steps", %{source: :ui}] | _] = FakeController.calls(node, {Steps, :journal})
+    end
+
+    test "its hosting controller not answering is named once, above the sections", %{
+      conn: conn,
+      node: node
+    } do
+      elsewhere(node, ["flezha@node-b"])
+
+      {:ok, _view, html} = live(conn, @url)
+
+      assert text_of(html, ~s([data-testid="partial-answer"])) =~ "flezha@node-b did not answer"
+      assert length(testids(html, ~s([data-testid="partial-answer"]))) == 1
+      assert html =~ ~s(data-testid="steps-panel")
     end
   end
 
@@ -393,7 +448,8 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
       failed = text_of(html, ~s([data-testid="finished-row-relay_failed"]))
       assert failed =~ "steps"
       assert text_of(html, ~s([data-testid="finished-error-relay_failed"])) =~ "tasklet crashed"
-      assert text_of(html, ~s([data-testid="finished-at-relay_failed"])) =~ "1m 30s ago"
+      # `now` is whole seconds and the render comes a moment later.
+      assert text_of(html, ~s([data-testid="finished-at-relay_failed"])) =~ ~r/1m 3[01]s ago/
       assert text_of(html, ~s([data-testid="finished-kept-relay_failed"])) =~ ~r/in (5|6)d/
 
       # A row without a keep time shows a dash rather than a guess.

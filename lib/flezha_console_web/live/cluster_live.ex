@@ -29,7 +29,7 @@ defmodule FlezhaConsoleWeb.ClusterLive do
      |> runner_actions_init()
      |> assign(page_title: "Cluster", selected_factory: nil, factory_runners: nil)
      |> assign(load_error: nil, connected_node: nil, cluster_nodes: [], namespaces: [])
-     |> assign(runner_count: 0, controller_status: nil)
+     |> assign(runner_count: 0, controller_status: nil, unreachable: [])
      |> refresh()}
   end
 
@@ -60,17 +60,24 @@ defmodule FlezhaConsoleWeb.ClusterLive do
     connected = NodeManager.connected_node()
     {names, load_error} = NodeManager.scoped_namespaces(token)
     namespaces = Enum.map(names, &describe_namespace(&1, token))
+    controllers = NodeManager.controllers(token)
+    status = NodeManager.controller_status(token)
 
     assign(socket,
       load_error: load_error,
       connected_node: connected,
       cluster_nodes:
-        namespaces |> Enum.flat_map(& &1.hub_nodes) |> NodeManager.cluster_nodes(connected),
+        namespaces
+        |> Enum.flat_map(& &1.hub_nodes)
+        |> Enum.concat(controllers |> NodeManager.ok_or([]) |> Enum.map(& &1.node))
+        |> NodeManager.cluster_nodes(connected),
       namespaces: namespaces,
       # One runner may answer for more than one namespace; it is still one.
       runner_count:
         namespaces |> Enum.flat_map(& &1.runners) |> Enum.uniq_by(& &1.id) |> length(),
-      controller_status: NodeManager.ok_or(NodeManager.controller_status(token), nil)
+      controller_status: status,
+      unreachable:
+        NodeManager.unreachable([controllers, status | Enum.flat_map(namespaces, & &1.answers)])
     )
   end
 
@@ -101,9 +108,18 @@ defmodule FlezhaConsoleWeb.ClusterLive do
       {:negative, "Breach",
        "#{Words.count(breaches, "durability breach", "durability breaches")} past their RPO"}
 
-  defp controller_said(_node, _breaches, %{durability_posture: posture}) do
-    said = Words.say(:durability_posture, posture)
-    {if(said.tone == :neutral, do: :positive, else: said.tone), "Up", said.text}
+  defp controller_said(_node, _breaches, {:ok, %{rows: rows, unreachable: [_ | _] = missing}}),
+    do: {:warning, "Partial", answered_words(length(rows), length(rows) + length(missing))}
+
+  defp controller_said(_node, _breaches, {:ok, %{rows: rows}}) do
+    case rows |> Enum.map(& &1[:durability_posture]) |> Enum.uniq() do
+      [posture] ->
+        said = Words.say(:durability_posture, posture)
+        {if(said.tone == :neutral, do: :positive, else: said.tone), "Up", said.text}
+
+      _mixed ->
+        {:positive, "Up", "The controllers keep different durability postures"}
+    end
   end
 
   defp controller_said(_node, _breaches, _status), do: {:positive, "Up", "Connected"}
@@ -128,9 +144,11 @@ defmodule FlezhaConsoleWeb.ClusterLive do
   defp describe_namespace(ns, token) do
     # The same rows `flz cluster status` reads, so the UI and the CLI cannot
     # disagree about where relays are or how healthy they are.
-    rows = ns |> NodeManager.relay_rows(token) |> NodeManager.ok_or([])
+    read_rows = NodeManager.relay_rows(ns, token)
+    rows = NodeManager.ok_or(read_rows, [])
+    read_status = NodeManager.cluster_status(ns, token)
 
-    {status, status_error} = NodeManager.ok_or_error(NodeManager.cluster_status(ns, token), %{})
+    {status, status_error} = NodeManager.ok_or_error(read_status, %{})
     hub_nodes = status |> Map.get(:nodes, []) |> Enum.map(& &1.node)
     recovery = Map.new(Map.get(status, :nodes, []), &{&1.node, &1.recovery_state})
 
@@ -148,7 +166,8 @@ defmodule FlezhaConsoleWeb.ClusterLive do
       end)
       |> Enum.sort_by(&inspect(&1.node))
 
-    catalog = ns |> NodeManager.factory_catalog(token) |> NodeManager.ok_or([])
+    read_catalog = NodeManager.factory_catalog(ns, token)
+    catalog = NodeManager.ok_or(read_catalog, [])
     factories_by_runner = NodeManager.factories_by_runner(catalog)
 
     runners =
@@ -169,7 +188,8 @@ defmodule FlezhaConsoleWeb.ClusterLive do
       factories: catalog,
       per_node: per_node,
       health: NodeManager.health_counts(rows),
-      unplaced: NodeManager.unplaced_rows(rows)
+      unplaced: NodeManager.unplaced_rows(rows),
+      answers: [read_rows, read_status, read_catalog]
     }
   end
 end

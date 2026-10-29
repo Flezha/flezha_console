@@ -22,6 +22,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Index do
      |> assign(
        page_title: "Namespaces",
        namespaces: [],
+       unreachable: [],
        load_error: nil,
        declarations_unavailable?: false,
        show_create: false,
@@ -68,17 +69,25 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Index do
     token = socket.assigns.flezha_token
 
     case NodeManager.list_namespaces(token) do
-      {:ok, catalog} ->
+      {:ok, %{rows: catalog}} = listed ->
         {records, unavailable?} = records(token)
+        namespaces = Enum.map(catalog, &row(&1, records, token))
 
         assign(socket,
-          namespaces: Enum.map(catalog, &row(&1, records, token)),
+          namespaces: namespaces,
           declarations_unavailable?: unavailable?,
+          unreachable:
+            NodeManager.unreachable([listed | Enum.flat_map(namespaces, & &1.answers)]),
           load_error: nil
         )
 
       {:error, reason} ->
-        assign(socket, namespaces: [], declarations_unavailable?: false, load_error: reason)
+        assign(socket,
+          namespaces: [],
+          declarations_unavailable?: false,
+          unreachable: [],
+          load_error: reason
+        )
     end
   end
 
@@ -91,14 +100,16 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Index do
     end
   end
 
+  # `running` is a hub running on any controller.
   defp row(%{namespace: name, running: running?}, records, token) do
     name = to_string(name)
     record = Map.get(records, name)
 
     # A namespace with no hub has nothing running in it, which is zero rather
     # than unknown. One registry read gives both the count and the health.
-    rows =
-      if running?, do: name |> NodeManager.relay_rows(token) |> NodeManager.ok_or([]), else: []
+    read_rows = if running?, do: NodeManager.relay_rows(name, token), else: {:ok, []}
+    rows = NodeManager.ok_or(read_rows, [])
+    usage = quota_usage(name, record, token)
 
     %{
       name: name,
@@ -108,17 +119,15 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Index do
       relay_count: length(rows),
       health: NodeManager.health_counts(rows),
       runner_count: if(running?, do: count(NodeManager.runners(name, token)), else: 0),
-      breaches: breaches(name, record, token)
+      breaches: Enum.filter(usage, & &1.breached?),
+      answers: [read_rows | usage]
     }
   end
 
   # Only a declared namespace has limits to breach; an undeclared one has
   # counters but nothing to measure them against.
-  defp breaches(_name, nil, _token), do: []
-
-  defp breaches(name, record, token) do
-    name |> NodeManager.quota_usage(record.quotas, token) |> Enum.filter(& &1.breached?)
-  end
+  defp quota_usage(_name, nil, _token), do: []
+  defp quota_usage(name, record, token), do: NodeManager.quota_usage(name, record.quotas, token)
 
   defp count(result), do: result |> NodeManager.ok_or([]) |> length()
 end

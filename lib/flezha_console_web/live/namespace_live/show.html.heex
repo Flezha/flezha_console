@@ -35,6 +35,8 @@
 
 <.runtime_error error={@load_error} action="the relay listing" />
 
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
 <%= if condition == :unreachable do %>
   <div class="mt-6" data-testid="topology-disconnected">
     <.runtime_error error={:node_not_connected} />
@@ -52,6 +54,8 @@
     <.skeleton :if={!@loaded?} rows={2} testid="home-namespace-loading" />
     <%= cond do %>
       <% !@loaded? -> %>
+      <% condition == :empty and @unreachable != [] -> %>
+        <.partial_empty noun="relay" />
       <% condition == :empty -> %>
         <.empty_state icon="hero-squares-plus" testid="topology-empty">
           A <.term key="runner" /> is an SDK process that serves factories, and a

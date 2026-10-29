@@ -17,7 +17,13 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
 
   setup %{node: node} do
     FakeController.set(node, {Relay, :overwatch_state}, {:ok, %{factory_id: "orders"}})
-    FakeController.set(node, {Relay, :relay_rows}, {:ok, [FakeController.relay_row("relay_a")]})
+
+    FakeController.set(
+      node,
+      {Relay, :relay_rows},
+      FakeController.rows([FakeController.relay_row("relay_a")])
+    )
+
     :ok
   end
 

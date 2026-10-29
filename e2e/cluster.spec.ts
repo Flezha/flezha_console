@@ -9,11 +9,13 @@ import { test, expect, menuAction, choose } from './fixtures';
  *
  * Not covered here: the "no runner serves this factory" state, a runner
  * actually dropped and readmitted, a late runner, and the node choice, which is
- * offered only when runners sit on more than one node. Every factory the screen
- * offers comes from a connected runner, a drop takes the runner from every
- * session on the stack, and the dev stack runs one controller node with
- * healthy runners, so these are covered in
- * `test/flezha_console_web/live/cluster_live_test.exs` and `runner_drop_test.exs`.
+ * offered only when one namespace's runners sit on more than one node. Every
+ * factory the screen offers comes from a connected runner, a drop takes the
+ * runner from every session on the stack, and the dev stack's two controllers
+ * each serve a namespace of their own with healthy runners, so these are
+ * covered in `test/flezha_console_web/live/cluster_live_test.exs` and
+ * `runner_drop_test.exs`. How many controllers and nodes there are is the
+ * stack's to say, so they are read for their form.
  */
 test.describe('Cluster and fleet', () => {
   test('the overview counts the dev stack and leads to its problems', async ({ page, live }) => {
@@ -39,6 +41,7 @@ test.describe('Cluster and fleet', () => {
 
     const nodes = page.getByTestId('cluster-nodes');
     await expect(nodes.locator('li')).not.toHaveCount(0);
+    await expect(nodes.locator('li').filter({ hasText: 'Connected to this console' })).toHaveCount(1);
     await expect(nodes).toContainText('Connected to this console');
 
     // The hub cell must say something definite rather than render blank.
@@ -83,8 +86,10 @@ test.describe('Cluster and fleet', () => {
     await choose(page, 'runner-sort-default', 'newest');
     await expect(page.getByTestId(`runner-${runnerId}`)).toBeVisible();
 
-    await expect(page.getByTestId('factory-store_input')).toContainText('flow');
-    await page.getByTestId('factory-store_input').click();
+    // Each namespace offers its own factories; `second` serves one of the same name.
+    const factory = page.locator('[data-testid="factory-store_input"][value="default/store_input"]');
+    await expect(factory).toContainText('flow');
+    await factory.click();
     const result = page.getByTestId('factory-runners');
     await expect(result).toContainText('store_input');
     await expect(result).toContainText('is served by');
