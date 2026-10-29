@@ -658,15 +658,8 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   @runs_page 20
   @runs_id "recent-runs"
 
-  defp recent_runs(ns, token, before \\ nil) do
-    filters = %{"namespace" => ns, "event" => "ended"}
-
-    NodeManager.log_read(
-      "relay_history",
-      %{filters: filters, limit: @runs_page, before: before},
-      token
-    )
-  end
+  defp recent_runs(ns, token, before \\ nil),
+    do: NodeManager.ended_runs(ns, %{}, %{limit: @runs_page, before: before}, token)
 
   # A grown listing keeps the older pages it read, under the newest page.
   defp merge_runs(socket, nil), do: socket

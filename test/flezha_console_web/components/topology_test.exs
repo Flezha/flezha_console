@@ -11,6 +11,7 @@ defmodule FlezhaConsoleWeb.TopologyTest do
   use ExUnit.Case, async: true
 
   import Phoenix.LiveViewTest
+  import FlezhaConsoleWeb.LiveCase, only: [text_of: 2, testids: 2]
 
   alias FlezhaConsoleWeb.Topology
 
@@ -1412,6 +1413,130 @@ defmodule FlezhaConsoleWeb.TopologyTest do
     test "no history is an empty one" do
       assert Topology.sum_history([]) == []
       assert Topology.sum_history([[], []]) == []
+    end
+  end
+
+  describe "a factory's still graph" do
+    # `fan_trade` as a saga announces it: two steps that compensate and one
+    # that only notifies.
+    defp saga_graph do
+      %{
+        channels: [
+          channel("orders", "entry", nil, ~w(reserve_funds)),
+          channel("reserved", "inter_tasklet", "reserve_funds", ~w(open_position)),
+          channel("opened", "inter_tasklet", "open_position", ~w(notify)),
+          channel("done", "plugin_bound", "notify", [], "output")
+        ],
+        tasklets: [
+          Map.put(tasklet("reserve_funds"), :compensates, true),
+          Map.put(tasklet("open_position"), :compensates, true),
+          Map.put(tasklet("notify"), :compensates, false)
+        ]
+      }
+    end
+
+    defp still(overrides \\ %{}) do
+      pipeline_input(
+        Map.merge(
+          %{
+            still?: true,
+            relay_id: "fan_trade",
+            facts: facts(%{factory_id: "fan_trade", runner_id: nil, relay_class: nil}),
+            graph: announced(saga_graph(), "fan_trade")
+          },
+          overrides
+        )
+      )
+    end
+
+    test "draws the entry channels, tasklets and outputs, and no plugin end" do
+      graph = Topology.pipeline(still())
+
+      assert graph.still?
+      assert graph.head_sub == "factory · no instance drawn"
+
+      for id <-
+            ~w(entry-orders tasklet-reserve_funds tasklet-open_position tasklet-notify exit-done),
+          do: assert(id in ids(graph))
+
+      refute Enum.any?(ids(graph), &String.starts_with?(&1, "unbound-"))
+    end
+
+    test "marks the tasklets that compensate, and the legend explains the mark" do
+      graph = Topology.pipeline(still())
+
+      assert node(graph, "tasklet-reserve_funds").mark == "↺ compensates"
+      assert node(graph, "tasklet-open_position").mark == "↺ compensates"
+      assert node(graph, "tasklet-notify").mark == nil
+      assert graph.compensates?
+
+      html = render_component(&Topology.pipeline_graph/1, topology: graph, tapped: nil)
+
+      assert html =~ ~s(data-testid="topo-mark-tasklet-reserve_funds")
+      assert text_of(html, ~s([data-testid="topology-legend-compensates"])) =~ "compensates"
+    end
+
+    test "draws no figure, motion state, dead-letter end or plugin count" do
+      html = render_component(&Topology.pipeline_graph/1, topology: Topology.pipeline(still()))
+
+      for testid <- ~w(topology-state topo-node-dead-letter topology-attached),
+          do: refute(html =~ ~s(data-testid="#{testid}"))
+
+      assert text_of(html, ~s([data-testid="topology-inside"])) =~ "As its runners announce it"
+    end
+
+    test "inspects a port rather than tapping it" do
+      html = render_component(&Topology.pipeline_graph/1, topology: Topology.pipeline(still()))
+
+      assert testids(html, ~s([phx-click="graph_select"][phx-value-id="entry-orders"])) ==
+               ["topo-node-entry-orders"]
+
+      refute html =~ ~s(phx-click="graph_tap")
+    end
+
+    test "a relay of a compensating factory carries the same mark" do
+      graph = Topology.pipeline(pipeline_input(%{graph: announced(saga_graph(), "fan_trade")}))
+
+      refute graph.still?
+      assert node(graph, "tasklet-reserve_funds").mark == "↺ compensates"
+      assert graph.compensates?
+    end
+
+    test "a folded run counts the tasklets in it that compensate" do
+      names = ~w(a b c d)
+
+      graph =
+        Topology.pipeline(
+          still(%{
+            graph:
+              announced(
+                %{
+                  channels:
+                    [channel("in", "entry", nil, ["a"])] ++
+                      for(
+                        [from, to] <- Enum.chunk_every(names, 2, 1, :discard),
+                        do: channel("#{from}_#{to}", "inter_tasklet", from, [to])
+                      ),
+                  tasklets:
+                    for(
+                      name <- names,
+                      do: Map.put(tasklet(name), :compensates, name in ~w(b c))
+                    )
+                },
+                "fan_trade"
+              )
+          })
+        )
+
+      assert node(graph, "run-a").mark == "↺ 2 compensate"
+    end
+
+    test "a graph whose tasklets compensate nothing has no legend entry for it" do
+      graph = Topology.pipeline(still(%{graph: announced(chain_graph(), "fan_trade")}))
+      html = render_component(&Topology.pipeline_graph/1, topology: graph, tapped: nil)
+
+      refute graph.compensates?
+      refute html =~ ~s(data-testid="topology-legend-compensates")
     end
   end
 

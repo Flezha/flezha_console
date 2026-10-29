@@ -85,6 +85,15 @@ defmodule FlezhaConsoleWeb.LayoutsTest do
       assert %{label: "Listen", path: nil} = List.last(trail)
     end
 
+    test "a factory's page names the namespace, Factories and the factory" do
+      trail = Layouts.breadcrumbs("/namespaces/default/factories/fan_trade")
+
+      assert Enum.map(trail, & &1.label) == ["default", "Factories", "fan_trade"]
+
+      assert Enum.map(trail, & &1.path) ==
+               ["/namespaces/default", "/namespaces/default/factories", nil]
+    end
+
     test "a namespace spelled like a screen keeps its own name" do
       assert [%{label: "relays"} | _] = Layouts.breadcrumbs("/namespaces/relays/relays/x")
     end
@@ -154,14 +163,14 @@ defmodule FlezhaConsoleWeb.LayoutsTest do
                Layouts.nav_sections(nil)
     end
 
-    test "the namespace group opens on Home, then Relays, Plugins and Schedules" do
+    test "the namespace group opens on Home, then Relays, Factories, Plugins and Schedules" do
       [scoped | _rest] = Layouts.nav_sections("default")
 
       assert scoped.scope == "default"
-      assert Enum.map(scoped.entries, & &1.label) == ~w(Home Relays Plugins Schedules)
+      assert Enum.map(scoped.entries, & &1.label) == ~w(Home Relays Factories Plugins Schedules)
 
       assert Enum.map(scoped.entries, & &1.path) ==
-               ~w(/namespaces/default /namespaces/default/relays /namespaces/default/plugins /namespaces/default/schedules)
+               ~w(/namespaces/default /namespaces/default/relays /namespaces/default/factories /namespaces/default/plugins /namespaces/default/schedules)
     end
 
     test "attention, platform and monitoring group the platform screens by purpose" do
@@ -191,6 +200,12 @@ defmodule FlezhaConsoleWeb.LayoutsTest do
       assert Layouts.screen("/namespaces/default") == :home
     end
 
+    test "the factory listings and a factory's page" do
+      assert Layouts.screen("/factories") == :factories
+      assert Layouts.screen("/namespaces/default/factories") == :factories
+      assert Layouts.screen("/namespaces/default/factories/fan_trade") == :factory
+    end
+
     test "every kind of log is the Logs screen" do
       assert Layouts.screen("/logs") == :logs
       assert Layouts.screen("/logs/relay_history") == :logs
@@ -210,12 +225,18 @@ defmodule FlezhaConsoleWeb.LayoutsTest do
       assert Layouts.scope_target("/namespaces/a/relays", "b") == "/namespaces/b/relays"
       assert Layouts.scope_target("/namespaces/a/plugins", "b") == "/namespaces/b/plugins"
       assert Layouts.scope_target("/namespaces/a/schedules", "b") == "/namespaces/b/schedules"
+      assert Layouts.scope_target("/namespaces/a/factories", "b") == "/namespaces/b/factories"
     end
 
     test "Home, a platform screen and an all-namespaces form go to the namespace's Home" do
       for path <- ["/namespaces/a", "/cluster", "/problems", "/relays", "/plugins"] do
         assert Layouts.scope_target(path, "b") == "/namespaces/b", "from #{path}"
       end
+    end
+
+    test "one namespace's factory may not be another's, so its factories" do
+      assert Layouts.scope_target("/namespaces/a/factories/fan_trade", "b") ==
+               "/namespaces/b/factories"
     end
 
     test "one namespace's relay means nothing under another, so its relays" do

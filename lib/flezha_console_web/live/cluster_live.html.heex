@@ -273,11 +273,10 @@
       </div>
       <div :if={@selected_factory && elem(@selected_factory, 0) == ns.name} class="space-y-2">
         <p :if={@factory_runners == []} data-testid="factory-runners-empty">
-          No runner currently serves <span class="fcon-num">{elem(@selected_factory, 1)}</span>.
+          No runner currently serves <.factory_link selected={@selected_factory} />.
         </p>
         <p :if={@factory_runners != []} data-testid="factory-runners">
-          <span class="fcon-num">{elem(@selected_factory, 1)}</span>
-          is served by
+          <.factory_link selected={@selected_factory} /> is served by
           <span :for={runner <- @factory_runners} class="mr-2"><.ident value={runner} /></span>
         </p>
         <.button variant="ghost" size="sm" phx-click="clear_factory" data-testid="clear-factory">

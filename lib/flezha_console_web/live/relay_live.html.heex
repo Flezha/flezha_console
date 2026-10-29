@@ -10,7 +10,7 @@
       This relay has finished; its last run is below.
     <% else %>
       <%!-- One line: whitespace between the fragments would show before their commas. --%>
-      <span phx-no-format><%= for {text, testid} <- sentence_parts(assigns) do %><span :if={match?({:runner, true}, text)}>, bound to <.term key="runner" /></span><span :if={match?({:runner, false}, text)}>, with no <.term key="runner" /></span><span :if={is_binary(text)} data-testid={testid}>{text}</span><% end %></span>.
+      <span phx-no-format><%= for {text, testid} <- sentence_parts(assigns) do %><span :if={match?({:runner, true}, text)}>, bound to <.term key="runner" /></span><span :if={match?({:runner, false}, text)}>, with no <.term key="runner" /></span><span :if={match?({:factory, _}, text)} data-testid={testid}> from <.link navigate={~p"/namespaces/#{@ns}/factories/#{elem(text, 1)}"} class="fcon-ident">{elem(text, 1)}</.link></span><span :if={is_binary(text)} data-testid={testid}>{text}</span><% end %></span>.
       <%!-- A relay that failed to initialise never reads as healthy. --%>
       <span
         :if={@row && assigns[:init_error]}
@@ -307,43 +307,9 @@
   <:title>API</:title>
   <div class="space-y-4">
     <.runtime_error error={@api_error} action="the relay's API" />
-    <div :for={entry <- @api} class="space-y-3">
-      <p :if={entry[:description]}>{entry.description}</p>
-      <.notice :if={entry[:disagree]} testid="api-disagree">
-        This factory's runners announce different APIs; the latest announcement is shown.
-      </.notice>
-      <p :if={entry.channels == []} data-testid="api-none" class="fcon-figures">
-        The factory <span class="fcon-ident">{entry.factory}</span>
-        announces no API. The relay can still be sent a message or called.
-      </p>
-      <.grid
-        :if={entry.channels != []}
-        paging={@paging}
-        id={"api-#{entry.factory}"}
-        rows={entry.channels}
-        testid="api-channels"
-        row_testid={&"api-channel-#{&1.channel}"}
-      >
-        <:col :let={channel} label="Channel">
-          <span class="fcon-ident">{channel.channel}</span>
-        </:col>
-        <:col :let={channel} label="Format"><span class="fcon-ident">{channel.codec}</span></:col>
-        <:col :let={channel} label="Answers">
-          {if channel[:answer_codec], do: "Yes, #{channel.answer_codec}", else: "No"}
-        </:col>
-        <:col :let={channel} label="Description">
-          {channel[:description] || "—"}
-          <details :if={channel[:schema]} data-testid={"api-schema-#{channel.channel}"}>
-            <summary>Input schema</summary>
-            <.code_block class="mt-1">{answer_text(channel.schema)}</.code_block>
-          </details>
-          <details :if={channel[:answer_schema]}>
-            <summary>Answer schema</summary>
-            <.code_block class="mt-1">{answer_text(channel.answer_schema)}</.code_block>
-          </details>
-        </:col>
-      </.grid>
-    </div>
+    <.api_entries entries={@api} paging={@paging}>
+      The relay can still be sent a message or called.
+    </.api_entries>
   </div>
 </.section>
 

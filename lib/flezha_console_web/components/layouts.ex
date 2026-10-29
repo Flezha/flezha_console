@@ -106,6 +106,7 @@ defmodule FlezhaConsoleWeb.Layouts do
     [
       home(scoped_path(namespace, nil)),
       relays(scoped_path(namespace, "relays")),
+      entry(scoped_path(namespace, "factories"), "hero-cube", "Factories"),
       entry(scoped_path(namespace, "plugins"), "hero-puzzle-piece", "Plugins"),
       entry(scoped_path(namespace, "schedules"), "hero-clock", "Schedules")
     ]
@@ -150,7 +151,7 @@ defmodule FlezhaConsoleWeb.Layouts do
   end
 
   @screens Map.new(
-             ~w(relays plugins schedules problems dlq namespaces cluster controller observability logs)a,
+             ~w(relays factories plugins schedules problems dlq namespaces cluster controller observability logs)a,
              &{Atom.to_string(&1), &1}
            )
 
@@ -164,6 +165,7 @@ defmodule FlezhaConsoleWeb.Layouts do
       ["namespaces", _ns, "relays", _id] -> :relay_live
       ["namespaces", _ns, "relays", _id, "listen"] -> :relay_listen
       ["namespaces", _ns, "relays", _id, "state"] -> :relay_state
+      ["namespaces", _ns, "factories", _id] -> :factory
       ["namespaces", _ns, kind] when is_map_key(@screens, kind) -> @screens[kind]
       [kind] when is_map_key(@screens, kind) -> @screens[kind]
       ["logs", _kind] -> :logs
@@ -251,8 +253,39 @@ defmodule FlezhaConsoleWeb.Layouts do
   """
   def scoped_path(namespace, nil), do: ~p"/namespaces/#{namespace}"
   def scoped_path(namespace, "relays"), do: ~p"/namespaces/#{namespace}/relays"
+  def scoped_path(namespace, "factories"), do: ~p"/namespaces/#{namespace}/factories"
   def scoped_path(namespace, "plugins"), do: ~p"/namespaces/#{namespace}/plugins"
   def scoped_path(namespace, "schedules"), do: ~p"/namespaces/#{namespace}/schedules"
+
+  @doc """
+  The switch between a scoped listing and its all-namespaces twin, named by
+  their collection segment: the namespace the shell shows, or every one.
+  """
+  attr :collection, :string, required: true, values: ~w(relays factories plugins schedules)
+  attr :shell_namespace, :string, default: nil
+  attr :scoped_namespace, :string, default: nil
+
+  def scope_switch(assigns) do
+    ~H"""
+    <.segmented label="Scope" testid="scope-switch">
+      <:option
+        :if={@shell_namespace}
+        patch={scoped_path(@shell_namespace, @collection)}
+        current={@scoped_namespace != nil}
+        testid="scope-namespace"
+      >
+        {@shell_namespace}
+      </:option>
+      <:option
+        patch={"/" <> @collection}
+        current={is_nil(@scoped_namespace)}
+        testid="scope-all"
+      >
+        All namespaces
+      </:option>
+    </.segmented>
+    """
+  end
 
   @doc """
   Assigns what the shell needs to state where the operator is.
@@ -402,7 +435,7 @@ defmodule FlezhaConsoleWeb.Layouts do
   def scope_target(current, namespace) do
     case split_scope(current) do
       {scope, [collection | _below]}
-      when is_binary(scope) and collection in ~w(relays plugins schedules) ->
+      when is_binary(scope) and collection in ~w(relays factories plugins schedules) ->
         scoped_path(namespace, collection)
 
       _otherwise ->
@@ -443,6 +476,15 @@ defmodule FlezhaConsoleWeb.Layouts do
           ["state"] -> trail ++ [%{label: "State", path: nil}]
           _other -> List.update_at(trail, -1, &%{&1 | path: nil})
         end
+
+      ["namespaces", namespace, "factories", factory] ->
+        base = ~p"/namespaces/#{namespace}"
+
+        [
+          %{label: URI.decode(namespace), path: base},
+          %{label: "Factories", path: base <> "/factories"},
+          %{label: URI.decode(factory), path: nil}
+        ]
 
       _destination ->
         []

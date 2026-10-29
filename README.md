@@ -17,6 +17,10 @@ The console uses the controller's terms exactly. If a name here disagrees with
 | **Runner** | An SDK-side process serving factories. Relays are bound to one. |
 | **Factory** | What a runner registers and a relay is started from. |
 | **Tasklet** | A step inside a relay. |
+| **each** | How a steps factory loops: `once` (one pass over its first message), `per_input` (one pass per message, for as long as the run lives) or `chained` (each pass feeds the next, ending on an empty handoff). |
+| **on_failure** | How far a failed steps run is undone: `undo_all` (every finished step) or `keep_progress` (only the pass in flight). |
+| **Compensation** | A step's undo: a tasklet declaring a `compensate` hook reverses its work when its run fails or is stopped. |
+| **keep_finished** | What a factory keeps of a finished run: nothing by default, or its Cells and completion record for some hours. |
 | **Relay history** | The controller's durable record of every relay run: one line when it starts and one when it ends, with who started it, how it ended and how long it ran. It outlives the run's state, which a factory keeps only when it declares `keep_finished`. |
 | **Source plugin** | A plugin whose provider feeds a relay, such as a websocket or a poll; it injects records on the entry channel it names, or on the relay's first. |
 | **Input filter** | A plugin bound on `on_input`: it runs before a record enters the relay, and a record it skips never reaches a tasklet. |
@@ -58,7 +62,7 @@ The console uses the controller's terms exactly. If a name here disagrees with
 ## Screens
 
 A route carrying a namespace is scoped to it; the rest are platform-global.
-The three scoped listings are the *same* LiveViews as their platform twins,
+The scoped listings are the *same* LiveViews as their platform twins,
 reading the namespace from the path instead of from a filter control, and a
 scope switch moves between the two forms.
 
@@ -69,6 +73,8 @@ scope switch moves between the two forms.
 | `/problems` | **Open problems** in every reachable namespace, worst first — only what Flezha is fixing or you have to act on, so not a dead letter marked seen — each card with the same rows (state, cause, impact, handled by, next step) and the action that fixes it; relays that wait only on a missing runner fold into one card for their factory |
 | `/namespaces` | Declared and running namespaces as tiles, with a health strip, counts and quota breaches |
 | `/namespaces/:ns/relays` | That namespace's relays: health, run, node, runner, plugins and the measured rate — messages a second, and bytes where the controller counts them — with its recent history; a relay's name and its Open button go to its page, a partition group links each member, a row opens in an inspector, and its menu opens, inspects or stops it |
+| `/namespaces/:ns/factories` | **Factories** — every factory a runner announces in that namespace, running or not, with its description, how it runs and the runners and controllers serving it; `/factories` lists every reachable namespace's, each under its name |
+| `/namespaces/:ns/factories/:id` | One factory, whether or not an instance of it runs: a sentence on how it runs — its run, what one pass is (`each`) and what a failed run undoes (`on_failure`) — the runners and controllers serving it, what it declares (durability, sleep, time limit, delivery, acknowledgement, corrections, partitioning, whether it keeps a finished run's state), whether it can undo a failed run and which tasklets compensate, with a warning when `undo_all` has nothing to undo, its graph drawn still by the relay graph with compensating tasklets marked, its entry API, and its last 10 runs from the relay history, each linking to its records and all of them to the Logs screen. Reached from the rail, the launcher's chosen factory, a relay's header, the Cluster screen's factory lookup and the command palette |
 | `/namespaces/:ns/plugins` | Plugins enabled in that namespace, where each runs and the relays bound to each; enable, bind, unbind, update, with a typed field for each option the provider declares |
 | `/namespaces/:ns/schedules` | Schedules targeting that namespace; the create form opens aimed at it |
 | `/relays` | The Relays screen's **All namespaces** switch — every relay across every reachable namespace, filterable by namespace, health, run and runner; starts one into any of them; what happened while the screen was open |
@@ -99,7 +105,7 @@ The shell models the domain it controls: some concerns are scoped to a
 namespace and some are not, and it says which is which.
 
 - **The rail is four labelled sections.** `NAMESPACE` holds Home, Relays,
-  Plugins and Schedules; `ATTENTION` holds Problems and Dead-letter;
+  Factories, Plugins and Schedules; `ATTENTION` holds Problems and Dead-letter;
   `PLATFORM` holds Namespaces, Cluster and Controller; `MONITORING` holds
   Observability and Logs. A screen is in the first only when the
   controller call behind it takes a namespace, or the rows it returns each
@@ -136,8 +142,8 @@ namespace and some are not, and it says which is which.
 - **Objects open in place.** A relay, a runner, a plugin or a dead letter
   opens in an inspector drawer on the current screen, addressed by
   `?inspect=<kind>:<id>` so the link can be shared; Escape closes it.
-- **`⌘K` / `Ctrl+K` opens a command palette** that reaches a relay by id, a
-  namespace by name or any rail destination by name, and offers actions — stop
+- **`⌘K` / `Ctrl+K` opens a command palette** that reaches a relay or a factory by
+  id, a namespace by name or any rail destination by name, and offers actions — stop
   or diagnose a relay, listen to it, run a schedule now — each landing on its
   own screen's confirmation. Its screen index is the rail's own list.
 - **`?` explains the screen** — what it shows, the terms on it and the
@@ -528,13 +534,16 @@ block: `FlezhaConsoleWeb.Live.Refresh` (the tick, the forwarded runner events �
 ignored by a screen scoped to another namespace — what a screen says about
 its own currency and, for a screen declaring `background: true`, reading off
 the LiveView process), `FlezhaConsoleWeb.Live.Tail` (a live
-tail), `FlezhaConsoleWeb.Topology` (the pipeline graph and fleet summary),
+tail), `FlezhaConsoleWeb.Topology` (the pipeline graph, drawn live for a relay
+and still for a factory, and the fleet summary),
 `FlezhaConsoleWeb.Live.Launcher` (starting a relay, rendered by both
 `/namespaces/:ns` and `/relays`), `FlezhaConsoleWeb.Live.PluginForm` (enabling,
 binding and updating a plugin, from a relay's screen and the plugins screen),
 `FlezhaConsoleWeb.Live.Target` (the namespace and
 factory a write is aimed at, shared by the launcher and the schedule form) and
-`FlezhaConsoleWeb.Live.Sections` (which of a long screen's panels are open). A write
+`FlezhaConsoleWeb.Live.Sections` (which of a long screen's panels are open);
+`Layouts.scope_switch/1` is the one switch between a scoped listing and its
+all-namespaces twin. A write
 path implemented twice drifts, and the half that drifts is the one nobody is
 looking at.
 

@@ -190,6 +190,9 @@ defmodule FlezhaConsole.Service.NodeManager do
   @doc "Whether an answer is the controller refusing the caller."
   def denied?(answer), do: match?(%{class: :denied}, error(answer))
 
+  @doc "Whether an answer is the controller saying what was asked for does not exist."
+  def not_found?(answer), do: match?(%{class: :not_found}, error(answer))
+
   # ---- Identity ----
   #
   # Identity comes only from a verified token. A principal typed into this UI
@@ -654,6 +657,14 @@ defmodule FlezhaConsole.Service.NodeManager do
     {rows |> Enum.map(&to_string(&1.namespace)) |> Enum.sort(), error}
   end
 
+  @doc """
+  The namespaces a screen scoped to `scope` reads, as `scoped_namespaces/1`
+  answers them: that one namespace, or with no scope every one the token
+  reaches.
+  """
+  def namespaces_in_scope(nil, token), do: scoped_namespaces(token)
+  def namespaces_in_scope(scope, _token), do: {[scope], nil}
+
   @doc "The ids of `relay_list/2`'s rows."
   def list_relays(namespace, token) do
     with {:ok, %{rows: rows}} <- relay_list(namespace, token),
@@ -1009,8 +1020,10 @@ defmodule FlezhaConsole.Service.NodeManager do
 
   @doc """
   A namespace's registered factories with the runners serving each, on every
-  controller, as rows `%{id:, description:, run:, runners: [runner_id],
-  servable?: boolean}` sorted by id.
+  controller, as rows `%{id:, description:, run:, each:, on_failure:,
+  declarations:, runners: [runner_id], nodes: [node], servable?: boolean}`
+  sorted by id. `each` and `on_failure` are `nil` for a flow factory, and
+  `declarations` is `nil` from runners that announce none.
 
   Every screen that names a factory reads it from here. One `factories/2` call,
   whose rows carry their runners, so a refresh tick may read it. A runner that
@@ -1034,9 +1047,40 @@ defmodule FlezhaConsole.Service.NodeManager do
       id: id,
       description: field(factory, :description),
       run: field(factory, :run),
+      each: field(factory, :each),
+      on_failure: field(factory, :on_failure),
+      declarations: field(factory, :declarations),
       runners: runners,
+      nodes: factory |> field(:nodes) |> List.wrap() |> Enum.sort(),
       servable?: runners != []
     }
+  end
+
+  @doc """
+  One factory of `namespace`, whether or not an instance of it runs: its
+  catalog entry (`factory_catalog/2`'s) with its announced `graph`
+  (`%{channels:, tasklets:}`, each tasklet saying whether it `compensates`, or
+  `nil` when its runners announce none), `disagree`, true when its runners
+  announce different graphs, APIs or declarations, its `api` and the
+  controllers that did not answer, `unreachable`. A factory no runner
+  announces is refused as `relay.factory_unknown`.
+  """
+  def factory(namespace, factory_id, token) do
+    case authorized_call(token, Flezha.Service.Fleet, :factory, [namespace, factory_id]) do
+      {:ok, %{id: _} = row} ->
+        {:ok,
+         row
+         |> factory_entry()
+         |> Map.merge(%{
+           graph: row[:graph],
+           disagree: row[:disagree] == true,
+           api: List.wrap(row[:api]),
+           unreachable: List.wrap(row[:unreachable])
+         })}
+
+      other ->
+        unexpected(other)
+    end
   end
 
   defp field(%{} = map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
@@ -1890,14 +1934,23 @@ defmodule FlezhaConsole.Service.NodeManager do
   end
 
   @doc """
+  A namespace's runs that ended, newest first: its `ended` relay history
+  records, narrowed by `filters` such as `%{"relay" => id}` or
+  `%{"factory" => id}`, read as `log_read/3` reads (`params` takes `limit`
+  and `before`).
+  """
+  def ended_runs(namespace, filters, params, token) do
+    filters = Map.merge(filters, %{"namespace" => namespace, "event" => "ended"})
+    log_read("relay_history", Map.put(params, :filters, filters), token)
+  end
+
+  @doc """
   A relay's latest `ended` record in the relay history, `{:ok, nil}` when it
   has none.
   """
   def last_run(namespace, relay_id, token) do
-    filters = %{"namespace" => namespace, "relay" => relay_id, "event" => "ended"}
-
     with {:ok, %{records: records}} <-
-           log_read("relay_history", %{filters: filters, limit: 1}, token),
+           ended_runs(namespace, %{"relay" => relay_id}, %{limit: 1}, token),
          do: {:ok, List.first(records)}
   end
 

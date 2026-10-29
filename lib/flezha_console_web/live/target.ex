@@ -195,12 +195,12 @@ defmodule FlezhaConsoleWeb.Live.Target do
   defp unservable(_factory), do: nil
 
   defp factory_hint(catalog, factory_id) do
-    case catalog_entry(catalog, factory_id) do
-      %{runners: []} -> "No runner currently serves this factory."
-      %{runners: runners} -> "Served by #{Enum.join(runners, ", ")}."
-      nil -> nil
-    end
+    with %{} = entry <- catalog_entry(catalog, factory_id), do: served(entry)
   end
+
+  @doc "Which runners serve a catalog entry, in words."
+  def served(%{runners: []}), do: "No runner currently serves this factory."
+  def served(%{runners: runners}), do: "Served by #{Enum.join(runners, ", ")}."
 
   @doc """
   The chosen factory's run, stated read-only: how a relay runs is its

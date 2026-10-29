@@ -172,10 +172,7 @@ defmodule FlezhaConsoleWeb.PluginLive do
     token = socket.assigns.flezha_token
 
     {namespaces, namespaces_error} =
-      case socket.assigns.scoped_namespace do
-        nil -> NodeManager.scoped_namespaces(token)
-        scope -> {[scope], nil}
-      end
+      NodeManager.namespaces_in_scope(socket.assigns.scoped_namespace, token)
 
     {plugins, refused} =
       Enum.reduce(namespaces, {[], []}, fn namespace, {plugins, refused} ->

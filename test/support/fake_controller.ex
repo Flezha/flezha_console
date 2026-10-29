@@ -218,12 +218,33 @@ defmodule FakeController do
   end
 
   @doc """
+  A tasklet of an announced graph, with `overrides` applied: one Cell, a
+  mailbox of 1024, and no `compensate` hook.
+  """
+  def graph_tasklet(name, overrides \\ %{}) do
+    Map.merge(
+      %{
+        name: name,
+        mode: "single",
+        cell_keys: [],
+        mailbox_capacity: 1024,
+        compensates: false,
+        idle_ttl_ms: nil,
+        max_cells: nil
+      },
+      overrides
+    )
+  end
+
+  @doc """
   The graph `Relay.graph/3` answers for `channels`, with one tasklet for each
   name a channel produces or consumes. `cell_keys` maps a tasklet name to its
-  announced Cell keys, which makes it a static tasklet.
+  announced Cell keys, which makes it a static tasklet; `compensates` maps a
+  tasklet name to its announced `compensates`.
   """
   def graph_answer(channels, opts \\ []) do
     cell_keys = Keyword.get(opts, :cell_keys, %{})
+    compensates = Keyword.get(opts, :compensates, %{})
 
     names =
       channels
@@ -242,10 +263,76 @@ defmodule FakeController do
           for name <- names do
             keys = Map.get(cell_keys, name, [])
             mode = if keys == [], do: "single", else: "static"
-            %{name: name, mode: mode, cell_keys: keys, mailbox_capacity: 1024}
+
+            graph_tasklet(name, %{
+              mode: mode,
+              cell_keys: keys,
+              compensates: Map.get(compensates, name, false)
+            })
           end
       }
     }
+  end
+
+  @doc """
+  A factory row as `Flezha.Service.Fleet.factories/2` answers one, with
+  `overrides` applied: a steps factory run once per start and undone whole
+  on failure, kept on its controller's disk, served by `runner-a` on
+  `flezha@node-a`.
+  """
+  def factory_row(id, overrides \\ %{}) do
+    Map.merge(
+      %{
+        id: to_string(id),
+        description: nil,
+        run: :steps,
+        each: :once,
+        on_failure: :undo_all,
+        runners: ["runner-a"],
+        nodes: [:"flezha@node-a"],
+        api: [],
+        api_at: System.os_time(),
+        api_disagree: false,
+        declarations: declarations(),
+        declarations_disagree: false
+      },
+      overrides
+    )
+  end
+
+  @doc """
+  A factory's declarations as its row carries them, with `overrides` applied:
+  a steps class kept on disk that sleeps after six idle hours and declares
+  nothing else.
+  """
+  def declarations(overrides \\ %{}) do
+    Map.merge(
+      %{
+        durable: :local,
+        sleep_after_ms: 21_600_000,
+        max_duration_ms: nil,
+        effectively_once: nil,
+        ack: nil,
+        correction_ms: nil,
+        keyed: nil,
+        keep_finished: nil
+      },
+      overrides
+    )
+  end
+
+  @doc """
+  `Fleet.factory/3`'s answer for `row`: the row with its announced `graph`
+  (`graph_answer/2`'s, or `nil`), `disagree` and the controllers that did not
+  answer.
+  """
+  def factory_answer(row, graph \\ nil, opts \\ []) do
+    {:ok,
+     Map.merge(row, %{
+       graph: graph && graph.graph,
+       disagree: Keyword.get(opts, :disagree, false),
+       unreachable: Keyword.get(opts, :unreachable, [])
+     })}
   end
 
   @doc """
@@ -916,6 +1003,10 @@ defmodule Flezha.Service.Fleet do
 
   defstub runners(ns, %{source: :ui} = ctx), do: {:ok, []}
   defstub factories(ns, %{source: :ui} = ctx), do: FakeController.rows([])
+
+  defstub factory(ns, factory_id, %{source: :ui} = ctx),
+    do: FakeController.factory_answer(FakeController.factory_row(factory_id))
+
   defstub runners_for_factory(ns, factory_id, %{source: :ui} = ctx), do: FakeController.rows([])
 
   defstub runner_caller_context(ns, %{source: :ui} = ctx),

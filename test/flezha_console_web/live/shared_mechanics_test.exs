@@ -116,6 +116,13 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
     FakeController.set_fleet(node, rows: %{"default" => rows})
   end
 
+  defp arrange(:many_factories, node, _user) do
+    rows =
+      Enum.map(1..25, &FakeController.factory_row("f_#{String.pad_leading("#{&1}", 2, "0")}"))
+
+    FakeController.set(node, {Fleet, :factories}, FakeController.rows(rows))
+  end
+
   defp arrange(:many_tokens, node, user) do
     arrange(:access, node, user)
 
@@ -254,6 +261,21 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
 
   defp answer_partly(:namespaces, node, unreachable, false),
     do: answer_partly(:relays, node, unreachable, false)
+
+  defp answer_partly(:factories, node, unreachable, empty?) do
+    rows = if empty?, do: [], else: [FakeController.factory_row("fan_trade")]
+    FakeController.set(node, {Fleet, :factories}, FakeController.rows(rows, unreachable))
+  end
+
+  defp answer_partly(:factory, node, unreachable, _empty?) do
+    FakeController.set(
+      node,
+      {Fleet, :factory},
+      FakeController.factory_answer(FakeController.factory_row("fan_trade"), nil,
+        unreachable: unreachable
+      )
+    )
+  end
 
   defp answer_partly(:dlq, node, unreachable, empty?) do
     entries = if empty?, do: [], else: [dlq_entry()]
@@ -616,7 +638,13 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         read: {Controller, :status},
         kept: ["shutdown-unavailable", "boot-panel"]
       },
-      %{screen: "logs", route: "/logs/audit", read: {Logs, :read}, kept: ["logs-files-panel"]}
+      %{screen: "logs", route: "/logs/audit", read: {Logs, :read}, kept: ["logs-files-panel"]},
+      %{screen: "factories", route: "/namespaces/default/factories", read: {Fleet, :factories}},
+      %{
+        screen: "factory page",
+        route: "/namespaces/default/factories/fan_trade",
+        read: {Fleet, :factory}
+      }
     ]
 
     for row <- @reads do
@@ -720,6 +748,18 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         route: "/logs/audit",
         in: ~s([data-testid="logs-records-empty"]),
         says: "No record matches this filter."
+      },
+      %{
+        screen: "factories",
+        route: "/namespaces/default/factories",
+        in: ~s([data-testid="factories-empty"]),
+        says: "Factories appear here when a runner announces them."
+      },
+      %{
+        screen: "factory page's last runs",
+        route: "/namespaces/default/factories/fan_trade",
+        in: ~s([data-testid="factory-runs-empty"]),
+        says: "Runs appear here when one ends."
       }
     ]
 
@@ -846,6 +886,13 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
       },
       %{screen: "controller", route: "/controller", read: :controllers},
       %{
+        screen: "factories",
+        route: "/namespaces/default/factories",
+        read: :factories,
+        teaching: "factories-empty"
+      },
+      %{screen: "factory page", route: "/namespaces/default/factories/fan_trade", read: :factory},
+      %{
         screen: "plugins",
         route: "/plugins",
         read: :installed,
@@ -917,6 +964,13 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         more: "relay-rows-more"
       },
       %{
+        screen: "factories",
+        route: "/namespaces/default/factories",
+        arrange: :many_factories,
+        rows: ~s(tr[data-testid^="factory-row-"]),
+        more: "factories-default-more"
+      },
+      %{
         screen: "namespace home's tokens",
         route: "/namespaces/default",
         arrange: :many_tokens,
@@ -948,8 +1002,12 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         row = @row
         arrange(row.arrange, node, user)
 
-        {:ok, view, html} = live(conn, row.route)
-        html = Enum.reduce(row[:before] || [], html, fn testid, _html -> click(view, testid) end)
+        {:ok, view, _html} = live(conn, row.route)
+
+        html =
+          Enum.reduce(row[:before] || [], render_async(view), fn testid, _html ->
+            click(view, testid)
+          end)
 
         assert shown(html, row.rows) == 20
         assert text_of(html, ~s([data-testid="#{row.more}"])) == "Show 5 more · 20 of 25"

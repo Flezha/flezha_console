@@ -72,11 +72,14 @@ defmodule FlezhaConsoleWeb.Router do
       ] do
       live "/namespaces", NamespaceLive.Index
       live "/relays", RelayIndexLive
+      live "/factories", FactoryLive, :index
       live "/namespaces/:ns", NamespaceLive.Show
       # The same three screens as the platform routes below, scoped by the
       # path rather than by a filter control — same LiveView, so the filter
       # each of them already applies is the one doing the scoping.
       live "/namespaces/:ns/relays", RelayIndexLive
+      live "/namespaces/:ns/factories", FactoryLive, :index
+      live "/namespaces/:ns/factories/:id", FactoryLive, :show
       live "/namespaces/:ns/plugins", PluginLive
       live "/namespaces/:ns/schedules", ScheduleLive
       live "/namespaces/:ns/relays/:id", RelayLive

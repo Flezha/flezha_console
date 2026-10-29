@@ -450,7 +450,9 @@ defmodule FlezhaConsoleWeb.Live.Launcher do
                   else: "Served by " <> Words.count(length(factory.runners || []), "runner") <> "."}
               </span>
             </.pick_choice>
-            <:detail><.factory_detail factory={@factory} /></:detail>
+            <:detail>
+              <.factory_detail factory={@factory} namespace={@launcher.form["namespace"]} />
+            </:detail>
           </.picker>
         </div>
 
@@ -676,8 +678,10 @@ defmodule FlezhaConsoleWeb.Live.Launcher do
     ]
   end
 
-  # What the chosen factory is, how it runs and who serves it.
+  # What the chosen factory is, how it runs and who serves it, and the way to
+  # its page.
   attr :factory, :map, default: nil
+  attr :namespace, :string, default: nil
 
   defp factory_detail(%{factory: nil} = assigns) do
     ~H"""
@@ -710,6 +714,14 @@ defmodule FlezhaConsoleWeb.Live.Launcher do
           <.chip :for={runner <- @factory.runners || []} mono>{runner}</.chip>
         </div>
       </div>
+      <.link
+        :if={@namespace not in [nil, ""]}
+        navigate={~p"/namespaces/#{@namespace}/factories/#{@factory.id}"}
+        data-testid="factory-how-it-works"
+        class="text-sm"
+      >
+        How it works
+      </.link>
     </.pick_pane>
     """
   end

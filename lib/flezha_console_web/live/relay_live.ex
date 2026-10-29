@@ -811,6 +811,59 @@ defmodule FlezhaConsoleWeb.RelayLive do
   @doc "The entry channels the relay's API announces, across its factory entries."
   def api_channels(api), do: Enum.flat_map(api, &List.wrap(&1[:channels]))
 
+  @doc """
+  A factory's entry API as its runners announce it, one entry per factory:
+  its description, a notice when its runners announce different APIs, and
+  its channels with their formats, answers and schemas. The relay screen and
+  the factory page both render it; the inner block follows the words said of
+  a factory that announces no API.
+  """
+  attr :entries, :list, required: true, doc: "`[%{factory:, description:, channels:, disagree:}]`"
+  attr :paging, :map, required: true
+  slot :inner_block
+
+  def api_entries(assigns) do
+    ~H"""
+    <div :for={entry <- @entries} class="space-y-3">
+      <p :if={entry[:description]}>{entry.description}</p>
+      <.notice :if={entry[:disagree]} testid="api-disagree">
+        This factory's runners announce different APIs; the latest announcement is shown.
+      </.notice>
+      <p :if={entry.channels == []} data-testid="api-none" class="fcon-figures">
+        The factory <span class="fcon-ident">{entry.factory}</span>
+        announces no API. {render_slot(@inner_block)}
+      </p>
+      <.grid
+        :if={entry.channels != []}
+        paging={@paging}
+        id={"api-#{entry.factory}"}
+        rows={entry.channels}
+        testid="api-channels"
+        row_testid={&"api-channel-#{&1.channel}"}
+      >
+        <:col :let={channel} label="Channel">
+          <span class="fcon-ident">{channel.channel}</span>
+        </:col>
+        <:col :let={channel} label="Format"><span class="fcon-ident">{channel.codec}</span></:col>
+        <:col :let={channel} label="Answers">
+          {if channel[:answer_codec], do: "Yes, #{channel.answer_codec}", else: "No"}
+        </:col>
+        <:col :let={channel} label="Description">
+          {channel[:description] || "—"}
+          <details :if={channel[:schema]} data-testid={"api-schema-#{channel.channel}"}>
+            <summary>Input schema</summary>
+            <.code_block class="mt-1">{answer_text(channel.schema)}</.code_block>
+          </details>
+          <details :if={channel[:answer_schema]}>
+            <summary>Answer schema</summary>
+            <.code_block class="mt-1">{answer_text(channel.answer_schema)}</.code_block>
+          </details>
+        </:col>
+      </.grid>
+    </div>
+    """
+  end
+
   defp talk_change(talk, params, api) do
     channel =
       case params["channel_pick"] do
@@ -981,7 +1034,7 @@ defmodule FlezhaConsoleWeb.RelayLive do
 
     [
       {if(run, do: "A #{run} relay", else: "A relay"), "relay-run"},
-      {factory && " from #{factory}", "relay-factory"},
+      {factory && {:factory, to_string(factory)}, "relay-factory"},
       {{:runner, runner != nil}, nil},
       {runner && " #{short(runner)}", "relay-runner"},
       {(row && row[:node] && " on #{row.node}") || (row && " — unplaced"), "relay-node"},

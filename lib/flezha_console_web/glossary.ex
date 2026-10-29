@@ -38,6 +38,14 @@ defmodule FlezhaConsoleWeb.Glossary do
     {"factory", "Factory",
      "What a runner registers and a relay is started from. Its runners announce its run."},
     {"tasklet", "Tasklet", "A step inside a relay."},
+    {"each", "Each",
+     "How a steps factory loops. once: one pass over its first message, then the run ends. per_input: one pass per message, for as long as the run lives. chained: each pass's last handoff feeds the next pass, and the run ends on an empty one."},
+    {"on_failure", "On failure",
+     "How far a failed steps run is undone. undo_all: every finished step of every pass is undone. keep_progress: committed passes are kept, and only the one in flight is undone."},
+    {"compensation", "Compensation",
+     "A step's undo: a tasklet that declares a compensate hook reverses what it did when its run fails or is stopped. A step without one keeps its change."},
+    {"keep_finished", "keep_finished",
+     "What a factory keeps of a finished run. By default nothing: its state is deleted when it ends, and the relay history keeps how it ended. A number of hours, or the controller's retention window, keeps its Cells and completion record that long."},
     {"relay history", "Relay history",
      "The controller's durable record of every relay run: one line when it starts and one when it ends, with who started it, how it ended and how long it ran. It outlives the run's state, which a factory keeps only when it declares keep_finished."},
     {"source plugin", "Source plugin",
@@ -150,6 +158,24 @@ defmodule FlezhaConsoleWeb.Glossary do
     relays: {
       "Every relay you can reach, or one namespace's, with its health, run, runner and measured rate. Activate a row to inspect it in place; start a relay from a factory here too.",
       ["relay", "health", "run", "runner", "factory"]
+    },
+    factories: {
+      "Every factory a runner announces, running or not, with its description, how it runs and the runners and controllers serving it. Open one to see how it works.",
+      ["factory", "run", "runner"]
+    },
+    factory: {
+      "How one factory works, whether or not an instance of it runs: how it runs and what a failed run undoes, what it declares, its graph, its entry API and its last runs.",
+      [
+        "factory",
+        "run",
+        "each",
+        "on_failure",
+        "compensation",
+        "keep_finished",
+        "tasklet",
+        "entry channel",
+        "relay history"
+      ]
     },
     relay_live: {
       "What one relay is doing: its graph, from the sources feeding it through its tasklets to the plugins its output channels end at, with records drawn as they pass, live rates, each tasklet's Cells, a payload tap, and on request a diagnosis, its calls, its API and its plugin bindings.",

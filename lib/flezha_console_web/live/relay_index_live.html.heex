@@ -19,19 +19,11 @@
     </span>
   </:sentence>
   <:actions>
-    <.segmented label="Scope" testid="scope-switch">
-      <:option
-        :if={@shell_namespace}
-        patch={~p"/namespaces/#{@shell_namespace}/relays"}
-        current={@scoped_namespace != nil}
-        testid="scope-namespace"
-      >
-        {@shell_namespace}
-      </:option>
-      <:option patch={~p"/relays"} current={is_nil(@scoped_namespace)} testid="scope-all">
-        All namespaces
-      </:option>
-    </.segmented>
+    <Layouts.scope_switch
+      collection="relays"
+      shell_namespace={@shell_namespace}
+      scoped_namespace={@scoped_namespace}
+    />
     <.button
       :if={NodeManager.granted?(@operations, "Relay.start")}
       phx-click="launcher_open"

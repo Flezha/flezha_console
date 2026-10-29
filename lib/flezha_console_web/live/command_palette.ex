@@ -5,7 +5,7 @@ defmodule FlezhaConsoleWeb.CommandPalette do
 
   Mounted once by the shell, so every screen has it and no screen implements
   it. Its destinations are the rail's own (`FlezhaConsoleWeb.Layouts.nav_sections/1`)
-  plus the namespaces, relays and schedules the bound token can reach —
+  plus the namespaces, relays, factories and schedules the bound token can reach —
   nothing the palette reaches is unreachable by clicking.
 
   It also offers actions on a named object, as the operator's operations
@@ -14,7 +14,7 @@ defmodule FlezhaConsoleWeb.CommandPalette do
   screen with that screen's confirmation open, and never acts on the
   keystroke alone.
 
-  The relay and schedule index is the expensive part, so it is read on the
+  The relay, factory and schedule index is the expensive part, so it is read on the
   first open rather than on mount: a screen the operator never opens the
   palette on pays nothing for it. Once read it is held on the component and
   dropped again by `invalidate/1`, which `FlezhaConsoleWeb.Live.Refresh` calls on
@@ -57,6 +57,7 @@ defmodule FlezhaConsoleWeb.CommandPalette do
      |> assign_new(:query, fn -> "" end)
      |> assign_new(:relays, fn -> nil end)
      |> assign_new(:schedules, fn -> [] end)
+     |> assign_new(:factories, fn -> [] end)
      |> assign_new(:operations, fn -> nil end)}
   end
 
@@ -75,8 +76,9 @@ defmodule FlezhaConsoleWeb.CommandPalette do
     {:noreply, assign(socket, query: query)}
   end
 
-  # One listing read per reachable namespace, the same read the relays index
-  # makes, and one schedule listing — never one call per relay.
+  # One listing and one factory catalog read per reachable namespace, the
+  # reads the relays and factories screens make, and one schedule listing —
+  # never one call per relay or factory.
   defp load_index(%{assigns: %{relays: rows}} = socket) when is_list(rows), do: socket
 
   defp load_index(socket) do
@@ -92,13 +94,18 @@ defmodule FlezhaConsoleWeb.CommandPalette do
         end)
       end)
 
+    factories =
+      for namespace <- namespaces,
+          factory <- namespace |> NodeManager.factory_catalog(token) |> NodeManager.ok_or([]),
+          do: %{id: factory.id, namespace: namespace}
+
     schedules =
       token
       |> NodeManager.schedule_list()
       |> NodeManager.ok_or([])
       |> Enum.map(&to_string(&1.name))
 
-    assign(socket, relays: rows, schedules: schedules)
+    assign(socket, relays: rows, factories: factories, schedules: schedules)
   end
 
   # The destinations and actions a typed string names. Screens come from the
@@ -110,6 +117,7 @@ defmodule FlezhaConsoleWeb.CommandPalette do
     (screens(assigns.scope) ++
        namespaces(assigns.namespaces) ++
        relays(assigns.relays) ++
+       factories(assigns.factories) ++
        actions(assigns))
     |> Enum.filter(
       &(&1.operation == nil or NodeManager.granted?(assigns.operations, &1.operation))
@@ -133,6 +141,14 @@ defmodule FlezhaConsoleWeb.CommandPalette do
     for row <- rows do
       entry("relay", row.id, ~p"/namespaces/#{row.namespace}/relays/#{row.id}",
         detail: "#{row.namespace} · #{Words.text(:health, row.health)}"
+      )
+    end
+  end
+
+  defp factories(factories) do
+    for factory <- factories do
+      entry("factory", factory.id, ~p"/namespaces/#{factory.namespace}/factories/#{factory.id}",
+        detail: factory.namespace
       )
     end
   end
@@ -217,7 +233,7 @@ defmodule FlezhaConsoleWeb.CommandPalette do
               name="q"
               value={@query}
               class="fcon-palette-input"
-              placeholder="Relay, namespace, screen or action — try “stop” or “diagnose”"
+              placeholder="Relay, factory, namespace, screen or action — try “stop” or “diagnose”"
               aria-label="Search or run a command"
               data-testid="command-palette-input"
               phx-debounce="80"
@@ -235,7 +251,7 @@ defmodule FlezhaConsoleWeb.CommandPalette do
           </form>
 
           <p :if={@found == []} class="fcon-palette-note" data-testid="command-palette-empty">
-            Nothing matches “{@query}”: no relay, namespace, screen or action of that name.
+            Nothing matches “{@query}”: no relay, factory, namespace, screen or action of that name.
           </p>
 
           <ul :if={@found != []} class="fcon-palette-list" data-testid="command-palette-results">

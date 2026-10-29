@@ -9,19 +9,11 @@
       else: "These are enabled in every namespace you can reach."}
   </:sentence>
   <:actions>
-    <.segmented label="Scope" testid="scope-switch">
-      <:option
-        :if={@shell_namespace}
-        patch={~p"/namespaces/#{@shell_namespace}/plugins"}
-        current={@scoped_namespace != nil}
-        testid="scope-namespace"
-      >
-        {@shell_namespace}
-      </:option>
-      <:option patch={~p"/plugins"} current={is_nil(@scoped_namespace)} testid="scope-all">
-        All namespaces
-      </:option>
-    </.segmented>
+    <Layouts.scope_switch
+      collection="plugins"
+      shell_namespace={@shell_namespace}
+      scoped_namespace={@scoped_namespace}
+    />
     <.button
       :if={NodeManager.granted?(@operations, "PluginManager.enable")}
       phx-click="plugin_form_open"

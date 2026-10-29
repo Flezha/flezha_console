@@ -8,7 +8,7 @@ currency.
 ### Requirement: The sidebar separates namespace-scoped from platform-global
 
 The navigation rail SHALL present two labelled sections. A `NAMESPACE` section
-SHALL hold Home, Relays, Plugins and Schedules for the namespace in scope. A
+SHALL hold Home, Relays, Factories, Plugins and Schedules for the namespace in scope. A
 `PLATFORM` section SHALL hold Problems, Fleet, Namespaces, Cluster, Controller,
 Observability, Dead-letter and Logs. Fleet is the listing of every reachable relay
 at `/relays`, and Logs leads to `/logs`. A screen SHALL appear in the `NAMESPACE` section
@@ -50,6 +50,12 @@ the topbar SHALL keep the stylebook's shell recipe.
 - **WHEN** an operator is on a screen reachable from the sidebar
 - **THEN** that entry carries `aria-current="page"`
 - **AND** exactly one entry carries it
+
+#### Scenario: The scoped factories entry
+
+- **WHEN** a namespace is in scope
+- **THEN** the `NAMESPACE` section's Factories entry, after Relays, points at `/namespaces/:ns/factories`
+- **AND** it carries `aria-current="page"` on that listing and on every factory page below it
 
 #### Scenario: Logs replaces the audit entry
 
@@ -367,4 +373,18 @@ the account menu.
 
 - **WHEN** an operator activates the topbar's help control on a namespace's Home
 - **THEN** the help overlay for Home opens
+
+### Requirement: Factory routes
+
+The router SHALL serve factories at `/factories` for the factories of every reachable namespace, `/namespaces/:ns/factories` for one namespace's factories, and `/namespaces/:ns/factories/:id` for one factory's page. Each SHALL carry the namespace scope in its route as every scoped screen does, and SHALL show a crumb trail. A factory page's crumbs SHALL be the namespace, Factories and the factory's id.
+
+#### Scenario: Each factory route mounts its screen
+
+- **WHEN** an authenticated operator requests each of the three factory paths
+- **THEN** each mounts its screen and answers 200
+
+#### Scenario: A factory page's crumbs
+
+- **WHEN** an operator opens `/namespaces/default/factories/fan_trade`
+- **THEN** the crumb trail reads default, Factories, fan_trade, each but the last a link
 

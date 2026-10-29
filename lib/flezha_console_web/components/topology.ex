@@ -20,8 +20,9 @@ defmodule FlezhaConsoleWeb.Topology do
   Three parts, in the order a host uses them:
 
     * the host seam — `use FlezhaConsoleWeb.Topology`, then `init/1` in mount and
-      `load_pipeline/1` inside the host's own `refresh/1`, or `read_summary/2`
-      in a background read and `apply_summary/4` with its answer.
+      `load_pipeline/1` inside the host's own `refresh/1`, `load_still/2` with
+      a factory the host read, or `read_summary/2` in a background read and
+      `apply_summary/4` with its answer.
       Everything kept between ticks (the previous readings, rate history, the
       selection, the viewer's direction, the open Cell sheet, the tally and the
       placed layouts) lives in the `:topology_state` assign.
@@ -191,6 +192,33 @@ defmodule FlezhaConsoleWeb.Topology do
     end
   end
 
+  @doc """
+  Draws a factory with no instance: the graph its runners announce, through
+  the same view model, layout and rendering as a relay's, with nothing live.
+
+  `factory` is what `NodeManager.factory/3` answered, read by the host, which
+  also assigns `ns`. Nothing is read here, so a still graph holds no tally,
+  makes no relay call and pushes no counts. The host says when the factory's
+  runners disagree, so the graph does not say it again.
+  """
+  def load_still(socket, %{id: factory_id, graph: graph}) do
+    input = %{
+      still?: true,
+      namespace: socket.assigns.ns,
+      relay_id: factory_id,
+      facts: %{NodeManager.overwatch_facts() | factory_id: factory_id},
+      graph: {:ok, %{factory: factory_id, graph: graph, disagree: false}},
+      snapshot: nil,
+      verdicts: [],
+      stall_notice: nil,
+      skew: nil
+    }
+
+    render_pipeline(socket, %{socket.assigns.topology_state | input: input})
+  end
+
+  defp still?(socket), do: match?(%{input: %{still?: true}}, socket.assigns.topology_state)
+
   # The model from the last tick's readings and the viewer's own choices, so a
   # selection, an expanded run or a direction re-renders without reading the
   # controller again. Placing is kept per shape and direction, since nothing
@@ -257,7 +285,10 @@ defmodule FlezhaConsoleWeb.Topology do
 
   defp settled?({:ok, _read}), do: true
   defp settled?({:error, {:api_missing, _module, _function, _arity}}), do: true
-  defp settled?({:error, reason}), do: NodeManager.error(reason).class in [:denied, :not_found]
+
+  defp settled?({:error, reason}),
+    do: NodeManager.denied?(reason) or NodeManager.not_found?(reason)
+
   defp settled?(_unread), do: false
 
   # A refused Cell read falls back to the plain one, so the sheet says its
@@ -576,13 +607,20 @@ defmodule FlezhaConsoleWeb.Topology do
   rather than leaving the sheet empty until the next tick.
   """
   def handle_event("graph_select", %{"id" => "tasklet-" <> name = id}, socket) do
-    if announced_tasklet?(socket, name),
-      do:
+    cond do
+      not announced_tasklet?(socket, name) ->
+        socket
+
+      # A factory has no Cells to read, so its tasklet is only inspected.
+      still?(socket) ->
+        socket |> update_state(&%{&1 | selected: id, expanded: unfold(&1, name)}) |> rerender()
+
+      true ->
         socket
         |> update_state(&%{&1 | selected: id, cells_of: name, expanded: unfold(&1, name)})
         |> read_cells()
-        |> rerender(),
-      else: socket
+        |> rerender()
+    end
   end
 
   def handle_event("graph_select", %{"id" => "run-" <> _first = id}, socket) do
@@ -826,10 +864,15 @@ defmodule FlezhaConsoleWeb.Topology do
     expanded = Map.get(input, :expanded, MapSet.new())
     shape = shape(input)
 
+    head_sub =
+      if shape.still?,
+        do: "factory · no instance drawn",
+        else: "factory #{facts.factory_id || "—"}"
+
     model =
       shape
       |> model(expanded)
-      |> Map.put(:title, {to_string(input.relay_id), to_string(facts.factory_id || "—")})
+      |> Map.put(:title, {to_string(input.relay_id), head_sub})
 
     key = :erlang.phash2(model)
     view = Map.get(input, :view) || %{direction: "auto", width: nil, height: nil}
@@ -851,7 +894,8 @@ defmodule FlezhaConsoleWeb.Topology do
       seen: seen,
       clock: clock,
       figures: figures,
-      skipped: skipped
+      skipped: skipped,
+      still?: shape.still?
     }
 
     word = state_word(history, modes, backpressure?)
@@ -860,9 +904,12 @@ defmodule FlezhaConsoleWeb.Topology do
     %{
       kind: :pipeline,
       state: :ok,
+      still?: shape.still?,
       namespace: input.namespace,
       relay_id: input.relay_id,
       factory: facts.factory_id,
+      head_sub: head_sub,
+      compensates?: shape.graph != nil and Enum.any?(shape.graph.tasklets, &compensates?/1),
       direction: dir,
       view: view,
       layout_key: "#{dir}-#{key}",
@@ -956,6 +1003,7 @@ defmodule FlezhaConsoleWeb.Topology do
           do: %{plugin_id: id, provider: hd(rows).provider, hooks: Enum.map(rows, & &1.hook)}
 
     %{
+      still?: Map.get(input, :still?, false),
       graph: graph,
       entries: entries,
       exits: exits,
@@ -1140,7 +1188,9 @@ defmodule FlezhaConsoleWeb.Topology do
 
     acc =
       Enum.reduce(shape.runs, acc, fn run, acc ->
-        if Map.get(folded, hd(run.seq)) == run.id, do: add(acc, run_node(run)), else: acc
+        if Map.get(folded, hd(run.seq)) == run.id,
+          do: add(acc, run_node(run, tasklets)),
+          else: acc
       end)
 
     acc =
@@ -1190,16 +1240,20 @@ defmodule FlezhaConsoleWeb.Topology do
     }
   end
 
-  defp run_node(run) do
+  defp run_node(run, tasklets) do
     %{
       id: run.id,
       type: :run,
       label: "#{length(run.seq)} tasklets",
       full: Enum.join(run.seq, " → "),
       sub: "#{shorten(hd(run.seq))} → #{shorten(List.last(run.seq))}",
-      seq: run.seq
+      seq: run.seq,
+      compensating: Enum.count(run.seq, &compensates?(tasklets[&1]))
     }
   end
+
+  defp compensates?(%{compensates: true}), do: true
+  defp compensates?(_tasklet), do: false
 
   defp port_node(channel, role) do
     %{
@@ -1367,6 +1421,9 @@ defmodule FlezhaConsoleWeb.Topology do
       acc
     end
   end
+
+  # A factory has no plugins: those are bound to each of its relays.
+  defp exit_ends(acc, _c, %{still?: true}), do: acc
 
   defp exit_ends(acc, c, shape) do
     case Enum.filter(shape.outputs, &(c.name in &1.channels)) do
@@ -2112,8 +2169,8 @@ defmodule FlezhaConsoleWeb.Topology do
         do: %{x: bxy.x + 16, y: bxy.y + 22, anchor: "start"},
         else: %{x: bxy.x - 12, y: bxy.y + 16, anchor: "end"}
 
-    {relay, factory} = Map.get(model, :title, {"", ""})
-    title_w = max(text_w(relay, 7.8), text_w("factory #{factory}", @sub_advance)) + 16
+    {title, sub} = Map.get(model, :title, {"", ""})
+    title_w = max(text_w(title, 7.8), text_w(sub, @sub_advance)) + 16
     {x0, y0, x1, y1} = bounds(placed_nodes, wire_list, bxy, dlq_view, dir, title_w)
     colours = colours(wire_list, groups, routed.arriving)
     idx = index(rows)
@@ -2679,7 +2736,8 @@ defmodule FlezhaConsoleWeb.Topology do
       unbound?: node.type == :exit and Enum.any?(node.next, &String.starts_with?(&1, "unbound-")),
       call?: node.type == :exit and node.channel.plugin_end == "call",
       mark: node_mark(node),
-      selected?: selected == node.id
+      selected?: selected == node.id,
+      still?: reading.still?
     })
   end
 
@@ -2717,6 +2775,8 @@ defmodule FlezhaConsoleWeb.Topology do
   defp node_mark(%{attached: _side, plugin: %{missing: [_ | _]}}), do: "no such channel"
   defp node_mark(%{attached: :near, source: %{missing: [_ | _]}}), do: "no such entry"
   defp node_mark(%{type: :skip, attached: :near}), do: "no filter bound"
+  defp node_mark(%{type: :tasklet, tasklet: %{compensates: true}}), do: "↺ compensates"
+  defp node_mark(%{type: :run, compensating: n}) when n > 0, do: "↺ #{n} compensate"
   defp node_mark(_node), do: nil
 
   # Each wire of a net, with what the hook needs to move records along it and
@@ -2951,9 +3011,13 @@ defmodule FlezhaConsoleWeb.Topology do
       type: type,
       label: node.label,
       channel: c,
-      bound: for(p <- shape.outputs, c.name in p.channels, do: p)
+      bound: for(p <- shape.outputs, c.name in p.channels, do: p),
+      still?: shape.still?
     }
   end
+
+  defp node_detail(%{type: :tasklet} = node, %{still?: true}, _skipped),
+    do: %{id: node.id, type: :tasklet, label: node.label, tasklet: node.tasklet}
 
   defp node_detail(%{type: :plugin} = node, _shape, _skipped),
     do: %{id: node.id, type: :plugin, label: node.label, plugin: node.plugin}
@@ -3470,17 +3534,29 @@ defmodule FlezhaConsoleWeb.Topology do
       title="Pipeline"
     >
       <:header>
-        <span :if={pipeline?(@topology)} class="text-xs topo-muted" data-testid="topology-attached">
+        <span
+          :if={pipeline?(@topology) and not @topology.still?}
+          class="text-xs topo-muted"
+          data-testid="topology-attached"
+        >
           {Words.count(@topology.plugin_count, "plugin")} attached<span
             :if={@topology.observer_count > 0}
             data-testid="topology-observer-count"
           > · {@topology.observer_count} listening</span>
         </span>
         <.view_controls :if={pipeline?(@topology)} topology={@topology} />
-        <.legend :if={pipeline?(@topology)} />
+        <.legend
+          :if={pipeline?(@topology)}
+          still={@topology.still?}
+          compensates={@topology.compensates?}
+        />
       </:header>
 
-      <.inside_line inside={@topology.inside} drawn?={@topology.inside in [nil, :disagree]} />
+      <.inside_line
+        inside={@topology.inside}
+        drawn?={@topology.inside in [nil, :disagree]}
+        still={@topology.still?}
+      />
 
       <div
         id="topology-canvas"
@@ -3506,7 +3582,7 @@ defmodule FlezhaConsoleWeb.Topology do
           <.boundary topology={@topology} />
           <g class="topo-nets">
             <.net :for={net <- @topology.nets} net={net} />
-            <.dead_letter_wire dlq={@topology.dlq} />
+            <.dead_letter_wire :if={not @topology.still?} dlq={@topology.dlq} />
           </g>
           <g class="topo-labels" aria-hidden="true">
             <text
@@ -3531,7 +3607,7 @@ defmodule FlezhaConsoleWeb.Topology do
           </g>
           <g class="topo-nodes">
             <.graph_node :for={node <- @topology.nodes} node={node} tapped={@tapped} />
-            <.dead_letter dlq={@topology.dlq} />
+            <.dead_letter :if={not @topology.still?} dlq={@topology.dlq} />
           </g>
           <.edge_marks topology={@topology} />
         </svg>
@@ -3543,14 +3619,16 @@ defmodule FlezhaConsoleWeb.Topology do
         <.cell_sheet :if={@topology.cells} cells={@topology.cells} />
       </div>
 
-      <.flow_state flow={@topology.flow} timeline={@topology.timeline} />
+      <.flow_state :if={not @topology.still?} flow={@topology.flow} timeline={@topology.timeline} />
 
       <div data-testid="topology-dock" class="grid gap-4 md:grid-cols-2">
         <.detail :if={@topology.selected} node={@topology.selected} expanded?={@topology.expanded?} />
         {render_slot(@tap)}
         <p :if={!@topology.selected and is_nil(@tapped)} class="text-xs topo-muted md:col-span-2">
-          Select a node to inspect it, a tasklet to see its Cells, or a channel port to tap the
-          records passing it.
+          {if @topology.still?,
+            do: "Select a tasklet or a channel port to see what it is.",
+            else:
+              "Select a node to inspect it, a tasklet to see its Cells, or a channel port to tap the records passing it."}
         </p>
       </div>
     </.graph_frame>
@@ -3636,14 +3714,7 @@ defmodule FlezhaConsoleWeb.Topology do
     <g
       data-testid="topo-node-relay"
       data-node="relay"
-      role="button"
-      tabindex="0"
-      aria-label={"Relay #{@topology.relay_id}, factory #{@topology.factory || "—"}, details"}
-      aria-pressed={to_string(@topology.selected_id == "relay")}
-      phx-click="graph_select"
-      phx-keydown="graph_select"
-      phx-key="Enter"
-      phx-value-id="relay"
+      {head_controls(@topology)}
       class={["topo-head", @topology.selected_id == "relay" && "is-selected"]}
     >
       <text
@@ -3660,10 +3731,26 @@ defmodule FlezhaConsoleWeb.Topology do
         text-anchor={@topology.head.anchor}
         class="topo-sub"
       >
-        factory {@topology.factory || "—"}
+        {@topology.head_sub}
       </text>
     </g>
     """
+  end
+
+  # A relay's head selects the relay; a factory has no relay to select.
+  defp head_controls(%{still?: true}), do: %{}
+
+  defp head_controls(topology) do
+    %{
+      "role" => "button",
+      "tabindex" => "0",
+      "aria-label" => "Relay #{topology.relay_id}, factory #{topology.factory || "—"}, details",
+      "aria-pressed" => to_string(topology.selected_id == "relay"),
+      "phx-click" => "graph_select",
+      "phx-keydown" => "graph_select",
+      "phx-key" => "Enter",
+      "phx-value-id" => "relay"
+    }
   end
 
   attr :text, :string, required: true
@@ -3779,14 +3866,22 @@ defmodule FlezhaConsoleWeb.Topology do
   attr :node, :map, required: true
   attr :tapped, :string, required: true
 
-  # A port taps the records passing it; every other node is selected.
+  # A port taps the records passing it, and is inspected on a still graph;
+  # every other node is selected.
   defp graph_node(%{node: %{type: type}} = assigns) when type in [:entry, :exit] do
     tapped? = assigns.tapped == assigns.node.id
+
+    event =
+      cond do
+        assigns.node.still? -> "graph_select"
+        tapped? -> "graph_tap_close"
+        true -> "graph_tap"
+      end
 
     assigns =
       assign(assigns,
         tapped?: tapped?,
-        event: if(tapped?, do: "graph_tap_close", else: "graph_tap"),
+        event: event,
         direction: if(type == :entry, do: "input", else: "output")
       )
 
@@ -3795,11 +3890,12 @@ defmodule FlezhaConsoleWeb.Topology do
       data-testid={"topo-node-#{@node.id}"}
       role="button"
       tabindex="0"
-      aria-pressed={to_string(@tapped?)}
+      aria-pressed={to_string(if @node.still?, do: @node.selected?, else: @tapped?)}
       aria-label={port_name(@node, @tapped?)}
       phx-click={@event}
       phx-keydown={@event}
       phx-key="Enter"
+      phx-value-id={@node.still? && @node.id}
       phx-value-port={@node.id}
       phx-value-direction={@direction}
       {nav_attrs(@node)}
@@ -3963,10 +4059,11 @@ defmodule FlezhaConsoleWeb.Topology do
       "#{kind} #{node.label}",
       node.unbound? && "no plugin bound",
       node.call? && "a call",
-      if(tapped?,
-        do: "your tap is open here, select to close it",
-        else: "select to tap its records"
-      )
+      cond do
+        node.still? -> "select to inspect it"
+        tapped? -> "your tap is open here, select to close it"
+        true -> "select to tap its records"
+      end
     ]
     |> Enum.filter(& &1)
     |> Enum.join(", ")
@@ -3989,7 +4086,7 @@ defmodule FlezhaConsoleWeb.Topology do
 
     action =
       case node.type do
-        :tasklet -> "open its Cells"
+        :tasklet -> if(node.still?, do: "inspect it", else: "open its Cells")
         :run -> "expand it"
         _other -> "inspect it"
       end
@@ -4173,23 +4270,33 @@ defmodule FlezhaConsoleWeb.Topology do
 
   attr :inside, :any, required: true
   attr :drawn?, :boolean, required: true
+  attr :still, :boolean, required: true
 
   # The words for what the graph draws, where it first uses them, or why the
   # relay's inside is empty.
   defp inside_line(assigns) do
     ~H"""
     <p :if={@drawn?} data-testid="topology-inside" class="text-sm topo-secondary">
-      Records come from its <.term key="source plugin">sources</.term>, pass any <.term key="input filter">input filters</.term>, enter on its <.term key="entry channel">entry channels</.term>, pass its
-      <.term key="tasklet">tasklets</.term>
-      and leave on its
-      <.term key="output channel">output channels</.term>
-      for the plugins bound to them. Select a tasklet to see its <.term key="cell">Cells</.term>.
+      <%= if @still do %>
+        As its runners announce it: records enter on its <.term key="entry channel">entry channels</.term>, pass its
+        <.term key="tasklet">tasklets</.term>
+        and leave on its <.term key="output channel">output channels</.term>. Each relay started
+        from it binds its own plugins, so none is drawn here.
+      <% else %>
+        Records come from its <.term key="source plugin">sources</.term>, pass any <.term key="input filter">input filters</.term>, enter on its <.term key="entry channel">entry channels</.term>, pass its
+        <.term key="tasklet">tasklets</.term>
+        and leave on its
+        <.term key="output channel">output channels</.term>
+        for the plugins bound to them. Select a tasklet to see its <.term key="cell">Cells</.term>.
+      <% end %>
       <span :if={@inside == :disagree} data-testid="topology-inside-disagree">
         Its runners announce different graphs; the latest is drawn.
       </span>
     </p>
     <p :if={not @drawn?} data-testid="topology-inside-note" class="text-sm topo-muted">
-      The relay's inside is not shown: {code_names(inside_reason(@inside))}
+      {if @still, do: "Its graph is not shown: ", else: "The relay's inside is not shown: "}{code_names(
+        inside_reason(@inside)
+      )}
     </p>
     """
   end
@@ -4371,7 +4478,11 @@ defmodule FlezhaConsoleWeb.Topology do
     """
   end
 
-  # Every role, port, wire style, mark and motion form the graph draws.
+  attr :still, :boolean, required: true
+  attr :compensates, :boolean, required: true
+
+  # Every role, port, wire style, mark and motion the graph draws; a still
+  # graph draws no plugin, end, figure or motion.
   defp legend(assigns) do
     ~H"""
     <.popover
@@ -4400,7 +4511,7 @@ defmodule FlezhaConsoleWeb.Topology do
               <rect x="1" y="5" width="20" height="12" rx="2" />
             </g>
           </svg>
-          A tasklet with several Cells; select it for its Cell table
+          A tasklet with several Cells{if not @still, do: "; select it for its Cell table"}
         </li>
         <li>
           <svg width="26" height="14" class="shrink-0" aria-hidden="true">
@@ -4410,11 +4521,15 @@ defmodule FlezhaConsoleWeb.Topology do
           </svg>
           A folded run of four or more tasklets in a row; select it to expand
         </li>
-        <li>
+        <li :if={@compensates} data-testid="topology-legend-compensates">
+          <span class="topo-mark" aria-hidden="true">↺</span>
+          A tasklet that compensates: when its run fails or is stopped, it undoes what it did
+        </li>
+        <li :if={not @still}>
           <span class="flz-graph-legend-plugin" aria-hidden="true"></span>A plugin: a source feeding the
           relay, an input filter, or an output plugin
         </li>
-        <li>
+        <li :if={not @still}>
           <svg width="26" height="14" class="shrink-0" aria-hidden="true">
             <g class="flz-graph-node flz-graph-node--state">
               <rect x="1" y="1" width="24" height="12" rx="2" />
@@ -4433,7 +4548,9 @@ defmodule FlezhaConsoleWeb.Topology do
               />
             </g>
           </svg>
-          A channel port on the relay's edge; select it to tap the records passing
+          A channel port on the relay's edge; select it to {if @still,
+            do: "see what it is",
+            else: "tap the records passing"}
         </li>
         <li>
           <svg width="26" height="10" class="shrink-0" aria-hidden="true">
@@ -4442,31 +4559,31 @@ defmodule FlezhaConsoleWeb.Topology do
           </svg>
           A wire, coloured apart from its neighbours; a dot where a channel splits
         </li>
-        <li>
+        <li :if={not @still}>
           <svg width="26" height="10" class="shrink-0" aria-hidden="true">
             <circle cx="13" cy="5" r="3.5" class="topo-legend-mark" />
           </svg>
           A record passing; its speed is not the record's, which crosses in microseconds
         </li>
-        <li>
+        <li :if={not @still}>
           <svg width="26" height="10" class="shrink-0" aria-hidden="true">
             <line x1="0" y1="5" x2="26" y2="5" class="topo-legend-flow" />
           </svg>
           A busy wire, twelve or more records a second, flowing continuously
         </li>
-        <li>
+        <li :if={not @still}>
           <span class="topo-legend-badge is-parked" aria-hidden="true">3</span> Dead letters a
           tasklet left
         </li>
-        <li>
+        <li :if={not @still}>
           <span class="topo-legend-badge is-backlog" aria-hidden="true">40</span> A backlog: inputs
           waiting at a tasklet
         </li>
-        <li>
+        <li :if={not @still}>
           <span class="topo-legend-badge is-shed" aria-hidden="true">3</span> Inputs a tasklet
           dropped since the last reading
         </li>
-        <li>
+        <li :if={not @still}>
           <span class="topo-observers" aria-hidden="true">1 listening</span>
           Listeners watching an edge of
           the relay
@@ -4548,10 +4665,12 @@ defmodule FlezhaConsoleWeb.Topology do
       <.plugin_detail :if={@node.type in [:filter, :plugin]} node={@node} />
       <.port_detail :if={@node.type in [:entry, :exit]} node={@node} />
       <.end_detail :if={@node.type in [:skip, :unbound, :call, :answer]} node={@node} />
+      <.tasklet_detail :if={@node.type == :tasklet} node={@node} />
     </.dock_panel>
     """
   end
 
+  defp kind_label(:tasklet), do: "tasklet"
   defp kind_label(:relay), do: "relay"
   defp kind_label(:source), do: "source"
   defp kind_label(:filter), do: "input filter"
@@ -4704,7 +4823,7 @@ defmodule FlezhaConsoleWeb.Topology do
       <.fact label="Kind">{@node.channel.kind}</.fact>
       <.fact :if={@node.type == :exit} label="Written by">{@node.channel.producer || "—"}</.fact>
       <.fact label="Read by">{listed(@node.channel.consumers)}</.fact>
-      <.fact :if={@node.type == :exit} label="Plugins">
+      <.fact :if={@node.type == :exit and not @node.still?} label="Plugins">
         {listed(Enum.map(@node.bound, &"##{&1.position || 0} #{&1.plugin_id}"))}
       </.fact>
       <.fact label="Overflow">{@node.channel.overflow || "—"}</.fact>
@@ -4714,11 +4833,36 @@ defmodule FlezhaConsoleWeb.Topology do
       back on an entry channel.
     </p>
     <p
-      :if={@node.type == :exit and @node.channel.plugin_end != "call" and @node.bound == []}
+      :if={
+        @node.type == :exit and @node.channel.plugin_end != "call" and @node.bound == [] and
+          not @node.still?
+      }
       data-testid="topology-port-unbound"
       class="text-xs topo-muted"
     >
       No plugin is bound to it, so only a listener, such as the tap, sees its records.
+    </p>
+    """
+  end
+
+  attr :node, :map, required: true
+
+  # What a factory's tasklet is, as its runners announce it.
+  defp tasklet_detail(assigns) do
+    ~H"""
+    <dl class="space-y-1 text-xs">
+      <.fact label="Mode">{@node.tasklet.mode || "—"}</.fact>
+      <.fact :if={@node.tasklet.cell_keys != []} label="Cell keys">
+        {listed(@node.tasklet.cell_keys)}
+      </.fact>
+      <.fact label="Mailbox">{@node.tasklet[:mailbox_capacity] || "—"}</.fact>
+    </dl>
+    <p
+      :if={@node.tasklet[:compensates] == true}
+      data-testid="topology-tasklet-compensates"
+      class="text-xs topo-secondary"
+    >
+      It declares a compensate hook: when its run fails or is stopped, it undoes what it did.
     </p>
     """
   end

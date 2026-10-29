@@ -155,6 +155,39 @@ defmodule FlezhaConsoleWeb.Words do
       flow: {"flow", :neutral},
       steps: {"steps", :neutral}
     },
+    # How a factory runs, as its page opens on it.
+    run_shape: %{
+      flow: {"records stream through its tasklets for as long as it runs", :neutral},
+      steps: {"each pass works through its steps in order, committing each one", :neutral}
+    },
+    each: %{
+      once: {"one pass over its first message, then the run ends", :neutral},
+      per_input: {"one pass per message, for as long as the run lives", :neutral},
+      chained:
+        {"each pass feeds the next, and the run ends when a pass hands nothing on", :neutral}
+    },
+    on_failure: %{
+      undo_all: {"a failed run undoes every finished step by its compensation", :neutral},
+      keep_progress:
+        {"a failed run keeps its committed passes and undoes only the one in flight", :neutral}
+    },
+    durable: %{
+      memory: {"keeps state in memory only, so a crash starts it over", :neutral},
+      local: {"keeps state on its controller's disk", :neutral},
+      remote: {"keeps state on its controller's disk and in remote storage", :neutral}
+    },
+    effectively_once: %{
+      true => {"delivers each output effectively once", :neutral},
+      false => {"delivers each output at least once", :neutral}
+    },
+    ack: %{
+      checkpoint: {"acknowledges its input at checkpoints", :neutral},
+      per_input: {"acknowledges each input as it is handled", :neutral}
+    },
+    keyed: %{
+      true => {"can be partitioned by key", :neutral},
+      false => {"cannot be partitioned", :neutral}
+    },
     # How a relay run ended, as the relay history records it.
     run_outcome: %{
       completed: {"completed", :positive},
@@ -235,6 +268,46 @@ defmodule FlezhaConsoleWeb.Words do
   def worst(tones) do
     Enum.find([:negative, :warning, :positive], :neutral, &(&1 in tones))
   end
+
+  @doc """
+  A factory's announced declarations as short sentences in reading order, each
+  `%{key:, text:, term:}`: the declaration, its words to follow "It", and the
+  glossary term that explains it or `nil`. A declaration left unset is left
+  out, except `keep_finished`, whose absence is a choice of its own: nothing
+  is kept.
+  """
+  def declared(declarations) when is_map(declarations) do
+    [
+      {:durable, said(:durable, declarations[:durable]), nil},
+      {:sleep_after_ms, took(declarations[:sleep_after_ms], "sleeps after ", " without work"),
+       "suspended"},
+      {:max_duration_ms,
+       took(declarations[:max_duration_ms], "cancels a run ", " after it first starts"), nil},
+      {:effectively_once, said(:effectively_once, declarations[:effectively_once]), nil},
+      {:ack, said(:ack, declarations[:ack]), nil},
+      {:correction_ms, took(declarations[:correction_ms], "accepts corrections for ", ""), nil},
+      {:keyed, said(:keyed, declarations[:keyed]), "partition group"},
+      {:keep_finished, kept(declarations[:keep_finished]), "keep_finished"}
+    ]
+    |> Enum.reject(fn {_key, text, _term} -> is_nil(text) end)
+    |> Enum.map(fn {key, text, term} -> %{key: key, text: text, term: term} end)
+  end
+
+  defp said(_kind, nil), do: nil
+  defp said(kind, value), do: text(kind, value)
+
+  defp took(ms, lead, tail) when is_integer(ms) and ms > 0,
+    do: lead <> FlezhaConsole.Format.took(ms) <> tail
+
+  defp took(_unset, _lead, _tail), do: nil
+
+  defp kept(hours) when is_integer(hours),
+    do: "keeps a finished run's state for #{count(hours, "hour")}"
+
+  defp kept(window) when window in [:default, true],
+    do: "keeps a finished run's state for the controller's retention window"
+
+  defp kept(_none), do: "does not keep a finished run's state"
 
   @doc """
   A relays tile's `{tone, verdict, condition}` for health counts as

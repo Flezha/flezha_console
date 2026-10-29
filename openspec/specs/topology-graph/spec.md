@@ -811,3 +811,23 @@ Selecting a tasklet SHALL open a sheet over the graph's right side.
 - **WHEN** the viewer selects a tasklet on a graph they have not zoomed or panned
 - **THEN** the graph refits into the width the sheet leaves free
 
+### Requirement: A factory is drawn as a still graph
+
+The relay pipeline graph SHALL draw a factory with no instance from the factory's announced graph, through the same view model, layout, routing, colours and SVG rendering it uses for a relay. In this still mode it SHALL draw the entry channels, tasklets and output channels as announced. It SHALL NOT read or draw live figures, rates, moving records, taps, a tally, Cells, plugin bindings or stall marks. It SHALL make no relay call and hold no subscription. The viewer's direction, zoom, full screen and keyboard navigation SHALL work as on a relay. A tasklet whose announced `compensates` is true SHALL carry a compensation mark, and the legend SHALL explain that mark whenever one is drawn. The relay screen's graph SHALL carry the same mark for the same tasklets.
+
+#### Scenario: A factory's still graph
+
+- **WHEN** a factory's page draws its graph
+- **THEN** its entry channels, tasklets and outputs are drawn with no figures
+- **AND** no relay activity or listen call is made
+
+#### Scenario: Compensating tasklets are marked
+
+- **WHEN** the announced graph marks `open_position` as compensating
+- **THEN** `open_position` carries the compensation mark and the legend explains it
+
+#### Scenario: The same mark on a running relay
+
+- **WHEN** a relay of that factory is open on the relay screen
+- **THEN** its graph marks `open_position` the same way
+

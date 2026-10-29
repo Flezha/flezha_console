@@ -46,6 +46,12 @@ defmodule FlezhaConsoleWeb.DisconnectedScreensTest do
     %{name: "schedules", route: "/schedules", says: "runtime-error"},
     %{name: "dead-letter queue", route: "/dlq", says: "runtime-error"},
     %{name: "logs", route: "/logs/audit", says: "runtime-error"},
+    %{name: "factories", route: "/namespaces/default/factories", says: "runtime-error"},
+    %{
+      name: "factory page",
+      route: "/namespaces/default/factories/fan_trade",
+      says: "runtime-error"
+    },
     %{name: "relay detail", route: "/namespaces/default/relays/relay_a", says: "runtime-error"},
     %{
       name: "relay listen",

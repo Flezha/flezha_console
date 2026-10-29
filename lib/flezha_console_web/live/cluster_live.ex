@@ -124,6 +124,23 @@ defmodule FlezhaConsoleWeb.ClusterLive do
 
   defp controller_said(_node, _breaches, _status), do: {:positive, "Up", "Connected"}
 
+  attr :selected, :any, required: true, doc: "`{namespace, factory}`"
+
+  # The looked-up factory, linked to its page.
+  defp factory_link(%{selected: {ns, factory}} = assigns) do
+    assigns = assign(assigns, ns: ns, factory: factory)
+
+    ~H"""
+    <.link
+      navigate={~p"/namespaces/#{@ns}/factories/#{@factory}"}
+      class="fcon-num"
+      data-testid="factory-page-link"
+    >
+      {@factory}
+    </.link>
+    """
+  end
+
   @doc "A recovery state as an operator reads it, in its tone."
   def recovery(state), do: Words.say(:hub_recovery, state)
 

@@ -39,6 +39,7 @@ defmodule FlezhaConsoleWeb.LiveCase do
           text_of: 2,
           condition_value: 3,
           testids: 2,
+          attributes: 3,
           submit_plugin_form: 2,
           tick: 1,
           enforce_operations: 3,
@@ -199,11 +200,14 @@ defmodule FlezhaConsoleWeb.LiveCase do
   end
 
   @doc "The `data-testid` of each element `selector` matches in `html`, in page order."
-  def testids(html, selector) do
+  def testids(html, selector), do: attributes(html, selector, "data-testid")
+
+  @doc "The attribute `name` of each element `selector` matches in `html`, in page order."
+  def attributes(html, selector, name) do
     html
     |> LazyHTML.from_document()
     |> LazyHTML.query(selector)
-    |> LazyHTML.attribute("data-testid")
+    |> LazyHTML.attribute(name)
   end
 
   @doc """

@@ -23,6 +23,7 @@ defmodule Flezha.Error do
     "relay.not_found" => :not_found,
     "relay.not_running" => :unavailable,
     "relay.factory_not_steps" => :invalid,
+    "relay.factory_unknown" => :not_found,
     "relay.outside_retention" => :invalid,
     "relay.iteration_not_committed" => :invalid,
     "state.persistence_off" => :conflict,

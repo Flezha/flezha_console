@@ -36,6 +36,7 @@ defmodule FlezhaConsole.ControllerShapes do
       {"Relay.relay_plugins", Flezha.Service.Relay, :relay_plugins, ["default"]},
       {"Fleet.runners", Flezha.Service.Fleet, :runners, ["default"]},
       {"Fleet.factories", Flezha.Service.Fleet, :factories, ["default"]},
+      {"Fleet.factory", Flezha.Service.Fleet, :factory, ["default", "chat_loop_steps"]},
       {"Fleet.runners_for_factory", Flezha.Service.Fleet, :runners_for_factory,
        ["default", "store_input"]},
       {"Fleet.providers", Flezha.Service.Fleet, :providers, []},
