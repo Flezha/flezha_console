@@ -1,0 +1,92 @@
+name: Release
+
+# A v* tag builds the console archive natively on each platform, starts each
+# one on the runner that built it, and attaches them only once all have passed.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  archive-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: flezha_console
+
+      - uses: ./flezha_console/.github/actions/release-archive
+        with:
+          token: ${{ secrets.SIBLING_REPOS_TOKEN }}
+          database-url: ecto://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/flezha_console_smoke
+
+  # macOS runners have no service containers, so Postgres comes from Homebrew.
+  archive-macos:
+    strategy:
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: flezha_console
+
+      - name: Start Postgres
+        id: postgres
+        run: |
+          brew install postgresql@16
+          "$(brew --prefix postgresql@16)/bin/pg_ctl" -w start \
+            -D "$(brew --prefix)/var/postgresql@16" -l "$RUNNER_TEMP/postgres.log"
+          echo "url=ecto://$(whoami)@localhost/flezha_console_smoke" >> "$GITHUB_OUTPUT"
+
+      - uses: ./flezha_console/.github/actions/release-archive
+        with:
+          token: ${{ secrets.SIBLING_REPOS_TOKEN }}
+          database-url: ${{ steps.postgres.outputs.url }}
+
+  publish:
+    needs: [archive-linux, archive-macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: archive-*
+          merge-multiple: true
+          path: dist
+
+      - name: Write SHA256SUMS.txt
+        working-directory: dist
+        run: sha256sum flezha_console-*.tar.gz > SHA256SUMS.txt
+
+      - name: Publish them to the tag's release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A tag with a `-` after the version (v0.1.0-rc.1) is a pre-release,
+          # so a trial run never becomes "latest".
+          case "$TAG" in
+            *-*) prerelease=--prerelease ;;
+            *)   prerelease= ;;
+          esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes $prerelease dist/*
+          fi

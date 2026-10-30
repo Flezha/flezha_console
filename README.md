@@ -607,6 +607,78 @@ is no second mechanism. `EventFeed.stop/2` also drops what the feed already
 sent under its tag, so a screen that replaces a feed never hears the old one,
 and a retrying feed reports a reconnect only once its re-opened stream is held.
 
+## Releases
+
+### Get the release
+
+Each GitHub release carries the console for Linux x86_64, macOS on Apple Silicon
+and macOS on Intel, with its own Erlang runtime, and a `SHA256SUMS.txt` over
+them. Download your platform's archive and the checksums, check, and unpack:
+
+```bash
+gh release download v0.1.0 -R Flezha/flezha_console \
+  -p 'flezha_console-*-linux-x86_64.tar.gz' -p SHA256SUMS.txt
+sha256sum -c --ignore-missing SHA256SUMS.txt     # macOS: shasum -a 256 -c --ignore-missing SHA256SUMS.txt
+tar -xzf flezha_console-0.1.0-linux-x86_64.tar.gz
+```
+
+A macOS archive is signed ad hoc, not notarized. Fetched with `gh` or `curl` it
+runs as it is; one downloaded through a browser needs
+`xattr -dr com.apple.quarantine flezha_console` first.
+
+The release takes its settings from the environment: `DATABASE_URL` (an
+existing database), `SECRET_KEY_BASE` (`openssl rand -base64 48`), `PHX_HOST`,
+`PHX_SERVER=true`, the admin account `FLEZHA_CONSOLE_ADMIN_EMAIL` and
+`FLEZHA_CONSOLE_ADMIN_PASSWORD`, and the node: `RELEASE_DISTRIBUTION=name`,
+`RELEASE_NODE`, `FLEZHA_NODE` and the controller's cookie as `RELEASE_COOKIE`.
+The archive carries no cookie, so it refuses to start without one. The flezha
+repository's console guide (`docs/public/console/console.md`) lists every
+setting. Then:
+
+```bash
+flezha_console/bin/flezha_console eval FlezhaConsole.Release.migrate
+flezha_console/bin/flezha_console eval FlezhaConsole.Release.ensure_admin
+flezha_console/bin/flezha_console start          # or `daemon`, and `stop` to stop it
+```
+
+On another platform, build it yourself: `scripts/release-archive.sh` (below),
+or the Docker image `deploy/Dockerfile` describes.
+
+### Build and check an archive
+
+```bash
+scripts/release-archive.sh       # _build/dist/flezha_console-<version>-<platform>.tar.gz
+scripts/smoke-release.sh _build/dist/flezha_console-0.1.0-linux-x86_64.tar.gz \
+  ecto://postgres:postgres@localhost:5432/flezha_console_smoke
+```
+
+`release-archive.sh` needs Elixir, Node and the stylebook checkout, and builds
+for the machine it runs on. `smoke-release.sh` unpacks the archive into a
+temporary directory, creates the database the URL names (it must not exist
+yet), migrates it, starts the release on a free port, wants 200 from
+`/users/log-in` and stops it. It removes the directory and the database however
+it ends, and a failure names the step that failed. No controller is needed.
+
+### CI and cutting a release
+
+`.github/workflows/ci.yml` runs on every push to `master` and every pull
+request: `mix format --check-formatted`, `mix compile --warnings-as-errors`,
+`mix test` against a Postgres service, and `mix assets.deploy`. Pushes to `dev`
+and other branches start nothing, and the browser suite does not run in CI.
+
+A release is cut by pushing a `v*` tag from `master`.
+`.github/workflows/release.yml` then builds the archive on Linux and on both
+macOS runners with `scripts/release-archive.sh`, smoke-tests each on the runner
+that built it with `scripts/smoke-release.sh`, and only when all three passed
+attaches them and `SHA256SUMS.txt` to the tag's release. A tag with a `-`
+(`v0.1.0-rc.1`) makes a pre-release.
+
+Both files check out `flezha/flezha_stylebook` beside the console, and `ci.yml`
+also the parts of `flezha/flezha` that
+`test/flezha_console/service/published_surface_test.exs` reads. They read both
+with the repository secret `SIBLING_REPOS_TOKEN`, a fine-grained token with
+read-only access to those two repositories.
+
 ## Manual setup (no Docker)
 
 ```bash

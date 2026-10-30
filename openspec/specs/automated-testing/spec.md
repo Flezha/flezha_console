@@ -707,3 +707,19 @@ A test SHALL fail when the behaviour it names breaks. These are not tests and SH
 - **WHEN** a developer reads `docs/testing.md` before writing a test
 - **THEN** it tells them which layer to use, how to make the condition they assert, and which gates will fail if they wait on time or assert presence
 
+### Requirement: The ExUnit layer SHALL run in CI on `master` and on pull requests
+
+Every push to `master` and every pull request SHALL run, on a Linux runner, a format check, a
+compile with warnings as errors, the ExUnit suite against a Postgres service, and the asset
+build with the stylebook checked out beside the console and the core repository's published
+API checked out for the published-surface test. A failure in any of them SHALL fail
+the run. The browser suite SHALL NOT run in CI.
+
+#### Scenario: A push to master is checked
+- **WHEN** a commit is pushed to `master`
+- **THEN** the CI workflow runs the format check, the warnings-as-errors compile, `mix test` and `mix assets.deploy`, and reports failure if any of them fails
+
+#### Scenario: A missing token fails before the build
+- **WHEN** the workflow runs without access to `flezha/flezha_stylebook`
+- **THEN** the step checking it out, named after the repository, fails, and no later step runs
+

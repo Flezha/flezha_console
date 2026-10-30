@@ -1,0 +1,38 @@
+name: Build and smoke-test the console archive
+description: >
+  Builds this runner's console archive with scripts/release-archive.sh,
+  smoke-tests it with scripts/smoke-release.sh against a database that does not
+  exist yet, and uploads it for the publish job.
+
+inputs:
+  token:
+    description: A token that can read flezha/flezha_stylebook.
+    required: true
+  database-url:
+    description: The smoke test's database, on a running Postgres.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: ./flezha_console/.github/actions/setup
+      with:
+        token: ${{ inputs.token }}
+
+    - name: Build the archive
+      shell: bash
+      working-directory: flezha_console
+      run: scripts/release-archive.sh
+
+    - name: Smoke-test the archive
+      shell: bash
+      working-directory: flezha_console
+      env:
+        DATABASE_URL: ${{ inputs.database-url }}
+      run: scripts/smoke-release.sh _build/dist/flezha_console-*.tar.gz "$DATABASE_URL"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: archive-${{ runner.os }}-${{ runner.arch }}
+        path: flezha_console/_build/dist/flezha_console-*.tar.gz
+        if-no-files-found: error

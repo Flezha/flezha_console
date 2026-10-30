@@ -1,0 +1,70 @@
+name: CI
+
+# Pushes to master and pull requests are checked; a push to any other branch
+# starts nothing. The browser suite needs the dev stack and does not run here.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MIX_ENV: test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 2s --health-timeout 5s --health-retries 30
+    defaults:
+      run:
+        working-directory: flezha_console
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: flezha_console
+
+      - uses: ./flezha_console/.github/actions/setup
+        with:
+          token: ${{ secrets.SIBLING_REPOS_TOKEN }}
+
+      # The published-surface test reads core's consumer API and error catalogue
+      # from ../flezha.
+      - name: Check out flezha/flezha's published API (SIBLING_REPOS_TOKEN)
+        uses: actions/checkout@v5
+        with:
+          repository: flezha/flezha
+          token: ${{ secrets.SIBLING_REPOS_TOKEN }}
+          path: flezha
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            lib
+            scripts/consumer_surface.py
+            docs/internal/api/consumers
+            crates/flz_transport/errors.json
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            flezha_console/deps
+            flezha_console/_build
+          key: mix-test-${{ runner.os }}-${{ hashFiles('flezha_console/mix.lock') }}
+          restore-keys: mix-test-${{ runner.os }}-
+
+      - run: mix deps.get
+      # The layout reads the stylebook at compile time.
+      - run: npm ci --prefix assets
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      # The distributed tests boot peer nodes, which register with epmd.
+      - run: epmd -daemon
+      - run: mix test
+      - run: mix assets.deploy

@@ -25,6 +25,10 @@ npm run e2e:flake-check                       # the whole suite 3 times; lists a
 npm run e2e:flake-check -- 5 access           # 5 runs of the files matching `access`
 ```
 
+CI (`.github/workflows/ci.yml`) runs the ExUnit layer on every push to `master`
+and every pull request, beside the format check, the warnings-as-errors compile
+and the asset build. The browser suite needs the dev stack and runs only locally.
+
 ## Which layer an assertion belongs to
 
 An assertion lives at the layer that can **produce** the state it asserts, and
