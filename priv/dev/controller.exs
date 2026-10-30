@@ -18,8 +18,8 @@ defmodule DevController do
     {:ok, _pid} =
       :erpc.call(node, Task, :start, [Flezha.Shutdown.Coordinator, :shutdown_and_stop, [:cli]])
 
-    # The drain is bounded by the controller's graceful-shutdown timeout, 60 s
-    # in the dev stack.
+    # The drain is bounded by the controller's graceful-shutdown timeout, 5 s
+    # in the dev stack unless FLEZHA_GRACEFUL_SHUTDOWN_TIMEOUT_MS raises it.
     wait_until(90, fn -> Node.ping(node) == :pang end) ||
       die("#{node} is still up 90 s after it was asked to stop")
 

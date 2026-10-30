@@ -12,10 +12,13 @@ defmodule FlezhaConsoleWeb.Endpoint do
   ]
 
   # A socket connect skips the code reloader: the page request before it
-  # reloads changed code, and an edited file reloads the page.
+  # reloads changed code, and an edited file reloads the page. Every page
+  # connects, with its CSRF token in the params, so connects log at debug.
+  @live_transport [connect_info: [session: @session_options], code_reloader: false, log: :debug]
+
   socket "/live", Phoenix.LiveView.Socket,
-    websocket: [connect_info: [session: @session_options], code_reloader: false],
-    longpoll: [connect_info: [session: @session_options], code_reloader: false]
+    websocket: @live_transport,
+    longpoll: @live_transport
 
   # Serve at "/" the static files from "priv/static" directory.
   #
@@ -60,7 +63,7 @@ defmodule FlezhaConsoleWeb.Endpoint do
     cookie_key: "request_logger"
 
   plug Plug.RequestId
-  plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
+  plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint], log: {__MODULE__, :log_level, []}
 
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
@@ -71,4 +74,12 @@ defmodule FlezhaConsoleWeb.Endpoint do
   plug Plug.Head
   plug Plug.Session, @session_options
   plug FlezhaConsoleWeb.Router
+
+  @doc false
+  # A path carrying a login or confirmation token logs at debug, so the token
+  # stays out of the logs; the dev stack's webhook receiver logs nothing.
+  def log_level(%{path_info: ["users", "log-in", _token]}), do: :debug
+  def log_level(%{path_info: ["users", "settings", "confirm-email", _token]}), do: :debug
+  def log_level(%{path_info: ["dev", "null"]}), do: false
+  def log_level(_conn), do: :info
 end

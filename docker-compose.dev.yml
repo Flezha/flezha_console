@@ -41,7 +41,12 @@ services:
       FLEZHA_SOCKET_FILES_PATH: /flezha/storage/app/sockets/
       FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
       FLEZHA_GRACEFUL_SHUTDOWN_ENABLED: ${FLEZHA_GRACEFUL_SHUTDOWN_ENABLED:-true}
-      FLEZHA_GRACEFUL_SHUTDOWN_TIMEOUT_MS: ${FLEZHA_GRACEFUL_SHUTDOWN_TIMEOUT_MS:-60000}
+      # Short in dev, so stopping the stack takes seconds; long enough for the
+      # controller to close its storage cleanly.
+      FLEZHA_GRACEFUL_SHUTDOWN_TIMEOUT_MS: ${FLEZHA_GRACEFUL_SHUTDOWN_TIMEOUT_MS:-5000}
+      # `docker stop` signals the whole process group: the restart loop below
+      # and the VM it runs both get SIGTERM, so the VM drains and the loop ends.
+      TINI_KILL_PROCESS_GROUP: "1"
       # Off by default on the controller; on here so the UI's audit screen has
       # something to show in dev.
       FLEZHA_AUDIT_ENABLED: ${FLEZHA_AUDIT_ENABLED:-true}
@@ -59,20 +64,27 @@ services:
       FLEZHA_DURABILITY_BACKEND: ${FLEZHA_DURABILITY_BACKEND:-none}
       <<: *dev-cookie
     depends_on:
-      kafka:
-        condition: service_healthy
       # The plugin root is read once, at boot.
       plugin_packages:
         condition: service_completed_successfully
+    # Healthy once the code is compiled and the application has started: the
+    # testnet listener is one of the last things it opens.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/4500"]
+      interval: 30s
+      start_period: 10m
+      start_interval: 2s
     # Graceful shutdown — see flezha's docs/public/topics/deploying/deploying_a_controller.md.
+    init: true
     stop_signal: SIGTERM
-    stop_grace_period: 75s
+    stop_grace_period: 20s
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
     command: >
-      sh -c 'while true; do
+      sh -c 'trap "exit 0" TERM INT;
+      while true; do
         pkill node 2>/dev/null;
         echo "==> Starting flezha iex...";
         mix deps.get >/dev/null;
@@ -102,17 +114,19 @@ services:
     hostname: flezha_controller_2
     environment:
       FLEZHA_INITIAL_NODES: flezha@flezha_controller
+    # Started once the first controller has fetched and compiled into the
+    # shared deps and build volumes; two compiles at once leave one of them
+    # without its modules.
     depends_on:
       controller:
-        condition: service_started
+        condition: service_healthy
       plugin_packages:
         condition: service_completed_successfully
       controller_2_storage:
         condition: service_completed_successfully
-    # The first controller fetches the shared deps; fetching them from both at
-    # once races on one directory.
     command: >
-      sh -c 'while true; do
+      sh -c 'trap "exit 0" TERM INT;
+      while true; do
         echo "==> Starting flezha iex...";
         iex --sname flezha --cookie "$$ERLANG_COOKIE" -S mix;
         echo "==> iex exited, restarting in 3s...";
@@ -172,6 +186,8 @@ services:
       dockerfile: deploy/docker/dev/Dockerfile.toolchain
     container_name: flezha_rust_runner
     restart: unless-stopped
+    # The runner has no SIGTERM handler, so as PID 1 it would ignore `docker stop`.
+    init: true
     # The runner exits when its stdin reaches EOF, which is how a controller
     # that owns its Port shuts it down. Without an open stdin, docker hands it
     # /dev/null and it exits immediately at startup.
@@ -332,7 +348,7 @@ services:
       <<: *second-runner-credential
 
   db:
-    image: postgres:16
+    image: postgres:16.15
     container_name: flezha_console_db
     hostname: flezha_console_db
     restart: unless-stopped
@@ -340,8 +356,10 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: flezha_console_db
+    # Loopback only: the host runs `mix test` against it, and its password is
+    # the well-known dev one.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -356,6 +374,8 @@ services:
       dockerfile: Dockerfile
     container_name: fcon_web
     hostname: fcon_web
+    # Reaps the asset watchers and passes `docker stop` on to the VM.
+    init: true
     ports:
       - "4000:4000"
     environment:
@@ -392,66 +412,75 @@ services:
       - fcon_network
     restart: unless-stopped
 
-  zookeeper:
-    image: zookeeper:3.9.3
-    container_name: fcon_zookeeper
-    hostname: fcon_zookeeper
-    restart: unless-stopped
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-    healthcheck:
-      test: ["CMD", "zkServer.sh", "status"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    networks:
-      - fcon_network
-
+  # One broker that is also its own controller (KRaft), so no ZooKeeper.
+  # Nothing on the host talks to it: it advertises only its in-network name.
   kafka:
-    image: confluentinc/cp-kafka:7.8.6
+    image: apache/kafka:4.3.2
     container_name: fcon_kafka
     hostname: fcon_kafka
     restart: unless-stopped
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: fcon_zookeeper:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@fcon_kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://fcon_kafka:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    ports:
-      - "9092:9092"
-    depends_on:
-      zookeeper:
-        condition: service_healthy
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: ZmNvbkthZmthRGV2U3RhY2s
+      KAFKA_LOG4J_OPTS: -Dlog4j2.configurationFile=/etc/kafka/dev-log4j2.yaml
+    configs:
+      - source: kafka_log4j
+        target: /etc/kafka/dev-log4j2.yaml
     healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
-      interval: 30s
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "fcon_kafka:9092"]
+      interval: 60s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
+      start_interval: 5s
     networks:
       - fcon_network
 
   kafka_ui:
-    image: provectuslabs/kafka-ui:latest
+    image: kafbat/kafka-ui:v1.5.0
     container_name: fcon_kafka_ui
+    restart: unless-stopped
     ports:
-      - "8081:8080"
+      - "127.0.0.1:8081:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: fcon_kafka:9092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: fcon_zookeeper:2181
+      # Its per-poll statistics lines are debug chatter; warnings still print.
+      LOGGING_LEVEL_ROOT: warn
+      LOGGING_LEVEL_IO_KAFBAT_UI: warn
+      # Netty's native and off-heap memory use, which JDK 25 warns about at boot.
+      JAVA_OPTS: --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow
     depends_on:
-      - kafka
-      - zookeeper
+      kafka:
+        condition: service_healthy
     networks:
       - fcon_network
+
+configs:
+  # The broker logs a page of INFO lines per start; warnings and up still print.
+  kafka_log4j:
+    content: |
+      Configuration:
+        Appenders:
+          Console:
+            name: STDOUT
+            PatternLayout:
+              pattern: "[%d] %p %m (%c)%n"
+        Loggers:
+          Root:
+            level: WARN
+            AppenderRef:
+              ref: STDOUT
 
 volumes:
   fcon_plugin_build:

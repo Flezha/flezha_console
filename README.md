@@ -350,7 +350,7 @@ with `ELIXIR_ERL_OPTIONS="-proto_dist inet_tls -ssl_dist_optfile
 `docker compose … down` followed by `up` without the overlay goes back to plain
 TCP. `docker volume rm flezha_console_fcon_dist_tls` discards the CA and the
 certificates, and the next overlay `up` makes new ones.
-| `fcon_kafka`, `fcon_zookeeper`, `fcon_kafka_ui` | Kafka, for the Kafka provider |
+| `fcon_kafka`, `fcon_kafka_ui` | Kafka, for the Kafka provider |
 
 Useful commands:
 

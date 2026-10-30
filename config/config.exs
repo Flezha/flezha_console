@@ -83,9 +83,10 @@ config :logger, :console,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
-# `secret` is the param a plugin's transient options are posted under, so its
-# values are logged as [FILTERED] like passwords.
-config :phoenix, :filter_parameters, ["password", "secret"]
+# `secret` is the param a plugin's transient options are posted under, and
+# `token` matches login links and the CSRF token, so their values are logged
+# as [FILTERED] like passwords.
+config :phoenix, :filter_parameters, ["password", "secret", "token"]
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

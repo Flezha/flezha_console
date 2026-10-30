@@ -2,7 +2,7 @@
 # Starts, stops, restarts and updates the dev stack (docker-compose.dev.yml).
 #
 #   priv/dev/stack.sh up                   start every container, and wait until it is ready
-#   priv/dev/stack.sh stop                 drain the controllers, then stop every container
+#   priv/dev/stack.sh stop                 stop every container; the controllers drain first
 #   priv/dev/stack.sh status               the containers, and how ready each controller is
 #   priv/dev/stack.sh restart-controllers  drain and restart each controller in turn
 #   priv/dev/stack.sh restart-web          restart the console and wait for it to answer
@@ -23,16 +23,6 @@ controller() {
   docker exec fcon_web sh -c \
     'cd /flezha_console && exec elixir --sname "stack_$$" --hidden --cookie "$ERLANG_COOKIE" priv/dev/controller.exs "$@"' \
     sh "$@"
-}
-
-# A controller's container restarts its VM 3 s after the VM stops, so it is
-# drained first and its container stopped inside that pause; `docker stop`
-# alone would kill the VM after 10 s, leaving its DETS files to repair.
-stop_controllers() {
-  for container in "${CONTROLLERS[@]}"; do
-    controller stop "flezha@$container"
-    docker stop "$container" >/dev/null
-  done
 }
 
 # One at a time: both controllers compile ../flezha into one shared build
@@ -76,7 +66,7 @@ case "${1:-}" in
     await_web
     ;;
   stop)
-    stop_controllers
+    # SIGTERM reaches each controller's VM, which drains before it stops.
     compose stop
     ;;
   status)

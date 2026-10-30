@@ -29,6 +29,13 @@ defmodule FlezhaConsoleWeb.Router do
       forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
 
+    # The dev stack's webhook receiver, which every relay start and stop reaches.
+    scope "/dev", FlezhaConsoleWeb do
+      pipe_through :api
+
+      post "/null", DevNullController, :create
+    end
+
     scope "/dev", FlezhaConsoleWeb do
       pipe_through [:browser, :require_authenticated_user]
 
