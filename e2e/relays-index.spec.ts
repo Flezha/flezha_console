@@ -1,4 +1,5 @@
 import {
+  choose,
   menuAction,
   test,
   expect,
@@ -103,6 +104,28 @@ test.describe('Relays index', () => {
 
     await visitLive(page, DEFAULT_ONLY);
     await expect(page.getByTestId(`relay-index-row-${id}`)).toHaveCount(0);
+  });
+
+  test('the Run filter keeps the steps relays, then the flow relays', async ({ page }) => {
+    const id = uniqueId('pw_idxrun');
+
+    try {
+      await startRelay(page, id, { namespace: 'default', run: 'steps' });
+      await expect(page.getByTestId(`relay-index-row-${id}`)).toContainText('steps');
+
+      // The controller filters the whole namespace by run kind.
+      await choose(page, 'filter-run', 'steps');
+      await expect(page).toHaveURL(/[?&]run=steps/);
+      await expect(page.getByTestId(`relay-index-row-${id}`)).toBeVisible();
+      await expect(page.getByTestId('relay-index-row-testnet_store_1')).toHaveCount(0);
+
+      await choose(page, 'filter-run', 'flow');
+      await expect(page).toHaveURL(/[?&]run=flow/);
+      await expect(page.getByTestId('relay-index-row-testnet_store_1')).toBeVisible();
+      await expect(page.getByTestId(`relay-index-row-${id}`)).toHaveCount(0);
+    } finally {
+      await stopRelay(page, id);
+    }
   });
 
   test('a relay started and stopped elsewhere arrives in the lifecycle feed and the rows', async ({

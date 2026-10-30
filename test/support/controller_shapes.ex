@@ -85,16 +85,16 @@ defmodule FlezhaConsole.ControllerShapes do
   end
 
   # Keys whose map is keyed by data rather than by fields: the hooks a relay's
-  # bindings use, one count per health verdict or recent signal, one value per
-  # controller, and an observability record's metadata and measurements, which
-  # differ by event. Which keys such a map holds depends on what the stack runs.
-  @keyed_by_data ~w(chains request_subs relay_health health signals statuses by_node refused
-                    metadata measurements)
+  # bindings use, one count per health verdict or recent signal, and one value
+  # per controller. Which keys such a map holds depends on what the stack runs.
+  @keyed_by_data ~w(chains request_subs relay_health health signals statuses by_node refused)
 
   # Keys holding free-form data the console reads no field of: a relay's start
-  # options and a plugin's configured options. Which options they hold, and of
-  # what type, depends on what the stack runs, so only their presence is kept.
-  @free_form ~w(opts)
+  # options, a plugin's configured options, and an observability record's
+  # metadata and measurements, which differ by event. Which entries they hold,
+  # and of what type, depends on what the stack runs, so only their presence is
+  # kept.
+  @free_form ~w(opts metadata measurements)
 
   @doc "The shape of `term`."
   def of(term) when is_binary(term), do: "string"
