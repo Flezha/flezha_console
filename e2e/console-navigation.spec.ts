@@ -2,8 +2,15 @@ import {
   test,
   expect,
   closeSection,
+  deadLetterRefs,
+  dropDeadLetters,
+  expectGraphFits,
+  openDeadLetters,
   openPalette,
   openSection,
+  openSettings,
+  ownRelay,
+  sendRecords,
   timelineSamples,
   openPage,
   type Page,
@@ -91,6 +98,148 @@ test.describe('The console shell', () => {
     const dismiss = (await toast.locator('[data-toast-dismiss]').boundingBox())!;
     expect(dismiss.y).toBeLessThan(icon.y + icon.height);
     expect(dismiss.x).toBeGreaterThan(icon.x + icon.width);
+  });
+});
+
+const rail = (page: Page) => page.locator('#shell-nav');
+const railToggle = (page: Page) => page.getByTestId('rail-toggle');
+const railWidth = async (page: Page) => (await rail(page).boundingBox())!.width;
+
+async function collapseRail(page: Page): Promise<void> {
+  await railToggle(page).click();
+  await expect(railToggle(page)).toHaveAttribute('aria-label', 'Expand navigation');
+  await expect.poll(() => railWidth(page)).toBeLessThanOrEqual(80);
+}
+
+test.describe('The rail at desk width', () => {
+  test('collapses to its icons from a control inside it, and comes back', async ({ page, live }) => {
+    await live('/namespaces/default/relays');
+    await expect(railToggle(page)).toHaveAttribute('aria-label', 'Collapse navigation');
+    const canvasAt = (await page.getByTestId('main').boundingBox())!.x;
+
+    await collapseRail(page);
+    await expect(railToggle(page)).toBeFocused();
+    expect((await page.getByTestId('main').boundingBox())!.x).toBeLessThan(canvasAt - 150);
+
+    // Every destination is still there, by its icon and its name.
+    const cluster = rail(page).getByRole('link', { name: 'Cluster', exact: true });
+    await expect(cluster).toBeVisible();
+    expect((await cluster.boundingBox())!.width).toBeLessThanOrEqual(64);
+    // A section's heading is a rule; its words stay for a screen reader.
+    await expect(rail(page).getByText('Platform', { exact: true })).toHaveCSS('font-size', '0px');
+
+    await railToggle(page).click();
+    await expect(railToggle(page)).toHaveAttribute('aria-label', 'Collapse navigation');
+    await expect(railToggle(page)).toBeFocused();
+    await expect.poll(() => railWidth(page)).toBeGreaterThan(200);
+    await expect(rail(page).getByText('Platform', { exact: true })).not.toHaveCSS('font-size', '0px');
+  });
+
+  test('once collapsed, an icon is named beside it on hover and on focus', async ({ page, live }) => {
+    await live('/namespaces/default/relays');
+    await collapseRail(page);
+    const railEnd = (await rail(page).boundingBox())!.x + (await railWidth(page));
+
+    const cluster = rail(page).getByRole('link', { name: 'Cluster', exact: true });
+    const tip = cluster.locator('[data-fcon-rail-tip]');
+    await cluster.hover();
+    await expect(tip).toBeVisible();
+    expect(await tip.evaluate((el) => getComputedStyle(el, '::after').content)).toBe('"Cluster"');
+    const at = (await tip.boundingBox())!;
+    const icon = (await cluster.boundingBox())!;
+    expect(at.x).toBeGreaterThan(railEnd);
+    expect(Math.abs(at.y + at.height / 2 - (icon.y + icon.height / 2))).toBeLessThan(4);
+
+    await page.mouse.move(800, 600);
+    await expect(tip).toBeHidden();
+    // Reached by the keyboard, so the browser treats the focus as visible.
+    const logs = rail(page).getByRole('link', { name: 'Logs', exact: true });
+    await logs.focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(logs).toBeFocused();
+    await expect(logs.locator('[data-fcon-rail-tip]')).toBeVisible();
+  });
+
+  test('stays collapsed across a reload, a live navigation and the settings page', async ({ page, live }) => {
+    // How wide the rail stands the moment the document is parsed, before any
+    // script of the page's own has run: narrow there means it never slid.
+    await page.addInitScript(() =>
+      document.addEventListener('DOMContentLoaded', () => {
+        const nav = document.getElementById('shell-nav');
+        if (nav) (window as unknown as { railAtParse: number }).railAtParse = nav.getBoundingClientRect().width;
+      }),
+    );
+    await live(RELAY);
+    await collapseRail(page);
+
+    await live(RELAY);
+    expect(await page.evaluate(() => (window as unknown as { railAtParse: number }).railAtParse)).toBeLessThanOrEqual(80);
+    await expect(railToggle(page)).toHaveAttribute('aria-label', 'Expand navigation');
+
+    await page.getByTestId('breadcrumb').locator('a[href="/namespaces/default/relays"]').click();
+    await expect(page).toHaveURL((url) => url.pathname === '/namespaces/default/relays');
+    await expect(page.locator('[data-phx-main]')).not.toHaveClass(/phx-loading/);
+    expect(await railWidth(page)).toBeLessThanOrEqual(80);
+    await expect(railToggle(page)).toHaveAttribute('aria-label', 'Expand navigation');
+
+    await openSettings(page);
+    expect(await railWidth(page)).toBeLessThanOrEqual(80);
+    await railToggle(page).click();
+    await expect.poll(() => railWidth(page)).toBeGreaterThan(200);
+    await expect(railToggle(page)).toHaveAttribute('aria-label', 'Collapse navigation');
+  });
+
+  test('a collapsed choice leaves the drawer below desk width whole', async ({ page, live }) => {
+    await live('/namespaces/default/relays');
+    await collapseRail(page);
+
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await expect(railToggle(page)).toBeHidden();
+    await page.getByTestId('nav-toggle').click();
+    await expect(rail(page)).toBeVisible();
+    await expect(rail(page).getByText('Platform', { exact: true })).toBeVisible();
+    await expect(rail(page).getByRole('link', { name: 'Cluster', exact: true })).toContainText('Cluster');
+  });
+
+  test('the relay pipeline widens into the room the rail leaves', async ({ page, live }) => {
+    await live(RELAY);
+    const canvas = page.getByTestId('topology-canvas');
+    const before = (await canvas.boundingBox())!.width;
+
+    await collapseRail(page);
+    await expect.poll(async () => (await canvas.boundingBox())!.width).toBeGreaterThan(before + 150);
+    await expectGraphFits(page, 1280);
+  });
+});
+
+test.describe('The rail at desk width, with a problem open', () => {
+  // A dead letter is an open problem until it is dropped.
+  const relay = ownRelay('pw_rail', { factory: 'poison_probe' });
+
+  test('a collapsed rail keeps the count on the Problems icon', async ({ page, live }) => {
+    await sendRecords(relay.id, ['poison']);
+    await openDeadLetters(page, relay.id);
+    await expect.poll(() => deadLetterRefs(page, relay.id)).toHaveLength(1);
+
+    try {
+      // The pulse reads as a screen mounts, so a fresh screen counts it.
+      await live('/cluster');
+      const count = page.getByTestId('problems-count');
+      await expect(count).toBeVisible();
+
+      await collapseRail(page);
+      await expect(count).toBeVisible();
+      // On the icon's corner, inside the narrow rail.
+      const icon = (await rail(page).getByRole('link', { name: /^Problems/ }).boundingBox())!;
+      const badge = (await count.boundingBox())!;
+      expect(badge.x).toBeGreaterThan(icon.x + icon.width / 2);
+      expect(badge.y).toBeLessThan(icon.y + icon.height / 2);
+      expect(badge.x + badge.width).toBeLessThanOrEqual(await railWidth(page));
+      await expect(page.getByTestId('nav-toggle-problems-count')).toBeHidden();
+    } finally {
+      await dropDeadLetters(page, relay.id);
+    }
   });
 });
 

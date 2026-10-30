@@ -4,6 +4,7 @@ import {
   test,
   expect,
   disablePlugin,
+  openPluginRow,
   openSection,
   uniqueId,
   fillPluginForm,
@@ -83,7 +84,6 @@ test.describe('Plugin attachment', () => {
   for (const { id, opts, hooks } of PROVIDERS) {
     test(`enables ${id} by name, binds it to the relay, and disables it`, async ({
       page,
-      live,
     }) => {
       const name = uniqueId('pw_plugin');
 
@@ -95,8 +95,7 @@ test.describe('Plugin attachment', () => {
         await expect(page.locator('body')).toContainText(`Plugin ${name} enabled`);
 
         // The plugin is listed in its namespace, bound to this relay.
-        await live('/namespaces/default/plugins');
-        await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
+        await expect(await openPluginRow(page, name)).toBeVisible();
         await expect(page.getByTestId(`plugin-relays-${name}`)).toContainText(RELAY);
       } finally {
         await disablePlugin(page, name);
@@ -106,7 +105,6 @@ test.describe('Plugin attachment', () => {
 
   test('the pipeline graph draws a bound plugin, and an unbind removes it and keeps the plugin', async ({
     page,
-    live,
   }) => {
     const name = uniqueId('pw_gplug');
 
@@ -132,8 +130,7 @@ test.describe('Plugin attachment', () => {
       await expect(page.getByTestId(`binding-row-${name}`)).toHaveCount(0);
       await expect(graph.locator(`[data-testid*="${name}"]`)).toHaveCount(0);
 
-      await live('/namespaces/default/plugins');
-      await expect(page.getByTestId(`plugin-row-${name}`)).toBeVisible();
+      await expect(await openPluginRow(page, name)).toBeVisible();
       await expect(page.getByTestId(`plugin-relays-${name}`)).not.toContainText(RELAY);
     } finally {
       await disablePlugin(page, name);

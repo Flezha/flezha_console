@@ -388,3 +388,60 @@ The router SHALL serve factories at `/factories` for the factories of every reac
 - **WHEN** an operator opens `/namespaces/default/factories/fan_trade`
 - **THEN** the crumb trail reads default, Factories, fan_trade, each but the last a link
 
+### Requirement: The rail is lifted off the page at desk width and collapses to its icons
+
+At 1024 px and wider the rail SHALL stand off the page as a surface of its own, running the screen's full height with a hairline where it meets the content and a shadow cast onto it, in both themes, collapsed or not.
+
+The rail SHALL carry, in its head beside the brand, a control that collapses it to its icons and expands it again. The control SHALL be shown at desk width only, SHALL keep focus after a press, and SHALL be named for what a press would do: "Collapse navigation" while the rail is expanded, "Expand navigation" while it is collapsed.
+
+A collapsed rail SHALL show the brand's mark, every destination as its icon, a rule between sections, the open-problem count on the Problems icon and the connection's dot, so the topbar and canvas take the room it gives up. Every destination SHALL stay reachable by Tab and SHALL keep its name for assistive technology, and SHALL be named beside its icon on hover and on keyboard focus. Collapsing and expanding SHALL animate, and SHALL switch at once when the operator prefers reduced motion.
+
+The choice SHALL be remembered in the browser and applied before the first paint of every later page, including a reload, a live navigation and the account settings page, which has no socket. With nothing stored, or with storage unavailable, the rail SHALL be expanded. The choice SHALL NOT affect the drawer below 1024 px.
+
+#### Scenario: The rail stands off the page
+
+- **WHEN** an operator opens any screen at 1440 px
+- **THEN** the rail runs the screen's full height and casts a shadow onto the content beside it
+
+#### Scenario: Collapsing the rail
+
+- **WHEN** an operator at 1440 px activates the rail's collapse control
+- **THEN** the rail narrows to its icons and the canvas widens into the room it gave up
+- **AND** the control is named "Expand navigation" and keeps focus
+
+#### Scenario: Expanding the rail
+
+- **WHEN** the rail is collapsed and the operator activates the same control
+- **THEN** the rail shows every section heading and destination name again
+- **AND** the control is named "Collapse navigation"
+
+#### Scenario: An icon is named beside it
+
+- **WHEN** the rail is collapsed and the operator hovers or tabs to a destination's icon
+- **THEN** the destination's name is shown beside the icon, outside the rail
+
+#### Scenario: The count stays on the rail
+
+- **WHEN** there are open problems and the rail is collapsed at 1440 px
+- **THEN** the Problems icon carries their count
+
+#### Scenario: Remembered across a reload
+
+- **WHEN** an operator collapses the rail and reloads the screen
+- **THEN** the screen opens with the rail collapsed, without first showing it expanded
+
+#### Scenario: Remembered across screens
+
+- **WHEN** an operator collapses the rail on a relay and follows a crumb to the namespace's Relays
+- **THEN** Relays is shown with the rail collapsed
+
+#### Scenario: On the settings page
+
+- **WHEN** the rail was collapsed and the operator opens the account settings page, which has no socket
+- **THEN** the rail is collapsed there too, and its control expands it
+
+#### Scenario: The drawer ignores the desk choice
+
+- **WHEN** the rail was collapsed at 1440 px and the window narrows to 768 px
+- **THEN** the collapse control is hidden and the menu control opens the drawer with every heading and destination name
+

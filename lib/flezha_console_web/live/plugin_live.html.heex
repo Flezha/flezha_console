@@ -294,7 +294,7 @@
         data-testid={"provider-#{provider.id}"}
         class="fcon-tile flz-tile"
       >
-        <p class="font-medium">{Format.humanize(provider.id)}</p>
+        <p class="fcon-tile-title">{Format.humanize(provider.id)}</p>
         <p
           :if={@provider_details[to_string(provider.id)][:description]}
           class="fcon-quiet text-sm"
@@ -322,23 +322,28 @@
             controllers={@shell_pulse[:controllers]}
           />
         </p>
-        <details data-testid={"provider-module-#{provider.id}"}>
-          <summary class="fcon-label cursor-pointer">Implementation</summary>
-          <p class="fcon-num text-xs mt-1">{provider.module}</p>
-        </details>
-        <.button
-          :if={NodeManager.granted?(@operations, "PluginManager.enable")}
-          variant="secondary"
-          size="sm"
-          icon="hero-plus-mini"
-          phx-click="plugin_form_open"
-          phx-value-mode="enable"
-          phx-value-provider={provider.id}
-          phx-value-namespace={@scoped_namespace}
-          data-testid={"provider-enable-#{provider.id}"}
-        >
-          Enable
-        </.button>
+        <div class="fcon-tile-end">
+          <details class="fcon-disclosure" data-testid={"provider-module-#{provider.id}"}>
+            <summary>
+              <.icon name="hero-chevron-right-mini" class="fcon-disclosure-mark h-4 w-4" />
+              <span class="fcon-muted">Implementation</span>
+            </summary>
+            <p class="fcon-num text-xs mt-2 break-all">{provider.module}</p>
+          </details>
+          <.button
+            :if={NodeManager.granted?(@operations, "PluginManager.enable")}
+            variant="secondary"
+            size="sm"
+            icon="hero-plus-mini"
+            phx-click="plugin_form_open"
+            phx-value-mode="enable"
+            phx-value-provider={provider.id}
+            phx-value-namespace={@scoped_namespace}
+            data-testid={"provider-enable-#{provider.id}"}
+          >
+            Enable
+          </.button>
+        </div>
       </div>
     </div>
   </.paged>

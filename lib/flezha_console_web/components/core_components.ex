@@ -1745,6 +1745,7 @@ defmodule FlezhaConsoleWeb.CoreComponents do
         role="tooltip"
         id={@tip_id}
         class="fcon-tooltip"
+        phx-mounted={JS.ignore_attributes(["style"])}
       ><span class="fcon-tooltip-term">{@entry.name}</span>{@entry.definition}</span><span
         class="fcon-popover fcon-popover--start fcon-help-panel"
         role="dialog"
@@ -1827,7 +1828,7 @@ defmodule FlezhaConsoleWeb.CoreComponents do
 
   def tooltip(assigns) do
     ~H"""
-    <span class="fcon-tip-host" phx-no-format>{render_slot(@inner_block)}<span role="tooltip" id={@id} class="fcon-tooltip">{@text}</span></span>
+    <span class="fcon-tip-host" phx-no-format>{render_slot(@inner_block)}<span role="tooltip" id={@id} class="fcon-tooltip" phx-mounted={JS.ignore_attributes(["style"])}>{@text}</span></span>
     """
   end
 
@@ -2768,18 +2769,24 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   recipe, and the brand ink on the canvas.
   """
   attr :on, :atom, default: :canvas, values: [:chrome, :canvas]
+  attr :mark, :boolean, default: false, doc: "the badger alone, where the lockup has no room"
+  attr :class, :string, default: nil
 
   def brand_lockup(assigns) do
-    assigns =
-      assign(assigns, :mask, "url(#{~p"/images/flezha-console-badger-line-text-white.svg"})")
+    {file, aspect} =
+      if assigns.mark,
+        do: {~p"/favicon.svg", "1"},
+        else: {~p"/images/flezha-console-badger-line-text-white.svg", lockup_aspect()}
+
+    assigns = assign(assigns, mask: "url(#{file})", aspect: aspect)
 
     ~H"""
-    <span class={if @on == :chrome, do: "flz-brand", else: "fcon-brand fcon-brand--canvas"}>
+    <span class={[if(@on == :chrome, do: "flz-brand", else: "fcon-brand fcon-brand--canvas"), @class]}>
       <span
         role="img"
         aria-label={product_name()}
         class={if @on == :chrome, do: "flz-logo", else: "fcon-logo"}
-        style={"mask-image: #{@mask}; -webkit-mask-image: #{@mask}; aspect-ratio: #{lockup_aspect()}"}
+        style={"mask-image: #{@mask}; -webkit-mask-image: #{@mask}; aspect-ratio: #{@aspect}"}
       ></span>
     </span>
     """

@@ -149,7 +149,8 @@ defmodule FlezhaConsole.NamingGate do
 
     # Most files break no rule, so each rule is tried on the whole file once and
     # only the rules it breaks are tried line by line.
-    rules = Enum.filter(rules_for(path), &Regex.match?(elem(&1, 0), mask(read(file), entries)))
+    masked = mask(read(file), entries)
+    rules = Enum.filter(rules_for(path), &Regex.match?(elem(&1, 0), masked))
 
     line_hits =
       if rules == [] do

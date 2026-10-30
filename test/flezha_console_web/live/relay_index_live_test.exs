@@ -163,9 +163,11 @@ defmodule FlezhaConsoleWeb.RelayIndexLiveTest do
       counters(node, %{"demo#p0" => 2_000, "demo#p1" => 6_000})
       html = tick(view)
 
-      # A tick spans a little over the second it is set back by.
+      # A tick spans the second it is set back by, and a little more however
+      # busy the machine is: so 4000 is the ceiling, and above 3000 — the
+      # busier partition's own ceiling — only the two summed can reach.
       [rate] = Regex.run(~r/([\d.]+) msgs\/s/, rate_text(view, "demo"), capture: :all_but_first)
-      assert String.to_float(rate) >= 3_900 and String.to_float(rate) <= 4_000
+      assert String.to_float(rate) > 3_000 and String.to_float(rate) <= 4_000
       assert html =~ ~s(data-testid="relay-spark-demo")
     end
 

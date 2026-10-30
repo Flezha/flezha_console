@@ -110,6 +110,11 @@ namespace and some are not, and it says which is which.
   Observability and Logs. A screen is in the first only when the
   controller call behind it takes a namespace, or the rows it returns each
   carry one. With nothing in scope the first section says so.
+- **The rail stands off the page and folds to its icons.** At desk width it
+  runs the screen's full height and casts its edge onto the content. The «
+  control in its head collapses it to a strip of icons — each named beside it
+  on hover or focus, the Problems count on its icon — and » brings it back.
+  The choice is kept in the browser and applied before the first paint.
 - **Problems are counted on the rail.** A per-session pulse reads every
   reachable namespace every ten seconds, with the operator's own token and a
   fixed number of calls per namespace, and the Problems entry shows how many
@@ -151,6 +156,8 @@ namespace and some are not, and it says which is which.
   `p` or `c` goes to Home, Relays, Problems or Cluster. Every flezha term on
   screen shows its definition on hover or focus, from one glossary, and a
   click pins that definition beside it until Escape or a click elsewhere.
+  A definition, like a menu, is kept whole on screen: near an edge it moves
+  in, and with no room above it opens below.
 - **A long screen opens on what it is for** and folds the rest away, each
   folded section stating what it holds. The viewer's last choice is restored
   from `localStorage`; a breached quota opens its section regardless.
@@ -162,9 +169,10 @@ namespace and some are not, and it says which is which.
 
 The shell has three modes, by width alone:
 
-- **Desk, 1024 px and wider:** the rail beside the page, as described above.
+- **Desk, 1024 px and wider:** the rail beside the page, as described above,
+  expanded or collapsed to its icons.
 - **Compact, 600–1023 px:** the rail is a drawer, opened from the menu control
-  that leads the topbar. The topbar keeps to one row, and a search control
+  that leads the topbar, always whole whatever the desk choice. The topbar keeps to one row, and a search control
   opens the palette.
 - **Phone, under 600 px:** the drawer too, plus a bar along the bottom edge:
   Home, Relays and Problems (with its count), Search, which opens the palette

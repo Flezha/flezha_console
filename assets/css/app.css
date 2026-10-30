@@ -18,6 +18,7 @@
 @import "./console/tokens.css";
 @import "./console/base.css";
 @import "./console/components.css";
+@import "./console/shell.css";
 @import "@flezha/stylebook/css/tokens.css";
 @import "@flezha/stylebook/css/components.css";
 @import "tailwindcss/components";

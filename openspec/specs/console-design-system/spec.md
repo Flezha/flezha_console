@@ -266,3 +266,12 @@ stylebook.
 - **WHEN** any screen with tiles renders at 1280, 390 and 360 px wide
 - **THEN** no element inside a tile extends past the tile's box
 
+### Requirement: Tiles in a list keep their ends level, and a notice stands clear
+
+In a list of tiles, each tile SHALL stack what it holds from the top and SHALL keep its end — a fold and an action — on its bottom line, so the actions of one row stand level however much each tile holds. A fold inside a tile SHALL be the kit's disclosure, marked with its chevron. A notice in a section SHALL stand clear of what follows it.
+
+#### Scenario: The providers' Enable buttons stand level
+
+- **WHEN** an operator opens the providers the controllers offer
+- **THEN** every Enable button sits on its tile's bottom line, and the refused-package notice stands clear of the tiles below it
+

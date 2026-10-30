@@ -6,6 +6,7 @@ import {
   test,
   expect,
   disablePlugin,
+  openPluginRow,
   fillPluginForm,
   uniqueId,
   type Page,
@@ -73,6 +74,26 @@ test.describe('Plugin packages', () => {
     await openSection(page, 'providers');
     await expect(page.getByTestId('providers-refused')).toContainText('refused 1 installed package');
   });
+
+  test("the providers' tiles stand clear of the notice, with their actions level", async ({ page }) => {
+    await openSection(page, 'providers');
+    const notice = (await page.getByTestId('providers-refused').boundingBox())!;
+    const tiles = page.locator('[data-testid^="provider-"][class*="fcon-tile"]');
+    const first = (await tiles.first().boundingBox())!;
+    expect(first.y - (notice.y + notice.height)).toBeGreaterThanOrEqual(12);
+
+    // Each row's Enable buttons share one line, however much each tile holds.
+    const buttons = await page.locator('[data-testid^="provider-enable-"]').evaluateAll((all) =>
+      all.map((b) => {
+        const tile = b.closest('.fcon-tile')!.getBoundingClientRect();
+        return { row: Math.round(tile.top), bottom: Math.round(tile.bottom - b.getBoundingClientRect().bottom) };
+      }),
+    );
+    expect(buttons.length).toBeGreaterThan(1);
+    for (const { row, bottom } of buttons) {
+      expect(bottom, `the action in the row at ${row} sits on its tile's bottom line`).toBe(buttons[0].bottom);
+    }
+  });
 });
 
 test.describe('Plugin writes', () => {
@@ -120,7 +141,7 @@ test.describe('Plugin writes', () => {
       await expect(page.locator('body')).toContainText(`Plugin ${name} enabled.`);
       await expect(page.locator('body')).not.toContainText('does not run on');
 
-      const row = page.getByTestId(`plugin-row-${name}`);
+      const row = await openPluginRow(page, name);
       await expect(row).toContainText('on_relay_started');
       await expect(page.getByTestId(`plugin-controllers-${name}`)).toContainText('flezha@');
       await expect(page.getByTestId(`plugin-bind-${name}`)).toHaveCount(0);
@@ -142,6 +163,7 @@ test.describe('Plugin writes', () => {
 
     try {
       await enable(page, name, 'relay_stdout', ['on_output'], {}, RELAY);
+      await openPluginRow(page, name);
       await expect(page.getByTestId(`plugin-relays-${name}`)).toContainText(RELAY);
 
       // Bind
@@ -192,7 +214,7 @@ test.describe('Plugin writes', () => {
         RELAY,
       );
       await expect(page.locator('body')).toContainText(`Plugin ${push} enabled and bound to ${RELAY}.`);
-      await expect(page.getByTestId(`plugin-row-${push}`)).toBeVisible();
+      await expect(await openPluginRow(page, push)).toBeVisible();
 
       await enable(
         page,
@@ -202,7 +224,7 @@ test.describe('Plugin writes', () => {
         { regex_pattern: '^pw-never-matches$', inverted: 'true' },
         RELAY,
       );
-      await expect(page.getByTestId(`plugin-row-${filter}`)).toBeVisible();
+      await expect(await openPluginRow(page, filter)).toBeVisible();
     } finally {
       try {
         await disablePlugin(page, push);

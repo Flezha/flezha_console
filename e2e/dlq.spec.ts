@@ -1,11 +1,14 @@
 import {
   test,
   expect,
+  deadLetterRefs,
+  dropDeadLetters,
+  openDeadLetters,
+  POISON_TASKLET as TASKLET,
   sendRecords,
   startRelayCli,
   stopRelayCli,
   uniqueId,
-  visitLive,
   menuAction,
   workerPage,
   type Page,
@@ -14,9 +17,8 @@ import {
 /**
  * The dead-letter queue screen, against entries this file parks itself.
  *
- * The dev runner's `poison_probe` factory fails on the input `poison` until it
- * is sent `antidote`; after its retries the controller parks the input. The
- * antidote is never sent, because it is process-wide on the runner and would
+ * Its relay is a `poison_probe` one, parking `poison` (see `POISON_TASKLET`).
+ * The antidote is never sent, because it is process-wide on the runner and would
  * change every later run. One relay under a run-unique id holds the file's
  * entry: without the effectively-once tier the controller keys an entry on its
  * channel and payload, so a relay can park `poison` once. Each test filters
@@ -24,8 +26,6 @@ import {
  * seen, then replayed, which parks it unseen as its next generation, before
  * it is dropped, and whatever is left is dropped before the relay is stopped.
  */
-const TASKLET = 'poison_probe_tasklet';
-
 let relay: string;
 let ref: string;
 let admin: Page;
@@ -37,21 +37,6 @@ function statTerm(page: Page) {
 const group = (page: Page) => page.getByTestId(`dlq-group-${relay}-${TASKLET}`);
 const groupCount = (page: Page) => page.getByTestId(`dlq-group-count-${relay}-${TASKLET}`);
 
-/** The ref of each entry the relay's group lists. */
-async function listedRefs(page: Page): Promise<string[]> {
-  return group(page)
-    .locator('[data-testid^="dlq-row-"]')
-    .evaluateAll((rows) =>
-      rows.map((row) => (row.getAttribute('data-testid') ?? '').slice('dlq-row-'.length)),
-    );
-}
-
-/** The queue filtered to the relay, seen entries listed too unless `seen` is false. */
-async function openQueue(page: Page, { seen = true } = {}): Promise<void> {
-  await visitLive(page, seen ? '/dlq?seen=shown' : '/dlq');
-  await page.getByTestId('dlq-filter').fill(relay);
-}
-
 test.beforeAll(async ({ browser }, testInfo) => {
   admin = await workerPage(browser, testInfo);
   relay = uniqueId('pw_dlq');
@@ -59,26 +44,20 @@ test.beforeAll(async ({ browser }, testInfo) => {
   await startRelayCli(relay, 'poison_probe');
   await sendRecords(relay, ['poison']);
 
-  await openQueue(admin);
+  await openDeadLetters(admin, relay);
   await expect(groupCount(admin)).toHaveText('1 dead letter');
-  [ref] = await listedRefs(admin);
+  [ref] = await deadLetterRefs(admin, relay);
 });
 
 test.afterAll(async () => {
-  // Only this relay's group is ever touched: the queue is shared.
-  await openQueue(admin);
-  for (const left of await listedRefs(admin)) {
-    await menuAction(admin, `dlq-menu-${left}`, `dlq-drop-${left}`);
-    await admin.getByTestId('dlq-confirm-submit').click();
-    await expect(admin.getByTestId(`dlq-row-${left}`)).toHaveCount(0);
-  }
+  await dropDeadLetters(admin, relay);
   await stopRelayCli(relay);
   await admin.context().close();
 });
 
 test.describe('Dead-letter queue', () => {
   test.beforeEach(async ({ page }) => {
-    await openQueue(page);
+    await openDeadLetters(page, relay);
   });
 
   test('a poisoned input becomes a dead letter under its relay and tasklet, counted, filtered and inspected', async ({
@@ -114,7 +93,7 @@ test.describe('Dead-letter queue', () => {
   });
 
   test('a dead letter marked seen leaves the listing, and Show seen lists it badged', async ({ page }) => {
-    await openQueue(page, { seen: false });
+    await openDeadLetters(page, relay, { seen: false });
     await menuAction(page, `dlq-menu-${ref}`, `dlq-mark-seen-${ref}`);
     await expect(page.getByTestId(`dlq-row-${ref}`)).toHaveCount(0);
     await expect(page.getByTestId('dlq-empty')).toContainText('Show seen lists them');

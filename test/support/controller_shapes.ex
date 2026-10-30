@@ -90,11 +90,11 @@ defmodule FlezhaConsole.ControllerShapes do
   @keyed_by_data ~w(chains request_subs relay_health health signals statuses by_node refused)
 
   # Keys holding free-form data the console reads no field of: a relay's start
-  # options, a plugin's configured options, and an observability record's
-  # metadata and measurements, which differ by event. Which entries they hold,
-  # and of what type, depends on what the stack runs, so only their presence is
-  # kept.
-  @free_form ~w(opts metadata measurements)
+  # options, a plugin's configured options and the options its provider runs
+  # with, which differ by provider, and an observability record's metadata and
+  # measurements, which differ by event. Which entries they hold, and of what
+  # type, depends on what the stack runs, so only their presence is kept.
+  @free_form ~w(opts provider_opts metadata measurements)
 
   @doc "The shape of `term`."
   def of(term) when is_binary(term), do: "string"

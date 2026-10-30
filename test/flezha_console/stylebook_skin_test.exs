@@ -9,7 +9,9 @@ defmodule FlezhaConsole.StylebookSkinTest do
   brand lockup and the graph,
   the console's stylesheets read
   colour only through its `--fcon-*` roles, and nothing here restyles the shell
-  recipe, whose one home is the stylebook.
+  recipe, whose one home is the stylebook, except the console's one layer on it
+  in `shell.css`: at desk width, the rail lifted off the page and collapsed to
+  its icons.
   """
 
   use ExUnit.Case, async: true
@@ -36,6 +38,12 @@ defmodule FlezhaConsole.StylebookSkinTest do
   # toggle; it is not a class.
   @class ~r/(?<![\w-])flz-[a-z][a-z-]*/
 
+  # Viewer preferences are stored under `flz-` keys, and the root layout reads
+  # this one before first paint.
+  @storage_keys ~w(flz-rail-collapsed)
+
+  @shell_layer "assets/css/console/shell.css"
+
   defp lib_files, do: Path.wildcard("lib/**/*.{ex,heex}")
 
   test "a flz- class appears only on a button or a tile, in the shell, the chrome lockup and the graph" do
@@ -45,6 +53,7 @@ defmodule FlezhaConsole.StylebookSkinTest do
           class <- Regex.scan(@class, File.read!(file)) |> List.flatten(),
           not Regex.match?(@button, class),
           not Regex.match?(@tile, class),
+          class not in @storage_keys,
           not (file == @kit and class in @kit_allowed),
           not (file == @layouts and class in @layouts_allowed),
           uniq: true,
@@ -54,7 +63,7 @@ defmodule FlezhaConsole.StylebookSkinTest do
   end
 
   test "the console's own stylesheets read colour only through its roles" do
-    for file <- ~w(assets/css/console/base.css assets/css/console/components.css) do
+    for file <- ~w(assets/css/console/base.css assets/css/console/components.css #{@shell_layer}) do
       foreign =
         Regex.scan(~r/var\((--[a-z0-9-]+)/, File.read!(file), capture: :all_but_first)
         |> List.flatten()
@@ -66,7 +75,7 @@ defmodule FlezhaConsole.StylebookSkinTest do
   end
 
   test "the shell recipe has one home: nothing here restyles it" do
-    for file <- Path.wildcard("assets/css/**/*.css") do
+    for file <- Path.wildcard("assets/css/**/*.css"), file != @shell_layer do
       selectors =
         Regex.scan(~r/\.flz-(?:app|app-main|canvas|sidebar|topbar)\b[^{,]*[{,]/, File.read!(file))
 

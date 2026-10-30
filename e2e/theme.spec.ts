@@ -127,7 +127,8 @@ test.describe('Theme contract', () => {
   test('the badger lockup is painted in each theme', async ({ page, live }) => {
     for (const scheme of ['dark', 'light'] as const) {
       await freshVisit(page, live, scheme);
-      const logo = page.locator('.flz-sidebar-brand .flz-logo');
+      // The lockup, not the badger a collapsed rail shows in its place.
+      const logo = page.locator('.flz-sidebar-brand .flz-logo:visible');
 
       await expect(logo).toBeVisible();
       expect(await logo.evaluate((el) => getComputedStyle(el).maskImage)).toContain(

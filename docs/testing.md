@@ -289,12 +289,13 @@ it honest:
   `history_record/2`, `relay_counters/2`) against
   `test/support/fixtures/controller_shapes.json`: tuple tags, map keys and value
   types recorded from the dev controller, never values. A map keyed by data
-  rather than by fields — a provider's `opts`, a relay's hook `chains`, one
-  count per health verdict — is recorded by its values alone, since which keys
-  it holds depends on what the stack runs. A paged read — a stub declared with
-  `paged:` — answers the page `FakeController.page/3` cuts from the whole
-  collection a test sets, refusing what core refuses, so a test sets thousands
-  of rows and a screen reads them a page at a time.
+  rather than by fields — a provider's `opts` and the `provider_opts` it runs
+  with, a relay's hook `chains`, one count per health verdict — is recorded by
+  its values alone, since which keys it holds depends on what the stack runs.
+  A paged read — a stub declared with `paged:` — answers the page
+  `FakeController.page/3` cuts from the whole collection a test sets, refusing
+  what core refuses, so a test sets thousands of rows and a screen reads them a
+  page at a time.
 
 Every browser run starts by checking the live controller against that file, and
 fails naming each read whose answer moved. When core changes an answer,
@@ -348,15 +349,19 @@ fixture itself:
 - Two plugin packages placed in the controller's plugin root before it boots
   (`priv/dev/plugin_packages.sh`): `flezha_http`, which loads, and
   `flezha_http_tampered`, which the loader refuses with `plugin.package_invalid`.
-- `poison_probe`, a factory whose tasklet fails on the input `poison`, so
-  `dlq.spec.ts` parks entries in its own relay. Never send it `antidote`: that
-  flips a flag for the whole runner process.
+- `poison_probe`, a factory whose tasklet fails on the input `poison`, so a
+  spec parks a dead letter in a relay of its own and drops it after —
+  `openDeadLetters()`, `deadLetterRefs()` and `dropDeadLetters()` in
+  `e2e/fixtures.ts`. Never send it `antidote`: that flips a flag for the whole
+  runner process.
 
 A plugin runs on the controller, inside the compose network, so options that
 name a service point at it there — Kafka at `fcon_kafka:9092`, HTTP at
 `http://fcon_web:4000` — never at `localhost`. A disabled plugin keeps its
-bindings, so `disablePlugin()` unbinds every relay first. A revoked token stays
-listed as revoked.
+bindings, so `disablePlugin()` unbinds every relay first. A spec finds a
+plugin's row with `openPluginRow()`, on the plugins list filtered to it: other
+runs' plugins can push it past the first page. A revoked token stays listed as
+revoked.
 
 ## The trader stack's market relay
 

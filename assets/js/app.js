@@ -37,20 +37,21 @@ const popOpen = pop => !popPanel(pop).hidden
 const openPops = () => [...document.querySelectorAll("[data-fcon-pop]")].filter(popOpen)
 
 // Placed against the viewport, so no scrolling ancestor — a grid, the canvas —
-// clips it; it opens upward when there is no room below, and aligns to the
-// trigger's right edge when it is an end-aligned menu. Whatever the trigger's
-// place, the panel is kept EDGE px inside the viewport.
+// clips it. `side` is where it opens: below or above `rect`, flipped when
+// there is no room there and more on the other side, or after it, centred on
+// it. Aligned to the anchor's left edge, or its right edge with `end`, and
+// kept EDGE px inside the viewport whatever the anchor's place.
 const EDGE = 8
 
-function placePop(pop) {
-  const panel = popPanel(pop)
-  const rect = popTrigger(pop).getBoundingClientRect()
-  const end = panel.matches(".fcon-popover--end, .right-0")
+function placeAgainst(panel, rect, {side = "below", end = false, gap = 4} = {}) {
   const width = document.documentElement.clientWidth
   // Every side is set, so no stylesheet offset is left to apply against the
   // viewport.
-  Object.assign(panel.style, {position: "fixed", top: "auto", bottom: "auto", left: "auto", right: "auto", marginTop: "0", maxWidth: `${width - 2 * EDGE}px`})
-  if (pop.closest(".fcon-combobox")) { panel.style.minWidth = `${Math.min(rect.width, width - 2 * EDGE)}px` }
+  Object.assign(panel.style, {position: "fixed", top: "auto", bottom: "auto", left: "auto", right: "auto", marginTop: "0"})
+  if (side === "after") {
+    Object.assign(panel.style, {left: `${rect.right + gap}px`, top: `${rect.top + rect.height / 2}px`})
+    return
+  }
   if (end) { panel.style.right = `${width - rect.right}px` }
   else { panel.style.left = `${rect.left}px` }
   const placed = panel.getBoundingClientRect()
@@ -59,12 +60,41 @@ function placePop(pop) {
     Object.assign(panel.style, {left: `${left}px`, right: "auto"})
   }
   const below = window.innerHeight - rect.bottom
-  if (panel.offsetHeight + 8 > below && rect.top > below) {
-    panel.style.bottom = `${window.innerHeight - rect.top + 4}px`
-  } else {
-    panel.style.top = `${rect.bottom + 4}px`
-  }
+  const above = rect.top
+  const fits = room => panel.offsetHeight + 2 * gap <= room
+  const up = side === "above" ? fits(above) || above >= below : !fits(below) && above > below
+  if (up) { panel.style.bottom = `${window.innerHeight - rect.top + gap}px` }
+  else { panel.style.top = `${rect.bottom + gap}px` }
 }
+
+function placePop(pop) {
+  const panel = popPanel(pop)
+  const rect = popTrigger(pop).getBoundingClientRect()
+  const width = document.documentElement.clientWidth
+  panel.style.maxWidth = `${width - 2 * EDGE}px`
+  if (pop.closest(".fcon-combobox")) { panel.style.minWidth = `${Math.min(rect.width, width - 2 * EDGE)}px` }
+  placeAgainst(panel, rect, {end: panel.matches(".fcon-popover--end, .right-0")})
+}
+
+// A hover tooltip is placed the same way, over its host. A collapsed rail's
+// stands after the rail, centred on the destination it names.
+function placeTip(event) {
+  if (!event.target.closest) { return }
+  const railLink = event.target.closest("#shell-nav a")
+  const railTip = railLink?.querySelector(":scope > [data-fcon-rail-tip]")
+  if (railTip) {
+    const at = railLink.getBoundingClientRect()
+    const railEnd = railLink.closest("#shell-nav").getBoundingClientRect().right
+    placeAgainst(railTip, {top: at.top, height: at.height, right: railEnd}, {side: "after", gap: EDGE})
+    return
+  }
+  const host = event.target.closest(".fcon-tip-host")
+  const tip = host?.querySelector(":scope > .fcon-tooltip")
+  if (tip) { placeAgainst(tip, host.getBoundingClientRect(), {side: "above", gap: EDGE}) }
+}
+
+document.addEventListener("pointerover", placeTip)
+document.addEventListener("focusin", placeTip)
 
 function openPop(pop, at = null) {
   closePops(pop)
@@ -233,6 +263,32 @@ document.addEventListener("keydown", event => {
 window.addEventListener("phx:page-loading-start", () => setNav(false))
 // At desk width the rail stands beside the page, and nothing may stay inert.
 window.matchMedia("(width >= 1024px)").addEventListener("change", ({matches}) => matches && setNav(false))
+
+// ---- The rail collapsed to its icons ----
+//
+// At desk width a `[data-fcon-rail-toggle]` inside the rail collapses it to its
+// icons and back. The choice is kept as `data-rail-collapsed` on <html>, which
+// the root layout sets from storage before first paint.
+
+const RAIL_COLLAPSED = "flz-rail-collapsed"
+
+// The toggle names what a press would do.
+function syncRailToggles() {
+  const label = document.documentElement.hasAttribute("data-rail-collapsed") ? "Expand navigation" : "Collapse navigation"
+  for (const toggle of document.querySelectorAll("[data-fcon-rail-toggle]")) {
+    toggle.setAttribute("aria-label", label)
+    toggle.title = label
+  }
+}
+
+document.addEventListener("click", event => {
+  if (!event.target.closest("[data-fcon-rail-toggle]")) { return }
+  pref.set(RAIL_COLLAPSED, String(document.documentElement.toggleAttribute("data-rail-collapsed")))
+  syncRailToggles()
+})
+
+window.addEventListener("phx:page-loading-stop", syncRailToggles)
+syncRailToggles()
 
 // ---- Copying an identifier or a value shown once ----
 //

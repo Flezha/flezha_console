@@ -11,10 +11,12 @@
     <.live_title default={product_name()} suffix=" · Flezha">
       {assigns[:page_title]}
     </.live_title>
-    <%!-- Sets data-theme before first paint. Must stay ahead of the
-          stylesheet, and must stay a blocking classic script. --%>
+    <%!-- Sets data-theme, and data-rail-collapsed when the operator put the
+          rail away, before first paint. Must stay ahead of the stylesheet,
+          and must stay a blocking classic script. --%>
     <script>
       <%= theme_hydrate() %>
+      try { if (localStorage.getItem("flz-rail-collapsed") === "true") document.documentElement.setAttribute("data-rail-collapsed", "") } catch (e) {}
     </script>
     <link
       :for={face <- ~w(Inter-latin.woff2 SpaceGrotesk-latin.woff2 JetBrainsMono-latin.woff2)}

@@ -11,7 +11,8 @@
 
 /* ======================================================================
    Brand on the canvas, counts and strips
-   (the shell itself — rail and topbar — is the stylebook's)
+   (the shell itself — rail and topbar — is the stylebook's; the console's
+   one layer on it is shell.css)
    ====================================================================== */
 
 .fcon-brand {
@@ -296,6 +297,11 @@
 
 .fcon-section-body {
   margin-top: var(--fcon-space-4);
+}
+
+/* A notice stands apart from what follows it in a section. */
+.fcon-section-body > .fcon-note:not(:last-child) {
+  margin-bottom: var(--fcon-space-4);
 }
 
 /* ======================================================================
@@ -2268,7 +2274,8 @@ button.fcon-step-text:hover .fcon-step-label {
   transition: transform var(--fcon-fast) var(--fcon-ease);
 }
 
-.fcon-disclosure-toggle[aria-expanded="true"] .fcon-disclosure-mark {
+.fcon-disclosure-toggle[aria-expanded="true"] .fcon-disclosure-mark,
+.fcon-disclosure[open] > summary .fcon-disclosure-mark {
   transform: rotate(90deg);
 }
 
@@ -2670,14 +2677,21 @@ button.fcon-step-text:hover .fcon-step-label {
 
 /* A tile's surface, edge, hover and focus are the stylebook's `.flz-tile`.
    Its fixed rows belong to an indicator; a tile in a list of objects stacks
-   what it holds from the top. */
+   what it holds from the top, and its end — a fold, an action — sits on its
+   bottom line, so a row of tiles keeps those level. */
 .fcon-tile {
   gap: var(--fcon-space-3);
 }
 
 .fcon-tiles > .fcon-tile {
-  align-content: start;
-  grid-template-rows: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.fcon-tile-end {
+  display: grid;
+  gap: var(--fcon-space-3);
+  margin-top: auto;
 }
 
 .fcon-tile-title {

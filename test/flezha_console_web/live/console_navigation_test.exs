@@ -73,6 +73,31 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
       assert html |> within(~s([data-testid="scope-all"])) |> attr("aria-current") == "true"
     end
 
+    test "the rail carries the control that collapses it to its icons, at desk width", %{
+      conn: conn
+    } do
+      # A live screen, and the settings page, which is a plain controller page
+      # in the same shell. The root layout applies a collapsed rail before
+      # first paint.
+      for path <- [~p"/namespaces", ~p"/users/settings"] do
+        html = conn |> get(path) |> html_response(200)
+        toggle = within(html, ~s(#shell-nav [data-testid="rail-toggle"]))
+
+        assert attr(toggle, "data-shell-at") == "desk", path
+        assert attr(toggle, "aria-controls") == "shell-nav", path
+        assert attr(toggle, "aria-label") == "Collapse navigation", path
+        assert html =~ ~s[localStorage.getItem("flz-rail-collapsed")], path
+
+        # Each destination's name is its text once; a collapsed rail's tooltip
+        # shows it from an attribute.
+        link = within(html, ~s(#shell-nav a[href="/cluster"]))
+        assert link |> LazyHTML.text() |> String.trim() == "Cluster"
+        tip = LazyHTML.query(link, "[data-fcon-rail-tip]")
+        assert attr(tip, "data-label") == "Cluster"
+        assert attr(tip, "aria-hidden") == "true"
+      end
+    end
+
     test "dead-letter and observability stay platform-global", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/dlq")
 

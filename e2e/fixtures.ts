@@ -516,9 +516,17 @@ export const optionError = (page: Page, option: string) =>
  * trying to start them, so disabling alone would leave state behind.
  * Safe to call from `finally`: a plugin already gone is left alone.
  */
+/**
+ * `name`'s row, on its namespace's plugins filtered to it, so however many
+ * plugins other runs leave behind never page it out of sight.
+ */
+export async function openPluginRow(page: Page, name: string, namespace = 'default'): Promise<Locator> {
+  await visitLive(page, `/namespaces/${namespace}/plugins?q=${encodeURIComponent(name)}`);
+  return page.getByTestId(`plugin-row-${name}`);
+}
+
 export async function disablePlugin(page: Page, name: string): Promise<void> {
-  await visitLive(page, '/namespaces/default/plugins');
-  const row = page.getByTestId(`plugin-row-${name}`);
+  const row = await openPluginRow(page, name);
   if ((await row.count()) === 0) return;
 
   await confirmEach(
@@ -647,6 +655,39 @@ export async function stopRelayCli(id: string, namespace = 'default'): Promise<v
     await cliCall('Relay.stop', [namespace, id]);
   } catch (error) {
     if (!refusedWith(error, 'relay.not_found', 'relay.not_running')) throw error;
+  }
+}
+
+/**
+ * The dev runner's `poison_probe` factory fails on the input `poison` until it
+ * is sent `antidote`; after its retries the controller parks the input under
+ * this tasklet, as a dead letter of the relay's class.
+ */
+export const POISON_TASKLET = 'poison_probe_tasklet';
+
+/** The dead-letter queue filtered to `relay`, seen entries listed too unless `seen` is false. */
+export async function openDeadLetters(page: Page, relay: string, { seen = true } = {}): Promise<void> {
+  await visitLive(page, seen ? '/dlq?seen=shown' : '/dlq');
+  await page.getByTestId('dlq-filter').fill(relay);
+}
+
+/** The ref of each entry the open queue lists for `relay`'s poisoned tasklet. */
+export async function deadLetterRefs(page: Page, relay: string): Promise<string[]> {
+  return page
+    .getByTestId(`dlq-group-${relay}-${POISON_TASKLET}`)
+    .locator('[data-testid^="dlq-row-"]')
+    .evaluateAll((rows) =>
+      rows.map((row) => (row.getAttribute('data-testid') ?? '').slice('dlq-row-'.length)),
+    );
+}
+
+/** Drops every dead letter `relay` holds, and nothing else: the queue is shared. */
+export async function dropDeadLetters(page: Page, relay: string): Promise<void> {
+  await openDeadLetters(page, relay);
+  for (const ref of await deadLetterRefs(page, relay)) {
+    await menuAction(page, `dlq-menu-${ref}`, `dlq-drop-${ref}`);
+    await page.getByTestId('dlq-confirm-submit').click();
+    await expect(page.getByTestId(`dlq-row-${ref}`)).toHaveCount(0);
   }
 }
 

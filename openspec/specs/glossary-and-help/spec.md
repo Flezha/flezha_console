@@ -126,3 +126,12 @@ Activating a term marker SHALL open a panel next to it with that term's own glos
 - **THEN** the first panel shows the definition of role, and the second shows the definition of principal
 - **AND** only the clicked term is marked active
 
+### Requirement: A definition shown on hover stays on screen
+
+A definition or hint shown on hover or focus SHALL be shown whole inside the viewport, kept at least 8 px from its edges. It SHALL open over what it explains, and under it when there is no room above. Near the right edge it SHALL move left rather than run past the edge. A scrolling region around what it explains SHALL NOT clip it.
+
+#### Scenario: A term near the right edge
+
+- **WHEN** an operator at 1440 px hovers the quota term on the Limits tile, the last tile in its row
+- **THEN** the definition is shown whole, its right edge at least 8 px inside the viewport
+

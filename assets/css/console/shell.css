@@ -1,0 +1,146 @@
+/*
+ * The console's one layer on the stylebook's shell recipe, at desk width only:
+ * the rail is lifted off the page, and collapses to its icons on request.
+ * Below desk width the rail is the stylebook's drawer, untouched here.
+ *
+ * Loaded before the stylebook, so each rule wins by specificity.
+ */
+
+/* The brand and, at desk width, the control that collapses the rail. */
+.fcon-rail-head {
+  align-items: center;
+  display: flex;
+  gap: var(--fcon-space-1);
+}
+
+.fcon-rail-head > .flz-sidebar-brand {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The badger alone, standing in for the lockup on a collapsed rail. */
+.flz-sidebar-brand > .fcon-rail-mark {
+  display: none;
+}
+
+@media (width >= 1024px) {
+  .fcon-rail-head {
+    padding-inline-end: var(--fcon-space-2);
+  }
+
+  /* The rail runs the screen's full height and is lifted off the page: a
+     hairline where they meet, and a deep shadow cast onto the content.
+     Raised over the content's own sticky layers, so the shadow lies on them. */
+  .flz-app > .flz-sidebar {
+    box-shadow:
+      1px 0 0 var(--fcon-line),
+      4px 0 12px -2px var(--fcon-shadow),
+      16px 0 40px -8px var(--fcon-shadow);
+    position: relative;
+    transition: width var(--fcon-base) var(--fcon-ease);
+    z-index: 2;
+  }
+
+  .fcon-rail-toggle [class*="hero-"] {
+    transition: transform var(--fcon-base) var(--fcon-ease);
+  }
+
+  /* ---- Collapsed to its icons ---- */
+
+  html[data-rail-collapsed] .flz-app > .flz-sidebar {
+    width: 4rem;
+  }
+
+  html[data-rail-collapsed] .fcon-rail-head {
+    flex-direction: column;
+    padding: var(--fcon-space-3) 0 0;
+  }
+
+  html[data-rail-collapsed] .fcon-rail-head > .flz-sidebar-brand {
+    justify-content: center;
+    min-height: 0;
+    padding: 0;
+  }
+
+  html[data-rail-collapsed] .flz-sidebar-brand > .flz-brand:not(.fcon-rail-mark) {
+    display: none;
+  }
+
+  html[data-rail-collapsed] .flz-sidebar-brand > .fcon-rail-mark {
+    display: flex;
+  }
+
+  html[data-rail-collapsed] .fcon-rail-toggle [class*="hero-"] {
+    transform: rotate(180deg);
+  }
+
+  /* A section's heading becomes a rule between its icons; its words stay for
+     a screen reader. */
+  html[data-rail-collapsed] .flz-sidebar-section {
+    font-size: 0;
+    padding: var(--fcon-space-3) var(--fcon-space-2) var(--fcon-space-2);
+  }
+
+  html[data-rail-collapsed] .flz-sidebar-section::before {
+    background: var(--fcon-line);
+    content: '';
+    flex: 1;
+    height: 1px;
+  }
+
+  html[data-rail-collapsed] .flz-sidebar-hint {
+    display: none;
+  }
+
+  html[data-rail-collapsed] .flz-sidebar-link {
+    gap: 0;
+    justify-content: center;
+    padding-inline: 0;
+    position: relative;
+  }
+
+  /* Out of sight, still the link's name. */
+  html[data-rail-collapsed] .fcon-rail-label {
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+
+  /* The count rides the icon's corner, where the stylebook's corner badge
+     puts it. */
+  html[data-rail-collapsed] .flz-sidebar-link > .fcon-count {
+    left: calc(50% + 4px);
+    position: absolute;
+    top: var(--fcon-space-1);
+  }
+
+  /* Only the connection's dot is left of the foot. */
+  html[data-rail-collapsed] .flz-sidebar-foot {
+    padding-inline: 0;
+  }
+
+  html[data-rail-collapsed] .flz-sidebar-foot > :not(:first-child),
+  html[data-rail-collapsed] .flz-sidebar-foot > :first-child > :not(.fcon-shape) {
+    display: none;
+  }
+
+  html[data-rail-collapsed] .flz-sidebar-foot > :first-child {
+    justify-content: center;
+  }
+}
+
+/* The tooltip is the kit's; app.js places it after the rail, centred on the
+   destination it names. */
+[data-fcon-rail-tip]::after {
+  content: attr(data-label);
+}
+
+@media (width >= 1024px) and (hover: hover) {
+  html[data-rail-collapsed] .flz-sidebar-link:is(:hover, :focus-visible) > [data-fcon-rail-tip] {
+    display: block;
+    transform: translateY(-50%);
+  }
+}

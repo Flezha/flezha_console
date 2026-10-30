@@ -123,3 +123,20 @@ test('the namespace tiles stand level, keep their content inside, and lift on ho
   await link.hover();
   await expect.poll(() => link.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe(resting);
 });
+
+test("a definition shown on hover stays on screen beside the screen's edge", async ({ page, live }) => {
+  await live('/namespaces/default');
+  // Limits is the last tile in its row, so its definition would run past the
+  // right edge if it kept to its term's left edge. Shown by focus: the tile is
+  // live, and a refresh can move the term from under a resting pointer.
+  const tile = page.getByTestId('ns-limits');
+  await tile.getByTestId('term-quota').focus();
+
+  const tip = tile.getByRole('tooltip');
+  await expect(tip).toBeVisible();
+  const box = (await tip.boundingBox())!;
+  const width = await page.evaluate(() => document.documentElement.clientWidth);
+  expect(box.x).toBeGreaterThanOrEqual(8);
+  expect(box.x + box.width).toBeLessThanOrEqual(width - 8);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+});

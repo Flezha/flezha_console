@@ -25,14 +25,32 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
         own reads hold until it is shown again. --%>
   <div :if={live?} id="shell-visibility" phx-hook="FlzVisibility" hidden></div>
   <aside id="shell-nav" class="flz-sidebar" aria-label="Navigation">
-    <.link
-      navigate={~p"/"}
-      class="flz-sidebar-brand"
-      aria-label={product_name()}
-      data-testid="brand-link"
-    >
-      <.brand_lockup on={:chrome} />
-    </.link>
+    <div class="fcon-rail-head">
+      <.link
+        navigate={~p"/"}
+        class="flz-sidebar-brand"
+        aria-label={product_name()}
+        data-testid="brand-link"
+      >
+        <.brand_lockup on={:chrome} />
+        <.brand_lockup on={:chrome} mark class="fcon-rail-mark" />
+      </.link>
+      <%!-- Collapses the rail to its icons at desk width; app.js keeps its
+            label naming what a press would do. --%>
+      <button
+        type="button"
+        class="flz-chrome-icon-btn fcon-rail-toggle"
+        data-fcon-rail-toggle
+        aria-controls="shell-nav"
+        aria-label="Collapse navigation"
+        title="Collapse navigation"
+        data-testid="rail-toggle"
+        data-shell-at="desk"
+        phx-mounted={JS.ignore_attributes(["aria-label", "title"])}
+      >
+        <.icon name="hero-chevron-double-left" class="w-5 h-5" />
+      </button>
+    </div>
 
     <nav class="flz-sidebar-nav">
       <%= for section <- nav_sections(scope) do %>
@@ -55,7 +73,17 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
           aria-current={nav_current?(current_path, entry.path) && "page"}
           class="flz-sidebar-link"
         >
-          <.icon name={entry.icon} class="w-[18px] h-[18px] shrink-0" />{entry.label}
+          <.icon name={entry.icon} class="w-[18px] h-[18px] shrink-0" /><span class="fcon-rail-label">{entry.label}</span>
+          <%!-- Names the destination beside a collapsed rail's icon, from its
+                label, so the link's own text holds the name once; app.js
+                places it against the viewport. --%>
+          <span
+            class="fcon-tooltip"
+            aria-hidden="true"
+            data-fcon-rail-tip
+            data-label={entry.label}
+            phx-mounted={JS.ignore_attributes(["style"])}
+          ></span>
           <.problems_count
             :if={entry.count == :problems}
             problems={problems}
