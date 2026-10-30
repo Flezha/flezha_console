@@ -245,7 +245,9 @@ defmodule FlezhaConsole.Service.DevSetupTest do
       assert fields[:opts] == %{"uri" => "ws://example:4500"}
     end
 
-    test "a plugin already enabled counts as seeded", %{node: node} do
+    test "a plugin already enabled counts as seeded and takes the seed's options", %{
+      node: node
+    } do
       FakeController.set(
         node,
         {PluginManager, :enable},
@@ -256,6 +258,37 @@ defmodule FlezhaConsole.Service.DevSetupTest do
 
       assert seed!().ready
       assert [["ws_a", _fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
+
+      assert [["ws_a", fields, %{source: :ui}]] =
+               FakeController.calls(node, {PluginManager, :update})
+
+      assert fields[:namespace] == @namespace
+      assert fields[:opts] == %{"uri" => "ws://example:4500"}
+    end
+
+    test "a newly enabled plugin is not updated", %{node: node} do
+      configure(plugins: [@plugin])
+
+      assert seed!().ready
+      assert FakeController.calls(node, {PluginManager, :update}) == []
+    end
+
+    test "a refused option update is retried, not ignored", %{node: node} do
+      FakeController.set(
+        node,
+        {PluginManager, :enable},
+        {:ok, %{name: "ws_a", outcome: :already_enabled, bound: "relay_a", lacking: []}}
+      )
+
+      FakeController.set(
+        node,
+        {PluginManager, :update},
+        FakeController.error("plugin.unknown_options")
+      )
+
+      configure(plugins: [@plugin])
+
+      refute seed!().ready
     end
 
     test "a refused enable is retried, not ignored", %{node: node} do

@@ -101,6 +101,14 @@ defmodule FlezhaConsole.ControllerShapesTest do
       assert Shapes.diff(shape.(%{healthy: 2}), shape.(%{healthy: 1, unknown: 1})) == []
     end
 
+    test "reads no key of a map keyed by data as a field, even one named like one" do
+      signal = %{count: 1, last_age_ms: 5}
+      shape = fn signals -> Shapes.of(%{recent: %{signals: signals}}) end
+
+      assert Shapes.diff(shape.(%{loaded: signal}), shape.(%{loaded: signal, refused: signal})) ==
+               []
+    end
+
     test "keeps only the presence of free-form options, whatever they hold" do
       recorded = Shapes.of(%{id: "r", opts: [bindings: [{"p", %{id: "p"}}]]})
 

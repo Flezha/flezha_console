@@ -116,13 +116,15 @@ defmodule FlezhaConsole.ControllerShapes do
   def of(%_{} = term), do: term |> Map.from_struct() |> of()
 
   def of(term) when is_map(term) do
-    if map_size(term) > 0 and Enum.all?(Map.keys(term), &is_atom/1) do
-      %{"record" => Map.new(term, &field/1), "optional" => []}
-    else
-      case Map.values(term) do
-        [] -> %{"dict" => "empty"}
-        values -> %{"dict" => values |> Enum.map(&of/1) |> Enum.reduce(&merge/2)}
-      end
+    if map_size(term) > 0 and Enum.all?(Map.keys(term), &is_atom/1),
+      do: %{"record" => Map.new(term, &field/1), "optional" => []},
+      else: dict(term)
+  end
+
+  defp dict(term) do
+    case Map.values(term) do
+      [] -> %{"dict" => "empty"}
+      values -> %{"dict" => values |> Enum.map(&of/1) |> Enum.reduce(&merge/2)}
     end
   end
 
@@ -130,15 +132,12 @@ defmodule FlezhaConsole.ControllerShapes do
 
   defp field(key, _value) when key in @free_form, do: {key, "data"}
 
-  defp field(key, value) do
-    case of(value) do
-      %{"record" => record} when key in @keyed_by_data ->
-        {key, %{"dict" => record |> Map.values() |> Enum.reduce(&merge/2)}}
+  # Its keys are data, so none is read as a field name, even one that is
+  # spelled like a data-keyed field.
+  defp field(key, value) when key in @keyed_by_data and is_map(value) and not is_struct(value),
+    do: {key, dict(value)}
 
-      shape ->
-        {key, shape}
-    end
-  end
+  defp field(key, value), do: {key, of(value)}
 
   @doc "One shape covering both: what a list of `a` and `b` holds."
   def merge(same, same), do: same

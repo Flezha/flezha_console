@@ -6,10 +6,10 @@ defmodule FlezhaConsole.Service.DevSetup do
   nodedown.
 
   Idempotent: a relay already running is left alone, and a plugin already
-  enabled answers `already_enabled`, so a UI restart against a seeded
-  controller changes nothing. A relay seed marked `optional` is skipped, with
-  the plugins bound to it and one log line, when no runner announces its
-  factory.
+  enabled answers `already_enabled` and only takes the seed's options, so a UI
+  restart against a seeded controller changes nothing unless a seed changed. A
+  relay seed marked `optional` is skipped, with the plugins bound to it and one
+  log line, when no runner announces its factory.
   """
 
   use GenServer
@@ -199,10 +199,20 @@ defmodule FlezhaConsole.Service.DevSetup do
       }
 
       case NodeManager.enable_plugin(plugin.name, fields, token) do
+        {:ok, %{outcome: :already_enabled}} -> apply_seed_opts(ns, plugin, token)
         {:ok, _answer} -> :ok
         error -> {:error, {:enable_plugin, plugin.name, error}}
       end
     end)
+  end
+
+  # A plugin enabled on an earlier boot keeps the options it was enabled with,
+  # so an edited seed is applied over them; equal options change nothing.
+  defp apply_seed_opts(ns, plugin, token) do
+    case NodeManager.update_plugin(plugin.name, %{namespace: ns, opts: plugin.opts}, token) do
+      {:ok, _applied} -> :ok
+      error -> {:error, {:update_plugin, plugin.name, error}}
+    end
   end
 
   # `fun` over each seed in order, stopping at the first that does not answer `:ok`.

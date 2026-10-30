@@ -86,7 +86,7 @@ test.describe('Schedules', () => {
     try {
       await openScheduleForm(page);
       await fillScheduleForm(page, name, '0 3 * * *', 'echo_steps');
-      await page.getByTestId('schedule-input-init-values').fill('{"greeting": "hello"}');
+      await page.getByTestId('schedule-input-init-values').fill('{"echo": null}');
       await page.getByTestId('schedule-form-submit').click();
       await expect(page.getByTestId('schedule-form-modal')).toHaveCount(0);
 

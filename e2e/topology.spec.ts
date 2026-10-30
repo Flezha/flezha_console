@@ -94,9 +94,13 @@ async function launched(page: Page): Promise<Record<string, number>> {
 }
 
 /** How many listeners an edge of the relay counts; none when it shows no count. */
+// Read in one step: the badge leaves with the last observer, and a count then a
+// read would wait out the poll on a badge already gone.
 async function observers(page: Page, edge: 'in' | 'out'): Promise<number> {
-  const badge = page.getByTestId(`topo-observers-${edge}`);
-  return (await badge.count()) ? Number(await badge.getAttribute('data-count')) : 0;
+  const count = await page
+    .getByTestId(`topo-observers-${edge}`)
+    .evaluateAll((badges) => badges[0]?.getAttribute('data-count') ?? null);
+  return count === null ? 0 : Number(count);
 }
 
 test.describe('Pipeline graph', () => {

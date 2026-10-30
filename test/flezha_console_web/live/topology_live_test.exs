@@ -1033,7 +1033,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert reads(node, :activity) == reads
 
       render_hook(view, "refresh_visibility", %{"hidden" => false})
-      assert reads(node, :activity) == reads + 1
+      assert PeerNode.eventually(fn -> reads(node, :activity) == reads + 1 end)
     end
 
     test "a refused activity read keeps the structure and drops the figures", %{
