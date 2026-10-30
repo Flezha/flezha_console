@@ -29,13 +29,14 @@ mix release --overwrite
 # left as it was.
 mix phx.digest.clean --all
 
-rel=_build/prod/rel/flezha_console
+rel_root=_build/prod/rel
+rel=$rel_root/flezha_console
 version=$(cut -d' ' -f2 "$rel/releases/start_erl.data")
 archive="_build/dist/flezha_console-$version-$platform.tar.gz"
 
 mkdir -p _build/dist
 # The cookie `mix release` generated is left out: every download would share
 # it. A console takes its controller's cookie through RELEASE_COOKIE.
-COPYFILE_DISABLE=1 tar -czf "$archive" -C "${rel%/*}" --exclude flezha_console/releases/COOKIE flezha_console
+COPYFILE_DISABLE=1 tar -czf "$archive" -C "$rel_root" --exclude flezha_console/releases/COOKIE flezha_console
 
 echo "$archive"

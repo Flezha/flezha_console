@@ -18,7 +18,7 @@ jobs:
       MIX_ENV: test
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16.15
         env:
           POSTGRES_PASSWORD: postgres
         ports: ["5432:5432"]
@@ -56,7 +56,8 @@ jobs:
           path: |
             flezha_console/deps
             flezha_console/_build
-          key: mix-test-${{ runner.os }}-${{ hashFiles('flezha_console/mix.lock') }}
+          # The setup action holds the OTP pin; a build from another OTP will not load.
+          key: mix-test-${{ runner.os }}-${{ hashFiles('flezha_console/mix.lock', 'flezha_console/.github/actions/setup/action.yml') }}
           restore-keys: mix-test-${{ runner.os }}-
 
       - run: mix deps.get

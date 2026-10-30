@@ -1,7 +1,8 @@
 name: Set up the console's toolchain
 description: >
   The flezha_stylebook checkout beside the console, where its assets import it
-  from, and Erlang, Elixir and Node at the versions the core repository pins.
+  from, and Erlang and Elixir at the versions the console's own images build with
+  (deploy/Dockerfile), and Node.
 
 inputs:
   token:
@@ -21,7 +22,7 @@ runs:
     - uses: erlef/setup-beam@v1
       with:
         otp-version: "28"
-        elixir-version: "1.20.2"
+        elixir-version: "1.20.4"
 
     - uses: actions/setup-node@v5
       with:
