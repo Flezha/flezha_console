@@ -99,7 +99,15 @@ defmodule FlezhaConsole.ControllerShapesTest do
       shape = fn health -> Shapes.of({:ok, %{relay_health: health, opts: %{url: "x"}}}) end
 
       assert Shapes.diff(shape.(%{healthy: 2}), shape.(%{healthy: 1, unknown: 1})) == []
-      assert Shapes.diff(Shapes.of(%{opts: %{url: "x"}}), Shapes.of(%{opts: %{uri: "y"}})) == []
+    end
+
+    test "keeps only the presence of free-form options, whatever they hold" do
+      recorded = Shapes.of(%{id: "r", opts: [bindings: [{"p", %{id: "p"}}]]})
+
+      assert Shapes.diff(recorded, Shapes.of(%{id: "r", opts: [settings: %{run: :flow}, n: 1]})) ==
+               []
+
+      assert Shapes.diff(recorded, Shapes.of(%{id: "r"})) == [".opts: missing"]
     end
 
     test "takes a union as fitting when each of its alternatives fits" do

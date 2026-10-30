@@ -262,6 +262,27 @@ controller's toolchain and places it in the plugin root with a copy the loader
 refuses, so the plugin screens show a loaded and a refused package
 (`priv/dev/plugin_packages.sh`).
 
+### Starting, stopping and restarting the stack
+
+`priv/dev/stack.sh` runs the stack once it has been built:
+
+```bash
+priv/dev/stack.sh up                   # start every container, and wait until it is ready
+priv/dev/stack.sh stop                 # drain the controllers, then stop every container
+priv/dev/stack.sh status               # the containers, and how ready each controller is
+priv/dev/stack.sh restart-controllers  # drain and restart each controller in turn
+priv/dev/stack.sh restart-web          # restart the console and wait for it to answer
+priv/dev/stack.sh update               # fetch and compile the console, restart the controllers onto ../flezha
+```
+
+A controller is drained and stopped the way `flz controller stop` stops it,
+never killed, so its next boot has no files to repair. The two controllers
+restart one after the other, because they compile `../flezha` into one shared
+build volume. `up` restarts a controller that was already running, since it
+lists the plugin packages `up` places again as pending until it restarts.
+Nothing in the script runs `docker compose down`, which discards the
+database's data.
+
 ### Resetting the dev controller
 
 Controller state written by an older controller is not migrated. To start over
@@ -284,7 +305,7 @@ A cold start then seeds cleanly in the current vocabulary.
 
 | Container | Role |
 | --- | --- |
-| `fcon_plugin_packages` | One-shot: builds and places the plugin packages the controller loads at boot. Any `docker compose up`, even of one service, runs it again, and the controller lists the re-placed packages as pending until `docker restart flezha_controller` |
+| `fcon_plugin_packages` | One-shot: builds and places the plugin packages the controller loads at boot. Any `docker compose up`, even of one service, runs it again, and the controller lists the re-placed packages as pending until `priv/dev/stack.sh restart-controllers` (`stack.sh up` does it) |
 | `flezha_controller` | The controller, built from `../flezha/deploy/docker/dev/Dockerfile.toolchain` |
 | `flezha_rust_runner` | `test/apps/rust_runner`, waits for the control socket then connects |
 | `fcon_bootstrap` | One-shot: claims the authorization bootstrap and issues the console's token |

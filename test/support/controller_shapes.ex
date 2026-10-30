@@ -84,13 +84,17 @@ defmodule FlezhaConsole.ControllerShapes do
     ]
   end
 
-  # Keys whose map is keyed by data rather than by fields: a provider's
-  # options, the hooks a relay's bindings use, one count per health verdict or
-  # recent signal, one value per controller, and an observability record's
-  # metadata and measurements, which differ by event. Which keys such a map
-  # holds depends on what the stack runs.
-  @keyed_by_data ~w(opts chains request_subs relay_health health signals statuses by_node refused
+  # Keys whose map is keyed by data rather than by fields: the hooks a relay's
+  # bindings use, one count per health verdict or recent signal, one value per
+  # controller, and an observability record's metadata and measurements, which
+  # differ by event. Which keys such a map holds depends on what the stack runs.
+  @keyed_by_data ~w(chains request_subs relay_health health signals statuses by_node refused
                     metadata measurements)
+
+  # Keys holding free-form data the console reads no field of: a relay's start
+  # options and a plugin's configured options. Which options they hold, and of
+  # what type, depends on what the stack runs, so only their presence is kept.
+  @free_form ~w(opts)
 
   @doc "The shape of `term`."
   def of(term) when is_binary(term), do: "string"
@@ -122,9 +126,11 @@ defmodule FlezhaConsole.ControllerShapes do
     end
   end
 
-  defp field({key, value}) do
-    key = Atom.to_string(key)
+  defp field({key, value}), do: field(Atom.to_string(key), value)
 
+  defp field(key, _value) when key in @free_form, do: {key, "data"}
+
+  defp field(key, value) do
     case of(value) do
       %{"record" => record} when key in @keyed_by_data ->
         {key, %{"dict" => record |> Map.values() |> Enum.reduce(&merge/2)}}

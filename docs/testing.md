@@ -228,8 +228,9 @@ random once the stack is ready and held by one run.
    or changed outcome between runs. It exits non-zero while it lists one. No
    test is skipped or retried to pass it.
 
-Restart the controller with `flz controller stop`, and let compose start it
-again, rather than killing it: a killed controller can leave its DETS files to
+Restart the controllers with `priv/dev/stack.sh restart-controllers`, which
+drains each the way `flz controller stop` does and lets compose start it again,
+rather than killing them: a killed controller can leave its DETS files to
 repair, and its next boot spends that time recovering.
 
 ## Shared mechanics are tested once
