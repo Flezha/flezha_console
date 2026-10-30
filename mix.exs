@@ -5,7 +5,7 @@ defmodule FlezhaConsole.MixProject do
     [
       app: :flezha_console,
       version: "0.1.0",
-      elixir: "~> 1.14",
+      elixir: "~> 1.16",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
@@ -44,12 +44,12 @@ defmodule FlezhaConsole.MixProject do
       {:file_system, "~> 1.0", only: [:dev, :test]},
       {:phoenix_live_view, "~> 1.1"},
       {:lazy_html, ">= 0.0.0", only: :test},
-      {:phoenix_live_dashboard, "~> 0.8.3"},
+      {:phoenix_live_dashboard, "~> 0.9"},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.5.2", runtime: Mix.env() == :dev},
       {:heroicons,
        github: "tailwindlabs/heroicons",
-       tag: "v2.1.1",
+       tag: "v2.2.0",
        sparse: "optimized",
        app: false,
        compile: false,
@@ -58,9 +58,9 @@ defmodule FlezhaConsole.MixProject do
       {:finch, "~> 0.13"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
-      {:gettext, "~> 0.26"},
+      {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
-      {:dns_cluster, "~> 0.1.1"},
+      {:dns_cluster, "~> 0.3"},
       {:bandit, "~> 1.5"}
     ]
   end

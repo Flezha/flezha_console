@@ -1,5 +1,5 @@
 # Use the official Elixir image as a base
-FROM elixir:1.18
+FROM elixir:1.20.4-otp-28
 
 # Install inotify-tools for Phoenix live-reload
 RUN apt-get update && apt-get install -y inotify-tools && rm -rf /var/lib/apt/lists/*
@@ -41,7 +41,8 @@ RUN mix local.hex --force && \
 EXPOSE 4000
 
 # Refuse to start without a distribution cookie, rather than run under a
-# well-known one. Then fetch deps and compile at startup so volume-mounted code
-# changes are picked up automatically, then migrate and seed, so a fresh
-# database can log in at once.
-CMD ["sh", "-c", ": \"${ERLANG_COOKIE:?ERLANG_COOKIE must be set}\" && mix deps.get && mix compile && mix ecto.migrate && mix run --no-start priv/repo/seeds.exs && elixir --sname flezha_console --hidden --cookie \"$ERLANG_COOKIE\" -S mix phx.server"]
+# well-known one. Then fetch deps, replace an esbuild binary of another version
+# (its path has no version in it, unlike Tailwind's), and compile at startup so
+# volume-mounted code changes are picked up automatically, then migrate and
+# seed, so a fresh database can log in at once.
+CMD ["sh", "-c", ": \"${ERLANG_COOKIE:?ERLANG_COOKIE must be set}\" && mix deps.get && mix esbuild.install --if-missing && mix compile && mix ecto.migrate && mix run --no-start priv/repo/seeds.exs && exec elixir --sname flezha_console --hidden --cookie \"$ERLANG_COOKIE\" -S mix phx.server"]

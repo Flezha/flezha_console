@@ -9,8 +9,8 @@
     "tokens": "node assets/node_modules/@flezha/stylebook/scripts/check-tokens.mjs --config assets/css/console/gate.config.json assets lib && node assets/node_modules/@flezha/stylebook/scripts/check-tokens.mjs --config assets/css/console/gate.graph.json assets lib"
   },
   "devDependencies": {
-    "@playwright/test": "^1.x",
-    "@types/node": "^26.2.0",
-    "typescript": "^5.x"
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
   }
 }

@@ -32,10 +32,10 @@
 <.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
 
 <p :if={not @disabled? and @sinks != []} class="fcon-figures" data-testid="sinks-line">
-  Signals go to
-  <span
+  Signals go to <span
     :for={{group, index} <- Enum.with_index(sink_groups(@sinks))}
     data-testid={"sink-#{group.name}"}
+    phx-no-format
   >
     <span class="fcon-num">{group.name}</span>{if purpose = sink_purpose(group.sink),
       do: " (#{purpose})"}<span
@@ -58,7 +58,12 @@
 >
   <:title>Sources</:title>
   <:actions>
-    <form phx-change="filter_sources" class="w-64" data-testid="source-filter-form">
+    <form
+      id="source-filter-form"
+      phx-change="filter_sources"
+      class="w-64"
+      data-testid="source-filter-form"
+    >
       <.input
         type="search"
         name="q"

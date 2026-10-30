@@ -193,7 +193,7 @@
     </.button>
   </:actions>
   <div class="space-y-4">
-    <form phx-change="selector_change" class="grid gap-4 sm:grid-cols-2">
+    <form id="selector-form" phx-change="selector_change" class="grid gap-4 sm:grid-cols-2">
       <.input
         type="text"
         name="selector[tasklet]"
@@ -259,6 +259,7 @@
   </dl>
   <form
     :if={NodeManager.granted?(@operations, "Steps.set_retention")}
+    id="retention-form"
     phx-change="retention_change"
     phx-submit="set_retention"
     data-testid="retention-form"
@@ -407,8 +408,7 @@
             data-gap={is_nil(point.lag_ms) && "true"}
             style={"height: #{max(1, min(48, point.lag_ms || 0))}px"}
             title={"lag #{point.lag_ms || "—"}ms, WAL gap #{point.wal_gap || "—"}"}
-          >
-          </span>
+          ></span>
         </div>
       </div>
     </div>
@@ -418,7 +418,7 @@
 <%!-- Point-in-time read --%>
 <.section :if={@selected} testid="time-travel">
   <:title>Where history stands — <span class="fcon-num">{@selected}</span></:title>
-  <form phx-change="travel_change" class="flex flex-wrap items-end gap-3">
+  <form id="travel-form" phx-change="travel_change" class="flex flex-wrap items-end gap-3">
     <.combobox
       label="Target"
       id="travel-kind"
@@ -530,7 +530,7 @@
     Rewinding discards every iteration after the one you choose. The relay resumes from that
     boundary and the work in between is unwound.
   </.notice>
-  <form phx-change="select_rewind">
+  <form id="rewind-form" phx-change="select_rewind">
     <.combobox
       id="rewind-iteration"
       name="rewind[iteration]"

@@ -202,8 +202,7 @@ defmodule FlezhaConsoleWeb.River do
           class="fcon-river-mark"
           data-tone={event.tone}
           style={"left: #{left}%"}
-        >
-        </span>
+        ></span>
       </div>
       <div class="fcon-river-scale" aria-hidden="true">
         <span>15 min ago</span><span>now</span>

@@ -54,7 +54,7 @@ test.describe('Cluster and fleet', () => {
     // say, so the summary is read for its form.
     const runners = page.getByTestId('runners-default');
     const summary = page.getByTestId('runners-summary-default');
-    await expect(summary).toContainText(/\d+ connected · \d+ nodes? · \d+ factories served ·\s*\d+ late/);
+    await expect(summary).toContainText(/\d+ connected · \d+ nodes? · \d+ factories served\s*·\s*\d+ late/);
     await page.getByTestId('runner-filter-default').fill('store_input');
     await expect(runners.locator('tbody tr').first()).toContainText('store_input');
     await expect(page.locator('[data-testid^="node-count-"]').first()).toHaveText(/^\s*\d+\s*$/);

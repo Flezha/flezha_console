@@ -472,6 +472,7 @@
 
   <form
     :if={@talk.mode == :channel and @talk.channel}
+    id="talk-channel-form"
     data-testid="talk-channel-form"
     phx-change="talk_change"
     phx-submit="talk_submit"
@@ -546,6 +547,7 @@
 
   <form
     :if={@talk.mode == :raw}
+    id="talk-raw-form"
     data-testid="talk-raw-form"
     phx-change="talk_change"
     phx-submit="talk_submit"

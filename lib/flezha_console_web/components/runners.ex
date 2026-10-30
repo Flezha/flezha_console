@@ -119,11 +119,12 @@ defmodule FlezhaConsoleWeb.Runners do
         <p class="fcon-figures" data-testid={"runners-summary-#{@namespace}"}>
           {length(@runners)} connected · {length(@nodes)} {if length(@nodes) == 1,
             do: "node",
-            else: "nodes"}<span :if={@factories?}> · {@served} factories served</span> ·
-          <span class={@late > 0 && "fcon-tone-warning"}>{@late} late</span>
+            else: "nodes"}<span :if={@factories?}> · {@served} factories served</span>
+          · <span class={@late > 0 && "fcon-tone-warning"}>{@late} late</span>
         </p>
 
         <form
+          id={"runner-view-#{@namespace}"}
           phx-change="runner_view"
           class="flex flex-wrap items-end gap-3"
           data-testid={"runner-view-#{@namespace}"}

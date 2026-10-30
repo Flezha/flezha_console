@@ -384,7 +384,11 @@ defmodule FlezhaConsoleWeb.Live.Launcher do
 
         <%!-- Factory --%>
         <div :if={@launcher.step == 0} class="fcon-flow-section">
-          <form :if={is_nil(@launcher.fixed_namespace)} phx-change="launcher_change">
+          <form
+            :if={is_nil(@launcher.fixed_namespace)}
+            id="launcher-namespace"
+            phx-change="launcher_change"
+          >
             <Target.namespace_field
               target={@launcher.target}
               name="start[namespace]"
@@ -403,6 +407,7 @@ defmodule FlezhaConsoleWeb.Live.Launcher do
           <.runtime_error error={Target.catalog_error(@launcher.target)} action="the factory listing" />
           <form
             :if={Target.catalog_error(@launcher.target)}
+            id="launcher-factory"
             phx-change="launcher_change"
             phx-submit="launcher_pick"
             class="flex items-end gap-2"

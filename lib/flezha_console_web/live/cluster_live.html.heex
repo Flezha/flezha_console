@@ -121,8 +121,7 @@
             class={"fcon-shape fcon-tone-#{tone}"}
             data-shape={Words.shape(tone)}
             aria-hidden="true"
-          >
-          </span>
+          ></span>
           <span class="fcon-num font-medium">{node.name}</span>
         </span>
         <span :if={node.connected?} class="fcon-figures">Connected to this console</span>
@@ -269,7 +268,8 @@
               current={@selected_factory == {ns.name, factory.id}}
               testid={"factory-#{factory.id}"}
             >
-              <span class="fcon-num">{factory.id}</span><span class="fcon-muted"> · {factory.run || "—"}</span>
+              <span class="fcon-num">{factory.id}</span><span class="fcon-muted"> · {factory.run ||
+                "—"}</span>
             </:option>
           </.segmented>
         </div>

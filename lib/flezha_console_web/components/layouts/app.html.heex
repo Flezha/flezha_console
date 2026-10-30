@@ -72,8 +72,7 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
           class={["fcon-shape", (node && "fcon-tone-positive") || "fcon-tone-negative"]}
           data-shape="dot"
           aria-hidden="true"
-        >
-        </span>
+        ></span>
         <span :if={node} class="flz-num truncate">{node}</span>
         <span :if={!node}>Disconnected</span>
       </div>
@@ -111,8 +110,7 @@ problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
         </.nav_toggle>
 
         <span :if={node} class="flex min-w-0 items-center gap-1.5" data-shell-at="desk">
-          <span class="fcon-shape fcon-tone-positive shrink-0" data-shape="dot" aria-hidden="true">
-          </span><span
+          <span class="fcon-shape fcon-tone-positive shrink-0" data-shape="dot" aria-hidden="true"></span><span
             class="truncate"
             title={node}
           >{node}</span>

@@ -672,8 +672,7 @@ defmodule FlezhaConsoleWeb.Attention do
               class={"fcon-shape fcon-tone-#{item.severity}"}
               data-shape={Words.shape(item.severity)}
               aria-hidden="true"
-            >
-            </span>
+            ></span>
             {item.what}
           </p>
           <RelayState.summary

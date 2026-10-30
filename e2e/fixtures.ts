@@ -712,6 +712,10 @@ export const PAGE_HEALTH_EXEMPTIONS: readonly PageHealthExemption[] = [
     match: /^no answer for .*: net::ERR_ABORTED /,
     reason: 'a navigation or a closing page cancels the requests still in flight',
   },
+  {
+    match: /^console error: WebSocket connection to '[^']*\/phoenix\/live_reload\/socket\/[^']*' failed: +\(at /,
+    reason: "a navigation cuts the dev server's live-reload socket while it still connects",
+  },
 ];
 
 function assertReasons(exemptions: readonly PageHealthExemption[]): void {

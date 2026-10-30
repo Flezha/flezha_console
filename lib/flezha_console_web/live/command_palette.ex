@@ -251,6 +251,7 @@ defmodule FlezhaConsoleWeb.CommandPalette do
           phx-target={@myself}
         >
           <form
+            id="command-palette-search"
             phx-change="search"
             phx-target={@myself}
             autocomplete="off"

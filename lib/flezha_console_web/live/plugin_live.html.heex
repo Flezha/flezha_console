@@ -39,6 +39,7 @@
 
 <form
   :if={@loaded? and (@plugins != [] or searched?(@view))}
+  id="plugins-view"
   phx-change="view"
   onsubmit="return false"
   class="flex flex-wrap items-end gap-3 mb-5"
@@ -468,7 +469,12 @@
   on_close="unbind_other_close"
 >
   <:title>Unbind <span class="fcon-ident">{@unbind_other.name}</span> from a relay</:title>
-  <form phx-change="unbind_other_change" onsubmit="return false" data-testid="unbind-other-form">
+  <form
+    id="unbind-other-form"
+    phx-change="unbind_other_change"
+    onsubmit="return false"
+    data-testid="unbind-other-form"
+  >
     <.combobox
       id="unbind-other-relay"
       name="unbind[relay]"

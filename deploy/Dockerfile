@@ -6,7 +6,7 @@
 #
 # The runtime stage is the build image's own Debian, so the release's ERTS and NIFs find the
 # libraries they were linked against.
-FROM elixir:1.18-otp-27 AS build
+FROM elixir:1.20.4-otp-28 AS build
 
 ENV MIX_ENV=prod
 WORKDIR /app
@@ -22,7 +22,7 @@ COPY assets assets
 COPY --from=stylebook . assets/node_modules/@flezha/stylebook
 RUN mix assets.deploy && mix compile && mix release
 
-FROM elixir:1.18-otp-27-slim
+FROM elixir:1.20.4-otp-28-slim
 
 RUN useradd --uid 1000 --user-group --create-home flezha_console
 WORKDIR /app

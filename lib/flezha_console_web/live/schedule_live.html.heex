@@ -32,6 +32,7 @@
 
 <form
   :if={length(NodeManager.row_controllers(@listed)) > 1 or @controller not in [nil, ""]}
+  id="schedule-filter"
   phx-change="filter"
   class="flex flex-wrap items-end gap-3 mb-5"
 >
@@ -177,7 +178,7 @@
     {code_names(@form_error)}
   </.notice>
 
-  <form phx-submit="create" phx-change="form_change" class="space-y-4">
+  <form id="schedule-form" phx-submit="create" phx-change="form_change" class="space-y-4">
     <%!-- The controller composes `<name>@<slot-iso>` as the relay id, and
           that must fit its 32-byte limit — so the name gets 11. --%>
     <.input

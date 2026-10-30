@@ -586,7 +586,7 @@
     Set the member count for <.ident value={@rescale.group} full />. Key ranges are redistributed
     across the new member set, and the group re-renders on the next tick.
   </p>
-  <form phx-change="select_rescale">
+  <form id="rescale-form" phx-change="select_rescale">
     <.input
       type="number"
       name="rescale[target]"
@@ -609,7 +609,7 @@
 <.dialog :if={@quota_form} testid="quota-modal" size="form" on_close="close_quotas">
   <:title>Edit limits</:title>
   <.form_error error={@quota_error} action="the quota change" testid="quota-error" />
-  <form phx-change="quota_change" class="grid gap-3 sm:grid-cols-2">
+  <form id="quota-form" phx-change="quota_change" class="grid gap-3 sm:grid-cols-2">
     <.input
       :for={row <- @quotas}
       type="number"

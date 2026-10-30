@@ -3826,7 +3826,8 @@ defmodule FlezhaConsoleWeb.Topology do
   # own below it.
   defp named_figure(assigns) do
     ~H"""
-    {@text}<tspan :if={@more && !@stacked}> · {@more}</tspan>
+    {@text}
+    <tspan :if={@more && !@stacked}>· {@more}</tspan>
     <tspan
       :if={@more && @stacked}
       x={@x}

@@ -116,7 +116,7 @@ defmodule FlezhaConsoleWeb.KitLive do
 
     <.section testid="kit-fields">
       <:title>Fields</:title>
-      <form phx-change="kit_pick" class="grid gap-4 sm:grid-cols-2">
+      <form id="kit-form" phx-change="kit_pick" class="grid gap-4 sm:grid-cols-2">
         <.input type="text" name="kit[text]" label="Text" hint="A hint" value="" placeholder="Type" />
         <.input type="text" name="kit[mono]" label="Mono" mono value="default_58efe7505741" />
         <.input type="text" name="kit[bad]" label="With an error" value="x" errors={["Not valid."]} />

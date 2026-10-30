@@ -878,8 +878,7 @@ defmodule FlezhaConsoleWeb.CoreComponents do
         class="fcon-strip-part"
         data-tone={Words.tone(:health, health)}
         style={"flex-grow: #{count}"}
-      >
-      </span>
+      ></span>
     </span>
     """
   end
@@ -1149,6 +1148,7 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   def listing_search(assigns) do
     ~H"""
     <form
+      id={"#{@testid}-form"}
       phx-change="listing_search"
       onsubmit="return false"
       class={@class}
@@ -1559,8 +1559,7 @@ defmodule FlezhaConsoleWeb.CoreComponents do
         class={"fcon-shape fcon-tone-#{@tone}"}
         data-shape={Words.shape(@tone)}
         aria-hidden="true"
-      >
-      </span>
+      ></span>
       <.live_value
         :if={not is_nil(@value)}
         id={"#{@testid}-value"}
@@ -1802,8 +1801,7 @@ defmodule FlezhaConsoleWeb.CoreComponents do
             class={"fcon-shape fcon-tone-#{row.value.tone}"}
             data-shape={row.value[:shape] || Words.shape(row.value.tone)}
             aria-hidden="true"
-          >
-          </span>
+          ></span>
           <.term :if={row.value[:term]} key={row.value.term} id={"#{@testid}-#{row.key}-term"}>
             {row.value.text}
           </.term>
@@ -2064,8 +2062,7 @@ defmodule FlezhaConsoleWeb.CoreComponents do
         :for={index <- 1..@rows}
         class="fcon-skeleton"
         style={"width: #{100 - rem(index * 17, 40)}%"}
-      >
-      </span>
+      ></span>
     </div>
     """
   end
@@ -2783,8 +2780,7 @@ defmodule FlezhaConsoleWeb.CoreComponents do
         aria-label={product_name()}
         class={if @on == :chrome, do: "flz-logo", else: "fcon-logo"}
         style={"mask-image: #{@mask}; -webkit-mask-image: #{@mask}; aspect-ratio: #{lockup_aspect()}"}
-      >
-      </span>
+      ></span>
     </span>
     """
   end
