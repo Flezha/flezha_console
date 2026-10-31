@@ -24,7 +24,7 @@ defmodule FlezhaConsoleWeb.RelayIndexLive do
   narrowed to the namespaces the token reaches.
 
   Each row carries its measured inbound rate and a sparkline, from the same
-  liveness snapshot the Home map reads, and activating a row inspects the
+  liveness snapshot the Dashboard map reads, and activating a row inspects the
   relay in place.
 
   A partition group is one row however wide it is: its partitions' rates

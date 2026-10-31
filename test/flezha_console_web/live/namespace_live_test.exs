@@ -412,7 +412,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
     end
   end
 
-  # Home reads in a task. A gated tokens read, which only Home makes, holds
+  # Dashboard reads in a task. A gated tokens read, which only Dashboard makes, holds
   # that task for as long as a test says; the relay count tells reads apart.
   describe "background reads" do
     defp hold_reads(node) do

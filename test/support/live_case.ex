@@ -73,7 +73,7 @@ defmodule FlezhaConsoleWeb.LiveCase do
 
   @doc """
   Opens `path` and answers `{view, html}` once the reads it started in the
-  background have answered: Home's own and the shell's pulse. A macro, as
+  background have answered: Dashboard's own and the shell's pulse. A macro, as
   `live/2` is, so it reaches the test module's endpoint.
   """
   defmacro live_loaded(conn, path) do

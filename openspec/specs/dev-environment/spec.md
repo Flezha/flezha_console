@@ -68,7 +68,7 @@ In the dev environment the UI SHALL seed testnet relays and plugins on boot thro
 #### Scenario: First boot
 
 - **WHEN** the stack starts against an empty controller
-- **THEN** the seeded relays and plugins exist and the `default` namespace's Home counts them in its Relays and Plugins tiles
+- **THEN** the seeded relays and plugins exist and the `default` namespace's Dashboard counts them in its Relays and Plugins tiles
 - **AND** each seeded plugin is bound to the relay its seed names
 
 #### Scenario: Repeated boot

@@ -113,7 +113,7 @@ refusal signal also carries the pid and the node that refused it.
 ### Requirement: The console drops and readmits runners
 
 The console SHALL render the runner listings that act on runners — the cluster
-screen's per-namespace runners and the runners section of a namespace's Home —
+screen's per-namespace runners and the runners section of a namespace's Dashboard —
 through one shared runner-table component. Each row SHALL offer a Drop action
 when the operations whoami answers for the operator include `Fleet.drop_runner`.
 
@@ -130,7 +130,7 @@ NOT offer Drop. Errors SHALL be shown through the console's coded-error display.
 
 #### Scenario: Dropping from the namespace screen
 
-- **WHEN** an ops operator confirms Drop on a runner row in Home's runners section
+- **WHEN** an ops operator confirms Drop on a runner row in Dashboard's runners section
 - **THEN** the console calls `drop_runner/3` and the runner leaves the list
 - **AND** a dropped mark with the runner's stable id, pid and time appears under the
   list with a negative badge
@@ -164,6 +164,6 @@ NOT offer Drop. Errors SHALL be shown through the console's coded-error display.
 #### Scenario: The fleet follows drop activity
 
 - **WHEN** a runner is dropped or readmitted from another console or from `flz`
-- **THEN** the open runner listings and Home's Runners tile update without a page
+- **THEN** the open runner listings and Dashboard's Runners tile update without a page
   reload
 

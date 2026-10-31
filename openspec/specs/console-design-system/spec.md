@@ -153,7 +153,7 @@ elements.
 
 #### Scenario: An indicator is rendered
 
-- **WHEN** Home renders a count or a condition as a tile
+- **WHEN** Dashboard renders a count or a condition as a tile
 - **THEN** it is the kit's tile component, and `/dev/kit` shows that tile in each
   tone, with and without a link, with a unit and with a foot
 

@@ -115,7 +115,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
       :ok
     end
 
-    test "with no namespace in scope, Home and Relays fall back as the shortcuts do", %{
+    test "with no namespace in scope, Dashboard and Relays fall back as the shortcuts do", %{
       conn: conn,
       node: node
     } do

@@ -6,7 +6,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
   All of it lives here rather than in the browser because the states that
   matter — a relay that failed to initialise, a journal with a dead-lettered
   entry — are ones a live stack cannot be asked to produce on demand. A
-  finished relay's screen is `RelayLiveTest`'s, its run listed on Home is
+  finished relay's screen is `RelayLiveTest`'s, its run listed on Dashboard is
   `NamespaceLiveTest`'s.
   """
 

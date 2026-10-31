@@ -24,7 +24,7 @@ test('an account the command made logs in, changes its password and logs out', a
 
     await page.goto('/users/log-in');
     await submitLogin(page, { email, password: PASSWORD });
-    // `/` lands on the Home of the namespace last worked in, or on the list.
+    // `/` lands on the Dashboard of the namespace last worked in, or on the list.
     await expect(page).toHaveURL(/\/namespaces(\/[^/?#]+)?$/);
 
     await page.goto('/users/settings');

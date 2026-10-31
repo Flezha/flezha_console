@@ -9,7 +9,7 @@ Every measured rate the console shows outside the relay pipeline graph SHALL be
 accompanied by a sparkline of the samples this console measured for it. That
 covers:
 
-- Home's Flow tile, over the namespace's summed inbound rate;
+- Dashboard's Flow tile, over the namespace's summed inbound rate;
 - a relay inspector;
 - the relays index rate column.
 
@@ -28,7 +28,7 @@ with fewer than two samples SHALL render nothing rather than a flat line.
 
 #### Scenario: The namespace's flow
 
-- **WHEN** Home has measured its namespace over ten ticks
+- **WHEN** Dashboard has measured its namespace over ten ticks
 - **THEN** the Flow tile's sparkline is drawn from ten samples, each the sum of
   the namespace's relays' inbound rates on that tick
 
@@ -46,7 +46,7 @@ new value is conveyed.
 
 ### Requirement: The event river shows what this console saw happen
 
-Home and the relays index SHALL show an event river: a newest-first list with a
+Dashboard and the relays index SHALL show an event river: a newest-first list with a
 15-minute time track. It SHALL hold these events:
 
 - relay lifecycle signals;
@@ -55,12 +55,12 @@ Home and the relays index SHALL show an event river: a newest-first list with a
 
 Each event SHALL carry its time, its object and a sentence. The river SHALL keep
 at most the fifty most recent events. It SHALL state that it covers what this
-console saw since the screen opened. Home's river SHALL show only events for its
+console saw since the screen opened. Dashboard's river SHALL show only events for its
 own namespace.
 
 #### Scenario: A relay starts
 
-- **WHEN** a relay is started while Home is open
+- **WHEN** a relay is started while Dashboard is open
 - **THEN** a sentence naming the relay and its factory appears at the top of the
   river and a mark appears on its track
 
@@ -71,7 +71,7 @@ own namespace.
 
 #### Scenario: Another namespace's event
 
-- **WHEN** a relay starts in another namespace while Home for `default` is open
+- **WHEN** a relay starts in another namespace while Dashboard for `default` is open
 - **THEN** it does not appear in `default`'s river
 
 ### Requirement: Motion is never required to read state

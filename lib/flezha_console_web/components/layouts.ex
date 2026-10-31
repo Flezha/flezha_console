@@ -117,18 +117,18 @@ defmodule FlezhaConsoleWeb.Layouts do
   @doc """
   The places `g` then a letter reaches, by their letter; each is in the rail
   too, and a phone shows them as its bottom bar. With no namespace in scope,
-  Home and Relays fall back to the namespaces and to every relay.
+  Dashboard and Relays fall back to the namespaces and to every relay.
   """
   def shortcuts(namespace) do
     [
-      {"h", home((namespace && scoped_path(namespace, nil)) || ~p"/namespaces")},
+      {"d", home((namespace && scoped_path(namespace, nil)) || ~p"/namespaces")},
       {"r", relays((namespace && scoped_path(namespace, "relays")) || ~p"/relays")},
       {"p", problems()},
       {"c", cluster()}
     ]
   end
 
-  defp home(path), do: entry(path, "hero-home", "Home")
+  defp home(path), do: entry(path, "hero-squares-2x2", "Dashboard")
   defp relays(path), do: entry(path, "hero-cpu-chip", "Relays")
   defp problems, do: entry(~p"/problems", "hero-exclamation-triangle", "Problems", :problems)
   defp cluster, do: entry(~p"/cluster", "hero-server-stack", "Cluster")
@@ -140,7 +140,7 @@ defmodule FlezhaConsoleWeb.Layouts do
   Whether a navigation destination is the page being shown.
 
   An entry owns the subtree below it, measured from its own scope: a
-  namespace's Home sits at the root of its scope, so it is an exact match, and
+  namespace's Dashboard sits at the root of its scope, so it is an exact match, and
   Relays still owns the relay below it. Entries in different scopes never
   match, so `/namespaces/x` never marks a platform entry such as `/namespaces`.
   """
@@ -397,7 +397,7 @@ defmodule FlezhaConsoleWeb.Layouts do
   end
 
   @doc """
-  Where `/` lands for a user: the Home of the namespace they last worked in,
+  Where `/` lands for a user: the Dashboard of the namespace they last worked in,
   then the first reachable namespace in sorted order, then the namespace list.
   """
   def landing(last_namespace, reachable) do
@@ -462,7 +462,7 @@ defmodule FlezhaConsoleWeb.Layouts do
   From a namespace-scoped screen, the same screen kind under the new scope —
   including from one relay, whose id means nothing under the new namespace,
   so its relays are as close as the screen kind survives. From a Problems or
-  Platform screen, or from an all-namespaces form, the namespace's Home.
+  Platform screen, or from an all-namespaces form, the namespace's Dashboard.
   """
   def scope_target(current, namespace) do
     case split_scope(current) do

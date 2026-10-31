@@ -291,7 +291,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
              )
     end
 
-    test "Home and Open problems show the same items", %{conn: conn, node: node} do
+    test "Dashboard and Open problems show the same items", %{conn: conn, node: node} do
       rows = [
         FakeController.relay_row("relay_h", %{health: :halted}),
         FakeController.relay_row("relay_d", %{health: :degraded}),
@@ -314,7 +314,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
     end
   end
 
-  describe "Home" do
+  describe "Dashboard" do
     test "reads its Flow as the namespace's totals, never every relay's counters", %{
       conn: conn,
       node: node

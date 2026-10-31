@@ -152,7 +152,7 @@ defmodule FlezhaConsoleWeb.Glossary do
   # Per screen kind: what it shows, what it is for, and the terms it marks.
   @screens %{
     home: {
-      "Home sums up this namespace in tiles: how many relays, runners, plugins and schedules there are, how healthy they are, what is flowing and how close each limit is. This namespace's problems sit below its tiles; the river below them lists what happened while you watched.",
+      "Dashboard sums up this namespace in tiles: how many relays, runners, plugins and schedules there are, how healthy they are, what is flowing and how close each limit is. This namespace's problems sit below its tiles; the river below them lists what happened while you watched.",
       ["namespace", "runner", "relay", "factory", "health", "quota", "flow in"]
     },
     relays: {
@@ -279,7 +279,7 @@ defmodule FlezhaConsoleWeb.Glossary do
   def shortcuts do
     [
       {["?"], "Open this help"},
-      {["g", "h"], "Go to the namespace's Home"},
+      {["g", "d"], "Go to the namespace's Dashboard"},
       {["g", "r"], "Go to Relays"},
       {["g", "p"], "Go to Open problems"},
       {["g", "c"], "Go to Cluster"},

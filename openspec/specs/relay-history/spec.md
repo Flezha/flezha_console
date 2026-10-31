@@ -1,7 +1,7 @@
 # relay-history Specification
 
 ## Purpose
-How the console presents the relay history: each record as one plain sentence with its outcome's tone, the history's filters, a relay's recent activity on its screen, a namespace's recent runs on Home, and a finished relay's page read from its last ended record.
+How the console presents the relay history: each record as one plain sentence with its outcome's tone, the history's filters, a relay's recent activity on its screen, a namespace's recent runs on Dashboard, and a finished relay's page read from its last ended record.
 ## Requirements
 ### Requirement: A history record reads as one sentence
 
@@ -85,9 +85,9 @@ The relay screen SHALL show a "Recent activity" strip with the relay's latest hi
 - **WHEN** the relay screen's tab is hidden
 - **THEN** the strip's tail is released, and it is opened again with a fresh read when the tab is shown
 
-### Requirement: Home lists the namespace's recent runs
+### Requirement: Dashboard lists the namespace's recent runs
 
-The namespace's Home SHALL list its recent runs under a collapsible section titled "Recent runs": the namespace's `ended` history records, newest first, each as its sentence with its outcome's tone and its time. The section SHALL page like every listing, reading older records through the history's cursor. Its title SHALL count how many of the shown runs did not complete. When the namespace has no ended run, the section SHALL say that runs appear here when a relay finishes. The section SHALL read in the background, like Home's other reads.
+The namespace's Dashboard SHALL list its recent runs under a collapsible section titled "Recent runs": the namespace's `ended` history records, newest first, each as its sentence with its outcome's tone and its time. The section SHALL page like every listing, reading older records through the history's cursor. Its title SHALL count how many of the shown runs did not complete. When the namespace has no ended run, the section SHALL say that runs appear here when a relay finishes. The section SHALL read in the background, like Dashboard's other reads.
 
 #### Scenario: Recent runs are listed
 

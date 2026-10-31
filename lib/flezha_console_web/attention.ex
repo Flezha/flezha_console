@@ -4,7 +4,7 @@ defmodule FlezhaConsoleWeb.Attention do
   makes.
 
   Pure: `derive/1` takes what the controller answered and answers attention
-  items: only a condition Flezha or the operator handles is one. Home lists
+  items: only a condition Flezha or the operator handles is one. Dashboard lists
   its namespace's items, the shell's pulse counts them for every reachable
   namespace, and `/problems` lists them all.
 

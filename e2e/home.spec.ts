@@ -1,7 +1,7 @@
 import { test, expect, startRelayCli, stopRelayCli, uniqueId } from './fixtures';
 
 /**
- * A namespace's Home against the dev stack: the headline, the namespace
+ * A namespace's Dashboard against the dev stack: the headline, the namespace
  * tiles, and inspection from a shared link.
  *
  * What each tile says for an arranged fleet — every verdict, the flow before
@@ -9,7 +9,7 @@ import { test, expect, startRelayCli, stopRelayCli, uniqueId } from './fixtures'
  * `test/flezha_console_web/live/topology_live_test.exs`; what lives here is that
  * the real fleet reaches the tiles and that their links lead on.
  */
-test('/ lands on the Home last worked in, whose tiles count the dev stack', async ({ page, live }) => {
+test('/ lands on the Dashboard last worked in, whose tiles count the dev stack', async ({ page, live }) => {
   await live('/namespaces/default');
   await page.goto('/');
   await expect(page).toHaveURL(/\/namespaces\/default$/);
@@ -49,7 +49,7 @@ test('a relay started and stopped from flz reaches the river without a reload', 
   await expect(page.getByTestId('ns-relays-value')).toHaveText(/\d/);
 });
 
-test('a shared link opens a relay inspector on Home, which opens the relay', async ({ page, live }) => {
+test('a shared link opens a relay inspector on Dashboard, which opens the relay', async ({ page, live }) => {
   // A seeded relay is never stopped, so it stays while this test inspects it.
   await live('/namespaces/default?inspect=relay:testnet_noop');
 

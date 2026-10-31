@@ -94,10 +94,10 @@ The console SHALL read a namespace's registered factories together with the runn
 
 ### Requirement: Relay listing within a namespace
 
-A namespace's Home SHALL count its relays and runners in its namespace indicators.
+A namespace's Dashboard SHALL count its relays and runners in its namespace indicators.
 It SHALL list the runners in its folded runners section, and SHALL offer the
 namespace's registered factories when starting a relay. Every relay SHALL be
-reachable from Home through the Relays tile. The tile links to the relays index
+reachable from Dashboard through the Relays tile. The tile links to the relays index
 filtered to the namespace, and per health verdict to that verdict.
 
 Each relay SHALL carry these fields, read from `Flezha.Service.Relay.list/2`:
@@ -110,7 +110,7 @@ Each relay SHALL carry these fields, read from `Flezha.Service.Relay.list/2`:
 
 The relays index SHALL render every health verdict the controller answers —
 `healthy`, `degraded`, `recovering`, `unbound`, `failed`, `parked`, `suspended` and
-`unknown` — each distinctly, and Home's Relays tile SHALL count each one
+`unknown` — each distinctly, and Dashboard's Relays tile SHALL count each one
 separately. A relay the loop has not yet observed SHALL be shown as `unknown` and
 SHALL NOT be reported as healthy. Runners SHALL be read from
 `Flezha.Service.Fleet.runners/2`, which covers the whole cluster.
@@ -126,7 +126,7 @@ SHALL NOT be reported as healthy. Runners SHALL be read from
 #### Scenario: A relay is unhealthy
 
 - **WHEN** a relay's health is `degraded`, `unbound`, `failed`, or `parked`
-- **THEN** Home's Relays tile counts it under that verdict, and its row on the
+- **THEN** Dashboard's Relays tile counts it under that verdict, and its row on the
   relays index states that health distinctly from a healthy row
 
 #### Scenario: A relay is recovering
@@ -137,7 +137,7 @@ SHALL NOT be reported as healthy. Runners SHALL be read from
 #### Scenario: A relay has not yet been classified
 
 - **WHEN** a row has no health from the Convergence Loop
-- **THEN** the row reads `unknown`, and Home's Relays tile counts it as unknown,
+- **THEN** the row reads `unknown`, and Dashboard's Relays tile counts it as unknown,
   not healthy
 
 #### Scenario: A relay is unplaced
@@ -148,7 +148,7 @@ SHALL NOT be reported as healthy. Runners SHALL be read from
 #### Scenario: Runners on other controllers are listed
 
 - **WHEN** a runner serving the namespace is connected to another controller node of the cluster
-- **THEN** it is counted in Home's Runners tile and listed among the namespace's runners
+- **THEN** it is counted in Dashboard's Runners tile and listed among the namespace's runners
 
 #### Scenario: Namespace has registered factories
 
@@ -169,7 +169,7 @@ SHALL be one guided flow of three steps:
 3. **Review**: one sentence naming the namespace, the factory, the run and the id
    (or that the controller will generate one), then Start.
 
-The flow SHALL be reachable from a namespace's Home and from the relays index, and
+The flow SHALL be reachable from a namespace's Dashboard and from the relays index, and
 SHALL be one implementation rendered by both. The start SHALL go through
 `Flezha.Service.Relay.start/3` and SHALL NOT ask for or send how the relay runs.
 Stopping SHALL require an explicit confirmation step and SHALL go through
@@ -215,10 +215,10 @@ Stopping SHALL require an explicit confirmation step and SHALL go through
 - **THEN** the flow first offers a namespace to start into, chosen from the namespaces the bound token can reach
 - **AND** a successful start adds the relay to the index
 
-#### Scenario: Starting from a namespace's Home
+#### Scenario: Starting from a namespace's Dashboard
 
-- **WHEN** an operator opens the flow from a namespace's Home
-- **THEN** the namespace is that Home's namespace and is not asked for again
+- **WHEN** an operator opens the flow from a namespace's Dashboard
+- **THEN** the namespace is that Dashboard's namespace and is not asked for again
 
 #### Scenario: The factory's run is shown, not chosen
 
@@ -241,7 +241,7 @@ Stopping SHALL require an explicit confirmation step and SHALL go through
 
 - **WHEN** an operator confirms stopping a relay
 - **THEN** `Service.Relay.stop/3` is called
-- **AND** the operator is returned to the namespace's Home with the relay absent from its map
+- **AND** the operator is returned to the namespace's Dashboard with the relay absent from its map
 
 #### Scenario: A steps relay stops cooperatively
 

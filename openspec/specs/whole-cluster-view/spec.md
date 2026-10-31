@@ -27,18 +27,18 @@ Every cluster-wide read that answers the controllers that did not answer in its 
 
 #### Scenario: Two partial reads on one screen
 
-- **WHEN** both the relay rows and the factory catalog on Home answer `unreachable: ["flezha@c2"]`
-- **THEN** Home shows the notice once
+- **WHEN** both the relay rows and the factory catalog on Dashboard answer `unreachable: ["flezha@c2"]`
+- **THEN** Dashboard shows the notice once
 
 ### Requirement: Relay health is known wherever a relay runs
 
-Relay health SHALL be read from the cluster-wide relay rows, whose health each hosting controller decides for its own relays. Every screen that shows or counts health SHALL use those rows. That includes Home's tiles and headline, the Cluster tiles and per-node rollup, the scoped and Fleet relay listings, the relay screen, the Problems screen and the shell's pulse. A relay hosted by a controller the console is not connected to SHALL show the health that controller decided. A relay SHALL read unknown only when its hosting controller did not answer, and that relay's row SHALL then say its controller did not answer.
+Relay health SHALL be read from the cluster-wide relay rows, whose health each hosting controller decides for its own relays. Every screen that shows or counts health SHALL use those rows. That includes Dashboard's tiles and headline, the Cluster tiles and per-node rollup, the scoped and Fleet relay listings, the relay screen, the Problems screen and the shell's pulse. A relay hosted by a controller the console is not connected to SHALL show the health that controller decided. A relay SHALL read unknown only when its hosting controller did not answer, and that relay's row SHALL then say its controller did not answer.
 
 #### Scenario: A healthy relay on another controller
 
 - **WHEN** a relay hosted on `flezha@c2` is healthy and the console is connected to `flezha@c1`
 - **THEN** the relays listing and the relay screen show it as healthy
-- **AND** Home's health tile counts it as healthy
+- **AND** Dashboard's health tile counts it as healthy
 
 #### Scenario: The hosting controller does not answer
 

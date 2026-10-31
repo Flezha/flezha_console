@@ -1,6 +1,6 @@
 defmodule FlezhaConsoleWeb.LandingController do
   @moduledoc """
-  `/`: the Home of the namespace the operator last worked in.
+  `/`: the Dashboard of the namespace the operator last worked in.
 
   A redirect rather than a screen of its own, so the address bar always names
   the scope being shown. A remembered namespace the token no longer reaches

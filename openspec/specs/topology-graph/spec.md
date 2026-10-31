@@ -273,7 +273,7 @@ A tasklet's details SHALL be shown in its Cell sheet. Selecting another node SHA
 
 ### Requirement: Fleet summary at fixed cost
 
-The system SHALL assemble, for a namespace's Home, a summary of the namespace's
+The system SHALL assemble, for a namespace's Dashboard, a summary of the namespace's
 data plane. The summary SHALL hold:
 
 - relay and runner counts, broken down by the health
@@ -288,13 +288,13 @@ SHALL be its own bucket. A relay that is unhealthy, unplaced, suspended, parked,
 or a member of a partition group whose coverage is faulted SHALL be surfaced as a
 problem even when its throughput is zero. The summary SHALL be assembled from a
 number of controller calls that does not grow with the number of relays, and SHALL
-feed Home's headline and its namespace indicators. A host that has already read
+feed Dashboard's headline and its namespace indicators. A host that has already read
 the namespace's relay rows, partition groups or runners on the same tick SHALL
 hand them over, and the summary SHALL NOT read them again.
 
-#### Scenario: Home summarises its own namespace
+#### Scenario: Dashboard summarises its own namespace
 
-- **WHEN** an operator opens a namespace's Home
+- **WHEN** an operator opens a namespace's Dashboard
 - **THEN** the summary is assembled for that namespace, without a namespace
   selector
 
@@ -316,7 +316,7 @@ hand them over, and the summary SHALL NOT read them again.
 
 #### Scenario: Prefetched runners are not read again
 
-- **WHEN** Home's tick has read the namespace's runners and assembles the summary
+- **WHEN** Dashboard's tick has read the namespace's runners and assembles the summary
 - **THEN** `Flezha.Service.Fleet.runners/2` is called once on that tick
 
 #### Scenario: Namespace has nothing running

@@ -163,11 +163,13 @@ defmodule FlezhaConsoleWeb.LayoutsTest do
                Layouts.nav_sections(nil)
     end
 
-    test "the namespace group opens on Home, then Relays, Factories, Plugins and Schedules" do
+    test "the namespace group opens on Dashboard, then Relays, Factories, Plugins and Schedules" do
       [scoped | _rest] = Layouts.nav_sections("default")
 
       assert scoped.scope == "default"
-      assert Enum.map(scoped.entries, & &1.label) == ~w(Home Relays Factories Plugins Schedules)
+
+      assert Enum.map(scoped.entries, & &1.label) ==
+               ~w(Dashboard Relays Factories Plugins Schedules)
 
       assert Enum.map(scoped.entries, & &1.path) ==
                ~w(/namespaces/default /namespaces/default/relays /namespaces/default/factories /namespaces/default/plugins /namespaces/default/schedules)
@@ -228,7 +230,7 @@ defmodule FlezhaConsoleWeb.LayoutsTest do
       assert Layouts.scope_target("/namespaces/a/factories", "b") == "/namespaces/b/factories"
     end
 
-    test "Home, a platform screen and an all-namespaces form go to the namespace's Home" do
+    test "Dashboard, a platform screen and an all-namespaces form go to the namespace's Dashboard" do
       for path <- ["/namespaces/a", "/cluster", "/problems", "/relays", "/plugins"] do
         assert Layouts.scope_target(path, "b") == "/namespaces/b", "from #{path}"
       end

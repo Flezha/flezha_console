@@ -545,7 +545,7 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       assert Repo.all(Acknowledgement) == []
     end
 
-    test "the rail, Open problems and Home leave a seen dead letter out", %{
+    test "the rail, Open problems and Dashboard leave a seen dead letter out", %{
       conn: conn,
       node: node,
       user: user

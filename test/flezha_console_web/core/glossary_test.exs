@@ -67,6 +67,6 @@ defmodule FlezhaConsoleWeb.GlossaryTest do
   test "the shortcuts list the keys the console binds" do
     keys = Glossary.shortcuts() |> Enum.map(&Enum.join(elem(&1, 0), " "))
 
-    for key <- ["?", "g h", "g r", "g p", "g c", "Esc"], do: assert(key in keys)
+    for key <- ["?", "g d", "g r", "g p", "g c", "Esc"], do: assert(key in keys)
   end
 end

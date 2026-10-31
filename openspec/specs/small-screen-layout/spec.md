@@ -133,7 +133,7 @@ Below 1024 px the topbar SHALL keep to one row and SHALL stay at the top of the 
 
 ### Requirement: A phone has a bottom bar of main destinations
 
-At 599 px and narrower a bar SHALL sit along the bottom edge, clear of the device's home indicator. In order, it SHALL hold Home, Relays and Problems, which are the destinations the `g h`, `g r` and `g p` shortcuts reach, then Search, which opens the command palette, then Menu, which opens the navigation drawer. Each item SHALL show an icon and a label. The item for the current screen SHALL carry `aria-current="page"`. Problems SHALL show the open-problem count in the worst problem's tone, as the rail does, and nothing when there is no open problem. The bar and the keyboard shortcuts SHALL be drawn from one set of links. The bar SHALL never cover the last content on a screen.
+At 599 px and narrower a bar SHALL sit along the bottom edge, clear of the device's home indicator. In order, it SHALL hold Dashboard, Relays and Problems, which are the destinations the `g d`, `g r` and `g p` shortcuts reach, then Search, which opens the command palette, then Menu, which opens the navigation drawer. Each item SHALL show an icon and a label. The item for the current screen SHALL carry `aria-current="page"`. Problems SHALL show the open-problem count in the worst problem's tone, as the rail does, and nothing when there is no open problem. The bar and the keyboard shortcuts SHALL be drawn from one set of links. The bar SHALL never cover the last content on a screen.
 
 #### Scenario: Reaching Relays from the bar
 
@@ -142,8 +142,8 @@ At 599 px and narrower a bar SHALL sit along the bottom edge, clear of the devic
 
 #### Scenario: No namespace in scope
 
-- **WHEN** no namespace is in scope and the operator taps Home
-- **THEN** the namespaces listing is shown, as the `g h` shortcut does
+- **WHEN** no namespace is in scope and the operator taps Dashboard
+- **THEN** the namespaces listing is shown, as the `g d` shortcut does
 
 #### Scenario: The problems count
 

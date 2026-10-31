@@ -72,7 +72,7 @@ A test waits only for a condition it caused, and stops as soon as it holds:
   once. A test of the coalescing itself sets a window longer than the test
   (`TestEnv.put_app(:refresh_coalesce_ms, …)`) and sends `:refresh_requested`
   itself, as it sends `:refresh`. A screen that reads in the background
-  (Home) and the shell's pulse answer in a task, so a test awaits them with
+  (Dashboard) and the shell's pulse answer in a task, so a test awaits them with
   `render_async/1` before it reads the screen or counts calls; a plain
   `render/1` races the task. `LiveCase.live_loaded/2` opens a screen and
   answers `{view, html}` once those first reads have answered. A controller

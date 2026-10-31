@@ -1,6 +1,6 @@
 defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   @moduledoc """
-  A namespace's Home: a headline sentence, the namespace's open problems,
+  A namespace's Dashboard: a headline sentence, the namespace's open problems,
   indicator tiles for the namespace, the event river, and its administration
   folded below — limits, access, partition groups, recent runs and runners.
 
@@ -256,7 +256,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
     end
   end
 
-  # Every call one Home read makes, run off the screen's process. Once the
+  # Every call one Dashboard read makes, run off the screen's process. Once the
   # screen shows figures, a read whose relays failed stops there: its answer
   # keeps them, so the rest would only delay the error.
   defp read(ns, token, previous, loaded?, asked) do
@@ -423,7 +423,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
     |> FlezhaConsoleWeb.River.attention(appeared, attention.cleared)
   end
 
-  @doc "How many of its problems Home lists before linking to the rest."
+  @doc "How many of its problems Dashboard lists before linking to the rest."
   def problems_shown, do: 3
 
   # What the screen already knows about a selection, so opening it costs only
@@ -660,7 +660,7 @@ defmodule FlezhaConsoleWeb.NamespaceLive.Show do
   # ---- Recent runs ----
   #
   # The namespace's ended runs from the relay history, newest first. The
-  # newest page rides Home's background read; growing the listing past the
+  # newest page rides Dashboard's background read; growing the listing past the
   # rows it holds reads the next older page by the history's cursor.
 
   @runs_page 20

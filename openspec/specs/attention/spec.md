@@ -1,7 +1,7 @@
 # attention Specification
 
 ## Purpose
-How the console finds what needs an operator: one derivation of open problems — only conditions Flezha or the operator handles, a missing runner folded into one item per factory, every kind in the same condition rows — the per-operator pulse that refreshes it, the rail's count, the Open problems screen and the problems shown inline on a Home.
+How the console finds what needs an operator: one derivation of open problems — only conditions Flezha or the operator handles, a missing runner folded into one item per factory, every kind in the same condition rows — the per-operator pulse that refreshes it, the rail's count, the Open problems screen and the problems shown inline on a Dashboard.
 ## Requirements
 ### Requirement: Open problems are gathered by one derivation
 
@@ -64,7 +64,7 @@ Each kind's condition rows SHALL be:
 
 A relay item's rows SHALL be those of `relay-state-summary`.
 
-Home, the shell and the Open problems screen SHALL all read their items from this
+Dashboard, the shell and the Open problems screen SHALL all read their items from this
 one derivation. Every item SHALL be rendered with the shared condition component.
 
 #### Scenario: A suspended relay a runner can wake
@@ -121,7 +121,7 @@ one derivation. Every item SHALL be rendered with the shared condition component
 #### Scenario: One source of items
 
 - **WHEN** the codebase is inspected
-- **THEN** Home's problems, the shell's counts and the Open problems screen call
+- **THEN** Dashboard's problems, the shell's counts and the Open problems screen call
   the same derivation, and no other module builds attention items
 
 ### Requirement: The shell keeps a per-operator pulse
@@ -133,7 +133,7 @@ distinct factory that a suspended, unbound, failed or recovering relay names. It
 SHALL make none per relay. Its relay read SHALL be one paged relay list asking for at
 most 50 unhealthy relays, most severe first, whose summary gives the health counts,
 faulted groups and waiting factories; it SHALL NOT read every relay row. When more
-relays are unhealthy than it read, it SHALL add one item stating how many more. Home
+relays are unhealthy than it read, it SHALL add one item stating how many more. Dashboard
 SHALL read runners through the same function. The pulse SHALL NOT run on the
 disconnected first render, and SHALL NOT run while its tab is hidden; it SHALL run at
 once when the tab becomes visible. No item SHALL be gathered with any principal but
@@ -223,7 +223,7 @@ that namespace's read when activated. Each item SHALL show:
 - how long it has been seen;
 - its actions as buttons.
 
-A relay item SHALL show the same rows here as on Home, including the runners serving
+A relay item SHALL show the same rows here as on Dashboard, including the runners serving
 its factory. Actions SHALL be offered only when the operator's operations allow them.
 An action that changes state SHALL go through the confirmation its own screen already
 uses. With nothing open, the screen SHALL say so in a sentence and state when it last
@@ -234,9 +234,9 @@ checked.
 - **WHEN** the operator activates Diagnose on a degraded relay's item
 - **THEN** the controller's diagnosis appears beneath that item, as its Diagnosis row
 
-#### Scenario: Home and Open problems agree
+#### Scenario: Dashboard and Open problems agree
 
-- **WHEN** a relay item is shown on Home and on Open problems on the same pulse
+- **WHEN** a relay item is shown on Dashboard and on Open problems on the same pulse
 - **THEN** both show the same State, Cause, Impact, Runner, Handled by and Next step
 
 #### Scenario: A problem resolves
@@ -261,9 +261,9 @@ checked.
 - **WHEN** the operator opens Open problems
 - **THEN** the most severe 20 are shown with a control stating 20 of 300, which shows more when activated
 
-### Requirement: Home shows its namespace's items inline
+### Requirement: Dashboard shows its namespace's items inline
 
-Home SHALL list the attention items of its own namespace, its relays' dead letters
+Dashboard SHALL list the attention items of its own namespace, its relays' dead letters
 included, directly below the namespace indicator tiles, in a section titled with how
 many need attention, using the same item component and actions as the Open problems
 screen. It SHALL collapse to the first three items, with a link to the rest.
@@ -271,7 +271,7 @@ screen. It SHALL collapse to the first three items, with a link to the rest.
 #### Scenario: More than three items
 
 - **WHEN** a namespace has five open items
-- **THEN** Home shows three and a link reading that two more are on the Open problems
+- **THEN** Dashboard shows three and a link reading that two more are on the Open problems
   screen
 
 #### Scenario: Placement below the namespace tiles
@@ -280,17 +280,17 @@ screen. It SHALL collapse to the first three items, with a link to the rest.
 - **THEN** the section titled "2 relays need attention" renders after the namespace
   tiles and before "What happened"
 
-#### Scenario: Dead letters on Home
+#### Scenario: Dead letters on Dashboard
 
 - **WHEN** a relay of the namespace has dead letters
-- **THEN** Home lists the dead-letter item
+- **THEN** Dashboard lists the dead-letter item
 
 ### Requirement: A seen dead letter raises no problem
 
-The derivation SHALL leave out dead letters whose reference and generation are marked seen. The rail count, the Open problems screen, Home's problem list, headline and tiles SHALL agree on that set.
+The derivation SHALL leave out dead letters whose reference and generation are marked seen. The rail count, the Open problems screen, Dashboard's problem list, headline and tiles SHALL agree on that set.
 
 #### Scenario: The only dead letter is seen
 
 - **WHEN** the only open problem is a dead letter and an operator marks it seen
-- **THEN** the rail shows no count, Open problems lists nothing, and Home's headline says nothing needs attention
+- **THEN** the rail shows no count, Open problems lists nothing, and Dashboard's headline says nothing needs attention
 

@@ -65,11 +65,11 @@ test.describe('The console on a phone', () => {
     await expect(page.getByTestId('help-btn')).toBeHidden();
 
     const bar = page.getByTestId('tabbar');
-    await expect(bar.locator('a:visible, button:visible')).toHaveText(['Home', 'Relays', /Problems/, 'Search', 'Menu']);
+    await expect(bar.locator('a:visible, button:visible')).toHaveText(['Dashboard', 'Relays', /Problems/, 'Search', 'Menu']);
     await expect(page.getByTestId('tabbar-relays')).toHaveAttribute('aria-current', 'page');
 
     for (const [item, url] of [
-      ['tabbar-home', /\/namespaces\/default$/],
+      ['tabbar-dashboard', /\/namespaces\/default$/],
       ['tabbar-relays', /\/namespaces\/default\/relays$/],
       ['tabbar-problems', /\/problems$/],
     ] as const) {

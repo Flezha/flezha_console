@@ -13,10 +13,10 @@ A screen SHALL ask the controller only for what it shows. A page of rows SHALL b
 - **WHEN** an operator keeps a relay's screen open
 - **THEN** each tick reads that relay's row with the `ids` filter, and the liveness counters of that relay only
 
-#### Scenario: Home in a large namespace
+#### Scenario: Dashboard in a large namespace
 
 - **GIVEN** a namespace running 5,000 relays, 12 of them failed
-- **WHEN** an operator keeps its Home open
+- **WHEN** an operator keeps its Dashboard open
 - **THEN** each tick reads the namespace summary with at most 50 unhealthy rows, and the namespace's liveness totals
 - **AND** the Relays tile reads 5,000 relays, 12 failed
 
@@ -83,12 +83,12 @@ Every list a screen renders SHALL be paged or SHALL show a sample with a count. 
 
 ### Requirement: A screen's work per tick SHALL NOT grow with the namespace
 
-Rendering a screen on a tick SHALL take time that does not grow with the number of relays in the namespace. Home's flow history SHALL be one series of namespace totals. The namespace switcher SHALL be re-sent only when the namespaces change.
+Rendering a screen on a tick SHALL take time that does not grow with the number of relays in the namespace. Dashboard's flow history SHALL be one series of namespace totals. The namespace switcher SHALL be re-sent only when the namespaces change.
 
-#### Scenario: Home at 10,000 relays
+#### Scenario: Dashboard at 10,000 relays
 
 - **GIVEN** a namespace running 10,000 relays
-- **WHEN** Home renders on a tick
+- **WHEN** Dashboard renders on a tick
 - **THEN** the render takes no longer than with 100 relays, within a factor of 2
 
 #### Scenario: The switcher is not re-sent
@@ -123,6 +123,6 @@ On the dev stack, with 5,000 relays and 1,000 bound plugins in one namespace, ev
 #### Scenario: The scale run
 
 - **GIVEN** the dev stack with 5,000 relays and 1,000 bound plugins in one namespace
-- **WHEN** Home, the relays index, a relay, its state screen, the plugins screen with Bind relay, Problems and Cluster are each opened
+- **WHEN** Dashboard, the relays index, a relay, its state screen, the plugins screen with Bind relay, Problems and Cluster are each opened
 - **THEN** each shows its figures within 2 s, and "Show 20 more" answers within 300 ms
 

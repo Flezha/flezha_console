@@ -109,7 +109,7 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 
 #### Scenario: A namespace's totals
 
-- **WHEN** Home asks for its namespace's flow
+- **WHEN** Dashboard asks for its namespace's flow
 - **THEN** `liveness_snapshot` asks for that namespace's totals with `limit: 0`, and answers the summed counters with no relay rows
 
 #### Scenario: Two tabs share one read

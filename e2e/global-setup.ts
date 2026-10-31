@@ -483,7 +483,7 @@ async function logIn(
 
     await submitLogin(page, user);
 
-    // `/` lands on the Home of the namespace last worked in, or on the list.
+    // `/` lands on the Dashboard of the namespace last worked in, or on the list.
     await page.waitForURL(/\/namespaces(\/[^/?#]+)?$/);
     await expect(page.getByTestId('topbar')).toBeVisible();
 

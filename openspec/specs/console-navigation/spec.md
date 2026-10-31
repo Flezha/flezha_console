@@ -8,7 +8,7 @@ currency.
 ### Requirement: The sidebar separates namespace-scoped from platform-global
 
 The navigation rail SHALL present two labelled sections. A `NAMESPACE` section
-SHALL hold Home, Relays, Factories, Plugins and Schedules for the namespace in scope. A
+SHALL hold Dashboard, Relays, Factories, Plugins and Schedules for the namespace in scope. A
 `PLATFORM` section SHALL hold Problems, Fleet, Namespaces, Cluster, Controller,
 Observability, Dead-letter and Logs. Fleet is the listing of every reachable relay
 at `/relays`, and Logs leads to `/logs`. A screen SHALL appear in the `NAMESPACE` section
@@ -22,10 +22,10 @@ the topbar SHALL keep the stylebook's shell recipe.
 - **WHEN** an operator looks at the sidebar
 - **THEN** the two groups are separated and each carries a visible heading
 
-#### Scenario: The namespace's Home
+#### Scenario: The namespace's Dashboard
 
 - **WHEN** a namespace is in scope
-- **THEN** the `NAMESPACE` section's first entry is Home, at `/namespaces/:ns`
+- **THEN** the `NAMESPACE` section's first entry is Dashboard, at `/namespaces/:ns`
 
 #### Scenario: The scoped relay entry
 
@@ -100,7 +100,7 @@ as follows:
   namespace;
 - from one relay, to the chosen namespace's relays;
 - from a platform screen or from an all-namespaces listing, to the chosen
-  namespace's Home.
+  namespace's Dashboard.
 
 On a platform screen the picker and the rail SHALL show the namespace the operator
 last worked in.
@@ -118,7 +118,7 @@ last worked in.
 #### Scenario: Switching scope from a platform screen
 
 - **WHEN** an operator on Cluster picks a namespace
-- **THEN** they land on that namespace's Home
+- **THEN** they land on that namespace's Dashboard
 
 #### Scenario: The picker offers only reachable namespaces
 
@@ -151,7 +151,7 @@ read Relays, for `listen` Listen, and for `state` State.
 
 #### Scenario: A rail destination carries no trail
 
-- **WHEN** an operator opens a namespace's Home or the Cluster screen
+- **WHEN** an operator opens a namespace's Dashboard or the Cluster screen
 - **THEN** no crumb trail is rendered
 
 #### Scenario: The bare back arrow is gone
@@ -371,8 +371,8 @@ the account menu.
 
 #### Scenario: Opening help from the topbar
 
-- **WHEN** an operator activates the topbar's help control on a namespace's Home
-- **THEN** the help overlay for Home opens
+- **WHEN** an operator activates the topbar's help control on a namespace's Dashboard
+- **THEN** the help overlay for Dashboard opens
 
 ### Requirement: Factory routes
 

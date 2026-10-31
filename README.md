@@ -68,8 +68,8 @@ scope switch moves between the two forms.
 
 | Route | Shows |
 | --- | --- |
-| `/` | Redirects to the Home of the namespace last worked in, then to the first reachable one, then to `/namespaces` |
-| `/namespaces/:ns` | **Home** — a headline sentence and the namespace's figures with the connected controllers, indicator tiles for the namespace (relays by health with a link per verdict, runners, plugins, schedules, dead letters, the namespace's summed inbound flow with its history, the two fullest limits), its open problems below them, its relays' dead letters among them (three, then a link), what happened while the screen was open, and as sections that fold: quotas, access (role bindings with when and by whom each was bound, and tokens with their issue, expiry and revoke times, filtered by status), partition groups (read while the section is open), recent runs — the namespace's ended runs from the relay history, newest first, each a sentence in its outcome's tone, grown page by page into older ones and counting in its title the shown runs that did not complete — and runners; drop a runner and readmit its process |
+| `/` | Redirects to the Dashboard of the namespace last worked in, then to the first reachable one, then to `/namespaces` |
+| `/namespaces/:ns` | **Dashboard** — a headline sentence and the namespace's figures with the connected controllers, indicator tiles for the namespace (relays by health with a link per verdict, runners, plugins, schedules, dead letters, the namespace's summed inbound flow with its history, the two fullest limits), its open problems below them, its relays' dead letters among them (three, then a link), what happened while the screen was open, and as sections that fold: quotas, access (role bindings with when and by whom each was bound, and tokens with their issue, expiry and revoke times, filtered by status), partition groups (read while the section is open), recent runs — the namespace's ended runs from the relay history, newest first, each a sentence in its outcome's tone, grown page by page into older ones and counting in its title the shown runs that did not complete — and runners; drop a runner and readmit its process |
 | `/problems` | **Open problems** in every reachable namespace, worst first, a page at a time — read from each namespace's 50 most severe relays, with one item saying how many more are not healthy that reads more of them on request — only what Flezha is fixing or you have to act on, so not a dead letter marked seen; dead letters are a warning, since their records wait safely for a replay or a drop — each card with the same rows (state, cause, impact, handled by, next step) and the action that fixes it; relays that wait only on a missing runner fold into one card for their factory |
 | `/namespaces` | Declared and running namespaces as tiles, with a health strip, counts and quota breaches |
 | `/namespaces/:ns/relays` | That namespace's relays: health, run, node, runner, plugins and the measured rate — messages a second, and bytes where the controller counts them — with its recent history; read a page at a time from the controller, searched by relay id or factory, filtered and sorted by id or severity there, the view in the address; grown up to 500 rows, then the foot asks to search or filter; a relay's name and its Open button go to its page, an opened partition group pages its members, a row opens in an inspector, and its menu opens, inspects or stops it |
@@ -104,7 +104,7 @@ screen's title opens its help, and one beside a section explains it.
 The shell models the domain it controls: some concerns are scoped to a
 namespace and some are not, and it says which is which.
 
-- **The rail is four labelled sections.** `NAMESPACE` holds Home, Relays,
+- **The rail is four labelled sections.** `NAMESPACE` holds Dashboard, Relays,
   Factories, Plugins and Schedules; `ATTENTION` holds Problems and Dead-letter;
   `PLATFORM` holds Namespaces, Cluster and Controller; `MONITORING` holds
   Observability and Logs. A screen is in the first only when the
@@ -122,7 +122,7 @@ namespace and some are not, and it says which is which.
   relay health, problems and durability breaches from the same pulse. The
   pulse reads in a task, one at a time, so a slow controller delays the count
   but never a click.
-- **Home answers before it has read.** Home's reads run off its LiveView
+- **Dashboard answers before it has read.** Dashboard's reads run off its LiveView
   process: the screen connects with its frame and a skeleton, and its figures
   arrive when the read answers. One read is in flight at a time; a tick due
   meanwhile is skipped, and an operator's action is always followed by a read
@@ -132,7 +132,7 @@ namespace and some are not, and it says which is which.
   and the screen cannot disagree, and a pasted link opens the scope it names.
 - **The topbar's namespace picker means one thing everywhere**: show me this
   namespace. From a scoped screen it re-navigates to the same screen kind under
-  the new scope; from a platform screen, to that namespace's Home.
+  the new scope; from a platform screen, to that namespace's Dashboard.
 - **Crumbs appear only below a rail destination** — on a relay's views — and
   sit in the page header. A rail destination carries none.
 - **A relay's Live, Listen and State are tabs on the object**, and each stays
@@ -152,8 +152,8 @@ namespace and some are not, and it says which is which.
   or diagnose a relay, listen to it, run a schedule now — each landing on its
   own screen's confirmation. Its screen index is the rail's own list.
 - **`?` explains the screen** — what it shows, the terms on it and the
-  keyboard shortcuts — as does the topbar's help control. `g` then `h`, `r`,
-  `p` or `c` goes to Home, Relays, Problems or Cluster. Every flezha term on
+  keyboard shortcuts — as does the topbar's help control. `g` then `d`, `r`,
+  `p` or `c` goes to Dashboard, Relays, Problems or Cluster. Every flezha term on
   screen shows its definition on hover or focus, from one glossary, and a
   click pins that definition beside it until Escape or a click elsewhere.
   A definition, like a menu, is kept whole on screen: near an edge it moves
@@ -162,7 +162,7 @@ namespace and some are not, and it says which is which.
   folded section stating what it holds. The viewer's last choice is restored
   from `localStorage`; a breached quota opens its section regardless.
 - **Every screen that refreshes says so** — its interval, when it last did, and
-  a control to hold it still. Home and the relay page read nothing while their
+  a control to hold it still. Dashboard and the relay page read nothing while their
   tab is hidden, and a burst of relay or runner events costs one read.
 
 ### On a phone or tablet
@@ -175,7 +175,7 @@ The shell has three modes, by width alone:
   that leads the topbar, always whole whatever the desk choice. The topbar keeps to one row, and a search control
   opens the palette.
 - **Phone, under 600 px:** the drawer too, plus a bar along the bottom edge:
-  Home, Relays and Problems (with its count), Search, which opens the palette
+  Dashboard, Relays and Problems (with its count), Search, which opens the palette
   full screen, and Menu, which opens the drawer. The topbar holds the
   namespace picker, the time of the last refresh with its pause control, and
   the account menu. The node, the principal and the theme toggle move to the
@@ -262,7 +262,7 @@ In dev the console seeds testnet relays — flow and steps, `orders`, the runner
 relay API fixture, and `testnet_showcase`, whose graph holds every shape the
 relay graph draws, with its sources, an input filter and output plugins —
 websocket plugins and a `hook_webhook` controller plugin once the controller is
-reachable, so Home's tiles count them on arrival. A runner that does not
+reachable, so Dashboard's tiles count them on arrival. A runner that does not
 announce `showcase` skips that relay with one log line. See
 `:dev_setup` in `config/dev.exs`. Before the controller boots, the
 `plugin_packages` service builds the `flezha_http` plugin package with the
@@ -563,7 +563,7 @@ controller the same with ten relays or ten thousand. A listing of relays,
 plugins, dead letters, Cells, journal entries or committed iterations asks for
 the page it shows (`limit`, `sort`, `filter`, as the controller's paged reads
 take them), counts come from the controller's summary, one relay is read by
-id, and rates are read for the relays on screen and, for Home's Flow, as the
+id, and rates are read for the relays on screen and, for Dashboard's Flow, as the
 namespace's summed totals. Pickers of such a collection search the
 controller as the operator types. Screens that refresh read off their
 process and hold while their tab is hidden, as the shell's pulse does, and

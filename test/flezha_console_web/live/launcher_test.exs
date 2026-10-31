@@ -39,8 +39,8 @@ defmodule FlezhaConsoleWeb.LauncherTest do
     )
   end
 
-  # Whether the host shows the one relay `id` the controller now holds: Home
-  # counts it, the index lists it. Home reads in the background, so the reads
+  # Whether the host shows the one relay `id` the controller now holds: Dashboard
+  # counts it, the index lists it. Dashboard reads in the background, so the reads
   # in flight answer first.
   defp shows?(view, host, id) do
     render_async(view)

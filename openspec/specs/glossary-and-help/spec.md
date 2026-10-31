@@ -76,10 +76,10 @@ open a help overlay for the current screen. The overlay SHALL hold:
 Every routed screen kind SHALL have a purpose paragraph. Escape SHALL close the
 overlay and return focus.
 
-#### Scenario: Help on Home
+#### Scenario: Help on Dashboard
 
-- **WHEN** an operator presses `?` on a namespace's Home
-- **THEN** the overlay explains that Home draws the namespace's runners and relays
+- **WHEN** an operator presses `?` on a namespace's Dashboard
+- **THEN** the overlay explains that Dashboard draws the namespace's runners and relays
   live, lists the terms on screen, and lists the shortcuts
 
 #### Scenario: Typing a question mark
@@ -96,7 +96,7 @@ overlay and return focus.
 
 Outside a text field, the console SHALL bind these keys:
 
-- `g h` to the namespace's Home;
+- `g d` to the namespace's Dashboard;
 - `g r` to Relays;
 - `g p` to Open problems;
 - `g c` to Cluster;
@@ -113,7 +113,7 @@ reachable by clicking.
 
 #### Scenario: Shortcuts do not steal typing
 
-- **WHEN** an operator types `g` then `h` into a filter field
+- **WHEN** an operator types `g` then `d` into a filter field
 - **THEN** both characters are typed and no navigation happens
 
 ### Requirement: Activating a term pins its own definition

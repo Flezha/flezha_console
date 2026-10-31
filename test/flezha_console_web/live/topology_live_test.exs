@@ -1474,7 +1474,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
     end
   end
 
-  describe "Home's headline" do
+  describe "Dashboard's headline" do
     test "every relay healthy and moving reads as flowing, with its figures", %{
       conn: conn,
       node: node
@@ -1627,7 +1627,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
     end
   end
 
-  describe "Home's problems" do
+  describe "Dashboard's problems" do
     test "an idle unhealthy relay is listed below the namespace tiles, with why and what to do",
          %{
            conn: conn,
@@ -1805,7 +1805,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       refute html =~ ~s(data-testid="problem-factory:default:orders")
     end
 
-    test "Home and Open problems show one relay's card with the same rows", %{
+    test "Dashboard and Open problems show one relay's card with the same rows", %{
       conn: conn,
       node: node
     } do
@@ -1828,7 +1828,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
     end
   end
 
-  describe "Home's namespace tiles" do
+  describe "Dashboard's namespace tiles" do
     test "relays are counted by health, each verdict linking to its relays", %{
       conn: conn,
       node: node
@@ -1966,7 +1966,10 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert has_element?(view, ~s(a[data-testid="ns-parked"][href="/dlq"]))
     end
 
-    test "a dead letter is a warning Home counts as its own problem", %{conn: conn, node: node} do
+    test "a dead letter is a warning Dashboard counts as its own problem", %{
+      conn: conn,
+      node: node
+    } do
       stack(node, namespaces: ["default"])
 
       FakeController.set(
@@ -2203,8 +2206,8 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
     end
   end
 
-  describe "Home's scope" do
-    test "Home counts its own namespace and leaves the cluster to Cluster", %{
+  describe "Dashboard's scope" do
+    test "Dashboard counts its own namespace and leaves the cluster to Cluster", %{
       conn: conn,
       node: node
     } do
@@ -2227,8 +2230,8 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
     end
   end
 
-  describe "Home's reads" do
-    # Each Home read lists its plugins once; the shell's pulse does not.
+  describe "Dashboard's reads" do
+    # Each Dashboard read lists its plugins once; the shell's pulse does not.
     defp home_reads(node), do: length(FakeController.calls(node, {PluginManager, :enabled}))
 
     test "nothing is read while the tab is hidden, and once when it is shown", %{
@@ -2279,7 +2282,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
     end
   end
 
-  describe "inspecting on Home" do
+  describe "inspecting on Dashboard" do
     test "a shared link opens the relay inspector, with one overwatch read", %{
       conn: conn,
       node: node

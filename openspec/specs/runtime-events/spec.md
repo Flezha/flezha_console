@@ -271,7 +271,7 @@ session signals. There SHALL be no second subscription mechanism. The signals
 SHALL be broadcast on a topic of their own, so that only the screens handling
 them receive them.
 
-The relays index, platform-wide and namespace-scoped, and each namespace's Home
+The relays index, platform-wide and namespace-scoped, and each namespace's Dashboard
 SHALL show these signals in their event river, as the `live-activity` capability
 defines. Each signal SHALL carry its time, namespace, relay and what happened:
 
@@ -280,8 +280,8 @@ defines. Each signal SHALL carry its time, namespace, relay and what happened:
 - exited, with its runner and reason.
 
 A screen SHALL reload its rows when a signal arrives. Signals SHALL be narrowed to
-the namespaces the bound token reaches before they are shown, and, on Home, to
-that Home's namespace.
+the namespaces the bound token reaches before they are shown, and, on Dashboard, to
+that Dashboard's namespace.
 
 #### Scenario: A relay starts
 
