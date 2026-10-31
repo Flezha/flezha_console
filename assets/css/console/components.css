@@ -1051,10 +1051,10 @@ button.fcon-menu-item--danger:hover {
   display: grid;
   font-size: var(--fcon-text-sm);
   gap: var(--fcon-space-1) var(--fcon-space-4);
-  /* A time column, then as many as the log kind declares, which each row
-     sets inline. */
+  /* A time column, as many as the log kind declares (each row sets the
+     count inline), then the row's Open label. */
   --fcon-record-cols: 2;
-  grid-template-columns: 11rem repeat(var(--fcon-record-cols), minmax(0, 1fr));
+  grid-template-columns: 11rem repeat(var(--fcon-record-cols), minmax(0, 1fr)) auto;
   min-height: var(--fcon-control-h);
   padding: var(--fcon-space-2) var(--fcon-space-3);
   text-align: left;

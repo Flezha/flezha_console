@@ -121,14 +121,14 @@ defmodule FlezhaConsoleWeb.LogsLive do
 
   @doc """
   The query an address carries for a kind: its declared filters, the time
-  range, the limit and a file on a controller. Anything else is dropped, since
-  the controller refuses a filter its kind does not declare.
+  range and the limit. Anything else is dropped, since the controller refuses a
+  filter its kind does not declare.
   """
   def query(params, declared) do
     fields = if declared, do: Enum.map(declared.filters, & &1.field), else: []
 
     params
-    |> Map.take(fields ++ ~w(since until limit file node))
+    |> Map.take(fields ++ ~w(since until limit))
     |> Map.reject(fn {_key, value} -> not is_binary(value) or String.trim(value) == "" end)
     |> Map.new(fn {key, value} -> {key, String.trim(value)} end)
   end
@@ -139,32 +139,13 @@ defmodule FlezhaConsoleWeb.LogsLive do
   end
 
   # Reading patches the address, which reads: the filtered view can then be
-  # linked to and survives a reload. A new read starts from the newest file.
+  # linked to and survives a reload.
   def handle_event("read", params, %{assigns: %{declared: %{}}} = socket) do
     filter = Map.merge(socket.assigns.filter, params["filter"] || %{})
-
-    {:noreply,
-     push_patch(socket, to: logs_path(socket.assigns.kind, Map.drop(filter, ~w(file node))))}
+    {:noreply, push_patch(socket, to: logs_path(socket.assigns.kind, filter))}
   end
 
   def handle_event("read", _params, socket), do: {:noreply, socket}
-
-  # A listed file opens into Records: the same filters, that file on that
-  # controller. Only a file the listing holds is opened.
-  def handle_event("open_file", %{"node" => node, "file" => file}, socket) do
-    listed? = Enum.any?(socket.assigns.catalog, &(&1.node == node and &1.filename == file))
-
-    if listed? and NodeManager.granted?(socket.assigns.operations, "Logs.read") do
-      query = Map.merge(socket.assigns.query, %{"node" => node, "file" => file})
-
-      {:noreply,
-       socket |> push_patch(to: logs_path(socket.assigns.kind, query)) |> reveal("logs-records")}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_event("open_file", _params, socket), do: {:noreply, socket}
 
   def handle_event("read_more", _params, %{assigns: %{records: [_ | _], next: next}} = socket)
       when is_binary(next) do
@@ -299,19 +280,13 @@ defmodule FlezhaConsoleWeb.LogsLive do
     shown = if before, do: socket.assigns.records, else: []
     limit = min(limit(query), @max_records - length(shown))
 
-    params =
-      %{
-        filters: filters(query, declared),
-        limit: limit,
-        before: before,
-        since_us: time_us(query["since"]),
-        until_us: time_us(query["until"])
-      }
-      |> then(
-        &if query["file"],
-          do: Map.merge(&1, %{file: query["file"], node: query["node"]}),
-          else: &1
-      )
+    params = %{
+      filters: filters(query, declared),
+      limit: limit,
+      before: before,
+      since_us: time_us(query["since"]),
+      until_us: time_us(query["until"])
+    }
 
     case NodeManager.log_read(kind, params, token) do
       {:ok, %{records: records} = answer} ->
@@ -436,15 +411,17 @@ defmodule FlezhaConsoleWeb.LogsLive do
     >
       <span>Time</span>
       <span :for={head <- @heads}>{head}</span>
+      <span></span>
     </div>
     <ol data-testid={@testid} class="fcon-records">
       <li :for={record <- @records} data-testid="log-record">
         <% key = record_key(record) %>
+        <% open? = MapSet.member?(@expanded, key) %>
         <button
           type="button"
           class="fcon-record-head"
           style={"--fcon-record-cols: #{length(@heads)}"}
-          aria-expanded={to_string(MapSet.member?(@expanded, key))}
+          aria-expanded={to_string(open?)}
           phx-click="record_toggle"
           phx-value-key={key}
           data-testid="log-record-head"
@@ -456,9 +433,17 @@ defmodule FlezhaConsoleWeb.LogsLive do
           <% else %>
             <span :for={column <- @columns}>{LogLines.cell(record, column.field)}</span>
           <% end %>
+          <%!-- Looks like a button so the row reads as openable; the row is the control. --%>
+          <span class="flz-button flz-button--ghost flz-button--sm" aria-hidden="true">
+            {if open?, do: "Close", else: "Open"}
+            <.icon
+              name={if open?, do: "hero-chevron-up-micro", else: "hero-chevron-down-micro"}
+              class="w-4 h-4"
+            />
+          </span>
         </button>
         <pre
-          :if={MapSet.member?(@expanded, key)}
+          :if={open?}
           class="fcon-code"
           data-testid="log-record-json"
         >{Format.json_line(record, pretty: true)}</pre>

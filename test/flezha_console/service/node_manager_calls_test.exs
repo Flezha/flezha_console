@@ -142,21 +142,11 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
       assert NodeManager.log_stats("audit", nil) == {:ok, %{rows: [stats], unreachable: []}}
     end
 
-    test "a read of one file names its controller and drops what it leaves empty", %{node: node} do
-      NodeManager.log_read(
-        "relay_history",
-        %{filters: %{}, file: "relay_history-1.jsonl", node: "flezha@c1", before: nil, limit: 50},
-        nil
-      )
+    test "a read drops what it leaves empty", %{node: node} do
+      NodeManager.log_read("relay_history", %{filters: %{}, before: nil, limit: 50}, nil)
 
       assert [[params, _ctx]] = FakeController.calls(node, {Logs, :read})
-
-      assert params == [
-               kind: "relay_history",
-               node: "flezha@c1",
-               file: "relay_history-1.jsonl",
-               limit: 50
-             ]
+      assert params == [kind: "relay_history", limit: 50]
     end
 
     test "a relay with no recorded end answers not_found" do

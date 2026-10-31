@@ -480,51 +480,6 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
       assert has_element?(view, testid("logs-file-current"))
       refute has_element?(view, ~s([data-testid^="logs-rotate-"]))
     end
-
-    test "without the read no file opens", %{conn: conn, node: node, user: user} do
-      identity = %{principal: "x@default", namespace: "default", role: :viewer}
-      enforce_operations(node, user, identity)
-      grant_operations(node, identity, ~w(Logs.kinds Logs.files Logs.stats))
-
-      {view, _html} = live_loaded(conn, ~p"/logs/audit")
-
-      assert has_element?(view, testid("logs-file"))
-      refute has_element?(view, ~s([data-testid^="logs-open-"]))
-    end
-
-    test "opening a file reads it on its controller, keeping the other filters", %{
-      conn: conn,
-      node: node
-    } do
-      {view, _html} = live_loaded(conn, ~p"/logs/audit?source=cli")
-      FakeController.set(node, {Logs, :read}, FakeController.log_page([audited(1)]))
-
-      click(view, ~s(button[phx-click="open_file"][phx-value-file="audit-2.jsonl"]))
-      query = view |> assert_patch() |> query_of()
-      assert query == %{"source" => "cli", "file" => "audit-2.jsonl", "node" => "flezha@c2"}
-
-      params = last_read(node)
-      assert params[:file] == "audit-2.jsonl"
-      assert params[:node] == "flezha@c2"
-      assert params[:filters] == %{"source" => "cli"}
-
-      html = render(view)
-      assert text_of(html, testid("logs-reading-file")) =~ "audit-2.jsonl on flezha@c2"
-      assert html =~ ~s(data-testid="log-record")
-      assert_push_event(view, "fcon:reveal", %{id: "logs-records"})
-    end
-
-    test "a forged open of a file the listing does not hold reads nothing", %{
-      conn: conn,
-      node: node
-    } do
-      {view, _html} = live_loaded(conn, ~p"/logs/audit")
-      before = length(reads(node))
-
-      render_click(view, "open_file", %{"node" => "flezha@c1", "file" => "../../etc/passwd"})
-
-      assert length(reads(node)) == before
-    end
   end
 
   describe "a record" do
@@ -533,14 +488,17 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
       {view, _html} = live_loaded(conn, ~p"/logs/audit")
 
       first = ~s([data-testid="logs-records"] li:first-child [data-testid="log-record-head"])
+      assert text_of(render(view), first) =~ ~r/Open$/
 
       html = view |> element(~s(li:first-child [data-testid="log-record-head"])) |> render_click()
 
       assert text_of(html, testid("log-record-json")) =~ ~s("seq": 1)
       assert has_element?(view, first <> ~s([aria-expanded="true"]))
+      assert text_of(html, first) =~ ~r/Close$/
 
       html = click(view, first)
       refute html =~ ~s(data-testid="log-record-json")
+      assert text_of(html, first) =~ ~r/Open$/
     end
 
     test "a relay history record reads as its sentence", %{conn: conn, node: node} do

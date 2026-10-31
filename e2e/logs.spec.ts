@@ -75,7 +75,7 @@ test.describe('Logs', () => {
     ).toHaveCount(0);
   });
 
-  test("rotating the connected controller's current file lists the file it closed, which opens", async ({
+  test("rotating the connected controller's current file lists the file it closed", async ({
     page,
     live,
   }) => {
@@ -97,13 +97,8 @@ test.describe('Logs', () => {
 
     const filename = closed.slice(`logs-file-${CONTROLLER}-`.length);
     const row = page.locator(`[id="${closed}"]`);
+    await expect(row).toContainText(filename);
     await expect(row).not.toContainText('current');
-
-    await row.getByTestId(`logs-open-${filename}`).click();
-    await expect.poll(() => query(page, 'file')).toBe(filename);
-    expect(query(page, 'node')).toBe(CONTROLLER);
-    await expect(page.getByTestId('logs-reading-file')).toContainText(filename);
-    await expect(page.getByTestId('log-record').or(page.getByTestId('logs-records-empty')).first()).toBeVisible();
   });
 
   test('the tail starts paused, streams an action as it is audited, and stops', async ({ page, live }) => {

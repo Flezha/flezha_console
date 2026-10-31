@@ -43,6 +43,7 @@
     <%!-- Files, per controller --%>
     <.section
       testid="logs-files-panel"
+      flush
       digest={Words.count(Enum.count(@catalog, &(!&1.current?)), "rotated file")}
     >
       <:title>Files</:title>
@@ -60,11 +61,10 @@
       <div :if={@rotate_error} data-testid="logs-rotate-error" class="mb-3">
         <.runtime_error error={@rotate_error} action="the rotation" />
       </div>
-      <% readable? = NodeManager.granted?(@operations, "Logs.read") %>
       <% rotatable? = NodeManager.granted?(@operations, "Logs.rotate") %>
-      <p :if={readable? and @catalog != []} class="fcon-figures mb-2">
-        A rotated file holds the records written before a rotation. Open a file to read its
-        records.
+      <p :if={@catalog != []} class="fcon-figures mb-2">
+        A rotated file holds the records written before a rotation. Records below reads every
+        file, newest first.
       </p>
       <.grid
         :if={@catalog != []}
@@ -74,7 +74,6 @@
         testid="logs-files"
         row_id={&"logs-file-#{&1.node}-#{&1.filename}"}
         row_testid={&"logs-file#{if &1.current?, do: "-current"}"}
-        row_selected={&(&1.node == @query["node"] and &1.filename == @query["file"])}
       >
         <:col :let={file} label="Controller">
           <.controller_name node={file.node} controllers={@shell_pulse[:controllers]} />
@@ -87,22 +86,9 @@
         <:col :let={file} label="Size" num>
           {(file[:size_bytes] && Format.bytes(file[:size_bytes])) || "—"}
         </:col>
-        <:col :let={file} :if={readable? or rotatable?} label="Actions">
+        <:col :let={file} :if={rotatable?} label="Actions">
           <.button
-            :if={readable?}
-            variant="ghost"
-            size="sm"
-            icon="hero-document-magnifying-glass"
-            phx-click="open_file"
-            phx-value-node={file.node}
-            phx-value-file={file.filename}
-            aria-label={"Open #{file.filename} on #{file.node}"}
-            data-testid={"logs-open-#{file.filename}"}
-          >
-            Open
-          </.button>
-          <.button
-            :if={rotatable? and file.current?}
+            :if={file.current?}
             variant="secondary"
             size="sm"
             icon="hero-arrow-path-rounded-square"
@@ -184,14 +170,6 @@
             </.button>
           </div>
         </form>
-
-        <p :if={@query["file"]} class="fcon-figures" data-testid="logs-reading-file">
-          Reading <span class="fcon-num">{@query["file"]}</span>
-          on {@query["node"]}, oldest first.
-          <.link patch={~p"/logs/#{@kind}?#{Map.drop(@query, ~w(file node))}"}>
-            Read every file
-          </.link>
-        </p>
 
         <.runtime_error :if={@read_error} error={@read_error} action="this read" />
 

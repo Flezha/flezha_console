@@ -86,7 +86,7 @@ The screen SHALL offer a live tail of the kind on display, opened through `Flezh
 
 ### Requirement: Files, statistics and rotation are shown per controller
 
-For a kind that keeps files, the screen SHALL list each controller's files: the file being written first, marked current, then the rotated ones. Each file SHALL be listed with its controller, name, record count and size. The screen SHALL also show each controller's statistics. The listing SHALL page like every listing. An operator whose operations include the rotate call SHALL be offered Rotate on each controller's current file. Rotate SHALL close that controller's current file and start a new one, and the listing SHALL be reloaded so the closed file is listed. A refused rotation SHALL be shown with its code and hint, leaving the listing as it was. Opening a listed file SHALL read that file's records with the other filters kept, and SHALL bring the records into view.
+For a kind that keeps files, the screen SHALL list each controller's files: the file being written first, marked current, then the rotated ones. Each file SHALL be listed with its controller, name, record count and size. The screen SHALL also show each controller's statistics. The listing SHALL page like every listing. An operator whose operations include the rotate call SHALL be offered Rotate on each controller's current file. Rotate SHALL close that controller's current file and start a new one, and the listing SHALL be reloaded so the closed file is listed. A refused rotation SHALL be shown with its code and hint, leaving the listing as it was.
 
 #### Scenario: Two controllers keep files
 
@@ -105,13 +105,13 @@ For a kind that keeps files, the screen SHALL list each controller's files: the 
 
 ### Requirement: Records are readable rows
 
-Each record SHALL be shown as one row, as its kind's sentence or by its declared columns. A field a record does not carry SHALL be shown as a dash. Activating a row SHALL expand it in place to the whole record, pretty-printed, and activating it again SHALL fold it. A record's time SHALL be shown relative to now, with the absolute time beside it, from the wall-clock time its controller stamped.
+Each record SHALL be shown as one row, as its kind's sentence or by its declared columns. A field a record does not carry SHALL be shown as a dash. Each row SHALL show an Open label, which reads Close while the row is expanded. Activating a row SHALL expand it in place to the whole record, pretty-printed, and activating it again SHALL fold it. A record's time SHALL be shown relative to now, with the absolute time beside it, from the wall-clock time its controller stamped.
 
 #### Scenario: Expanding a record
 
-- **WHEN** an operator activates a record row
-- **THEN** it expands to the whole record as indented JSON
-- **AND** activating it again folds it
+- **WHEN** an operator activates a record row labelled Open
+- **THEN** it expands to the whole record as indented JSON, and its label reads Close
+- **AND** activating it again folds it, and its label reads Open again
 
 ### Requirement: A disabled log is a configuration state
 

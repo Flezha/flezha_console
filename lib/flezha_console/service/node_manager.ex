@@ -1907,12 +1907,11 @@ defmodule FlezhaConsole.Service.NodeManager do
   @doc """
   A kind's records, newest first from every controller, as `{:ok, %{records:,
   next:, unreachable:}}`. `params` holds `filters`, `limit`, `since_us`,
-  `until_us` and `before`, the cursor a previous answer named `next`; with
-  `node` and `file` it reads that controller's file, oldest first.
+  `until_us` and `before`, the cursor a previous answer named `next`.
   """
   def log_read(kind, params, token) when is_map(params) do
     read =
-      for key <- [:filters, :since_us, :until_us, :before, :node, :file],
+      for key <- [:filters, :since_us, :until_us, :before],
           value = params[key],
           value not in [nil, "", %{}],
           do: {key, value}
