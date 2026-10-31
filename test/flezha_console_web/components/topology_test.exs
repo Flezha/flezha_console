@@ -1217,6 +1217,32 @@ defmodule FlezhaConsoleWeb.TopologyTest do
       assert LazyHTML.query(doc, "#topology-svg .flz-graph-node--tasklet") |> Enum.count() == 2
     end
 
+    test "the guide says where each figure comes from, before what the graph draws" do
+      html =
+        render_component(&Topology.pipeline_graph/1,
+          topology: Topology.pipeline(lr(chain())),
+          tapped: nil
+        )
+
+      guide =
+        html
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query(~s([data-testid="topology-guide"]))
+        |> LazyHTML.text()
+
+      assert guide =~ ~r"How it's measured.*What you see"s
+
+      for words <- [
+            "counted by its runner",
+            "IN",
+            "OUT",
+            "?/s",
+            "seven readings",
+            "four a second"
+          ],
+          do: assert(guide =~ words, words)
+    end
+
     test "the legend names every role, mark and motion form" do
       html =
         render_component(&Topology.pipeline_graph/1,

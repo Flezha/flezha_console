@@ -63,21 +63,35 @@
   border-radius: var(--fcon-radius-control); overflow: hidden; background: var(--fcon-surface);
 }
 .topo-seg button, .topo-seg-button {
-  font: inherit; font-size: 12px; padding: 4px 10px; min-height: 1.9rem; border: 0;
-  background: transparent; color: var(--fcon-ink-2); cursor: pointer;
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font: inherit; font-size: 13px; font-weight: 500; padding: 0 var(--space-3); min-height: var(--fcon-control-h);
+  border: 0; background: transparent; color: var(--fcon-ink-2); cursor: pointer;
+}
+.topo-seg button:hover, .topo-seg-button:hover { background: var(--fcon-hover); color: var(--fcon-ink-1); }
+.topo-tool-icon { width: 1.125rem; height: 1.125rem; flex: none; }
+@media (width <= 899px) {
+  .topo-seg .topo-tool-text, [data-zoom="full"] .topo-tool-text { @apply sr-only; }
 }
 .topo-seg > * + * { border-left: 1px solid var(--fcon-line); }
 .topo-seg button[aria-pressed="true"], .topo-seg-button[aria-pressed="true"] {
   background: var(--fcon-accent); color: var(--fcon-on-accent);
 }
 .topo-seg button:focus-visible, .topo-seg-button:focus-visible { outline: 2px solid var(--fcon-accent); outline-offset: -2px; }
-@media (pointer: coarse) {
-  .topo-seg button, .topo-seg-button { min-height: var(--fcon-control-h-sm); }
-}
 .topo-zoom {
   font-family: var(--font-mono); font-size: 12px; color: var(--fcon-ink-3); padding: 4px 8px;
   min-width: 3.25rem; text-align: center; font-variant-numeric: tabular-nums;
 }
+
+/* Zoom: the segmented control stood upright in the stage's corner; it steps
+   aside for an open Cell sheet. */
+.topo-zoom-panel {
+  position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 3;
+  flex-direction: column; align-items: stretch; cursor: auto; box-shadow: 0 4px 16px var(--fcon-shadow);
+}
+.topo-zoom-panel > * + * { border-left: 0; border-top: 1px solid var(--fcon-line); }
+.topo-zoom-panel button { justify-content: center; min-width: var(--fcon-control-h); padding: 0 var(--space-2); }
+.topo-zoom-panel .topo-zoom { padding: 6px 4px; min-width: 0; font-size: 11px; }
+.topo-cells ~ .topo-zoom-panel { right: calc(min(33.75rem, 100%) + var(--space-3)); }
 
 /* The relay's edge, selected by its header. */
 .topo-boundary-outline {
@@ -176,6 +190,18 @@
 
 /* The legend. */
 .topo-legend { padding: var(--space-3); flex-direction: column; flex-wrap: nowrap; }
+/* Plain sentences about how the graph is read: a tasklet's notes, the guide. */
+.topo-notes {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  font-size: 13px; line-height: 1.45; color: var(--fcon-ink-2);
+}
+.topo-notes strong { color: var(--fcon-ink-1); font-weight: 600; }
+.topo-cells-head .topo-notes { margin-top: var(--space-2); }
+.topo-guide { max-width: 34rem; }
+.topo-guide h4 { padding: var(--space-3) var(--space-3) 0; }
+.topo-guide .topo-notes { padding: var(--space-2) var(--space-3) var(--space-3); }
+/* The guide is long, so its popover may run taller than a menu; it alone scrolls. */
+.fcon-popover:has(> .topo-guide) { max-height: min(75vh, 44rem); }
 .topo-legend-badge {
   border-radius: 999px; border: 1px solid var(--warning); color: var(--warning);
   font-family: var(--font-mono); font-size: 10px; line-height: 1; padding: 2px 6px;
@@ -185,6 +211,7 @@
 .topo-legend span.topo-observers { border: 0; }
 .topo-legend-mark { fill: var(--surface-raised); stroke: var(--fcon-signal); stroke-width: 1.75; }
 .topo-legend-flow { stroke: var(--fcon-signal); stroke-width: 2; stroke-dasharray: 4 14; stroke-linecap: round; }
+.topo-legend-unmeasured { stroke: var(--fcon-ink-2); stroke-width: 2; stroke-dasharray: 10 6; stroke-linecap: round; }
 
 /* A tasklet's Cells, in a sheet over the graph's right side. */
 .topo-cells {
@@ -259,4 +286,7 @@
 @media (width <= 599px) {
   .topo-frame { border-inline: 0; border-radius: 0; margin-inline: calc(-1 * var(--space-4)); }
   .topo-cells { width: 100%; }
+  .topo-cells ~ .topo-zoom-panel { display: none; }
+  .topo-zoom-panel { flex-direction: row; align-items: center; right: var(--space-2); bottom: var(--space-2); }
+  .topo-zoom-panel > * + * { border-top: 0; border-left: 1px solid var(--fcon-line); }
 }

@@ -1163,7 +1163,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
              )
     end
 
-    test "a channel's name carries its rate, so a tasklet's fan-out reads along the graph",
+    test "a channel's name carries its rate, and an entry's name none beside its IN",
          %{conn: conn, node: node} do
       market_activity(node, 1_000, 0)
       {:ok, view, html} = live(conn, @relay)
@@ -1177,12 +1177,13 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
 
       assert text_of(html, ~s([data-testid="topo-chan-ohlc_out"])) =~ ~r"^ohlc_out (· )?[\d.]+/s$"
 
-      assert text_of(html, ~s([data-testid="topo-chan-trades_in"])) =~
-               ~r"^trades_in (· )?[\d.]+/s$"
+      assert text_of(html, ~s([data-testid="topo-chan-trades_in"])) == "trades_in"
+      assert text_of(html, ~s([data-testid="topo-rate-in-trades_in"])) =~ ~r"^IN [\d.]+/s"
+      refute html =~ ~s(data-testid="topology-legend-unmeasured")
 
-      assert_in_delta figure(html, "topo-chan-ohlc_out") / figure(html, "topo-chan-trades_in"),
-                      7,
-                      0.1
+      view |> element(~s([data-testid="topo-node-tasklet-ohlc"])) |> render_click()
+      notes = view |> element(~s([data-testid="cells-flow"])) |> render()
+      assert notes =~ ~r"Sends [\d.]+ msgs/s on ohlc_out, about 7 for each message it receives"
 
       assert attrs(html, ".topo-net path", "d") == wires
     end
@@ -1205,6 +1206,86 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
 
       assert figure(html, "topo-chan-ohlc_out") == figure(html, "topo-rate-out-ohlc_out")
       assert figure(html, "topo-chan-ohlc_out") > figure(html, "topo-rate-tasklet-adr")
+    end
+  end
+
+  describe "a fan-in no count settles" do
+    # `board` reads `spread_out` and `prices_out` and nothing else, so its
+    # intake is counted only as their sum and neither channel can be measured.
+    setup %{node: node} do
+      stack(node,
+        graph:
+          graph(
+            [
+              FakeController.graph_channel("books", "entry", nil, ["spread"]),
+              FakeController.graph_channel("trades", "entry", nil, ["prices"]),
+              FakeController.graph_channel("spread_out", "inter_tasklet", "spread", ["board"]),
+              FakeController.graph_channel("prices_out", "inter_tasklet", "prices", ["board"]),
+              FakeController.graph_channel("board_out", "plugin_bound", "board", [], "output")
+            ],
+            "market"
+          )
+      )
+
+      snapshot(node, [{"relay_a", 0, 0}])
+      :ok
+    end
+
+    defp fan_in_activity(node, read_at, n) do
+      rows =
+        for {name, k} <- [spread: 1, prices: 2, board: 5],
+            do: FakeController.activity_row("#{name}", %{admitted_total: n * k})
+
+      activity(node, read_at, rows)
+    end
+
+    test "its channels read ?/s with no count, their wires are drawn unmeasured, and the legend says so",
+         %{conn: conn, node: node} do
+      fan_in_activity(node, 1_000, 0)
+      {:ok, view, _html} = live(conn, @relay)
+
+      fan_in_activity(node, 3_000, 4)
+      snapshot(node, [{"relay_a", 12, 12}])
+      html = tick(view)
+
+      assert_push_event(view, "pipeline_counts", %{budgets: budgets, rates: rates})
+      assert budgets["tasklet-board"] == 20.0
+      assert rates["tasklet-board"] > 0
+
+      for key <- ~w(chan-spread_out chan-prices_out feed-board>spread_out feed-board>prices_out),
+          do: refute(Map.has_key?(budgets, key))
+
+      for {ch, from} <- [spread_out: "spread", prices_out: "prices"] do
+        wire = ~s([data-wire="tasklet-#{from}>tasklet-board>#{ch}"])
+        assert has_element?(view, wire <> ~s([data-mode="unmeasured"]))
+        assert text_of(html, ~s([data-testid="topo-chan-#{ch}"])) =~ ~r"^#{ch} (· )?\?/s$"
+      end
+
+      assert render(view) =~ "spread_out: records pass, but its rate is not measured"
+      assert has_element?(view, ~s([data-testid="topology-legend-unmeasured"]))
+    end
+
+    test "a tasklet's notes say its channels' shares and what it sends are not counted",
+         %{conn: conn, node: node} do
+      fan_in_activity(node, 1_000, 0)
+      {:ok, view, _html} = live(conn, @relay)
+      fan_in_activity(node, 3_000, 4)
+      snapshot(node, [{"relay_a", 12, 12}])
+      tick(view)
+
+      view |> element(~s([data-testid="topo-node-tasklet-board"])) |> render_click()
+      notes = view |> element(~s([data-testid="cells-flow"])) |> render()
+
+      assert notes =~
+               ~r"Receives [\d.]+ msgs/s from (spread_out and prices_out|prices_out and spread_out) together"
+
+      assert notes =~ "not each channel&#39;s share"
+
+      view |> element(~s([data-testid="topo-node-tasklet-spread"])) |> render_click()
+      notes = view |> element(~s([data-testid="cells-flow"])) |> render()
+      assert notes =~ "Sends ?/s on spread_out"
+      assert notes =~ "board also reads another channel"
+      assert notes =~ "One Cell handles every message, in order."
     end
   end
 

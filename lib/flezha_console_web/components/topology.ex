@@ -142,7 +142,8 @@ defmodule FlezhaConsoleWeb.Topology do
 
   Once a baseline exists, each tick also pushes `"pipeline_counts"` to the
   browser: how many records each counted node took since the last tick, which
-  the graph replays as marks moving through the relay over the next tick.
+  the graph replays as marks moving through the relay over the next tick, and
+  each one's smoothed rate, which sizes and shares out those marks.
   """
   def load_pipeline(socket) do
     reads = socket |> pipeline_params() |> pipeline_reads(socket.assigns.overwatch)
@@ -501,6 +502,8 @@ defmodule FlezhaConsoleWeb.Topology do
        %{
          interval_ms: interval,
          budgets: Map.new(counts, fn {id, n} -> {id, Float.round(n / 1, 2)} end),
+         rates:
+           Map.new(counts, fn {id, _n} -> {id, Float.round(smoothed(newest, id) / 1, 2)} end),
          skipped: relay.filtered,
          parked: parked_by
        }}
@@ -1007,6 +1010,8 @@ defmodule FlezhaConsoleWeb.Topology do
       still?: shape.still?
     }
 
+    nets = Enum.map(layout.nets, &net_view(&1, reading))
+    reading = Map.put(reading, :unmeasured, unmeasured_channels(nets))
     word = state_word(history, modes, backpressure?)
     selected = selected(selected_id, shape, layout, input, channel, skipped)
 
@@ -1019,6 +1024,7 @@ defmodule FlezhaConsoleWeb.Topology do
       factory: facts.factory_id,
       head_sub: head_sub,
       compensates?: shape.graph != nil and Enum.any?(shape.graph.tasklets, &compensates?/1),
+      unmeasured?: MapSet.size(reading.unmeasured) > 0,
       direction: dir,
       view: view,
       layout_key: "#{dir}-#{key}",
@@ -1026,14 +1032,14 @@ defmodule FlezhaConsoleWeb.Topology do
       box: layout.box,
       head: layout.head,
       nodes: Enum.map(layout.nodes, &decorate(&1, reading, selected_id)),
-      nets: Enum.map(layout.nets, &net_view(&1, reading)),
+      nets: nets,
       labels: Enum.map(layout.labels, &label_view(&1, reading)),
       dlq: dlq_view(layout.dlq, Map.get(input, :parked, 0)),
       edges: edges_view(layout, shape.observers, backpressure?),
       inside: inside_note(Map.get(input, :graph), shape.graph),
       selected: selected,
       selected_id: selected_id,
-      cells: cells(Map.get(input, :cells_of), shape, input, figures),
+      cells: cells(Map.get(input, :cells_of), shape, input, figures, reading),
       stalled?: stalled?,
       backpressure?: backpressure?,
       stall: List.first(input.verdicts),
@@ -2610,7 +2616,7 @@ defmodule FlezhaConsoleWeb.Topology do
   defp budgets(shape, relay, tasklets, tally_by) do
     settled = settled_channels(shape, tasklets, tally_by || %{})
     entries = entry_counts(shape, relay.in, tasklets, settled)
-    channels = channel_counts(shape, tasklets, settled, entries)
+    channels = channel_counts(shape, settled, entries)
     outputs = output_channels(shape.graph)
     fed = Enum.filter(shape.sources, &is_nil(&1.attached))
     filtered = Enum.filter(fed, &(chain(shape, &1.entry) != []))
@@ -2695,18 +2701,18 @@ defmodule FlezhaConsoleWeb.Topology do
     settle(direct, channels, reads, tasklets)
   end
 
-  # The settled channels, and an even share of what is left for the rest; an
-  # entry no reader settles keeps its share of IN.
-  defp channel_counts(shape, tasklets, known, entries) do
+  # The settled channels, and an entry no reader settles with its share of IN.
+  # Any other channel stays unmeasured: a runner counts each tasklet's whole
+  # intake, so two channels read only beside each other cannot be told apart.
+  defp channel_counts(shape, known, entries) do
     rest =
-      for c <- channels_of(shape.graph), not Map.has_key?(known, c.name), into: %{} do
-        case leftovers(c, known, shape.reads, tasklets, :share) do
-          [] -> {c.name, entries[c.name]}
-          left -> {c.name, Enum.min(left)}
-        end
-      end
+      for c <- channels_of(shape.graph),
+          not Map.has_key?(known, c.name),
+          n = entries[c.name],
+          into: %{},
+          do: {c.name, n}
 
-    known |> Map.merge(rest) |> Map.reject(fn {_ch, n} -> is_nil(n) end)
+    Map.merge(known, rest)
   end
 
   # Settles, until nothing more can be, every channel some reader of it
@@ -2715,7 +2721,7 @@ defmodule FlezhaConsoleWeb.Topology do
     found =
       for c <- channels,
           not Map.has_key?(known, c.name),
-          left = leftovers(c, known, reads, tasklets, :alone),
+          left = leftovers(c, known, reads, tasklets),
           left != [],
           into: %{},
           do: {c.name, Enum.min(left)}
@@ -2723,31 +2729,34 @@ defmodule FlezhaConsoleWeb.Topology do
     if found == %{}, do: known, else: settle(Map.merge(known, found), channels, reads, tasklets)
   end
 
-  # What each counted reader of a channel took beyond its known inputs:
-  # only from readers left with this channel alone (`:alone`), or shared
-  # over every input still unknown (`:share`).
-  defp leftovers(channel, known, reads, tasklets, how) do
+  # What each counted reader of a channel took beyond its known inputs, from
+  # the readers left with this channel alone.
+  defp leftovers(channel, known, reads, tasklets) do
     for t <- channel.consumers,
         n = tasklets[t],
-        unknown = Enum.reject(reads[t], &Map.has_key?(known, &1)),
-        how == :share or unknown == [channel.name] do
-      left = max(n - (reads[t] |> Enum.map(&Map.get(known, &1, 0)) |> Enum.sum()), 0)
-      left / length(unknown)
+        Enum.reject(reads[t], &Map.has_key?(known, &1)) == [channel.name] do
+      max(n - (reads[t] |> Enum.map(&Map.get(known, &1, 0)) |> Enum.sum()), 0)
     end
   end
 
   # A tasklet reading several channels took its intake from each in
-  # proportion to what the channel carried.
+  # proportion to what the channel carried. An unmeasured channel has no feed,
+  # and beside one a measured channel's feed is what it carried.
   defp feed_counts(shape, tasklets, channels) do
     for {t, [_, _ | _] = chs} <- shape.reads, n = tasklets[t], reduce: %{} do
       acc ->
-        carried = Enum.map(chs, &Map.get(channels, &1, 0))
-        total = Enum.sum(carried)
+        carried = for ch <- chs, c = channels[ch], do: {ch, c}
+        total = carried |> Enum.map(&elem(&1, 1)) |> Enum.sum()
 
-        chs
-        |> Enum.zip(carried)
-        |> Enum.reduce(acc, fn {ch, c}, acc ->
-          Map.put(acc, feed_key(t, ch), if(total > 0, do: n * c / total, else: n / length(chs)))
+        Enum.reduce(carried, acc, fn {ch, c}, acc ->
+          feed =
+            cond do
+              length(carried) < length(chs) -> c
+              total > 0 -> n * c / total
+              true -> n / length(chs)
+            end
+
+          Map.put(acc, feed_key(t, ch), feed)
         end)
     end
   end
@@ -2836,7 +2845,6 @@ defmodule FlezhaConsoleWeb.Topology do
     ])
     |> Map.merge(%{
       tag: node[:tag],
-      carried: if(node.type == :entry, do: rate_label(chan_rate(node.label, reading), "/s")),
       attached: node[:attached],
       sub: if(node.type == :skip, do: skipped_sub(reading), else: node_sub(node, figure)),
       rate: figure_rate(figure),
@@ -2895,6 +2903,7 @@ defmodule FlezhaConsoleWeb.Topology do
       for w <- net.wires do
         key = count_key(w)
         rate = if key, do: smoothed(reading.history, key)
+        mode = wire_mode_of(w, key, reading)
 
         %{
           id: wire_id(w),
@@ -2905,9 +2914,13 @@ defmodule FlezhaConsoleWeb.Topology do
           d: rounded_path(w.xy),
           pts: pts_attr(w.xy),
           key: key && to_string_key(key),
-          mode: (key && Map.get(reading.modes, key)) || :quiet,
+          mode: mode,
           rate: rate,
-          title: wire_title(w, key, rate, reading)
+          title:
+            if(mode == :unmeasured,
+              do: unmeasured_title(w),
+              else: wire_title(w, key, rate, reading)
+            )
         }
       end
 
@@ -2915,6 +2928,7 @@ defmodule FlezhaConsoleWeb.Topology do
       id: net.id,
       colour: net.colour,
       kind: net.kind,
+      ch: net.ch,
       ends: net.ends,
       junctions: Enum.map(net.junctions, fn {x, y} -> %{x: r1(x), y: r1(y)} end),
       d: Enum.map_join(wires, " ", & &1.d),
@@ -2924,6 +2938,34 @@ defmodule FlezhaConsoleWeb.Topology do
   end
 
   defp wire_id(w), do: "#{w.from}>#{w.to}>#{w.ch}"
+
+  # A feed the newest tick counted its reader but not itself is
+  # `:unmeasured`: records pass, so it is never idle, but at no known rate.
+  defp wire_mode_of(w, key, reading) do
+    if unmeasured?(w, reading),
+      do: :unmeasured,
+      else: (key && Map.get(reading.modes, key)) || :quiet
+  end
+
+  defp unmeasured?(%{feed: feed, to: reader}, %{history: [_ | _] = history})
+       when is_binary(feed) do
+    newest = List.last(history)
+    Map.has_key?(newest, reader) and not Map.has_key?(newest, feed)
+  end
+
+  defp unmeasured?(_w, _reading), do: false
+
+  defp unmeasured_channels(nets) do
+    for net <- nets,
+        Enum.any?(net.wires, &(&1.mode == :unmeasured)),
+        into: MapSet.new(),
+        do: net.ch
+  end
+
+  defp unmeasured_title(w),
+    do:
+      "#{w.ch}: records pass, but its rate is not measured: its reader's intake is counted " <>
+        "only across all its channels, so its flow is drawn without a speed"
 
   # The counter a wire's rate and state come from: the node it reaches when
   # that node is counted, else the node it leaves.
@@ -2969,7 +3011,8 @@ defmodule FlezhaConsoleWeb.Topology do
 
   defp label_view(%{kind: :channel} = label, reading) do
     rate = chan_rate(label.ch, reading)
-    Map.merge(label, %{more: rate_label(rate, "/s"), rate: rate, testid: "topo-chan-#{label.ch}"})
+    more = if label.ch in reading.unmeasured, do: "?/s", else: rate_label(rate, "/s")
+    Map.merge(label, %{more: more, rate: rate, testid: "topo-chan-#{label.ch}"})
   end
 
   defp label_view(%{key: key} = label, reading) when label.kind in [:in, :out] do
@@ -3139,10 +3182,10 @@ defmodule FlezhaConsoleWeb.Topology do
 
   # ---- The Cell sheet ----
 
-  defp cells(nil, _shape, _input, _figures), do: nil
-  defp cells(_name, %{graph: nil}, _input, _figures), do: nil
+  defp cells(nil, _shape, _input, _figures, _reading), do: nil
+  defp cells(_name, %{graph: nil}, _input, _figures, _reading), do: nil
 
-  defp cells(name, shape, input, figures) do
+  defp cells(name, shape, input, figures, reading) do
     with %{} = tasklet <- Enum.find(shape.graph.tasklets, &(&1.name == name)) do
       read = Map.get(input, :activity)
       figure = figures[name]
@@ -3161,16 +3204,91 @@ defmodule FlezhaConsoleWeb.Topology do
         tasklet: name,
         caption:
           node_sub(%{type: :tasklet, tasklet: tasklet, sub: caption_sample(tasklet)}, figure),
-        rate: figure_rate(figure),
         parked: (figure && figure.parked) || 0,
         rows: sort_cells(rows, sort),
         sort: sort,
         total: total,
         note: note,
-        hops: hops(shape.graph, name)
+        hops: hops(shape.graph, name),
+        flow: flow_notes(tasklet, shape, figure, reading)
       }
     end
   end
+
+  # What a tasklet does with what it receives, in words: its intake, what it
+  # sends on each channel against that intake, and how its keys meet its Cells.
+  # A figure no counter gives is said to be unknown, with the reason.
+  defp flow_notes(tasklet, shape, figure, reading) do
+    name = tasklet.name
+    reads = shape.reads[name] || []
+    # The ratio sets two figures smoothed alike against each other: the
+    # tasklet's counted intake and each channel's.
+    counted = measured(reading.history, "tasklet-#{name}")
+
+    sent =
+      for c <- channels_of(shape.graph), c.producer == name do
+        send_note(c, counted, reading)
+      end
+
+    [receive_note(figure && figure.rate, reads) | sent] ++ [keys_note(tasklet)]
+  end
+
+  defp receive_note(nil, _reads), do: "Receives: measuring."
+
+  defp receive_note(intake, [_, _ | _] = reads),
+    do:
+      "Receives #{rate_label(intake)} from #{Words.join(reads)} together; " <>
+        "only the total is counted, not each channel's share."
+
+  defp receive_note(intake, _reads), do: "Receives #{rate_label(intake)}."
+
+  defp send_note(c, intake, reading) do
+    rate = chan_rate(c.name, reading) || measured(reading.history, "exit-#{c.name}")
+
+    cond do
+      c.name in reading.unmeasured ->
+        "Sends ?/s on #{c.name}: what a tasklet sends is not counted, and " <>
+          "#{Words.join(c.consumers)} also reads another channel, so this share " <>
+          "cannot be worked out."
+
+      is_nil(rate) ->
+        "Sends on #{c.name}: measuring."
+
+      rate == 0 ->
+        "Sends nothing on #{c.name} at the moment."
+
+      true ->
+        "Sends #{rate_label(rate)} on #{c.name}#{ratio_words(rate, intake)}."
+    end
+  end
+
+  # How many go out for each one in, once the intake is known.
+  defp ratio_words(_out, intake) when not is_number(intake) or intake <= 0, do: ""
+
+  defp ratio_words(out, intake) do
+    ratio = out / intake
+
+    cond do
+      ratio >= 1.15 -> ", about #{times(ratio)} for each message it receives"
+      ratio <= 0.87 -> ", about 1 for every #{times(1 / ratio)} it receives"
+      true -> ", about one for each message it receives"
+    end
+  end
+
+  defp times(n) when n >= 3, do: Integer.to_string(round(n))
+  defp times(n), do: n |> Float.round(1) |> Format.compact()
+
+  defp keys_note(%{mode: "dynamic"}),
+    do:
+      "Each key gets its own Cell: messages with one key are handled in order by its Cell, " <>
+        "different keys side by side."
+
+  defp keys_note(%{mode: "static", cell_keys: keys}),
+    do:
+      "A fixed Cell for each of its #{Words.count(length(keys), "key")}: messages with one key " <>
+        "are handled in order by its Cell, different keys side by side."
+
+  defp keys_note(_tasklet), do: "One Cell handles every message, in order."
 
   defp cells_note(nil), do: :unread
   defp cells_note(_read), do: :not_reported
@@ -3613,6 +3731,7 @@ defmodule FlezhaConsoleWeb.Topology do
           :if={pipeline?(@topology)}
           still={@topology.still?}
           compensates={@topology.compensates?}
+          unmeasured={@topology.unmeasured?}
         />
       </:header>
 
@@ -3681,6 +3800,7 @@ defmodule FlezhaConsoleWeb.Topology do
           </style>
         </div>
         <.cell_sheet :if={@topology.cells} cells={@topology.cells} />
+        <.zoom_controls :if={pipeline?(@topology)} />
       </div>
 
       <.flow_state :if={not @topology.still?} flow={@topology.flow} timeline={@topology.timeline} />
@@ -3724,28 +3844,21 @@ defmodule FlezhaConsoleWeb.Topology do
       >
         <button
           :for={
-            {value, label} <- [{"auto", "Auto"}, {"LR", "Left to right"}, {"TB", "Top to bottom"}]
+            {value, label, icon} <- [
+              {"auto", "Auto", "hero-sparkles"},
+              {"LR", "Left to right", "hero-arrow-long-right"},
+              {"TB", "Top to bottom", "hero-arrow-long-down"}
+            ]
           }
           type="button"
           data-dir={value}
           data-testid={"topology-dir-#{value}"}
           aria-pressed={to_string(@topology.view.direction == value)}
+          title={label}
         >
-          {label}
+          <.icon name={icon} class="topo-tool-icon" />
+          <span class="topo-tool-text">{label}</span>
         </button>
-      </div>
-      <div class="topo-seg" role="group" aria-label="Zoom">
-        <button type="button" data-zoom="out" aria-label="Zoom out" data-testid="topology-zoom-out">
-          −
-        </button>
-        <span id="topology-zoom" phx-update="ignore" class="topo-zoom" data-testid="topology-zoom">
-          100%
-        </span>
-        <button type="button" data-zoom="in" aria-label="Zoom in" data-testid="topology-zoom-in">
-          +
-        </button>
-        <button type="button" data-zoom="fit" data-testid="topology-fit">Fit</button>
-        <button type="button" data-zoom="one" data-testid="topology-one">100%</button>
       </div>
       <button
         type="button"
@@ -3753,9 +3866,57 @@ defmodule FlezhaConsoleWeb.Topology do
         data-zoom="full"
         data-testid="topology-full"
         aria-pressed="false"
+        title="Full screen"
         phx-mounted={JS.ignore_attributes(~w(aria-pressed))}
       >
-        Full screen
+        <.icon name="hero-arrows-pointing-out" class="topo-tool-icon" />
+        <span class="topo-tool-text">Full screen</span>
+      </button>
+    </div>
+    """
+  end
+
+  # Zoom floats in the stage's corner, as on a map, clear of an open Cell sheet.
+  defp zoom_controls(assigns) do
+    ~H"""
+    <div class="topo-seg topo-zoom-panel" role="group" aria-label="Zoom">
+      <button
+        type="button"
+        data-zoom="in"
+        aria-label="Zoom in"
+        title="Zoom in"
+        data-testid="topology-zoom-in"
+      >
+        <.icon name="hero-plus" class="topo-tool-icon" />
+      </button>
+      <span id="topology-zoom" phx-update="ignore" class="topo-zoom" data-testid="topology-zoom">
+        100%
+      </span>
+      <button
+        type="button"
+        data-zoom="out"
+        aria-label="Zoom out"
+        title="Zoom out"
+        data-testid="topology-zoom-out"
+      >
+        <.icon name="hero-minus" class="topo-tool-icon" />
+      </button>
+      <button
+        type="button"
+        data-zoom="fit"
+        title="Fit the whole graph"
+        data-testid="topology-fit"
+      >
+        Fit
+      </button>
+      <button
+        type="button"
+        data-zoom="one"
+        title="Actual size"
+        aria-label="Actual size, 100%"
+        data-testid="topology-one"
+      >
+        1:1
       </button>
     </div>
     """
@@ -3986,7 +4147,6 @@ defmodule FlezhaConsoleWeb.Topology do
       >
         <.named_figure
           text={@node.label}
-          more={@node[:carried]}
           stacked={@node.tag[:stacked?]}
           x={r1(@node.tag.x)}
         />
@@ -4245,9 +4405,12 @@ defmodule FlezhaConsoleWeb.Topology do
           />
         </div>
         <p class="text-xs font-mono topo-muted" data-testid="cells-meta">
-          {@cells.caption}{if @cells.rate, do: " · takes in #{@cells.rate}"}{if @cells.parked > 0,
+          {@cells.caption}{if @cells.parked > 0,
             do: " · #{Words.count(@cells.parked, "dead letter")}"}
         </p>
+        <ul class="topo-notes" data-testid="cells-flow">
+          <li :for={note <- @cells.flow}>{note}</li>
+        </ul>
         <div :if={@cells.hops != []} class="topo-hops">
           <button
             :for={hop <- @cells.hops}
@@ -4545,115 +4708,160 @@ defmodule FlezhaConsoleWeb.Topology do
 
   attr :still, :boolean, required: true
   attr :compensates, :boolean, required: true
+  attr :unmeasured, :boolean, default: false
 
-  # Every role, port, wire style, mark and motion the graph draws; a still
-  # graph draws no plugin, end, figure or motion.
+  # How to read the graph: every role, port, wire style, mark and motion it
+  # draws, then where each figure comes from. A still graph draws no plugin,
+  # end, figure or motion, so it has nothing measured to explain.
   defp legend(assigns) do
     ~H"""
     <.popover
       id="topology-legend-menu"
       testid="topology-legend-toggle"
-      label="Legend"
+      label="How to read this graph"
       align="end"
       role="dialog"
-      trigger_class="flz-button flz-button--sm flz-button--ghost"
+      trigger_class="topo-seg-button"
     >
-      <:trigger>Legend</:trigger>
-      <ul data-testid="topology-legend" class="flz-graph-legend topo-legend">
-        <li>
-          <svg width="26" height="14" class="shrink-0" aria-hidden="true">
-            <rect x="1" y="1" width="24" height="12" class="topo-boundary-outline" />
-          </svg>
-          The relay: everything inside its dashed edge runs on its runner
-        </li>
-        <li>
-          <span class="flz-graph-legend-tasklet" aria-hidden="true"></span>A tasklet with one Cell
-        </li>
-        <li>
-          <svg width="28" height="18" class="shrink-0" aria-hidden="true">
-            <g class="flz-graph-node flz-graph-node--tasklet">
-              <rect x="7" y="1" width="20" height="12" rx="2" class="topo-card" />
-              <rect x="1" y="5" width="20" height="12" rx="2" />
-            </g>
-          </svg>
-          A tasklet with several Cells{if not @still, do: "; select it for its Cell table"}
-        </li>
-        <li>
-          <svg width="26" height="14" class="shrink-0" aria-hidden="true">
-            <g class="flz-graph-node flz-graph-node--tasklet topo-node-run">
-              <rect x="1" y="1" width="24" height="12" rx="2" />
-            </g>
-          </svg>
-          A folded run of four or more tasklets in a row; select it to expand
-        </li>
-        <li :if={@compensates} data-testid="topology-legend-compensates">
-          <span class="topo-mark" aria-hidden="true">↺</span>
-          A tasklet that compensates: when its run fails or is stopped, it undoes what it did
-        </li>
-        <li :if={not @still}>
-          <span class="flz-graph-legend-plugin" aria-hidden="true"></span>A plugin: a source feeding the
-          relay, an input filter, or an output plugin
-        </li>
-        <li :if={not @still}>
-          <svg width="26" height="14" class="shrink-0" aria-hidden="true">
-            <g class="flz-graph-node flz-graph-node--state">
-              <rect x="1" y="1" width="24" height="12" rx="2" />
-            </g>
-          </svg>
-          An end: skipped by an input filter, no plugin bound, or the dead letters
-        </li>
-        <li>
-          <svg width="26" height="14" class="shrink-0" aria-hidden="true">
-            <g class="topo-port">
-              <circle cx="13" cy="7" r="5.5" class="topo-port-ring" /><circle
-                cx="13"
-                cy="7"
-                r="2.2"
-                class="topo-port-core"
-              />
-            </g>
-          </svg>
-          A channel port on the relay's edge; select it to {if @still,
-            do: "see what it is",
-            else: "tap the records passing"}
-        </li>
-        <li>
-          <svg width="26" height="10" class="shrink-0" aria-hidden="true">
-            <line x1="0" y1="5" x2="26" y2="5" class="flz-graph-wire topo-wire" />
-            <circle cx="13" cy="5" r="2.8" class="topo-junction" />
-          </svg>
-          A wire, coloured apart from its neighbours; a dot where a channel splits
-        </li>
-        <li :if={not @still}>
-          <svg width="26" height="10" class="shrink-0" aria-hidden="true">
-            <circle cx="13" cy="5" r="3.5" class="topo-legend-mark" />
-          </svg>
-          A record passing; its speed is not the record's, which crosses in microseconds
-        </li>
-        <li :if={not @still}>
-          <svg width="26" height="10" class="shrink-0" aria-hidden="true">
-            <line x1="0" y1="5" x2="26" y2="5" class="topo-legend-flow" />
-          </svg>
-          A busy wire, twelve or more records a second, flowing continuously
-        </li>
-        <li :if={not @still}>
-          <span class="topo-legend-badge is-parked" aria-hidden="true">3</span> Dead letters a
-          tasklet left
-        </li>
-        <li :if={not @still}>
-          <span class="topo-legend-badge is-backlog" aria-hidden="true">40</span> A backlog: inputs
-          waiting at a tasklet
-        </li>
-        <li :if={not @still}>
-          <span class="topo-legend-badge is-shed" aria-hidden="true">3</span> Inputs a tasklet
-          dropped since the last reading
-        </li>
-        <li :if={not @still}>
-          <span class="topo-observers" aria-hidden="true">1 listening</span>
-          Listeners watching an edge of
-          the relay
-        </li>
-      </ul>
+      <:trigger>
+        <.icon name="hero-question-mark-circle" class="topo-tool-icon" />
+        <span class="topo-tool-text">How to read this</span>
+      </:trigger>
+      <div class="topo-guide" data-testid="topology-guide">
+        <section :if={not @still} data-testid="topology-guide-measured">
+          <h4 class="fcon-eyebrow">How it's measured</h4>
+          <ul class="topo-notes">
+            <li>
+              <strong>A tasklet's number</strong>
+              is how many messages it receives a second, counted by its runner.
+            </li>
+            <li>
+              <strong>IN</strong>
+              is what enters the relay at its edge, counted by the relay. <strong>OUT</strong>
+              is what leaves to the plugins, counted as it leaves.
+            </li>
+            <li>
+              <strong>A channel's number</strong>
+              inside the relay is worked out from what the tasklets reading it received, wherever that comes out exact.
+            </li>
+            <li>
+              <strong>?/s</strong>
+              means several tasklets send to one that reads nothing else. Only its total is counted, so each wire's share is unknown, and the wire carries a soft flow instead of dots.
+            </li>
+            <li>
+              A tasklet can send more or fewer messages than it receives. Select it to see how many go out for each one in.
+            </li>
+            <li>
+              Every rate is the average of the last seven readings, one per refresh, so a sudden change shows over a few readings.
+            </li>
+            <li>
+              A dot stands for one or more messages, at most four a second on a wire. Its speed and spacing are not the messages'.
+            </li>
+          </ul>
+        </section>
+        <h4 class="fcon-eyebrow">What you see</h4>
+        <ul data-testid="topology-legend" class="flz-graph-legend topo-legend">
+          <li>
+            <svg width="26" height="14" class="shrink-0" aria-hidden="true">
+              <rect x="1" y="1" width="24" height="12" class="topo-boundary-outline" />
+            </svg>
+            The relay: everything inside its dashed edge runs on its runner
+          </li>
+          <li>
+            <span class="flz-graph-legend-tasklet" aria-hidden="true"></span>A tasklet with one Cell
+          </li>
+          <li>
+            <svg width="28" height="18" class="shrink-0" aria-hidden="true">
+              <g class="flz-graph-node flz-graph-node--tasklet">
+                <rect x="7" y="1" width="20" height="12" rx="2" class="topo-card" />
+                <rect x="1" y="5" width="20" height="12" rx="2" />
+              </g>
+            </svg>
+            A tasklet with several Cells{if not @still, do: "; select it for its Cell table"}
+          </li>
+          <li>
+            <svg width="26" height="14" class="shrink-0" aria-hidden="true">
+              <g class="flz-graph-node flz-graph-node--tasklet topo-node-run">
+                <rect x="1" y="1" width="24" height="12" rx="2" />
+              </g>
+            </svg>
+            A folded run of four or more tasklets in a row; select it to expand
+          </li>
+          <li :if={@compensates} data-testid="topology-legend-compensates">
+            <span class="topo-mark" aria-hidden="true">↺</span>
+            A tasklet that compensates: when its run fails or is stopped, it undoes what it did
+          </li>
+          <li :if={not @still}>
+            <span class="flz-graph-legend-plugin" aria-hidden="true"></span>A plugin: a source feeding the
+            relay, an input filter, or an output plugin
+          </li>
+          <li :if={not @still}>
+            <svg width="26" height="14" class="shrink-0" aria-hidden="true">
+              <g class="flz-graph-node flz-graph-node--state">
+                <rect x="1" y="1" width="24" height="12" rx="2" />
+              </g>
+            </svg>
+            An end: skipped by an input filter, no plugin bound, or the dead letters
+          </li>
+          <li>
+            <svg width="26" height="14" class="shrink-0" aria-hidden="true">
+              <g class="topo-port">
+                <circle cx="13" cy="7" r="5.5" class="topo-port-ring" /><circle
+                  cx="13"
+                  cy="7"
+                  r="2.2"
+                  class="topo-port-core"
+                />
+              </g>
+            </svg>
+            A channel port on the relay's edge; select it to {if @still,
+              do: "see what it is",
+              else: "tap the records passing"}
+          </li>
+          <li>
+            <svg width="26" height="10" class="shrink-0" aria-hidden="true">
+              <line x1="0" y1="5" x2="26" y2="5" class="flz-graph-wire topo-wire" />
+              <circle cx="13" cy="5" r="2.8" class="topo-junction" />
+            </svg>
+            A wire, coloured apart from its neighbours; a dot where a channel splits
+          </li>
+          <li :if={not @still}>
+            <svg width="26" height="10" class="shrink-0" aria-hidden="true">
+              <circle cx="13" cy="5" r="3.5" class="topo-legend-mark" />
+            </svg>
+            A record passing; its speed is not the record's, which crosses in microseconds
+          </li>
+          <li :if={not @still}>
+            <svg width="26" height="10" class="shrink-0" aria-hidden="true">
+              <line x1="0" y1="5" x2="26" y2="5" class="topo-legend-flow" />
+            </svg>
+            A busy wire, twelve or more records a second, flowing continuously
+          </li>
+          <li :if={@unmeasured and not @still} data-testid="topology-legend-unmeasured">
+            <svg width="26" height="10" class="shrink-0" aria-hidden="true">
+              <line x1="0" y1="5" x2="26" y2="5" class="topo-legend-unmeasured" />
+            </svg>
+            Records passing at a rate the console cannot measure, marked ?/s: a soft flow whose speed means nothing
+          </li>
+          <li :if={not @still}>
+            <span class="topo-legend-badge is-parked" aria-hidden="true">3</span> Dead letters a
+            tasklet left
+          </li>
+          <li :if={not @still}>
+            <span class="topo-legend-badge is-backlog" aria-hidden="true">40</span> A backlog: inputs
+            waiting at a tasklet
+          </li>
+          <li :if={not @still}>
+            <span class="topo-legend-badge is-shed" aria-hidden="true">3</span> Inputs a tasklet
+            dropped since the last reading
+          </li>
+          <li :if={not @still}>
+            <span class="topo-observers" aria-hidden="true">1 listening</span>
+            Listeners watching an edge of
+            the relay
+          </li>
+        </ul>
+      </div>
     </.popover>
     """
   end

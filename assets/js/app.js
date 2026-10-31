@@ -484,17 +484,21 @@ Hooks.FlzPalette = {
 //
 // The motion: each tick's `pipeline_counts` says how many records each
 // counted node took, and what the wires into a tasklet reading several
-// channels and each channel carried. Marks start only at sources; a mark
-// reaching a node is handed on along its wires in proportion to what each
-// wire carried, while the next node's budget lasts, so records are drawn in
-// the order they pass. A mark stands for as many records as its wire's
-// sampling needs, a wire streaming twelve or more a second flows continuously
-// instead, and budget no mark has reached within a few seconds is launched as
-// is. Marks are drawn on a canvas laid over the SVG, at about 24 frames a
-// second, only while something moves and the graph is on screen.
+// channels and each channel carried, with each one's smoothed rate. Marks
+// start at sources, and at a node no drawn wire feeds; a mark reaching a node
+// is handed on along its wires in proportion to each wire's rate, while the
+// next node's budget lasts, so records are drawn in the order they pass. A
+// mark stands for as many records as its wire's rate needs for at most four
+// marks a second, a wire streaming twelve or more a second flows continuously
+// instead, a wire left unmeasured carries none but a soft flow, and budget no
+// mark has reached within a few seconds is launched as is. Marks are drawn on a
+// canvas laid over the SVG, at about 24 frames a second, only while something
+// moves and the graph is on screen.
 const MARKS_DRAWN = 80
 const MARKS_A_SECOND = 4
 const marksIn = span => (MARKS_A_SECOND * span) / 1000
+// Marks on one wire keep at least this far apart, so two never draw as one.
+const MARK_GAP_MS = 1000 / (2 * MARKS_A_SECOND)
 const TASKLET_PAUSE_MS = 90
 const CALL_MS = 250
 const FRAME_MS = 1000 / 24
@@ -506,6 +510,10 @@ const TAP_FLUSH_MS = 250
 const FLOW_PERIOD = 18
 const FLOW_DASH = 4
 const FLOW_STEPS_A_SECOND = 20
+// An unmeasured wire's flow: long soft dashes at one speed, whatever passes.
+const SOFT_DASH = 10
+const SOFT_PERIOD = 16
+const SOFT_SPEED = 24
 const DIRECTION_KEY = "flz-pipeline-direction"
 // Counts that belong to wires, never to a node waiting for marks.
 const WIRE_COUNTS = new Set(["chan", "feed"])
@@ -514,6 +522,11 @@ const storedDirection = () => {
   const value = pref.get(DIRECTION_KEY)
   return ["auto", "LR", "TB"].includes(value) ? value : "auto"
 }
+
+// A wire left unmeasured carries no marks, only a soft flow; a streaming wire
+// flows too, its marks handed on unseen.
+const carriesMarks = wire => wire.mode !== "unmeasured"
+const flows = wire => wire.mode === "streaming" || wire.mode === "unmeasured"
 
 const kindOf = id => id === "skipped" ? "skip" : (id.match(/^([a-z]+)-/)?.[1] ?? id)
 
@@ -694,6 +707,7 @@ Hooks.FlzPipeline = {
         rate: Number(el.dataset.rate) || 0,
         m: measure(pts),
         carry: old.get(el.dataset.wire)?.carry ?? 0,
+        free: old.get(el.dataset.wire)?.free ?? 0,
         owed: old.get(el.dataset.wire)?.owed ?? null
       }
       this.wires.set(wire.id, wire)
@@ -992,14 +1006,15 @@ Hooks.FlzPipeline = {
 
   // ---- Motion ----
 
-  // Marks start at the sources, and at an entry nothing drawn feeds, whose
-  // records were sent to the relay directly; every other node's count waits
-  // for the marks that reach it.
-  counts({interval_ms, budgets, parked}) {
+  // Marks start at the sources, and at a node no drawn wire feeds: an entry
+  // whose records were sent to the relay directly, or a tasklet reading only
+  // unmeasured channels; every other node's count waits for the marks that
+  // reach it.
+  counts({interval_ms, budgets, rates = {}, parked}) {
     const now = performance.now()
     const span = Math.min(interval_ms, TICK_SPAN_MS)
-    const {remaining = {}, since = {}} = this.tick ?? {}
-    this.tick = {at: now, span, budgets, remaining, since}
+    const {remaining = {}, since = {}, lent = {}} = this.tick ?? {}
+    this.tick = {at: now, span, budgets, rates, remaining, since, lent}
     this.lit = new Set([...this.wires.values()].filter(w => (budgets[w.key] ?? 0) > 0).map(w => w.id))
     if (!this.watched()) { return }
     // Still: the wires that carried records are drawn heavier, and nothing moves.
@@ -1008,10 +1023,15 @@ Hooks.FlzPipeline = {
     const starts = []
     for (const [id, n] of Object.entries(budgets)) {
       const kind = kindOf(id)
-      if (kind === "source" || (kind === "entry" && !this.inTo.get(id)?.length)) {
-        if (n > 0) { starts.push([id, n, kind]) }
-      } else if (n > 0 && !WIRE_COUNTS.has(kind)) {
-        remaining[id] = (remaining[id] ?? 0) + n
+      if (n <= 0 || WIRE_COUNTS.has(kind)) { continue }
+      if (kind === "source" || !this.markedInto(id).length) {
+        starts.push([id, n, kind])
+      } else {
+        // A count first pays back what marks already took ahead of it.
+        const repaid = Math.min(lent[id] ?? 0, n)
+        lent[id] = (lent[id] ?? 0) - repaid
+        if (n - repaid <= 0) { continue }
+        remaining[id] = (remaining[id] ?? 0) + n - repaid
         since[id] ??= now
       }
     }
@@ -1019,7 +1039,11 @@ Hooks.FlzPipeline = {
 
     for (const [id, n, kind] of starts) {
       if (kind === "source") {
-        for (const wire of this.outOf.get(id) ?? []) { this.spread(wire, n, now, span) }
+        // A source's marks are the count of the node they reach.
+        for (const wire of this.outOf.get(id) ?? []) {
+          this.spread(wire, n, now, span)
+          if (budgets[wire.to] !== undefined) { this.take(wire.to, n) }
+        }
       } else {
         this.marksOver(n, now, span, (share, at) => this.handLater(id, share, null, at))
       }
@@ -1062,8 +1086,10 @@ Hooks.FlzPipeline = {
   unit(wire) {
     const t = this.tick
     if (!t || !wire.key) { return 1 }
-    return Math.max(1, (t.budgets[wire.key] ?? 0) / marksIn(t.span))
+    return Math.max(1, (t.rates[wire.key] ?? 0) / MARKS_A_SECOND)
   },
+
+  markedInto(id) { return (this.inTo.get(id) ?? []).filter(carriesMarks) },
 
   // A streaming wire hands its records on at once and draws its flow; any
   // other carries a mark across in 0.35 to 1.2 seconds, whatever its length.
@@ -1086,10 +1112,10 @@ Hooks.FlzPipeline = {
       this.handLater(answer, weight, entry, now + CALL_MS)
       return
     }
-    let outs = this.outOf.get(id) ?? []
+    let outs = (this.outOf.get(id) ?? []).filter(carriesMarks)
     if (kind === "filter" && entry) { outs = outs.filter(w => w.kind === "skip" || !w.entry || w.entry === entry) }
     const counted = outs.filter(w => t.budgets[w.to] !== undefined)
-    const own = t.budgets[id] ?? 0
+    const own = t.rates[id] ?? 0
     const of = own > 0 ? own : counted.reduce((sum, w) => sum + this.carried(w), 0)
     const pause = kind === "tasklet" ? TASKLET_PAUSE_MS : kind === "run" ? TASKLET_PAUSE_MS * 2 : 0
     for (const wire of outs) {
@@ -1097,7 +1123,7 @@ Hooks.FlzPipeline = {
       if (t.budgets[wire.to] !== undefined) {
         // What the next node has not counted yet is owed to it, and handed on
         // when its count arrives, often a tick after this mark's.
-        const want = of > 0 && t.budgets[wire.to] > 0 ? (weight * this.carried(wire)) / of : weight
+        const want = of > 0 && this.carried(wire) > 0 ? (weight * this.carried(wire)) / of : weight
         give = this.take(wire.to, want)
         if (want - give > 0.01) { wire.owed = {weight: (wire.owed?.weight ?? 0) + want - give, entry, at: wire.owed?.at ?? now} }
       }
@@ -1105,17 +1131,22 @@ Hooks.FlzPipeline = {
     }
   },
 
-  // What a wire carried this tick: its own count, else what its node took.
-  carried(wire) { return this.tick.budgets[wire.key] ?? this.tick.budgets[wire.to] },
+  // What a wire carries a second: its own rate, else its node's.
+  carried(wire) { return this.tick.rates[wire.key] ?? this.tick.rates[wire.to] ?? 0 },
 
-  // Takes up to `want` of a node's budget.
+  // Takes up to `want` of a node's budget, and beyond it lends up to a tick's
+  // worth at the node's rate ahead of its next count, so marks still arriving
+  // from the last tick do not hold this tick's back. A node that stalls stops
+  // being lent to within a tick.
   take(id, want) {
     const t = this.tick
     const left = t.remaining[id] ?? 0
     const give = Math.min(want, left)
     t.remaining[id] = left - give
     if (left - give < 0.5) { delete t.since[id] }
-    return give
+    const lend = Math.min(want - give, Math.max(0, ((t.rates[id] ?? 0) * t.span) / 1000 - (t.lent[id] ?? 0)))
+    if (lend > 0) { t.lent[id] = (t.lent[id] ?? 0) + lend }
+    return give + lend
   },
 
   carryOn(wire, weight, entry, at) {
@@ -1124,6 +1155,8 @@ Hooks.FlzPipeline = {
     const unit = this.unit(wire)
     while (wire.carry >= unit) {
       wire.carry -= unit
+      at = Math.max(at, wire.free)
+      wire.free = at + MARK_GAP_MS
       this.queue(wire, unit, entry, at, "counted")
     }
   },
@@ -1153,11 +1186,11 @@ Hooks.FlzPipeline = {
     for (const [id, at] of Object.entries(t.since)) {
       if (now - at < GRACE_MS) { continue }
       const left = t.remaining[id] ?? 0
-      const into = this.inTo.get(id) ?? []
+      const into = this.markedInto(id)
       delete t.since[id]
       t.remaining[id] = 0
       if (left < 0.5 || !into.length) { continue }
-      const shares = into.map(w => this.carried(w) ?? 0)
+      const shares = into.map(w => this.carried(w))
       const total = shares.reduce((sum, n) => sum + n, 0)
       into.forEach((wire, i) => this.spread(wire, total > 0 ? (left * shares[i]) / total : left / into.length, now, TAP_FLUSH_MS * 2))
     }
@@ -1201,7 +1234,29 @@ Hooks.FlzPipeline = {
   },
 
   flowing() {
-    return !this.reduced.matches && !this.backpressure && [...this.wires.values()].some(w => w.mode === "streaming")
+    return !this.reduced.matches && !this.backpressure && [...this.wires.values()].some(flows)
+  },
+
+  // A continuous flow's dashes. A stream flows faster and thicker for a higher
+  // rate, stepped so it never seems to run backwards, and stops in the warning
+  // colour while the runner's channel has no credit. An unmeasured wire carries
+  // records at a rate nobody knows: a soft flow in the muted ink at one speed,
+  // never the signal's dashes.
+  flowStyle(wire, now) {
+    if (wire.mode === "unmeasured") {
+      const offset = -((now / 1000) * SOFT_SPEED) % SOFT_PERIOD
+      return {dash: SOFT_DASH, period: SOFT_PERIOD, offset, ink: this.inks.text, width: 2}
+    }
+    const out = this.backpressure && kindOf(wire.from) === "exit"
+    const speed = 60 + 40 * Math.log10(1 + wire.rate)
+    const step = Math.floor(((now / 1000) * FLOW_STEPS_A_SECOND))
+    return {
+      dash: FLOW_DASH,
+      period: FLOW_PERIOD,
+      offset: out ? 0 : -((step / FLOW_STEPS_A_SECOND) * speed) % FLOW_PERIOD,
+      ink: out ? this.inks.warning : this.inks.signal,
+      width: Math.min(5, 1.5 + Math.log10(1 + wire.rate) * 1.6)
+    }
   },
 
   // Everything moving, on the canvas, in the SVG's own coordinates.
@@ -1232,18 +1287,13 @@ Hooks.FlzPipeline = {
       return
     }
 
-    // A stream: a continuous flow, faster and thicker for a higher rate,
-    // stepped so it never seems to run backwards; stopped in the warning
-    // colour while the runner's channel has no credit.
     for (const wire of this.wires.values()) {
-      if (wire.mode !== "streaming") { continue }
-      const out = this.backpressure && kindOf(wire.from) === "exit"
-      const speed = 60 + 40 * Math.log10(1 + wire.rate)
-      const step = Math.floor(((now / 1000) * FLOW_STEPS_A_SECOND))
-      ctx.setLineDash([FLOW_DASH, FLOW_PERIOD - FLOW_DASH])
-      ctx.lineDashOffset = out ? 0 : -((step / FLOW_STEPS_A_SECOND) * speed) % FLOW_PERIOD
-      ctx.strokeStyle = out ? this.inks.warning : this.inks.signal
-      ctx.lineWidth = Math.min(5, 1.5 + Math.log10(1 + wire.rate) * 1.6)
+      if (!flows(wire)) { continue }
+      const {dash, period, offset, ink, width} = this.flowStyle(wire, now)
+      ctx.setLineDash([dash, period - dash])
+      ctx.lineDashOffset = offset
+      ctx.strokeStyle = ink
+      ctx.lineWidth = width
       trace(wire.m)
       ctx.stroke()
     }

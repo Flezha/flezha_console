@@ -16,9 +16,9 @@ The system SHALL compute message rates as the difference between successive coun
   - the admitted delta of a tasklet that reads only that channel, the largest where several do;
   - else its tally;
   - else what a reader's admitted delta leaves once its other inputs are known;
-  - else an even share of what a reader's delta leaves over its inputs still unknown;
-  - an entry channel none of these settle keeps its share of IN.
-- **Wires into a tasklet reading several channels:** that tasklet's admitted delta, shared in proportion to what each of its channels carried.
+  - an entry channel none of these settle keeps its share of IN;
+  - any other channel stays unmeasured: a runner counts only each tasklet's whole intake, so channels read only beside each other cannot be told apart, and no share of a reader's delta SHALL be invented for them.
+- **Wires into a tasklet reading several channels:** that tasklet's admitted delta, shared in proportion to what each of its channels carried. A wire whose channel is unmeasured has no count.
 
 Negative differences SHALL clamp to zero.
 
@@ -26,9 +26,9 @@ Rates SHALL be displayed only where a counter exists:
 - on each entry port's wire: the relay's IN rate, split by entry as the motion is; an entry whose readers settle it at nothing SHALL take no share of IN;
 - on each tasklet node, beside its name, in a slot whose width does not depend on the figure;
 - on each output channel's wire, from the tally, or from the relay's `forwarded` count when the relay has one output channel or no tally can be read;
-- beside the name of each channel inside the relay and of each entry port, what that channel carried, in a slot whose width does not depend on the figure: the larger of its worked-out rate and its tally's, since an edge filter lowers the one and a tally read lags the other. Top to bottom, the figure SHALL take a second line, and the lanes of the gap below SHALL clear it.
+- beside the name of each channel inside the relay, what that channel carried, in a slot whose width does not depend on the figure: the larger of its worked-out rate and its tally's, since an edge filter lowers the one and a tally read lags the other. Top to bottom, the figure SHALL take a second line, and the lanes of the gap below SHALL clear it. An entry port's name SHALL carry no figure, since its IN figure already states it, and an unmeasured channel's name SHALL read `?/s`.
 
-A wire into a tasklet SHALL take its rate and state from what it carried: the tasklet's own rate when it reads only that channel, otherwise its share of the tasklet's rate.
+A wire into a tasklet SHALL take its rate and state from what it carried: the tasklet's own rate when it reads only that channel, otherwise its share of the tasklet's rate. A wire whose channel is unmeasured SHALL never be drawn idle: it SHALL carry a soft steady flow in the muted ink, at one speed whatever passes and never in the signal colour or as marks, so it reads apart from measured motion. Its tooltip SHALL say records pass at a rate that is not measured, and the legend SHALL explain the style whenever such a wire is drawn.
 
 Plugin-to-plugin wires SHALL carry no rate figure.
 
@@ -97,7 +97,12 @@ The pipeline SHALL display, and SHALL animate from, the mean of the newest seven
 #### Scenario: A fan-out reads along the graph
 
 - **WHEN** `ohlc` admits 4 trades a second from `trades_in` and emits 28 candles a second on `ohlc_out`
-- **THEN** the `trades_in` entry reads `trades_in · 4.0/s`, the `ohlc_out` label reads `ohlc_out · 28.0/s`, and the layout is the same as before the figures appeared
+- **THEN** the `trades_in` entry's IN reads `4.0/s` and its name `trades_in` alone, the `ohlc_out` label reads `ohlc_out · 28.0/s`, and the layout is the same as before the figures appeared
+
+#### Scenario: A fan-in no count settles stays unmeasured
+
+- **WHEN** `market_board` reads only `track_spread` and `track_prices`, and nothing else reads either
+- **THEN** both channel names read `?/s`, both wires into `market_board` carry the soft flow and no marks, the legend explains it, and `market_board`'s own rate is unchanged
 
 ### Requirement: On-demand payload tap
 
@@ -218,7 +223,11 @@ The system SHALL show an inspector for a selected node in the dock below the can
 
 A tasklet's details SHALL be shown in its Cell sheet. Selecting another node SHALL replace the inspector, and dismissing it SHALL clear the selection.
 
-**Legend:** the system SHALL offer a legend naming every node role, port, wire style, mark and motion form used on the graph, including:
+**How to read this:** a "How to read this" control SHALL open a guide in two parts.
+
+*How it's measured* comes first, in plain words: a tasklet's number is what it receives, counted by its runner; IN and OUT are counted at the relay's edge; a channel's number inside the relay is worked out from what its readers received where that is exact; `?/s` means several tasklets send to one that reads nothing else, so each wire's share is unknown; a tasklet can send more or fewer than it receives, which its sheet states; every rate is the average of the last seven readings; and a mark stands for one or more records, at most four a second, its speed and spacing not theirs. A still graph SHALL leave this part out.
+
+*What you see* is the legend: it SHALL name every node role, port, wire style, mark and motion form used on the graph, including:
 - the relay boundary;
 - a tasklet with one Cell and with several;
 - a folded run;
@@ -244,8 +253,8 @@ A tasklet's details SHALL be shown in its Cell sheet. Selecting another node SHA
 
 #### Scenario: Legend opens on demand
 
-- **WHEN** the operator activates the legend control
-- **THEN** a popover names what each node role, port, wire style, mark and motion form means
+- **WHEN** the operator activates the "How to read this" control
+- **THEN** a popover says where each figure comes from, then names what each node role, port, wire style, mark and motion form means
 
 #### Scenario: Dismissing the panel
 
@@ -491,18 +500,19 @@ The graph SHALL show record movement on every tick, whether or not a tap is open
 - each output channel's tally delta.
 
 **Causal order:**
-- A mark SHALL start only on a source's wire.
-- A mark reaching a node SHALL be handed on along that node's outgoing wires while their budget for the tick lasts:
+- A mark SHALL start on a source's wire, and its records SHALL be the count of the node it reaches.
+- A mark reaching a node SHALL be handed on along that node's outgoing wires, in proportion to each wire's smoothed rate against the node's, while the budget of the node each reaches lasts:
   - a filter hands it to the entry or to the skipped end;
   - an entry port hands it to every tasklet reading it;
-  - a tasklet hands it on after a short pause, along each wire as many as that wire carried allow;
+  - a tasklet hands it on after a short pause;
   - an output port hands it to its plugins;
   - a call target hands it to the answer channel.
-- A count no mark reaches within a few seconds SHALL be launched as is, on the wires into its node by what each carried, so every count is drawn or counted and a quiet input stays quiet. A mark reaching a node whose count arrives a tick later SHALL wait for that count rather than be dropped.
-- An entry nothing drawn feeds, its records sent to the relay directly, SHALL start marks as a source does.
+- A count no mark reaches within a few seconds SHALL be launched as is, on the wires into its node by what each carried, so every count is drawn or counted and a quiet input stays quiet. A mark reaching a node whose count arrives a tick later SHALL go on ahead of that count, up to one tick's worth at the node's rate, which the count then pays back; beyond that it SHALL wait for the count rather than be dropped, so marks keep moving between ticks and a stalled node stops receiving them within a tick.
+- A node no drawn wire feeds SHALL start marks as a source does: an entry whose records were sent to the relay directly, or a tasklet reading only unmeasured channels. An unmeasured wire SHALL carry no mark, only its soft flow.
 
 **Sampling:**
-- At most four marks a second SHALL travel a wire. A mark on a sampled wire SHALL stand for the records it represents, so the wires after it receive their right share.
+- At most four marks a second SHALL travel a wire: a mark SHALL stand for as many records as the wire's smoothed rate needs for that, so a wire and the wires after it show the same cadence for the same records. A mark on a sampled wire SHALL stand for the records it represents, so the wires after it receive their right share.
+- Two marks on one wire SHALL never start at the same moment, so none is hidden behind another.
 - At most 80 marks SHALL be drawn at once. Marks beyond that SHALL still be handed on unseen, and every figure SHALL still count them. Every dead letter SHALL be drawn.
 
 **Taps:** while a tap is open, the records it hears SHALL be drawn as filled marks on the tapped wire. While traffic is rare, a filled mark SHALL carry the start of its payload, at most 40 characters.
@@ -687,10 +697,9 @@ The system SHALL make three reads only while the relay page is connected and vis
 
 ### Requirement: The viewer chooses the direction and the zoom
 
-The pipeline panel SHALL offer the following controls:
-- a direction control with Auto, Left to right and Top to bottom;
-- zoom out, zoom in, Fit and 100%;
-- full screen.
+The pipeline panel SHALL offer the following controls, each at the console's full control height, with an icon and a tooltip naming it:
+- in the panel header: a direction control with Auto, Left to right and Top to bottom, full screen, and "How to read this"; on narrow screens the header controls SHALL show their icons alone, still named for assistive technology;
+- floating in the graph's lower right corner, as on a map: zoom in, the current zoom, zoom out, Fit and 1:1 (100%). The zoom controls SHALL step aside for an open Cell sheet, and SHALL be hidden while the sheet covers the whole graph on a phone.
 
 **Direction:**
 - The choice SHALL be remembered per viewer in the browser. It SHALL be Auto until the viewer picks one.
@@ -765,7 +774,11 @@ The graph SHALL draw wires at right angles with rounded corners.
 Selecting a tasklet SHALL open a sheet over the graph's right side.
 
 **Header:**
-- the tasklet's name, Cell mode, live Cell count and intake rate;
+- the tasklet's name, Cell mode and live Cell count;
+- what it does with what it receives, in plain sentences:
+  - its intake, and, when it reads several channels, that only their total is counted;
+  - for each channel it sends on, that channel's rate and about how many records go out for each one in, from its counted intake and the channel's rate smoothed alike; or `?/s` with the reason when the channel is unmeasured;
+  - how its keys meet its Cells: one Cell per key handling that key's records in order, a fixed Cell per declared key, or one Cell for every record;
 - one control per neighbouring tasklet, upstream and downstream, naming the channel between them; each SHALL open that tasklet's sheet.
 
 **Table:**
