@@ -64,6 +64,10 @@ defmodule FlezhaConsole.Service.NodeManager do
   # so it is cached. `authz.registry_unavailable` is transient and is not.
   @token_codes ~w(authz.token_malformed authz.token_unknown authz.token_revoked authz.token_expired)
 
+  # Refusals another token remedies; any other is a role granted elsewhere.
+  @needs_token @token_codes ++
+                 ~w(authz.principal_not_bound authz.no_role_binding console.no_token)
+
   # The classes core's error catalogue gives a code.
   @classes [:invalid, :denied, :not_found, :conflict, :unavailable, :unreachable, :internal]
 
@@ -259,8 +263,11 @@ defmodule FlezhaConsole.Service.NodeManager do
   @doc "Whether an answer is the controller refusing the caller."
   def denied?(answer), do: match?(%{class: :denied}, error(answer))
 
-  @doc "Whether `answer` refuses the token itself rather than what it may do."
-  def token_refused?(answer), do: error(answer).code in @token_codes
+  @doc """
+  Whether storing another token is what `answer` asks of the operator: none
+  was sent, the controller refused the one sent, or it binds no identity.
+  """
+  def needs_token?(answer), do: error(answer).code in @needs_token
 
   @doc "Whether an answer is the controller saying what was asked for does not exist."
   def not_found?(answer), do: match?(%{class: :not_found}, error(answer))

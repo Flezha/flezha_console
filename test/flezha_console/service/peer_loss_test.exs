@@ -78,7 +78,7 @@ defmodule FlezhaConsole.Service.PeerLossTest do
 
       FakeListener.stop(node)
 
-      assert {:ended, {:error, :node_not_connected}} = await_end(request)
+      assert {:ended, {:error, :node_not_connected}} = FakeController.await_stream_end(request)
     end
   end
 
@@ -96,15 +96,6 @@ defmodule FlezhaConsole.Service.PeerLossTest do
       assert FakeController.eventually(fn -> not :sys.get_state(feed).reopening? end)
       assert_received {:feed_reconnected, :tail}
       assert length(FakeController.streams(successor, @tail)) == 1
-    end
-  end
-
-  defp await_end(request) do
-    assert_receive message
-
-    case NodeManager.stream_result(message, request) do
-      :no_response -> await_end(request)
-      ended -> ended
     end
   end
 end

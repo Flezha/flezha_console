@@ -66,7 +66,7 @@ defmodule FlezhaConsole.Service.DevSetup do
     token = FlezhaConsole.Accounts.service_flezha_token()
 
     try do
-      with {:node, node} when node != nil <- {:node, NodeManager.connected_node()},
+      with {:reachable, true} <- {:reachable, NodeManager.connected_node() != nil},
            :ok <- ensure_namespace(ns, config[:quotas] || %{}, token),
            {:ok, relays, skipped} <- drop_unannounced(ns, relays, token),
            plugins = Enum.reject(plugins, &(&1.relay_id in skipped)),
@@ -79,8 +79,8 @@ defmodule FlezhaConsole.Service.DevSetup do
 
         %{state | ready: true}
       else
-        {:node, nil} ->
-          schedule_retry(retries, "waiting for controller node")
+        {:reachable, false} ->
+          schedule_retry(retries, "waiting for the controller")
           %{state | retries: retries + 1}
 
         {:error, reason} ->

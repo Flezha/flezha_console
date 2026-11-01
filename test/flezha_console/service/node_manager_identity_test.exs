@@ -364,7 +364,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
       assert_receive {:flezha_emit, %{name: :runner_connected, metadata: %{namespace: "acme"}}}
 
       FakeController.end_stream(node, key, {:ok, :done})
-      assert {:ended, {:ok, "done"}} = await_end(request)
+      assert {:ended, {:ok, "done"}} = FakeController.await_stream_end(request)
     end
 
     test "a refusal ends the stream and evicts the token", %{node: node, token: token} do
@@ -378,7 +378,7 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
       )
 
       assert {:ok, request} = NodeManager.log_tail("audit", %{}, token, self())
-      assert {:ended, {:error, %{class: :denied}}} = await_end(request)
+      assert {:ended, {:error, %{class: :denied}}} = FakeController.await_stream_end(request)
 
       NodeManager.verify_token(token)
       assert length(whoami_calls(node)) == 2
@@ -392,18 +392,6 @@ defmodule FlezhaConsole.Service.NodeManagerIdentityTest do
     test "a message that is not the answer is not mistaken for one", %{token: token} do
       assert {:ok, request} = NodeManager.observability_tail(:flezha_runner, token, self())
       assert :no_response = NodeManager.stream_result({:flezha_emit, :x}, request)
-    end
-  end
-
-  defp await_end(request) do
-    receive do
-      message ->
-        case NodeManager.stream_result(message, request) do
-          :no_response -> await_end(request)
-          ended -> ended
-        end
-    after
-      5_000 -> flunk("the stream never answered")
     end
   end
 

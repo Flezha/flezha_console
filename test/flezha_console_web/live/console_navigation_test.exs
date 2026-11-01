@@ -303,7 +303,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
         FakeController.reset(node)
         with_fleet(node, ["default"], %{"default" => ids})
         {:ok, view, _html} = live(conn, ~p"/problems")
-        render(view)
+        render_async(view)
 
         length(FakeController.calls(node, {Relay, :list})) +
           length(FakeController.calls(node, {Relay, :overwatch_state}))
@@ -331,7 +331,7 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/problems")
-      render(view)
+      render_async(view)
 
       read = node |> FakeController.calls({Relay, :list}) |> Enum.map(&hd/1) |> Enum.uniq()
       assert read == ["default"]

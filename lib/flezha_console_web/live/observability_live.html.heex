@@ -189,10 +189,12 @@
     action="the live tail"
   />
   <.runtime_error error={@history_error} action="the source's recent history" />
-  <.notice :if={@tail_reconnected?} kind={:info} testid="tail-reconnected">
-    The tail reconnected after its stream to the controller was cut — signals emitted while it was
-    down are not shown.
-  </.notice>
+  <.stream_gap
+    :if={@tail_reconnected?}
+    name="tail"
+    missed="signals emitted"
+    testid="tail-reconnected"
+  />
 
   <div
     :if={@tailing && @tail_records == [] && !pubsub_disabled?(@tail_error)}

@@ -136,8 +136,6 @@ services:
         condition: service_completed_successfully
       controller_2_storage:
         condition: service_completed_successfully
-      certs:
-        condition: service_completed_successfully
     command: >
       sh -c 'trap "exit 0" TERM INT;
       ln -sf /channel_tls/$$HOSTNAME.pem /tmp/channel_server.pem;
@@ -150,7 +148,6 @@ services:
       done'
     volumes:
       - fcon_controller_2_storage:/flezha/storage
-      - fcon_channel_tls:/channel_tls:ro
 
   # Readies the second controller's storage before it boots: its plugin root
   # gets the packages the first one loads, since a loader writes into its own

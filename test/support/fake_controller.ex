@@ -1166,6 +1166,21 @@ defmodule FakeController do
     end
   end
 
+  @doc """
+  Waits for the end of the stream `request` the console opened, as
+  `NodeManager.stream_result/2` recognises it, passing over every other
+  message.
+  """
+  def await_stream_end(request) do
+    import ExUnit.Assertions, only: [assert_receive: 1]
+    assert_receive message
+
+    case FlezhaConsole.Service.NodeManager.stream_result(message, request) do
+      :no_response -> await_stream_end(request)
+      ended -> ended
+    end
+  end
+
   defp record_call(store, key, args),
     do: :ets.insert(store, {{:calls, key}, lookup(store, {:calls, key}, []) ++ [args]})
 

@@ -349,7 +349,9 @@ docker compose -f docker-compose.dev.yml -f docker-compose.dev-tls.yml up
 A one-shot `fcon_dist_tls_certs` (`priv/dev/certs.sh dist`) makes a private
 distribution authority, apart from the channel's, and a key, certificate and
 option file per distributed host, into the `fcon_dist_tls` volume. Later runs keep them, and remake only what is missing,
-expires within 30 days, or was signed by an earlier CA. Each node then starts
+expires within 30 days, or was signed by an earlier CA. The option files are
+written anew on every run, so a change to their options reaches each node at
+the next `up`. Each node then starts
 with `ELIXIR_ERL_OPTIONS="-proto_dist inet_tls -ssl_dist_optfile
 /dist_tls/<host>.conf"`.
 

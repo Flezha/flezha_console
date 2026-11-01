@@ -2162,14 +2162,8 @@ defmodule FlezhaConsoleWeb.CoreComponents do
     """
   end
 
-  # A refused token or a missing identity is remedied in settings; every other
-  # refusal is a role the operator has to be granted elsewhere.
   defp settings_link?(nil), do: false
-
-  defp settings_link?(error) do
-    NodeManager.error(error).code in ~w(authz.principal_not_bound authz.no_role_binding console.no_token) or
-      NodeManager.token_refused?(error)
-  end
+  defp settings_link?(error), do: NodeManager.needs_token?(error)
 
   @doc """
   One line for an error a `NodeManager` call answered: the controller's own
@@ -2224,6 +2218,23 @@ defmodule FlezhaConsoleWeb.CoreComponents do
   listener in app.js does the scrolling.
   """
   def reveal(socket, id), do: Phoenix.LiveView.push_event(socket, "fcon:reveal", %{id: id})
+
+  @doc """
+  Says a live stream was cut and is held again, so what arrived in between is
+  missing from what the screen shows.
+  """
+  attr :name, :string, required: true, doc: "what the screen calls what it holds: \"tail\""
+  attr :missed, :string, required: true, doc: "what went unseen: \"signals emitted\""
+  attr :testid, :string, required: true
+
+  def stream_gap(assigns) do
+    ~H"""
+    <.notice kind={:info} testid={@testid}>
+      The {@name} reconnected after its stream to the controller was cut — {@missed} while it was
+      down are not shown.
+    </.notice>
+    """
+  end
 
   @doc """
   The controller's authorization posture, as a notice. Renders nothing when

@@ -338,6 +338,11 @@ docker exec fcon_tools sh -c 'exec elixir --sname rs3 --hidden --cookie "$ERLANG
 A new read the console makes is added to `FlezhaConsole.Service.ControllerShapes.reads/0`,
 and a new action or stream to the recorder's scenes.
 
+The console compiles the file once, when it starts, so the dev server decodes
+by the schema it booted with. After re-recording, or after changing
+`ControllerShapes` itself, restart it with `priv/dev/stack.sh restart-web`
+before a browser run: a code reload alone leaves the old schema in place.
+
 The browser suite's helpers that stand in for `flz` on a controller's host — CLI
 calls, the stack lock, shape recording — run as hidden nodes in `fcon_tools`,
 which holds the cookie; the console's container holds none. Console users are
