@@ -55,14 +55,14 @@ test('a stored token that does not verify is never rendered back, and its refusa
     expect(await page.locator('#flezha_token_token').inputValue()).toBe('');
 
     const banner = page.getByTestId('authz-unbound');
-    await expect(banner).toContainText('will be refused');
+    await expect(banner).toContainText('is refused');
 
-    // The controller narrows every listing to the caller, so with no identity
-    // the dashboard states the refusal and where to fix it, rather than
-    // rendering as an empty controller.
+    // The controller judges every call by the token it carries, so the
+    // dashboard states its refusal of this one and where to fix it, rather
+    // than rendering as an empty controller.
     await live('/');
     const refused = page.getByTestId('runtime-error');
-    await expect(refused).toContainText('authz.principal_not_bound');
+    await expect(refused).toContainText('authz.token_malformed');
     await expect(refused.getByRole('link', { name: /settings/ })).toBeVisible();
   } finally {
     await clearStoredToken(page);

@@ -20,6 +20,8 @@
 #   FLEZHA_RUNNER_NAMESPACE  the namespace that credential is for (default),
 #                      created when missing
 #
+# It also enables the HTTP API the console reaches the controllers through.
+#
 # `flz` cannot do this here: it shells out to the release launcher, which a
 # controller running under `iex -S mix` does not have. The published
 # `Flezha.Service.Namespace` functions over `:erpc` are the entry point.
@@ -61,6 +63,39 @@ defmodule BootstrapAuthz do
       end
 
     ensure_runner_token(node, ui_token)
+    ensure_http_api(node, ui_token)
+  end
+
+  # The console reaches the controllers over the HTTP API with mutual TLS. One
+  # plugin serves every controller; each links its own certificate to the paths
+  # below before it boots (docker-compose.dev.yml).
+  @http_api_opts %{
+    "bind" => "0.0.0.0",
+    "port" => 8765,
+    "tls_certfile" => "/tmp/channel_server.pem",
+    "tls_keyfile" => "/tmp/channel_server.key",
+    "tls_client_cacertfile" => "/channel_tls/ca.pem"
+  }
+
+  defp ensure_http_api(node, admin_token) do
+    context = context_of(node, admin_token)
+    fields = [provider: "http_api", namespace: "_system", opts: @http_api_opts]
+
+    case call(node, Flezha.Service.PluginManager, :enable, ["api", fields, context]) do
+      {:ok, %{outcome: :enabled}} ->
+        say("enabled http_api on every controller")
+
+      {:ok, %{outcome: :already_enabled}} ->
+        update = [namespace: "_system", opts: @http_api_opts]
+
+        case call(node, Flezha.Service.PluginManager, :update, ["api", update, context]) do
+          {:ok, _applied} -> say("http_api is enabled")
+          other -> die("could not update http_api: #{inspect(other)}")
+        end
+
+      other ->
+        die("could not enable http_api: #{inspect(other)}")
+    end
   end
 
   # A runner proves the namespace it serves with a `runner` credential when
@@ -209,7 +244,7 @@ defmodule BootstrapAuthz do
       raw ->
         # Claiming is what a context is built from, so it is called with an
         # unbound one; the token it mints is the claimant's.
-        case call(node, Flezha.Service.Namespace, :bootstrap, [raw, %{source: :ui}]) do
+        case call(node, Flezha.Service.Namespace, :bootstrap, [raw, %{source: :cli}]) do
           {:ok, %{principal: admin, minted_token: minted}} when is_binary(minted) ->
             say("claimed the bootstrap; admin@_system is #{admin}")
             {:ok, minted}
@@ -256,7 +291,7 @@ defmodule BootstrapAuthz do
     {:ok, identity} = call(node, Flezha.AuthZ.TokenStore, :verify, [token])
 
     %{
-      source: :ui,
+      source: :cli,
       principal: identity.principal,
       namespace: identity.namespace,
       role: identity.role

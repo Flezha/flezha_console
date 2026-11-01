@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Smoke-tests a console archive: unpacks it, creates and migrates a fresh
-# database, starts the release, wants 200 from its sign-in page, and stops it.
-# The directory and the database are removed on every exit path.
+# database, starts the release with no cookie and no distribution setting,
+# wants 200 from its sign-in page and no Erlang distribution running, and stops
+# it. The directory and the database are removed on every exit path.
 #
 #   scripts/smoke-release.sh <archive> <database url>
 #
 # The database in the URL must not exist yet; it is created here and dropped
-# afterwards. No controller is needed. The same script runs in CI.
+# afterwards. No controller is needed: the release is pointed at a loopback
+# URL nothing listens on, which it takes without certificates and keeps
+# retrying. The same script runs in CI.
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
@@ -39,7 +42,7 @@ finish() {
   rc=$?
   set +e
   if [ -n "$pid" ]; then
-    "$bin" stop >/dev/null 2>&1 || kill "$pid" 2>/dev/null
+    kill "$pid" 2>/dev/null
     wait "$pid" 2>/dev/null
   fi
   [ -n "$created_db" ] && db storage_down >/dev/null 2>&1
@@ -63,11 +66,8 @@ port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0));
 export DATABASE_URL=$2
 export SECRET_KEY_BASE
 SECRET_KEY_BASE=$(openssl rand -base64 48)
-export RELEASE_COOKIE
-RELEASE_COOKIE=$(openssl rand -hex 32)
-export RELEASE_DISTRIBUTION=name
-export RELEASE_NODE="flezha_console_smoke_$$@127.0.0.1"
-export FLEZHA_NODE="flezha_smoke_$$@127.0.0.1"
+unset RELEASE_COOKIE RELEASE_NODE RELEASE_DISTRIBUTION FLEZHA_NODE
+export FLEZHA_CONTROLLER_URL=http://127.0.0.1:9
 export FLEZHA_CONSOLE_ADMIN_EMAIL=smoke@flezha.invalid
 export FLEZHA_CONSOLE_ADMIN_PASSWORD
 FLEZHA_CONSOLE_ADMIN_PASSWORD=$(openssl rand -hex 16)
@@ -97,9 +97,21 @@ if [ "$status" != 200 ]; then
   exit 1
 fi
 
+begin "no Erlang distribution started"
+if ps -o args= -p "$pid" | grep -Eq -- ' -s?name '; then
+  echo "the release started with a node name: $(ps -o args= -p "$pid")" >&2
+  exit 1
+fi
+epmd=$(find "$dir/flezha_console" -path '*/erts-*/bin/epmd' | head -n 1)
+if "$epmd" -names 2>/dev/null | grep -q flezha_console; then
+  echo "the release registered a node with epmd" >&2
+  exit 1
+fi
+
+# By signal: `bin stop` needs the distribution the release does not start.
 begin "stop"
-"$bin" stop
-wait "$pid"
+kill "$pid"
+wait "$pid" || true
 pid=""
 
 echo "smoke test passed: $archive"

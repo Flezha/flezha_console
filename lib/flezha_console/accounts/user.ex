@@ -27,9 +27,8 @@ defmodule FlezhaConsole.Accounts.User do
   A changeset for storing or clearing the user's flezha token.
 
   The token is a credential the controller issued, not something this app
-  validates the contents of beyond its shape — `Flezha.Service.Admin.context/2`
-  is the authority, and an unverifiable token simply leaves the caller context
-  unbound.
+  validates the contents of beyond its shape: the controller judges every call
+  by the token it carries, and an unverifiable token binds no identity.
   """
   def flezha_token_changeset(user, token) do
     # Forced, because the field is never loaded: a struct's `flezha_token` is

@@ -2,8 +2,8 @@ defmodule FlezhaConsole.Service.DevSetupTest do
   @moduledoc """
   The dev seeder's controller-facing paths.
 
-  Driven against a peer standing in for the controller rather than the live
-  dev stack, because the states worth asserting — a namespace already declared,
+  Driven against the fake controller served over the channel rather than the
+  live dev stack, because the states worth asserting — a namespace already declared,
   a controller that refuses the declaration, a relay already running — are
   exactly the ones a working dev stack will not produce on demand.
   """
@@ -16,16 +16,18 @@ defmodule FlezhaConsole.Service.DevSetupTest do
   alias Flezha.Service.Namespace
   alias Flezha.Service.PluginManager
   alias Flezha.Service.Relay
-  alias FlezhaConsole.PeerNode
+  alias FlezhaConsole.FakeListener
   alias FlezhaConsole.Service.DevSetup
   alias FlezhaConsole.TestEnv
 
-  @moduletag :distributed
+  @moduletag :channel
 
   @namespace "seeded"
 
   setup_all do
-    PeerNode.setup_controller("dev_setup_peer")
+    # The seeder calls with the service token.
+    TestEnv.put_system("FLEZHA_TOKEN", "flzt_service")
+    %{node: FakeListener.start!()}
   end
 
   setup %{node: node} do
@@ -72,10 +74,26 @@ defmodule FlezhaConsole.Service.DevSetupTest do
 
       assert state.ready
 
-      assert [[@namespace, opts, %{source: :ui}]] =
+      assert [[@namespace, opts, %{token: _}]] =
                FakeController.calls(node, {Namespace, :create})
 
-      assert Keyword.get(opts, :quotas) == %{max_relays: 50}
+      assert opts["quotas"] == %{"max_relays" => 50}
+    end
+
+    test "seeds again when the connector reaches the controller anew", %{node: node} do
+      configure([])
+      {:ok, pid} = DevSetup.start_link([])
+      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      assert :sys.get_state(pid).ready
+
+      Phoenix.PubSub.broadcast(
+        FlezhaConsole.PubSub,
+        FlezhaConsole.Service.NodeConnector.topic(),
+        :controller_up
+      )
+
+      assert :sys.get_state(pid).ready
+      assert length(FakeController.calls(node, {Namespace, :create})) == 2
     end
 
     test "a re-run against a declared namespace is not an error", %{node: node} do
@@ -102,7 +120,7 @@ defmodule FlezhaConsole.Service.DevSetupTest do
 
       assert seed!().ready
       assert [["seeded", fields, _ctx]] = FakeController.calls(node, {Relay, :start})
-      assert fields[:id] == "relay_a"
+      assert fields["id"] == "relay_a"
     end
 
     test "a declaration that fails for another reason is retried, not ignored", %{node: node} do
@@ -122,11 +140,11 @@ defmodule FlezhaConsole.Service.DevSetupTest do
       started =
         node
         |> FakeController.calls({Relay, :start})
-        |> Map.new(fn [_ns, fields, _ctx] -> {fields[:id], fields} end)
+        |> Map.new(fn [_ns, fields, _ctx] -> {fields["id"], fields} end)
 
-      assert started["relay_flow"][:factory_id] == "store_input"
-      assert started["relay_steps"][:factory_id] == "chat_loop_steps"
-      refute Enum.any?(started, fn {_id, fields} -> Keyword.has_key?(fields, :run) end)
+      assert started["relay_flow"]["factory_id"] == "store_input"
+      assert started["relay_steps"]["factory_id"] == "chat_loop_steps"
+      refute Enum.any?(started, fn {_id, fields} -> Map.has_key?(fields, "run") end)
     end
 
     test "a relay that is already running is left alone", %{node: node} do
@@ -194,7 +212,7 @@ defmodule FlezhaConsole.Service.DevSetupTest do
 
       assert log =~ "Skipped testnet_showcase: no runner announces factory showcase"
       assert [["seeded", fields, _ctx]] = FakeController.calls(node, {Relay, :start})
-      assert fields[:id] == "relay_a"
+      assert fields["id"] == "relay_a"
       assert FakeController.calls(node, {PluginManager, :enable}) == []
     end
 
@@ -210,8 +228,8 @@ defmodule FlezhaConsole.Service.DevSetupTest do
 
       assert seed!().ready
       assert [["seeded", fields, _ctx]] = FakeController.calls(node, {Relay, :start})
-      assert fields[:factory_id] == "showcase"
-      refute Keyword.has_key?(fields, :optional)
+      assert fields["factory_id"] == "showcase"
+      refute Map.has_key?(fields, "optional")
 
       assert [["ws_showcase", _fields, _ctx]] =
                FakeController.calls(node, {PluginManager, :enable})
@@ -235,14 +253,14 @@ defmodule FlezhaConsole.Service.DevSetupTest do
 
       assert seed!().ready
 
-      assert [["ws_a", fields, %{source: :ui}]] =
+      assert [["ws_a", fields, %{token: _}]] =
                FakeController.calls(node, {PluginManager, :enable})
 
-      assert fields[:provider] == "relay_websocket"
-      assert fields[:relay_id] == "relay_a"
-      assert fields[:namespace] == @namespace
-      assert fields[:hooks] == ["on_terminate"]
-      assert fields[:opts] == %{"uri" => "ws://example:4500"}
+      assert fields["provider"] == "relay_websocket"
+      assert fields["relay_id"] == "relay_a"
+      assert fields["namespace"] == @namespace
+      assert fields["hooks"] == ["on_terminate"]
+      assert fields["opts"] == %{"uri" => "ws://example:4500"}
     end
 
     test "a plugin already enabled counts as seeded and takes the seed's options", %{
@@ -259,11 +277,11 @@ defmodule FlezhaConsole.Service.DevSetupTest do
       assert seed!().ready
       assert [["ws_a", _fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
 
-      assert [["ws_a", fields, %{source: :ui}]] =
+      assert [["ws_a", fields, %{token: _}]] =
                FakeController.calls(node, {PluginManager, :update})
 
-      assert fields[:namespace] == @namespace
-      assert fields[:opts] == %{"uri" => "ws://example:4500"}
+      assert fields["namespace"] == @namespace
+      assert fields["opts"] == %{"uri" => "ws://example:4500"}
     end
 
     test "a newly enabled plugin is not updated", %{node: node} do

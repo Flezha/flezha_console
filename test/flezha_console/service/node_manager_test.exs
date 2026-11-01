@@ -11,57 +11,59 @@ defmodule FlezhaConsole.Service.NodeManagerTest do
 
   alias FlezhaConsole.Service.NodeManager
 
-  describe "erpc_call/3 error classification" do
-    test "answers :node_not_connected when no controller is reachable" do
-      # No node is connected in the test VM, which is the disconnected case.
-      assert {:error, :node_not_connected} =
-               NodeManager.erpc_call(Flezha.AuthZ, :enforcement_posture, [])
+  describe "error classification while no controller answers" do
+    # Unit tests run while no fake listener is served, which is the
+    # unreachable controller.
+    test "every controller call degrades instead of raising" do
+      for call <- controller_calls("flzt_t") do
+        assert {:error, :node_not_connected} = call.()
+      end
     end
 
-    test "every controller call degrades instead of raising while disconnected" do
-      for call <- controller_calls() do
-        assert {:error, :node_not_connected} = call.()
+    test "without a token, no call is made and that is the answer" do
+      for call <- controller_calls(nil) do
+        assert {:error, :no_token} = call.()
       end
     end
   end
 
   # Every call the screens make. A new one added without a normalised failure
   # path shows up here as a raise rather than as a banner.
-  defp controller_calls do
+  defp controller_calls(token) do
     [
-      fn -> NodeManager.list_namespaces(nil) end,
-      fn -> NodeManager.relay_list("default", nil) end,
-      fn -> NodeManager.relay_list("default", nil, limit: 20) end,
-      fn -> "default" |> NodeManager.relay_and_partitions("r1", nil) |> elem(0) end,
-      fn -> NodeManager.relay_plugins("default", nil) end,
-      fn -> NodeManager.runners("default", nil) end,
-      fn -> NodeManager.factories("default", nil) end,
-      fn -> NodeManager.factory_catalog("default", nil) end,
-      fn -> NodeManager.start_relay("default", %{factory_id: "store_input"}, nil) end,
-      fn -> NodeManager.stop_relay("default", "r1", nil) end,
-      fn -> NodeManager.cell_state("default", "r1", nil, nil) end,
-      fn -> NodeManager.overwatch_state("default", "r1", nil) end,
-      fn -> NodeManager.overwatch_facts("default", "r1", nil) end,
-      fn -> NodeManager.last_run("default", "r1", nil) end,
-      fn -> NodeManager.task_journal("r1", nil) end,
-      fn -> NodeManager.plugins("default", nil) end,
-      fn -> NodeManager.providers(nil) end,
-      fn -> NodeManager.disable_plugin("p1", "default", nil) end,
-      fn -> NodeManager.dlq_list(nil, nil) end,
-      fn -> NodeManager.dlq_get("a/b/c", nil) end,
-      fn -> NodeManager.dlq_stats(nil) end,
-      fn -> NodeManager.schedule_list(nil) end,
-      fn -> NodeManager.log_kinds(nil) end,
-      fn -> NodeManager.log_read("audit", %{}, nil) end,
-      fn -> NodeManager.log_files("audit", nil) end,
-      fn -> NodeManager.log_stats("audit", nil) end,
-      fn -> NodeManager.log_rotate("audit", "flezha@c1", nil) end,
-      fn -> NodeManager.controller_status(nil) end,
-      fn -> NodeManager.cluster_status("default", nil) end,
-      fn -> NodeManager.liveness_snapshot(nil, filter: [relays: [{"default", "r1"}]]) end,
-      fn -> NodeManager.namespace_records(nil) end,
-      fn -> NodeManager.log_tail("audit", %{}, nil, self()) end,
-      fn -> NodeManager.listen("default", "r1", :output, nil, self()) end
+      fn -> NodeManager.list_namespaces(token) end,
+      fn -> NodeManager.relay_list("default", token) end,
+      fn -> NodeManager.relay_list("default", token, limit: 20) end,
+      fn -> "default" |> NodeManager.relay_and_partitions("r1", token) |> elem(0) end,
+      fn -> NodeManager.relay_plugins("default", token) end,
+      fn -> NodeManager.runners("default", token) end,
+      fn -> NodeManager.factories("default", token) end,
+      fn -> NodeManager.factory_catalog("default", token) end,
+      fn -> NodeManager.start_relay("default", %{factory_id: "store_input"}, token) end,
+      fn -> NodeManager.stop_relay("default", "r1", token) end,
+      fn -> NodeManager.cell_state("default", "r1", nil, token) end,
+      fn -> NodeManager.overwatch_state("default", "r1", token) end,
+      fn -> NodeManager.overwatch_facts("default", "r1", token) end,
+      fn -> NodeManager.last_run("default", "r1", token) end,
+      fn -> NodeManager.task_journal("r1", token) end,
+      fn -> NodeManager.plugins("default", token) end,
+      fn -> NodeManager.providers(token) end,
+      fn -> NodeManager.disable_plugin("p1", "default", token) end,
+      fn -> NodeManager.dlq_list(nil, token) end,
+      fn -> NodeManager.dlq_get("a/b/c", token) end,
+      fn -> NodeManager.dlq_stats(token) end,
+      fn -> NodeManager.schedule_list(token) end,
+      fn -> NodeManager.log_kinds(token) end,
+      fn -> NodeManager.log_read("audit", %{}, token) end,
+      fn -> NodeManager.log_files("audit", token) end,
+      fn -> NodeManager.log_stats("audit", token) end,
+      fn -> NodeManager.log_rotate("audit", "flezha@c1", token) end,
+      fn -> NodeManager.controller_status(token) end,
+      fn -> NodeManager.cluster_status("default", token) end,
+      fn -> NodeManager.liveness_snapshot(token, filter: [relays: [{"default", "r1"}]]) end,
+      fn -> NodeManager.namespace_records(token) end,
+      fn -> NodeManager.log_tail("audit", %{}, token, self()) end,
+      fn -> NodeManager.listen("default", "r1", :output, token, self()) end
     ]
   end
 
@@ -97,10 +99,11 @@ defmodule FlezhaConsole.Service.NodeManagerTest do
   end
 
   describe "rows by controller" do
-    @rows [%{id: 1, node: :flezha@c1}, %{id: 2, node: :flezha@c2}, %{id: 3, node: nil}]
+    # Node names cross the channel as text.
+    @rows [%{id: 1, node: "flezha@c1"}, %{id: 2, node: "flezha@c2"}, %{id: 3, node: nil}]
 
     test "names each controller the rows live on, once" do
-      assert NodeManager.row_controllers(@rows) == [:flezha@c1, :flezha@c2]
+      assert NodeManager.row_controllers(@rows) == ["flezha@c1", "flezha@c2"]
     end
 
     test "narrows to one controller by its name, and keeps every row for none" do
@@ -110,10 +113,10 @@ defmodule FlezhaConsole.Service.NodeManagerTest do
     end
 
     test "picks a controller's own rows, or says it did not answer" do
-      answer = {:ok, %{rows: @rows, unreachable: [:flezha@c3]}}
+      answer = {:ok, %{rows: @rows, unreachable: ["flezha@c3"]}}
 
       assert {:ok, [%{id: 1}]} = NodeManager.of_controller(answer, "flezha@c1")
-      assert {:ok, %{id: 2}} = NodeManager.controller_row(answer, :flezha@c2)
+      assert {:ok, %{id: 2}} = NodeManager.controller_row(answer, "flezha@c2")
 
       assert NodeManager.of_controller(answer, "flezha@c3") ==
                {:error, {:controller_unreachable, "flezha@c3"}}
@@ -127,7 +130,7 @@ defmodule FlezhaConsole.Service.NodeManagerTest do
 
   describe "scoped_namespaces/1" do
     test "answers no names and the reason while disconnected" do
-      assert {[], :node_not_connected} = NodeManager.scoped_namespaces(nil)
+      assert {[], :node_not_connected} = NodeManager.scoped_namespaces("flzt_t")
     end
   end
 
@@ -348,21 +351,9 @@ defmodule FlezhaConsole.Service.NodeManagerTest do
     end
   end
 
-  describe "caller_context/1" do
-    test "identifies this UI as the caller" do
-      assert %{source: :ui} == NodeManager.caller_context(nil)
-    end
-
-    test "a caller-supplied value is not a principal" do
-      # Identity comes only from a verified token, and with no controller to
-      # verify against nothing binds — a name typed into the UI never can.
-      assert %{source: :ui} == NodeManager.caller_context("svc-ui")
-    end
-  end
-
   describe "logging" do
     test "a disconnected call stays quiet" do
-      log = capture_log(fn -> NodeManager.list_namespaces(nil) end)
+      log = capture_log(fn -> NodeManager.list_namespaces("flzt_t") end)
       refute log =~ "diverged"
     end
   end

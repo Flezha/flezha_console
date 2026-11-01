@@ -102,12 +102,12 @@ defmodule FlezhaConsoleWeb.LauncherTest do
         with_relays(node, ["relay_new"])
         click(view, "start-submit-btn")
 
-        assert [["default", fields, %{source: :ui}]] = starts(node)
-        assert fields[:id] == "relay_new"
-        assert fields[:factory_id] == "store_input"
-        assert fields[:init_values] == %{"seed" => 7}
-        refute Keyword.has_key?(fields, :run)
-        refute Keyword.has_key?(fields, :kind)
+        assert [["default", fields, %{token: _}]] = starts(node)
+        assert fields["id"] == "relay_new"
+        assert fields["factory_id"] == "store_input"
+        assert fields["init_values"] == %{"seed" => 7}
+        refute Map.has_key?(fields, "run")
+        refute Map.has_key?(fields, "kind")
 
         assert view |> element(~s([data-testid="start-result-link"])) |> render() =~
                  ~s(href="/namespaces/default/relays/relay_new")
@@ -262,7 +262,7 @@ defmodule FlezhaConsoleWeb.LauncherTest do
       click(view, "start-submit-btn")
 
       assert [["default", fields, _ctx]] = starts(node)
-      refute Keyword.has_key?(fields, :id)
+      refute Map.has_key?(fields, "id")
 
       assert view |> element(~s([data-testid="start-result-link"])) |> render() =~
                ~s(href="/namespaces/default/relays/relay-generated")
@@ -356,7 +356,7 @@ defmodule FlezhaConsoleWeb.LauncherTest do
       click(view, "start-submit-btn")
 
       assert [["default", fields, _ctx]] = starts(node)
-      assert fields[:factory_id] == "store_input"
+      assert fields["factory_id"] == "store_input"
     end
   end
 

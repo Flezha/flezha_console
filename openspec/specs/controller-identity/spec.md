@@ -5,12 +5,12 @@ TBD - created by archiving change resync-with-flezha-platform. Update Purpose af
 ## Requirements
 ### Requirement: Identity is resolved from a verified token
 
-The UI SHALL derive its flezha principal only from `Flezha.Service.Admin.context/2`, called with the source `:ui` and the token. The principal, namespace, and role in the caller context SHALL be the values that call returned. A principal, namespace, role, or list of roles supplied by a UI user, or assembled by the UI itself, SHALL NOT be placed in a caller context. Every other controller call SHALL be a published operation run through `Flezha.Service.Admin.run/4` with this caller context; `Flezha.Service.Admin.context/2` and `Flezha.AuthZ.enforcement_posture/0` are the only calls made without one. The role SHALL be shown as the controller names it — one of `viewer`, `app`, `ops`, `admin`, `runner`, `spawner`, `stopper`.
+The UI SHALL derive its flezha principal only from the controller's `Namespace.whoami` answer, called over the channel with the token as its bearer token. The principal, namespace, role, granted operations and enforcement posture the UI shows SHALL be the values that answer carried. A principal, namespace, role, or list of roles supplied by a UI user, or assembled by the UI itself, SHALL NOT be sent to the controller. Every controller call SHALL carry the token as its bearer token, and the controller SHALL judge it by the principal that token proves. Without a token, no controller call SHALL be made. The role SHALL be shown as the controller names it: one of `viewer`, `app`, `ops`, `admin`, `runner`, `spawner`, `stopper`.
 
 #### Scenario: A valid token binds an identity
 
 - **WHEN** a token verifies successfully
-- **THEN** the caller context carries `source: :ui` plus the `principal`, `namespace`, and `role` from the verification result
+- **THEN** the UI holds the `principal`, `namespace`, `role`, `operations` and `posture` from the `whoami` answer
 
 #### Scenario: An ops token is shown as ops
 
@@ -20,30 +20,36 @@ The UI SHALL derive its flezha principal only from `Flezha.Service.Admin.context
 #### Scenario: A principal bound to several roles
 
 - **WHEN** the token's principal holds several roles in its namespace
-- **THEN** the caller context still carries only the `role` the token verified with, and no `roles` list
+- **THEN** the UI shows only the `role` the token verified with
 - **AND** the controller judges each call by that role
 
-#### Scenario: An invalid token leaves the context unbound
+#### Scenario: An invalid token binds nothing
 
-- **WHEN** verification answers `{:error, %Flezha.Error{}}` with code `authz.token_malformed`, `authz.token_unknown`, `authz.token_revoked` or `authz.token_expired`
-- **THEN** the caller context carries `source: :ui` and no principal
+- **WHEN** verification answers an error with code `authz.token_malformed`, `authz.token_unknown`, `authz.token_revoked` or `authz.token_expired`
+- **THEN** no identity is bound
 - **AND** the error's message is shown to the operator
 
 #### Scenario: The token registry is not open yet
 
-- **WHEN** verification answers `{:error, %Flezha.Error{code: "authz.registry_unavailable"}}`
-- **THEN** the caller context is unbound for that call
+- **WHEN** verification answers an error with code `authz.registry_unavailable`
+- **THEN** no identity is bound for that call
 - **AND** the answer is not cached, so the next call verifies again
 
-#### Scenario: Every call carries the context
+#### Scenario: Every call carries the token
 
-- **WHEN** any controller call other than the two context-free reads is made through `NodeManager`
-- **THEN** it is run through `Flezha.Service.Admin.run/4` with the caller context `NodeManager.caller_context/1` built
+- **WHEN** any controller call is made through `NodeManager`
+- **THEN** the request carries the token as `Authorization: Bearer <token>`
+
+#### Scenario: No token
+
+- **WHEN** neither the user nor the service has a token
+- **THEN** no request is sent to the controller
+- **AND** the screen shows that a flezha token is needed
 
 #### Scenario: A typed principal is not trusted
 
 - **WHEN** a user supplies a principal name through any form field
-- **THEN** it is not used as the caller context's principal
+- **THEN** it is not sent to the controller as the caller's principal
 
 ### Requirement: Token precedence and storage
 
@@ -102,17 +108,17 @@ Token verification SHALL be cached, keyed by a digest of the token, for a short 
 
 ### Requirement: Authorization posture is stated on every screen
 
-The UI SHALL read `Flezha.AuthZ.enforcement_posture/0` on the same tick that refreshes node status, and SHALL render the posture in the application layout.
+The UI SHALL read the enforcement posture from the verified identity's `whoami` answer on the same tick that refreshes the controller's status, and SHALL render the posture in the application layout.
 
 #### Scenario: The bootstrap has not been claimed
 
 - **WHEN** the posture is `:bootstrap_pending`
 - **THEN** a banner states that authorization is enforced but unclaimed and names `flz auth bootstrap`
 
-#### Scenario: Enforced with no bound principal
+#### Scenario: No token is bound
 
-- **WHEN** the posture is `:enforced` and no token binds an identity
-- **THEN** a banner states that calls will be refused and links to the settings screen
+- **WHEN** no token binds an identity
+- **THEN** a banner states that the console needs a flezha token to reach the controller and links to the settings screen
 
 #### Scenario: Enforced with a bound principal
 

@@ -58,9 +58,13 @@ config :flezha_console, :refresh_coalesce_ms, 0
 config :flezha_console, :liveness_ttl_ms, 0
 config :flezha_console, :dead_letter_seen_ttl_ms, 0
 
-# Retry a lost controller node promptly, for the same reason as the feed.
+# Probe a lost controller promptly, for the same reason as the feed.
 config :flezha_console, :node_connector_retry_interval_ms, 20
 
-# Tests start their own feeds against a peer node; a supervised singleton
-# would tail that peer and race the test that owns it.
+# Nothing listens here: a test that needs a controller serves the fake one and
+# points the channel at it.
+config :flezha_console, :controller, url: "http://127.0.0.1:1"
+
+# Tests start their own feeds against the fake controller; a supervised
+# singleton would tail it and race the test that owns it.
 config :flezha_console, :start_event_feed, false

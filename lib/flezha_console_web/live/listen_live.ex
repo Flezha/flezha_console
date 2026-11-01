@@ -29,6 +29,7 @@ defmodule FlezhaConsoleWeb.ListenLive do
         feed: nil,
         status: :connecting,
         error: nil,
+        reconnected?: false,
         messages: [],
         paused: false,
         filter: "",
@@ -113,6 +114,11 @@ defmodule FlezhaConsoleWeb.ListenLive do
     {:noreply, assign(socket, status: :error, error: error, feed: nil)}
   end
 
+  # The controller cut the stream while this screen fell behind, and the feed
+  # holds a new one: what was sent in between is not shown.
+  def handle_info({:feed_reconnected, :listen}, socket),
+    do: {:noreply, assign(socket, reconnected?: true)}
+
   # The listen answered, so the relay ended or the controller let it go.
   def handle_info({:feed_ended, :listen, _answer}, socket) do
     {:noreply, assign(socket, status: :ended, feed: nil)}
@@ -123,7 +129,7 @@ defmodule FlezhaConsoleWeb.ListenLive do
     EventFeed.stop(socket.assigns.feed, :listen)
     %{ns: ns, relay_id: id, direction: direction, flezha_token: token} = socket.assigns
     feed = EventFeed.listen(ns, id, String.to_existing_atom(direction), token, :listen)
-    assign(socket, feed: feed, status: :connecting, error: nil)
+    assign(socket, feed: feed, status: :connecting, error: nil, reconnected?: false)
   end
 
   # Every record already waiting is taken in the same pass, newest first, so a

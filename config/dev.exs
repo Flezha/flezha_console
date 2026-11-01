@@ -95,6 +95,10 @@ config :swoosh, :api_client, false
 config :flezha_console,
   restart_on_config_change: System.get_env("FLEZHA_CONSOLE_RESTART_ON_CONFIG_CHANGE") == "true"
 
+# A controller on this machine serving `http_api` on loopback. The dev stack's
+# console is given its controller's URL and certificates instead.
+config :flezha_console, :controller, url: "http://127.0.0.1:8765"
+
 # The dev stack serves localhost, where a slow answer means a busy machine
 # rather than a blocking proxy. A page that fell back to long polling would
 # outlive a dropped connection by seconds, so the dev stack never falls back.

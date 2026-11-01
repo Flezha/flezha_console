@@ -11,13 +11,14 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
 
   use ExUnit.Case, async: false
 
-  alias FlezhaConsole.PeerNode
+  alias FlezhaConsole.FakeListener
   alias FlezhaConsole.Service.NodeManager
 
-  @moduletag :distributed
+  @moduletag :channel
+  @token "flzt_t"
 
   setup_all do
-    PeerNode.setup_controller("nm_catalog_peer")
+    %{node: FakeListener.start!()}
   end
 
   setup %{node: node} do
@@ -42,7 +43,7 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
       ])
 
       assert {:ok, %{rows: catalog, unreachable: []}} =
-               NodeManager.factory_catalog("default", nil)
+               NodeManager.factory_catalog("default", @token)
 
       # One listing carries the runners; no factory is looked up on its own.
       assert [_one] = FakeController.calls(node, {Flezha.Service.Fleet, :factories})
@@ -70,13 +71,13 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
       with_factories(node, [%{id: "store_input", description: nil, run: :flow, runners: []}])
 
       assert {:ok, %{rows: [%{id: "store_input", runners: [], servable?: false}]}} =
-               NodeManager.factory_catalog("default", nil)
+               NodeManager.factory_catalog("default", @token)
     end
 
     test "a namespace with no registered factories answers an empty catalog", %{node: node} do
       with_factories(node, [])
 
-      assert {:ok, %{rows: []}} = NodeManager.factory_catalog("default", nil)
+      assert {:ok, %{rows: []}} = NodeManager.factory_catalog("default", @token)
     end
 
     test "a catalog missing a controller names it, with the factories the rest serve", %{
@@ -91,10 +92,10 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
         )
       )
 
-      answer = NodeManager.factory_catalog("default", nil)
+      answer = NodeManager.factory_catalog("default", @token)
 
       assert {:ok, %{rows: [%{id: "store_input", servable?: true}]}} = answer
-      assert NodeManager.unreachable([answer]) == [:"flezha@node-c"]
+      assert NodeManager.unreachable([answer]) == ["flezha@node-c"]
       assert NodeManager.ok_or(answer, []) |> Enum.map(& &1.id) == ["store_input"]
     end
 
@@ -105,8 +106,8 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
         FakeController.error("authz.no_role_binding")
       )
 
-      assert {:error, %Flezha.Error{code: "authz.no_role_binding"}} =
-               NodeManager.factory_catalog("default", nil)
+      assert {:error, %{code: "authz.no_role_binding"}} =
+               NodeManager.factory_catalog("default", @token)
     end
 
     test "a row that names no runners leaves its factory offered but unserved", %{node: node} do
@@ -115,42 +116,42 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
       with_factories(node, [%{id: "store_input", description: nil, run: :flow}])
 
       assert {:ok, %{rows: [%{id: "store_input", runners: [], servable?: false}]}} =
-               NodeManager.factory_catalog("default", nil)
+               NodeManager.factory_catalog("default", @token)
     end
   end
 
   describe "start_relay/3" do
     test "sends the factory, init values and opts, and no run", %{node: node} do
       assert {:ok, %{id: "relay-generated", outcome: :started}} =
-               NodeManager.start_relay("default", %{factory_id: "store_input"}, nil)
+               NodeManager.start_relay("default", %{factory_id: "store_input"}, @token)
 
-      assert [["default", relay, %{source: :ui}]] =
+      assert [["default", relay, %{token: @token}]] =
                FakeController.calls(node, {Flezha.Service.Relay, :start})
 
-      assert relay == [factory_id: "store_input", init_values: %{}, opts: []]
+      assert relay == %{"factory_id" => "store_input", "init_values" => %{}, "opts" => []}
     end
 
     test "a blank id is left for the controller to draw; a chosen one is sent", %{node: node} do
-      NodeManager.start_relay("default", %{factory_id: "store_input", id: ""}, nil)
-      NodeManager.start_relay("default", %{factory_id: "store_input", id: "mine"}, nil)
+      NodeManager.start_relay("default", %{factory_id: "store_input", id: ""}, @token)
+      NodeManager.start_relay("default", %{factory_id: "store_input", id: "mine"}, @token)
 
       assert [["default", blank, _], ["default", chosen, _]] =
                FakeController.calls(node, {Flezha.Service.Relay, :start})
 
-      refute Keyword.has_key?(blank, :id)
-      assert chosen[:id] == "mine"
+      refute Map.has_key?(blank, "id")
+      assert chosen["id"] == "mine"
     end
 
     test "plugins and partitions are sent only when given", %{node: node} do
       NodeManager.start_relay(
         "default",
         %{factory_id: "store_input", plugins: [%{"id" => "p"}], partitions: 3},
-        nil
+        @token
       )
 
       assert [["default", relay, _]] = FakeController.calls(node, {Flezha.Service.Relay, :start})
-      assert relay[:plugins] == [%{"id" => "p"}]
-      assert relay[:partitions] == 3
+      assert relay["plugins"] == [%{"id" => "p"}]
+      assert relay["partitions"] == 3
     end
   end
 
@@ -163,7 +164,7 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
       )
 
       assert {:ok, %{rows: [%{id: "r1", health: :unknown}]}} =
-               NodeManager.relay_list("default", nil)
+               NodeManager.relay_list("default", @token)
     end
 
     test "a relay hosted on another controller keeps the health that controller decided", %{
@@ -179,7 +180,7 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
       )
 
       assert {:ok, %{rows: [%{id: "here", health: :healthy}, %{id: "there", health: :degraded}]}} =
-               NodeManager.relay_list("default", nil)
+               NodeManager.relay_list("default", @token)
     end
   end
 
@@ -193,15 +194,15 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
         FakeController.log_page([ended], "c1")
       )
 
-      assert {:ok, ^ended} = NodeManager.last_run("default", "done", nil)
+      assert {:ok, ^ended} = NodeManager.last_run("default", "done", @token)
 
-      assert [[params, %{source: :ui}]] =
+      assert [[params, %{token: @token}]] =
                FakeController.calls(node, {Flezha.Service.Logs, :read})
 
-      assert params[:kind] == "relay_history"
-      assert params[:limit] == 1
+      assert params["kind"] == "relay_history"
+      assert params["limit"] == 1
 
-      assert params[:filters] == %{
+      assert params["filters"] == %{
                "namespace" => "default",
                "relay" => "done",
                "event" => "ended"
@@ -209,7 +210,7 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
     end
 
     test "answers nil for a relay the history never saw end", %{node: _node} do
-      assert {:ok, nil} = NodeManager.last_run("default", "never", nil)
+      assert {:ok, nil} = NodeManager.last_run("default", "never", @token)
     end
 
     test "passes a refusal on", %{node: node} do
@@ -219,8 +220,8 @@ defmodule FlezhaConsole.Service.NodeManagerCatalogTest do
         FakeController.error("authz.role_insufficient")
       )
 
-      assert {:error, %Flezha.Error{code: "authz.role_insufficient"}} =
-               NodeManager.last_run("default", "done", nil)
+      assert {:error, %{code: "authz.role_insufficient"}} =
+               NodeManager.last_run("default", "done", @token)
     end
   end
 end

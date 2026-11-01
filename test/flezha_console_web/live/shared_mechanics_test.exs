@@ -815,7 +815,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
     defp tailing(conn, node, row) do
       {view, _html} = live_loaded(conn, row.route)
       click(view, row.start)
-      assert PeerNode.eventually(fn -> FakeController.streams(node, row.tail) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, row.tail) != [] end)
       view
     end
 
@@ -830,7 +830,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
 
         click(view, @row.stop)
 
-        assert PeerNode.eventually(fn -> FakeController.streams(node, @row.tail) == [] end)
+        assert FakeController.eventually(fn -> FakeController.streams(node, @row.tail) == [] end)
       end
 
       test "#{row.screen}: leaving the screen ends the controller's stream", %{
@@ -843,7 +843,7 @@ defmodule FlezhaConsoleWeb.SharedMechanicsTest do
         Process.flag(:trap_exit, true)
         Process.exit(view.pid, :kill)
 
-        assert PeerNode.eventually(fn -> FakeController.streams(node, @row.tail) == [] end)
+        assert FakeController.eventually(fn -> FakeController.streams(node, @row.tail) == [] end)
       end
     end
   end

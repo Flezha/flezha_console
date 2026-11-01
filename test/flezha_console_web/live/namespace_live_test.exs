@@ -236,7 +236,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
       rescale_target(view, "0")
       view |> element(~s([data-testid="rescale-confirm-btn"])) |> render_click()
 
-      assert [["default", "orders", 2, [], %{source: :ui}]] =
+      assert [["default", "orders", 2, [], %{token: "flzt_operator"}]] =
                FakeController.calls(node, {Flezha.Service.Steps, :rescale})
     end
 
@@ -261,7 +261,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
 
     defp runs_reads(node) do
       for [params, _ctx] <- FakeController.calls(node, {Logs, :read}),
-          params[:kind] == "relay_history",
+          params["kind"] == "relay_history",
           do: params
     end
 
@@ -300,8 +300,8 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
                "1 did not complete"
 
       assert [params | _] = runs_reads(node)
-      assert params[:filters] == %{"namespace" => "default", "event" => "ended"}
-      assert params[:limit] == 20
+      assert params["filters"] == %{"namespace" => "default", "event" => "ended"}
+      assert params["limit"] == 20
     end
 
     test "grows by the history's cursor, appending the older runs", %{conn: conn, node: node} do
@@ -332,7 +332,7 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
 
       assert html =~ ~s(data-testid="run-row-new_20")
       assert html =~ ~s(data-testid="run-row-old_3")
-      assert Enum.any?(runs_reads(node), &(&1[:before] == "c1"))
+      assert Enum.any?(runs_reads(node), &(&1["before"] == "c1"))
       assert text_of(html, ~s([data-testid="recent-runs-not-completed"])) =~ "3 did not complete"
       # The history holds nothing older, so the listing cannot grow on.
       refute html =~ ~s(data-testid="recent-runs-more")
@@ -392,7 +392,8 @@ defmodule FlezhaConsoleWeb.NamespaceLiveTest do
 
       stop(view)
 
-      assert [["default", "relay_a", %{source: :ui}]] = FakeController.calls(node, {Relay, :stop})
+      assert [["default", "relay_a", %{token: "flzt_operator"}]] =
+               FakeController.calls(node, {Relay, :stop})
     end
 
     test "a cooperative stop says the relay finishes its work first", %{conn: conn, node: node} do

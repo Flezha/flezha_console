@@ -285,7 +285,7 @@ defmodule FlezhaConsoleWeb.RelayCallsTest do
 
       html = render_async(view)
 
-      assert [["default", "relay_a", "place", value, [deadline_ms: 500], _ctx]] =
+      assert [["default", "relay_a", "place", value, %{"deadline_ms" => 500}, _ctx]] =
                FakeController.calls(node, {Relay, :call_channel})
 
       assert value == %{"pair" => "BTC-EUR", "amount" => 1.5}
@@ -510,7 +510,7 @@ defmodule FlezhaConsoleWeb.RelayCallsTest do
 
       html = raw(view, %{"payload" => "hello", "channel" => "trades", "msg_id" => "m-1"}, "send")
 
-      assert [["default", "relay_a", "hello", "trades", [msg_id: "m-1"], _ctx]] =
+      assert [["default", "relay_a", "hello", "trades", %{"msg_id" => "m-1"}, _ctx]] =
                FakeController.calls(node, {Relay, :send})
 
       assert html =~ "Delivered to"
@@ -540,7 +540,7 @@ defmodule FlezhaConsoleWeb.RelayCallsTest do
 
       html = raw(view, %{"payload" => "ping", "deadline_ms" => "45000"}, "call")
 
-      assert [["default", "relay_a", "ping", "", [deadline_ms: 45_000], _ctx]] =
+      assert [["default", "relay_a", "ping", "", %{"deadline_ms" => 45_000}, _ctx]] =
                FakeController.calls(node, {Relay, :call})
 
       assert html =~ "pong"

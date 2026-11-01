@@ -1,13 +1,17 @@
-# Runs every Erlang distribution link of the dev stack over TLS, each side
-# checking the other's certificate against a private CA the stack makes itself.
-# Layered over the dev stack:
+# Runs every Erlang distribution link of the dev stack over TLS 1.3, each side
+# checking the other's certificate against a private distribution authority the
+# stack makes itself, apart from the channel's. Those links are between the
+# controllers, and between them and the operator helpers (the bootstrap steps
+# and the tools service); the console takes no part in distribution. Layered
+# over the dev stack:
 #
 #   docker compose -f docker-compose.dev.yml -f docker-compose.dev-tls.yml up
 #
-# A node needs a certificate from that CA as well as the cookie, and a node
-# without TLS cannot connect at all. `docker exec` inherits ELIXIR_ERL_OPTIONS,
-# so a helper node started inside fcon_web runs over TLS with that container's
-# certificate. Without this file the stack runs over plain TCP.
+# A node needs a certificate from that authority as well as the cookie, and a
+# node without TLS cannot connect at all. `docker exec` inherits
+# ELIXIR_ERL_OPTIONS, so a helper node started inside fcon_tools runs over TLS
+# with that container's certificate. Without this file the stack runs over
+# plain TCP.
 
 x-dist-tls: &dist-tls
   depends_on:
@@ -17,8 +21,9 @@ x-dist-tls: &dist-tls
     - fcon_dist_tls:/dist_tls:ro
 
 services:
-  # Makes the CA, and a key, certificate and option file per distributed host,
-  # into the volume every node reads them from. Keeps what already exists.
+  # Makes the distribution authority, and a key, certificate and option file per
+  # distributed host, into the volume every node reads them from. Keeps what
+  # already exists. See priv/dev/certs.sh.
   dist_tls_certs:
     build:
       context: .
@@ -28,10 +33,11 @@ services:
     restart: "no"
     command:
       - sh
-      - /flezha_console_dev/dist_tls_certs.sh
+      - /flezha_console_dev/certs.sh
+      - dist
       - flezha_controller
       - flezha_controller_2
-      - fcon_web
+      - fcon_tools
       - fcon_bootstrap
       - fcon_sandbox_bootstrap
       - fcon_second_bootstrap
@@ -64,10 +70,10 @@ services:
     environment:
       ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fcon_second_bootstrap.conf
 
-  web:
+  tools:
     <<: *dist-tls
     environment:
-      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fcon_web.conf
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fcon_tools.conf
 
 volumes:
   fcon_dist_tls:

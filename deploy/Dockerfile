@@ -6,6 +6,12 @@
 #
 # The runtime stage is the build image's own Debian, so the release's ERTS and NIFs find the
 # libraries they were linked against.
+#
+# The container reaches its controllers over HTTPS and starts no Erlang distribution. It
+# needs FLEZHA_CONTROLLER_URL, the controllers' HTTP API, and the paths of three files,
+# mounted from a secret: FLEZHA_CONTROLLER_CA, the authority the controllers' certificates
+# chain to, and FLEZHA_CLIENT_CERT and FLEZHA_CLIENT_KEY, the console's client certificate.
+# Without them it refuses to start, naming the variable.
 FROM elixir:1.20.4-otp-28 AS build
 
 ENV MIX_ENV=prod
@@ -18,6 +24,7 @@ RUN mix deps.get --only prod && mix deps.compile
 
 COPY lib lib
 COPY priv priv
+COPY rel rel
 COPY assets assets
 COPY --from=stylebook . assets/node_modules/@flezha/stylebook
 RUN mix assets.deploy && mix compile && mix release

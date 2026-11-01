@@ -3,21 +3,6 @@
 ## Purpose
 TBD - created by archiving change resync-with-flezha-runtime. Update Purpose after archive.
 ## Requirements
-### Requirement: Single ERPC seam
-
-All calls from the console into the flezha controller SHALL pass through `FlezhaConsole.Service.NodeManager`. No LiveView, controller, or other service module SHALL invoke `:erpc` or reference a `Flezha.*` remote module name directly.
-
-#### Scenario: A LiveView needs controller data
-
-- **WHEN** a LiveView needs data or an action from the controller
-- **THEN** it calls a named `NodeManager` function
-- **AND** no `Flezha.*` module name appears outside `NodeManager`
-
-#### Scenario: A new controller call is added
-
-- **WHEN** a new controller API is needed by any screen
-- **THEN** the remote module, function, and argument shape are declared in `NodeManager` only
-
 ### Requirement: Controller vocabulary matches flezha
 
 `NodeManager` SHALL expose the controller's reads and actions under core's current vocabulary, each function named after the published function it calls: among them `list_namespaces`, `list_relays`, `relay_list` (`Relay.list/2`), `runners`, `factories`, `start_relay`, `stop_relay`, `cell_state`, and `overwatch_state`. No `NodeManager` function SHALL keep a name core has retired.
@@ -41,28 +26,23 @@ All calls from the console into the flezha controller SHALL pass through `Flezha
 
 ### Requirement: Errors are normalized into a closed set
 
-`NodeManager` SHALL classify every transport failure into exactly one of `{:error, :node_not_connected}`, `{:error, {:api_missing, module, function, arity}}`, `{:error, :timeout}`, or `{:error, {:remote_error, term}}`. A refusal or failure the controller answers SHALL arrive as `{:error, error}`, where `error` is the controller's `%Flezha.Error{}` carrying `code`, `class`, `message`, `details`, and `hint`, and SHALL be returned unchanged. The UI SHALL read that error by its fields, without needing core's modules loaded on its own node. Raw `:erpc` exits and `:badrpc` tuples SHALL NOT escape `NodeManager`.
+`NodeManager` SHALL classify every transport failure into exactly one of `{:error, :node_not_connected}`, `{:error, {:api_missing, module, function, arity}}`, `{:error, :timeout}`, or `{:error, {:remote_error, term}}`. A refusal or failure the controller answers SHALL arrive as `{:error, error}`, where `error` is a map read from the channel's error body, carrying `code`, `class` (one of the controller's classes, as an atom), `message`, `details` (with text keys), and `hint`. The UI SHALL read that error by its fields, without needing core's modules loaded on its own node. Raw HTTP responses, Finch or Mint errors, and TLS alerts SHALL NOT escape `NodeManager`.
 
-#### Scenario: No controller node is connected
+#### Scenario: No controller is reachable
 
-- **WHEN** any `NodeManager` function is called while no flezha node is connected
+- **WHEN** any `NodeManager` function is called while the controller refuses the connection, cannot be resolved, or fails the TLS handshake
 - **THEN** it returns `{:error, :node_not_connected}`
 - **AND** no exception is raised
 
-#### Scenario: The controller lacks the called function
-
-- **WHEN** a remote call raises `:undef` because the controller does not export it
-- **THEN** `NodeManager` returns `{:error, {:api_missing, module, function, arity}}`
-- **AND** the remote stacktrace is logged at warning level
-
 #### Scenario: The door does not publish the operation
 
-- **WHEN** the door answers `control.unknown_function` for an operation
+- **WHEN** the channel answers the error code `control.unknown_function` for an operation
 - **THEN** `NodeManager` returns `{:error, {:api_missing, module, function, arity}}` naming the published function it asked for
+- **AND** the mismatch is logged at warning level
 
 #### Scenario: The controller does not answer in time
 
-- **WHEN** a remote call exceeds its timeout
+- **WHEN** the channel answers `control.timeout`, or the console's own deadline for the call passes
 - **THEN** `NodeManager` returns `{:error, :timeout}`
 
 #### Scenario: The controller refuses the call
@@ -73,8 +53,13 @@ All calls from the console into the flezha controller SHALL pass through `Flezha
 
 #### Scenario: The controller answers a domain failure
 
-- **WHEN** a published function answers `{:error, error}` for a reason of its own, such as `relay.not_found`
-- **THEN** `NodeManager` returns that `{:error, error}` unchanged rather than wrapping it as a transport failure
+- **WHEN** a published function answers an error for a reason of its own, such as `relay.not_found`
+- **THEN** `NodeManager` returns that `{:error, error}` with the code, class, message, details and hint the body carried, rather than wrapping it as a transport failure
+
+#### Scenario: An answer that is not the channel's
+
+- **WHEN** the controller answers with a body that is neither a decodable answer nor an error object
+- **THEN** `NodeManager` returns `{:error, {:remote_error, term}}`
 
 #### Scenario: A refusal is shown to the operator
 
@@ -165,26 +150,6 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 - **WHEN** a liveness snapshot reports a channel whose name is `{:via, Registry, {scope, id}}`
 - **THEN** `identifier_id/1` answers `id` as text, rather than failing to render it
 
-### Requirement: The caller context carries a bound principal
-
-`NodeManager.caller_context/1` SHALL build the context the way `Flezha.Service.CallerContext.from_token/2` builds it on the controller: `source: :ui` plus the `principal`, `namespace`, and `role` that `Flezha.Service.Admin.context/2` returns for the token, and nothing else. Exactly one helper SHALL construct it, and every published operation SHALL be run through `Flezha.Service.Admin.run/4` with it.
-
-#### Scenario: A verified token binds the context
-
-- **WHEN** the UI's token verifies
-- **THEN** the caller context carries `source: :ui`, the principal, the namespace, and the role from the verification result
-
-#### Scenario: No token resolves
-
-- **WHEN** no token verifies
-- **THEN** the caller context carries `source: :ui` and no principal
-- **AND** a call made with it is answered by the controller's own refusal rather than refused by the UI
-
-#### Scenario: One construction site
-
-- **WHEN** the codebase is searched for caller-context construction
-- **THEN** exactly one helper constructs it
-
 ### Requirement: Namespace-flat listing reads
 
 `NodeManager` SHALL expose the controller's paged relay list so a listing costs a fixed number of calls per namespace, however many relays it holds, and answers only the rows it shows: `Flezha.Service.Relay.list` with `opts` of `limit`, `after`, `sort` and `filter`. Its rows carry partition members already collapsed into one row per group by the controller's rule, each row's run and plugin count, and the namespace `summary` (health counts, faulted groups, factories relays wait on). One relay's row SHALL be read with the `ids` filter. A group's members SHALL be read with the `group` filter. Faulted groups SHALL come from the summary. The UI SHALL NOT derive group rows, group health or coverage itself, and SHALL NOT send relay rows back to the controller.
@@ -256,23 +221,22 @@ Any screen receiving `{:error, {:api_missing, _, _, _}}` SHALL render a banner n
 
 ### Requirement: Only the published consumer API is called
 
-Every remote call `NodeManager` makes SHALL run an operation on core's published consumer surface — a `Flezha.Service.*` function listed in core's `docs/internal/api/consumers/published.txt` — through core's door, `Flezha.Service.Admin.run/4`, with the caller context and the placement `:given`, or be one of the two context-free calls, `Flezha.Service.Admin.context/2` and `Flezha.AuthZ.enforcement_posture/0`. The operation is named as core's catalogue names it, the module's last segment and the function (`"Relay.start"`). No top-level `Flezha` function, internal manager, store, configuration read, or non-Flezha module SHALL be called on the controller.
+Every call and stream `NodeManager` makes SHALL name an operation on core's published consumer surface, a `Flezha.Service.*` function listed in core's `docs/internal/api/consumers/published.txt`, as the channel's route `/v1/call/<operation>` or `/v1/stream/<operation>`. The operation is named as core's catalogue names it, the module's last segment and the function (`"Relay.start"`). Each call site SHALL spell the published module in full, so core's consumer-surface script can record it. No other route of the controller SHALL be requested, except the unauthenticated reachability probe of the connector.
 
 #### Scenario: Every call site is published
 
 - **WHEN** core's consumer-surface script records the console's call sites
-- **THEN** every recorded call resolves to a published function, the door, or one of the two context-free calls
+- **THEN** every recorded call resolves to a published function
 
-#### Scenario: A call goes through the door
+#### Scenario: A call names its operation
 
 - **WHEN** `NodeManager` calls a published `Flezha.Service.*` function
-- **THEN** it calls `Flezha.Service.Admin.run/4` with the operation's name, its arguments, the context `caller_context/1` built and `:given`
+- **THEN** it requests `/v1/call/<Module>.<function>` with the function's arguments before the caller context, in order
 
-#### Scenario: Context-free calls stay context-free
+#### Scenario: No context-free call remains
 
-- **WHEN** `NodeManager` verifies a token or reads the enforcement posture
-- **THEN** it calls `Admin.context/2` or `AuthZ.enforcement_posture/0` with no caller context
-- **AND** no other call is made without one
+- **WHEN** `lib/` is searched for `Admin.context`, `Admin.run` or `AuthZ.enforcement_posture`
+- **THEN** no occurrence exists
 
 ### Requirement: A controller error is shown with its code, hint and reference
 
@@ -301,22 +265,103 @@ Wherever the console shows a `%Flezha.Error{}`, it SHALL show the error's messag
 
 ### Requirement: The console calls only the configured controller
 
-`NodeManager` SHALL send every remote call and open every stream only to the controller node named by `FLEZHA_NODE`, or by the `:flezha_node` application setting when that variable is unset. `NodeManager.connected_node/0` SHALL answer that node while it is connected and `nil` otherwise, whatever other nodes are connected to the console. No other connected node SHALL receive a call, a caller context or a token.
+`NodeManager` SHALL send every call and open every stream only to the controller `FLEZHA_CONTROLLER_URL` names. When its host resolves to several addresses, the console SHALL pin one address that answers and keep it while it answers. When that address stops answering, the console SHALL move to another address the name resolves to. `NodeManager.connected_node/0` SHALL answer the name of the controller the channel reaches, as text, while the channel is up, and `nil` otherwise. The name SHALL be taken from the `local?` row of the latest `Controller.controllers` answer, and before any such answer it SHALL be the URL's host.
 
-#### Scenario: Another node is connected as well
+#### Scenario: The name resolves to two controllers
 
-- **WHEN** the configured controller and another node are both connected to the console
-- **THEN** every `NodeManager` call is answered by the configured controller
-- **AND** the other node receives no call
+- **WHEN** the configured host resolves to two controllers that both answer
+- **THEN** every call and stream goes to the same one until it stops answering
 
-#### Scenario: Only some other node is connected
+#### Scenario: The pinned controller goes away
 
-- **WHEN** the configured controller is not connected but another node is
+- **WHEN** the pinned controller stops answering and another address of the name answers
+- **THEN** `connected_node/0` answers `nil` until the connector reaches the other address
+- **AND** the next call is answered by the other controller
+
+#### Scenario: The controller is unreachable
+
+- **WHEN** no address of the configured host answers
 - **THEN** `NodeManager.connected_node/0` answers `nil`
-- **AND** every `NodeManager` call answers `{:error, :node_not_connected}` without contacting the other node
+- **AND** every `NodeManager` call answers `{:error, :node_not_connected}`
 
 #### Scenario: The configured controller comes back
 
-- **WHEN** the configured controller reconnects after being away
+- **WHEN** the configured controller answers again after being away
 - **THEN** the next `NodeManager` call is answered by it
+
+### Requirement: Single controller seam
+
+All calls and streams from the console to the flezha controller SHALL pass through `FlezhaConsole.Service.NodeManager`, over the controller's HTTPS channel. No LiveView, controller, or other service module SHALL make an HTTP request to the controller, invoke `:erpc`, or reference a `Flezha.*` remote module name directly.
+
+#### Scenario: A LiveView needs controller data
+
+- **WHEN** a LiveView needs data or an action from the controller
+- **THEN** it calls a named `NodeManager` function
+- **AND** no `Flezha.*` module name appears outside `NodeManager`
+
+#### Scenario: A new controller call is added
+
+- **WHEN** a new controller API is needed by any screen
+- **THEN** the remote module, function, and argument shape are declared in `NodeManager` only
+
+#### Scenario: No distribution call remains
+
+- **WHEN** `lib/` and `config/` are searched for `:erpc`, `Node.connect`, `Node.monitor` aimed at the controller, or `RELEASE_COOKIE`
+- **THEN** no occurrence exists
+
+### Requirement: The channel is HTTPS with a client certificate
+
+`NodeManager` SHALL send every call as `POST /v1/call/<operation>` and open every stream as `POST /v1/stream/<operation>` on the controller named by `FLEZHA_CONTROLLER_URL`. Each request SHALL carry the arguments as a JSON array and the operator's token as a bearer token. An `https` URL SHALL be reached over HTTP/2 with TLS 1.3, presenting the certificate in `FLEZHA_CLIENT_CERT` with its key `FLEZHA_CLIENT_KEY`, and SHALL accept only a server certificate that chains to `FLEZHA_CONTROLLER_CA` and names the URL's host. A plain `http` URL SHALL be accepted only for a loopback address. The application SHALL refuse to start, naming the variable, when an `https` URL lacks any of the three files or one cannot be read, or when an `http` URL is not loopback.
+
+#### Scenario: A call over the channel
+
+- **WHEN** a screen asks `NodeManager` for the relays of a namespace
+- **THEN** one `POST /v1/call/Relay.list` carrying the namespace in a JSON array and the token as a bearer token reaches the controller
+
+#### Scenario: The controller presents a certificate from another authority
+
+- **WHEN** the controller's server certificate does not chain to `FLEZHA_CONTROLLER_CA`
+- **THEN** no request is sent
+- **AND** every call answers `{:error, :node_not_connected}` and the log names the certificate refusal
+
+#### Scenario: The client certificate is missing
+
+- **WHEN** the console starts with an `https` URL and no `FLEZHA_CLIENT_CERT`
+- **THEN** it refuses to start and its output names `FLEZHA_CLIENT_CERT`
+
+#### Scenario: Plain HTTP off loopback
+
+- **WHEN** the console starts with `FLEZHA_CONTROLLER_URL=http://10.0.0.5:8765`
+- **THEN** it refuses to start and says that plain HTTP is accepted only on loopback
+
+### Requirement: Answers are decoded by the recorded shapes
+
+`NodeManager` SHALL decode every answer and every stream event from JSON using the recorded shape of its operation or event, shipped with the application. A record's keys SHALL become atoms and a dict's keys SHALL stay text. A value whose shape is an atom SHALL become an existing atom, or stay text when no such atom exists. A node's name SHALL always be text. A value whose shape is a tuple SHALL become a tuple, a time SHALL become a `DateTime`, and a stream event SHALL become the tuple its screen matches. A key the shape does not name SHALL become an existing atom, or stay text when no such atom exists, with its value read as free-form data. Decoding SHALL NOT create an atom from the controller's data, and every atom the console's own code names SHALL exist before an answer is decoded. Every operation `NodeManager` names and every event a stream can deliver SHALL have a recorded shape.
+
+#### Scenario: A list of relays
+
+- **WHEN** the controller answers `Relay.list` with rows whose `health` is `"healthy"`
+- **THEN** a screen receives `{:ok, %{rows: [%{health: :healthy, ...}], unreachable: []}}`
+
+#### Scenario: A relay output event
+
+- **WHEN** a `Relay.listen` stream delivers an `output` event
+- **THEN** the feed's owner receives `{:feed_event, tag, {:output, payload, meta}}`, as it did over distribution
+
+#### Scenario: A value naming no known atom
+
+- **WHEN** an answer carries a node name in a field whose shape is an atom
+- **THEN** the decoded value is that name as text
+- **AND** the console's atom count does not grow by it
+
+#### Scenario: A field the recording never saw filled
+
+- **WHEN** an answer carries a key its recorded shape does not name, such as a partition a recorded row did not have
+- **THEN** the key becomes the atom the console's code reads it by
+- **AND** its value is read as free-form data
+
+#### Scenario: An operation without a recorded shape
+
+- **WHEN** `NodeManager` names an operation for which no shape is recorded
+- **THEN** `mix test` fails naming the operation
 

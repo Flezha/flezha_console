@@ -164,14 +164,20 @@ its state to assistive technology.
 
 ### Requirement: Controller subscriptions are taken through the published tail operations
 
-Every live controller subscription the console holds — runner session events, an observability source's signals, a log's records — SHALL be taken through a published stream operation of the consumer API (`Flezha.Service.Observability.tail/2` or `Flezha.Service.Logs.tail/2`) with the console's caller context, and SHALL be held by `FlezhaConsole.Service.EventFeed`, which receives the signals on the console node and forwards each one to the console process that asked for it. The console SHALL NOT call `Flezha.Service.EventManager` or any other unpublished controller module to subscribe.
+Every live controller subscription the console holds (runner session events, an observability source's signals, a log's records, a relay's traffic) SHALL be taken through a published stream operation of the consumer API (`Flezha.Service.Observability.tail/2`, `Flezha.Service.Logs.tail/2` or `Flezha.Service.Relay.listen/5`), opened on the channel's stream route `/v1/stream/<operation>` with the operator's token. It SHALL be held by `FlezhaConsole.Service.EventFeed`, which receives each server-sent event, decoded, as `{:flezha_emit, event}` and forwards it to the console process that asked for it. The console SHALL NOT call `Flezha.Service.EventManager` or any other unpublished controller module to subscribe.
 
 #### Scenario: Establishing the runner event subscription
 
-- **WHEN** the event bridge connects to the controller
+- **WHEN** the event bridge reaches the controller
 - **THEN** it asks `EventFeed` to tail the observability source on which core publishes runner session signals
-- **AND** the tail is established through `Flezha.Service.Observability.tail/2` with the console's caller context
+- **AND** the tail is opened as `POST /v1/stream/Observability.tail` with the token
 - **AND** the subscription stays in place for as long as the `EventFeed` process holding it lives
+
+#### Scenario: Stopping the feed ends the stream
+
+- **WHEN** the `EventFeed` process holding a stream exits
+- **THEN** the stream's request is closed
+- **AND** the controller ends the operation and detaches its listener
 
 #### Scenario: No unpublished subscription call remains
 
@@ -180,13 +186,19 @@ Every live controller subscription the console holds — runner session events, 
 
 ### Requirement: Event feed recovery
 
-The bridge SHALL monitor the controller connection and the feed's subscription and SHALL re-establish the subscription when the subscription ends or the controller node reconnects. A subscription SHALL be released by stopping the `EventFeed` process that holds it; the controller watches that process and removes the subscription when it exits. Before taking a replacement subscription the bridge SHALL stop the process holding the prior one, so at most one subscription per tail exists at any time.
+The bridge SHALL re-establish a subscription when its stream ends: the controller answered its `end`, sent `overrun` because the console fell behind, the connection dropped, or the controller came back after being away. A subscription SHALL be released by stopping the `EventFeed` process that holds it, which closes its stream. Before taking a replacement subscription the bridge SHALL stop the process holding the prior one, so at most one subscription per tail exists at any time.
 
-#### Scenario: The controller node restarts
+#### Scenario: The controller restarts
 
 - **WHEN** the controller goes down and comes back
 - **THEN** the bridge takes a new subscription
 - **AND** events flow again without restarting the UI
+
+#### Scenario: The console falls behind
+
+- **WHEN** the controller ends a stream with an `overrun` event
+- **THEN** the feed re-opens the stream on its retry path
+- **AND** a screen that holds the feed is told its stream has a gap once the re-opened stream is held
 
 #### Scenario: Reconnect does not duplicate subscribers
 
@@ -196,13 +208,13 @@ The bridge SHALL monitor the controller connection and the feed's subscription a
 
 #### Scenario: The subscription cannot be established
 
-- **WHEN** the tail call fails or is refused
+- **WHEN** the stream request fails or is refused
 - **THEN** the bridge retries on its backoff interval
 - **AND** affected screens fall back to periodic refresh so data still updates
 
 #### Scenario: Observability is switched off on the controller
 
-- **WHEN** the tail call answers `{:error, %Flezha.Error{code: "observability.disabled"}}` or `{:error, %Flezha.Error{code: "observability.pubsub_disabled"}}`
+- **WHEN** the stream is refused with an error whose code is `observability.disabled` or `observability.pubsub_disabled`
 - **THEN** the bridge logs that runner events are unavailable and keeps retrying on its backoff interval
 - **AND** screens that list runners still update on their refresh tick
 

@@ -206,7 +206,8 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
   defp cell_reads(node),
     do:
       for(
-        [_ns, _id, [_ | _], _ctx] = call <- FakeController.calls(node, {Relay, :activity}),
+        [_ns, _id, %{"cells_of" => _}, _ctx] = call <-
+          FakeController.calls(node, {Relay, :activity}),
         do: call
       )
 
@@ -234,8 +235,11 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
   # How often the page has read the relay's graph or its activity.
   defp reads(node, function), do: length(FakeController.calls(node, {Relay, function}))
 
-  defp listens(node, direction),
-    do: for([_ns, _id, ^direction | _] = call <- FakeController.calls(node, @listen), do: call)
+  # The direction crosses the channel as its name.
+  defp listens(node, direction) do
+    name = Atom.to_string(direction)
+    for [_ns, _id, ^name | _] = call <- FakeController.calls(node, @listen), do: call
+  end
 
   describe "relay pipeline" do
     setup %{node: node} do
@@ -346,7 +350,12 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert tick(view) =~ ~r"IN \d+\.\d/s"
       assert_push_event(view, "pipeline_counts", %{budgets: _})
 
-      FakeController.set(node, {Controller, :liveness_counters}, {:error, :timeout})
+      FakeController.set(
+        node,
+        {Controller, :liveness_counters},
+        FakeController.error("controller.timeout")
+      )
+
       html = tick(view)
 
       refute html =~ ~r"IN \d+\.\d/s"
@@ -357,7 +366,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       FakeController.set(
         node,
         {Controller, :liveness_counters},
-        {:error, {:api_missing, Controller, :liveness_counters, 1}}
+        FakeController.error("control.unknown_function")
       )
 
       {:ok, view, html} = live(conn, @relay)
@@ -393,7 +402,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert has_element?(view, ~s([data-testid="topo-stall-marker"]))
 
       # Asked from the window's start, by this console's clock.
-      assert [[%{source: :flezha_health, since_us: since_us}, _ctx] | _] =
+      assert [[%{"source" => "flezha_health", "since_us" => since_us}, _ctx] | _] =
                FakeController.calls(node, {Observability, :query})
 
       assert_in_delta since_us, System.os_time(:microsecond) - 60_000_000, 10_000_000
@@ -587,7 +596,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
 
       assert [["default", "relay_a", opts, _ctx] | _] = cell_reads(node)
 
-      assert opts == [cells_of: "static_entry_tasklet", limit: 50]
+      assert opts == %{"cells_of" => "static_entry_tasklet", "limit" => 50}
       sheet = view |> element(~s([data-testid="topology-cells"])) |> render()
       assert sheet =~ ~s(data-testid="cell-a")
       assert sheet =~ ~s(data-testid="cell-b")
@@ -646,7 +655,15 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
 
       view |> element(~s([data-testid="cells-hop-static_downstream_tasklet"])) |> render_click()
 
-      assert [["default", "relay_a", [cells_of: "static_downstream_tasklet", limit: 50], _] | _] =
+      assert [
+               [
+                 "default",
+                 "relay_a",
+                 %{"cells_of" => "static_downstream_tasklet", "limit" => 50},
+                 _
+               ]
+               | _
+             ] =
                node |> cell_reads() |> Enum.reverse()
     end
 
@@ -679,7 +696,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
         {Relay, :activity},
         {:per_arg, 2,
          %{
-           [cells_of: "static_entry_tasklet", limit: 50] =>
+           %{"cells_of" => "static_entry_tasklet", "limit" => 50} =>
              FakeController.error("authz.role_insufficient")
          }, plain}
       )
@@ -785,7 +802,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
         {:tally, totals, %{read_at_ms: 1, epochs: %{"m" => epoch}}}
       )
 
-      assert PeerNode.eventually(fn ->
+      assert FakeController.eventually(fn ->
                match?(
                  %{totals: ^totals},
                  :sys.get_state(view.pid).socket.assigns.topology_state.tally
@@ -798,8 +815,8 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       node: node
     } do
       {:ok, view, _html} = live(conn, @relay)
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
-      assert [["default", "relay_a", :tally, [], _ctx]] = listens(node, :tally)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      assert [["default", "relay_a", "tally", [], _ctx]] = listens(node, :tally)
 
       report(node, view, %{"alerts" => 10, "orders" => 2}, 1)
       tick(view)
@@ -819,13 +836,13 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
 
     test "ends when the page is hidden and starts again when it shows", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, @relay)
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @listen) != [] end)
 
       render_hook(view, "refresh_visibility", %{"hidden" => true})
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) == [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @listen) == [] end)
 
       render_hook(view, "refresh_visibility", %{"hidden" => false})
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @listen) != [] end)
       assert length(listens(node, :tally)) == 2
     end
 
@@ -854,7 +871,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       {:ok, view, _html} = live(conn, @relay)
 
       # Unlike a refusal, the failure is not an answer: the next tick asks again.
-      assert PeerNode.eventually(fn ->
+      assert FakeController.eventually(fn ->
                tick(view)
                length(listens(node, :tally)) >= 2
              end)
@@ -1033,7 +1050,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert reads(node, :activity) == reads
 
       render_hook(view, "refresh_visibility", %{"hidden" => false})
-      assert PeerNode.eventually(fn -> reads(node, :activity) == reads + 1 end)
+      assert FakeController.eventually(fn -> reads(node, :activity) == reads + 1 end)
     end
 
     test "a refused activity read keeps the structure and drops the figures", %{
@@ -1072,7 +1089,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert has_element?(view, ~s([data-testid="topo-node-inside"]))
       assert FakeController.calls(node, {Relay, :activity}) == []
 
-      FakeController.set(node, {Relay, :graph}, {:error, {:api_missing, Relay, :graph, 3}})
+      FakeController.set(node, {Relay, :graph}, FakeController.error("control.unknown_function"))
 
       {:ok, _view, html} = live(conn, @relay)
       assert html =~ "this controller does not report relay graphs"
@@ -1192,7 +1209,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
          %{conn: conn, node: node} do
       market_activity(node, 1_000, 0)
       {:ok, view, _html} = live(conn, @relay)
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @listen) != [] end)
       report(node, view, %{"ohlc_out" => 0}, 1)
       tick(view)
 
@@ -1299,7 +1316,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
     defp payload_listens(node), do: listens(node, :output) ++ listens(node, :input)
 
     defp payload_streams(node) do
-      tally = for [_ns, _id, :tally | _] <- FakeController.calls(node, @listen), do: :tally
+      tally = for [_ns, _id, "tally" | _] <- FakeController.calls(node, @listen), do: :tally
       # The tally holds a stream of its own while this relay has two outputs.
       length(FakeController.streams(node, @listen)) - min(length(tally), 1)
     end
@@ -1310,7 +1327,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
     } do
       {:ok, view, html} = live(conn, @relay)
       refute html =~ ~s(data-testid="tap-figures")
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @listen) != [] end)
 
       html = view |> element(~s([data-testid="topo-node-exit-alerts"])) |> render_click()
 
@@ -1318,12 +1335,12 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       assert has_element?(view, ~s([data-testid="topo-node-exit-alerts"].is-tapped))
       assert has_element?(view, ~s([data-testid="topo-tapping-exit-alerts"]))
       assert view |> element(~s([data-testid="topology-detail"])) |> render() =~ "output channel"
-      assert PeerNode.eventually(fn -> payload_streams(node) == 1 end)
+      assert FakeController.eventually(fn -> payload_streams(node) == 1 end)
 
       html = view |> element(~s([data-testid="tap-close"])) |> render_click()
       refute html =~ ~s(data-testid="tap-figures")
 
-      assert PeerNode.eventually(fn -> payload_streams(node) == 0 end),
+      assert FakeController.eventually(fn -> payload_streams(node) == 0 end),
              "the listen must not be left open on the controller"
     end
 
@@ -1335,7 +1352,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       |> render_keydown(%{"key" => "Enter"})
 
       assert has_element?(view, ~s([data-testid="topo-node-entry-input"].is-tapped))
-      assert PeerNode.eventually(fn -> listens(node, :input) != [] end)
+      assert FakeController.eventually(fn -> listens(node, :input) != [] end)
 
       # Selecting the tapped port again closes its tap.
       view |> element(~s([data-testid="topo-node-entry-input"])) |> render_click()
@@ -1346,11 +1363,11 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       {:ok, view, _html} = live(conn, @relay)
 
       view |> element(~s([data-testid="topo-node-exit-alerts"])) |> render_click()
-      assert PeerNode.eventually(fn -> payload_streams(node) == 1 end)
+      assert FakeController.eventually(fn -> payload_streams(node) == 1 end)
 
       view |> element(~s([data-testid="topo-node-entry-input"])) |> render_click()
 
-      assert PeerNode.eventually(fn ->
+      assert FakeController.eventually(fn ->
                payload_streams(node) == 1 and listens(node, :input) != []
              end)
 
@@ -1363,17 +1380,17 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
     } do
       {:ok, view, _html} = live(conn, @relay)
       view |> element(~s([data-testid="topo-node-exit-alerts"])) |> render_click()
-      assert PeerNode.eventually(fn -> payload_streams(node) == 1 end)
+      assert FakeController.eventually(fn -> payload_streams(node) == 1 end)
 
       FakeController.emit(node, @listen, {:output, "an order", %{"channel" => "orders"}})
       FakeController.emit(node, @listen, {:output, "an alert", %{"channel" => "alerts"}})
-      assert PeerNode.eventually(fn -> render(view) =~ "an alert" end)
+      assert FakeController.eventually(fn -> render(view) =~ "an alert" end)
       refute render(view) =~ "an order"
       assert view |> element(~s([data-testid="tap-msg-count"])) |> render() =~ ~r/>\s*1\s*</
 
       view |> element(~s([data-testid="tap-all"])) |> render_click()
       FakeController.emit(node, @listen, {:output, "another order", %{"channel" => "orders"}})
-      assert PeerNode.eventually(fn -> render(view) =~ "another order" end)
+      assert FakeController.eventually(fn -> render(view) =~ "another order" end)
     end
 
     test "what the tap hears reaches the graph coalesced, previews cut to 40 characters", %{
@@ -1382,7 +1399,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
     } do
       {:ok, view, _html} = live(conn, @relay)
       view |> element(~s([data-testid="topo-node-entry-input"])) |> render_click()
-      assert PeerNode.eventually(fn -> listens(node, :input) != [] end)
+      assert FakeController.eventually(fn -> listens(node, :input) != [] end)
 
       long = String.duplicate("x", 50)
       {:error, failure} = FakeController.error("internal.uncatalogued")
@@ -1407,10 +1424,10 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
 
       {:ok, view, _html} = live(conn, @relay)
       view |> element(~s([data-testid="topo-node-entry-input"])) |> render_click()
-      assert PeerNode.eventually(fn -> listens(node, :input) != [] end)
+      assert FakeController.eventually(fn -> listens(node, :input) != [] end)
 
       FakeController.emit(node, @listen, {:input, "late", %{}})
-      assert PeerNode.eventually(fn -> render(view) =~ "late" end)
+      assert FakeController.eventually(fn -> render(view) =~ "late" end)
       %{socket: %{assigns: %{tap: %{flush: {ref, _timer}}}}} = :sys.get_state(view.pid)
 
       view |> element(~s([data-testid="tap-close"])) |> render_click()
@@ -1427,12 +1444,12 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       |> element(~s([data-testid="topo-node-entry-input"][phx-click="graph_tap"]))
       |> render_click()
 
-      assert PeerNode.eventually(fn -> listens(node, :input) != [] end)
+      assert FakeController.eventually(fn -> listens(node, :input) != [] end)
 
       FakeController.emit(node, @listen, {:input, "hello", %{}})
       FakeController.emit(node, @listen, {:input, "world!", %{}})
 
-      assert PeerNode.eventually(fn -> render(view) =~ "world!" end)
+      assert FakeController.eventually(fn -> render(view) =~ "world!" end)
       html = render(view)
 
       assert html =~ ~s(data-testid="tap-recent")
@@ -1468,7 +1485,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
       |> element(~s([data-testid="topo-node-entry-input"][phx-click="graph_tap"]))
       |> render_click()
 
-      assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tap-error") end)
+      assert FakeController.eventually(fn -> render(view) =~ ~s(data-testid="tap-error") end)
       # A tap that is not listening does not claim its port.
       refute has_element?(view, ~s([data-testid="topo-node-entry-input"].is-tapped))
     end
@@ -2004,7 +2021,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
                "Enabled in this namespace"
 
       assert Enum.all?(FakeController.calls(node, {PluginManager, :enabled}), fn
-               [_ns, opts, _ctx] -> opts == [limit: 2]
+               [_ns, opts, _ctx] -> opts == %{"limit" => 2}
              end)
     end
 
@@ -2076,7 +2093,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
         node,
         {Flezha.Service.Namespace, :quota},
         {:per_arg, 1,
-         %{relays: FakeController.quota_usage(5), runners: FakeController.quota_usage(9)},
+         %{"relays" => FakeController.quota_usage(5), "runners" => FakeController.quota_usage(9)},
          FakeController.quota_usage(0)}
       )
 
@@ -2118,7 +2135,7 @@ defmodule FlezhaConsoleWeb.TopologyLiveTest do
         node,
         {Flezha.Service.Namespace, :quota},
         {:per_arg, 1,
-         %{relays: FakeController.quota_usage(4), runners: FakeController.quota_usage(1)},
+         %{"relays" => FakeController.quota_usage(4), "runners" => FakeController.quota_usage(1)},
          FakeController.quota_usage(0)}
       )
 

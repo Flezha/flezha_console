@@ -2162,12 +2162,14 @@ defmodule FlezhaConsoleWeb.CoreComponents do
     """
   end
 
-  # A missing identity is remedied in settings; every other refusal is a role
-  # the operator has to be granted elsewhere.
+  # A refused token or a missing identity is remedied in settings; every other
+  # refusal is a role the operator has to be granted elsewhere.
   defp settings_link?(nil), do: false
 
-  defp settings_link?(error),
-    do: NodeManager.error(error).code in ~w(authz.principal_not_bound authz.no_role_binding)
+  defp settings_link?(error) do
+    NodeManager.error(error).code in ~w(authz.principal_not_bound authz.no_role_binding console.no_token) or
+      NodeManager.token_refused?(error)
+  end
 
   @doc """
   One line for an error a `NodeManager` call answered: the controller's own
@@ -2225,8 +2227,10 @@ defmodule FlezhaConsoleWeb.CoreComponents do
 
   @doc """
   The controller's authorization posture, as a notice. Renders nothing when
-  there is nothing an operator needs to act on: an open controller, or an
-  enforced one with a bound principal.
+  there is nothing an operator needs to act on: a token that binds an
+  identity on a claimed controller, or a controller that cannot be asked.
+  Without a token nothing reaches the controller, whatever its posture, so
+  that is always said.
   """
   attr :status, :map, required: true, doc: "a `NodeManager.authz_status/1` map"
 
@@ -2243,22 +2247,28 @@ defmodule FlezhaConsoleWeb.CoreComponents do
       on the controller to claim it; until then every operator verb is refused.
     </.notice>
 
-    <.notice
-      :if={@status.posture == :enforced and is_nil(@status.principal)}
-      kind={:error}
-      testid="authz-unbound"
-      class="mb-6"
-    >
+    <.notice :if={unbound?(@status)} kind={:error} testid="authz-unbound" class="mb-6">
       <span :if={@status.token?}>
-        The flezha token this console presents did not bind an identity — {@status.reason &&
-          code_names(error_message(@status.reason))}
+        The flezha token this console presents did not bind an identity — {code_names(
+          error_message(@status.reason)
+        )} Every call to the controller is refused.
       </span>
-      <span :if={!@status.token?}>No flezha token is bound to this console.</span>
-      Reads of the audit log and observability, and every mutation, will be refused.
+      <span :if={!@status.token?}>
+        This console needs a flezha token to reach the controller, and sends it nothing without one.
+      </span>
       <.link href={~p"/users/settings"}>Store a token in settings.</.link>
     </.notice>
     """
   end
+
+  # No token, or one the controller refused; a controller that could not be
+  # asked says so on its own.
+  defp unbound?(%{token?: false}), do: true
+
+  defp unbound?(%{principal: nil, reason: reason}),
+    do: match?(%{class: class} when class in [:denied, :invalid], reason)
+
+  defp unbound?(_status), do: false
 
   # ======================================================================
   # Overlays

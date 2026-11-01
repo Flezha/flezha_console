@@ -20,6 +20,24 @@ if System.get_env("PHX_SERVER") do
   config :flezha_console, FlezhaConsoleWeb.Endpoint, server: true
 end
 
+# The controller's channel, checked when the application starts
+# (`FlezhaConsole.Service.NodeConnector.channel!/1`): its URL, the authority
+# its server certificate chains to, and the console's client certificate and
+# key. Each variable set here replaces the environment's default.
+config :flezha_console,
+       :controller,
+       for(
+         {key, variable} <- [
+           url: "FLEZHA_CONTROLLER_URL",
+           ca: "FLEZHA_CONTROLLER_CA",
+           cert: "FLEZHA_CLIENT_CERT",
+           key: "FLEZHA_CLIENT_KEY"
+         ],
+         value = System.get_env(variable),
+         value != "",
+         do: {key, value}
+       )
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

@@ -479,14 +479,14 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
     test "moving from listen to state releases the listen", %{conn: conn, node: node} do
       {:ok, view, _html} = live(conn, ~p"/namespaces/default/relays/relay_a/listen")
 
-      assert PeerNode.eventually(fn -> listening?(node) end)
+      assert FakeController.eventually(fn -> listening?(node) end)
 
       view
       |> element(~s([data-testid="relay-tab-state"]))
       |> render_click()
       |> follow_redirect(conn, ~p"/namespaces/default/relays/relay_a/state")
 
-      assert PeerNode.eventually(fn -> not listening?(node) end),
+      assert FakeController.eventually(fn -> not listening?(node) end),
              "the listen was still open after leaving the listen view"
     end
   end
@@ -501,10 +501,17 @@ defmodule FlezhaConsoleWeb.ConsoleNavigationTest do
       {:ok, _view, _html} = live(conn, ~p"/logs/audit")
 
       # The shell's pulse reads each namespace's most severe relays; nothing else.
-      assert Enum.all?(
-               FakeController.calls(node, {Relay, :list}),
-               fn [_ns, opts, _ctx] -> opts == FlezhaConsoleWeb.Attention.relay_opts() end
-             )
+      read = FlezhaConsoleWeb.Attention.relay_opts()
+
+      pulse = %{
+        "limit" => read[:limit],
+        "sort" => to_string(read[:sort]),
+        "filter" => %{"health" => read[:filter][:health]}
+      }
+
+      assert Enum.all?(FakeController.calls(node, {Relay, :list}), fn [_ns, opts, _ctx] ->
+               opts == pulse
+             end)
     end
 
     test "it offers a relay by id, with its namespace and health", %{conn: conn} do

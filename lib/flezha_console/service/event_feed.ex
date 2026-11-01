@@ -3,14 +3,13 @@ defmodule FlezhaConsole.Service.EventFeed do
   Holds one published stream operation open and forwards what it hears.
 
   A stream operation — `Observability.tail/2`, `Logs.tail/2`,
-  `Relay.listen/5` — runs in the `:erpc` worker on the controller and hands
-  each event to the caller context's `:emit`. The feed passes its own pid as
-  `:emit`, so every event arrives here as `{:flezha_emit, event}` and only data
-  crosses the wire: nothing of this application runs on the controller.
+  `Relay.listen/5` — is held open on the controller's stream route by a
+  process `NodeManager` links to the feed, which hands each server-sent event
+  here as `{:flezha_emit, event}`, decoded into the term a screen matches.
 
-  The controller watches the feed process and ends the stream when it exits, so
-  stopping the feed is how a subscription is released. There is no second
-  release path to forget.
+  When the feed exits its stream's request is closed and the controller ends
+  the operation, so stopping the feed is how a subscription is released. There
+  is no second release path to forget.
 
   Where each event goes is the feed's destination:
 
@@ -21,10 +20,12 @@ defmodule FlezhaConsole.Service.EventFeed do
       nothing when `fun` answers `nil`.
 
   With `retry: true` an ended, refused or disconnected stream is opened again
-  after the retry interval. Once a re-opened stream is known to be held — it
-  delivered an event, or the settle interval passed without a refusal —
-  `{:feed_reconnected, tag}` tells a `:send` destination its stream has a gap.
-  Without it the feed stops once its stream has ended.
+  after the retry interval. Without it the feed stops once its stream has
+  ended, unless the controller ended it with `overrun` because the console fell
+  behind: that stream is always opened again. Once a re-opened stream is known
+  to be held — it delivered an event, or the settle interval passed without a
+  refusal — `{:feed_reconnected, tag}` tells a `:send` destination its stream
+  has a gap.
 
   A broadcast feed has no owner to tell, so it keeps its last refusal and
   answers it from `error/1`. With `announce: true` it also broadcasts
@@ -249,19 +250,10 @@ defmodule FlezhaConsole.Service.EventFeed do
   def handle_info({:settled, request_id}, %{request: %{id: request_id}} = state),
     do: {:noreply, settle(state)}
 
-  def handle_info({:nodedown, node}, %{request: %{node: node}} = state) do
-    Logger.warning("[EventFeed] Controller node #{node} went down")
-    ended(%{state | request: nil}, {:error, :node_not_connected})
-  end
-
-  def handle_info(message, %{request: %{node: node} = request} = state) do
+  def handle_info(message, %{request: %{} = request} = state) do
     case NodeManager.stream_result(message, request) do
-      :no_response ->
-        {:noreply, state}
-
-      {:ended, result} ->
-        Node.monitor(node, false)
-        ended(%{state | request: nil}, result)
+      :no_response -> {:noreply, state}
+      {:ended, result} -> ended(%{state | request: nil}, result)
     end
   end
 
@@ -269,9 +261,7 @@ defmodule FlezhaConsole.Service.EventFeed do
 
   defp open(state) do
     case state.open.(self()) do
-      {:ok, %{node: node, id: request_id} = request} ->
-        Node.monitor(node, true)
-
+      {:ok, %{id: request_id} = request} ->
         # A stream opened after one that ended, or after a refusal, is announced
         # once it is held, so whoever heard the refusal hears it cleared.
         reopening? = state.opened? or state.error != nil
@@ -296,6 +286,14 @@ defmodule FlezhaConsole.Service.EventFeed do
 
   # The stream answered, so it is over: a window ran out, the relay ended, the
   # writer closed, or the controller refused it.
+  #
+  # `overrun` is no answer: the controller cut a stream the console fell behind
+  # on, so it is opened again, and the gap is told once it is held.
+  defp ended(state, {:error, :overrun}) do
+    Logger.info("[EventFeed] The controller cut a stream this console fell behind on")
+    {:noreply, schedule_retry(%{state | reopening?: false})}
+  end
+
   defp ended(state, result) do
     state = %{state | reopening?: false, error: refusal(result)}
     report(state.to, result)
@@ -303,9 +301,8 @@ defmodule FlezhaConsole.Service.EventFeed do
     if state.retry?, do: {:noreply, schedule_retry(state)}, else: {:stop, :normal, state}
   end
 
-  # A dropped connection delivers both the stream's answer and a `:nodedown`.
-  # Without this guard each would schedule its own retry, and the second would
-  # open a stream only to hold two.
+  # A refusal and a retry already waiting must not each schedule a retry, which
+  # would open a stream only to hold two.
   defp schedule_retry(%{retry_ref: ref} = state) when is_reference(ref), do: state
 
   defp schedule_retry(state) do

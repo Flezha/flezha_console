@@ -221,6 +221,7 @@ defmodule FlezhaConsoleWeb.RoleGatingTest do
   end
 
   test "a viewer's forged stop reaches the controller as the viewer and shows its refusal", %{
+    user: user,
     conn: conn,
     node: node
   } do
@@ -238,7 +239,8 @@ defmodule FlezhaConsoleWeb.RoleGatingTest do
     html = render_click(view, "stop_relay", %{})
 
     assert [["default", "relay_a", context]] = FakeController.calls(node, {Relay, :stop})
-    assert context == %{source: :ui, principal: "p@acme", namespace: "default", role: :viewer}
+    # The controller judges the call by the principal the viewer's token proves.
+    assert context.token == FlezhaConsole.Accounts.user_flezha_token(user)
     assert html =~ "viewer may not stop relays"
     assert html =~ "authz.role_insufficient"
   end

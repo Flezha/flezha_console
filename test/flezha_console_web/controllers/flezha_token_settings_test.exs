@@ -7,7 +7,7 @@ defmodule FlezhaConsoleWeb.FlezhaTokenSettingsTest do
 
   use FlezhaConsoleWeb.LiveCase
 
-  alias Flezha.Service.Admin
+  alias Flezha.Service.Namespace
   alias FlezhaConsole.Accounts
 
   defp store(conn, token),
@@ -26,8 +26,9 @@ defmodule FlezhaConsoleWeb.FlezhaTokenSettingsTest do
 
     FakeController.set(
       node,
-      {Admin, :context},
-      {:ok, %{principal: "alice", namespace: "acme", role: :ops, source: :ui}}
+      {Namespace, :whoami},
+      {:ok,
+       %{principal: "alice", namespace: "acme", role: :ops, operations: [], posture: :enforced}}
     )
 
     conn = store(conn, token)
@@ -47,7 +48,7 @@ defmodule FlezhaConsoleWeb.FlezhaTokenSettingsTest do
 
     FakeController.set(
       node,
-      {Admin, :context},
+      {Namespace, :whoami},
       FakeController.error("authz.token_unknown", "no such token")
     )
 
@@ -56,6 +57,6 @@ defmodule FlezhaConsoleWeb.FlezhaTokenSettingsTest do
     assert Accounts.user_flezha_token(user) == token
     flash = Phoenix.Flash.get(conn.assigns.flash, :info)
     assert flash =~ "did not verify: no such token (authz.token_unknown)"
-    refute flash =~ "%Flezha.Error"
+    refute flash =~ "%{"
   end
 end

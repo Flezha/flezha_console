@@ -77,6 +77,11 @@
   <.runtime_error error={@error} action={"listening to this relay's #{@direction}s"} />
 </div>
 
+<.notice :if={@reconnected?} kind={:info} testid="listen-reconnected">
+  The listen reconnected after its stream to the controller was cut — records sent while it was
+  down are not shown.
+</.notice>
+
 <%!-- Message feed --%>
 <div
   :if={@status != :error}

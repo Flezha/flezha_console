@@ -131,12 +131,12 @@ defmodule FlezhaConsole.NamingGateTest do
     test "an exemption for a wait is stale once nothing in its file needs it" do
       assert Enum.any?(
                NamingGate.stale_entries(["README.md"]),
-               &match?({"test/support/peer_node.ex", _, _}, &1)
+               &match?({"test/support/fake_controller.ex", _, _}, &1)
              )
 
       refute Enum.any?(
-               NamingGate.stale_entries(["test/support/peer_node.ex"]),
-               &match?({"test/support/peer_node.ex", _, _}, &1)
+               NamingGate.stale_entries(["test/support/fake_controller.ex"]),
+               &match?({"test/support/fake_controller.ex", _, _}, &1)
              )
     end
 

@@ -40,9 +40,10 @@ RUN mix local.hex --force && \
 # Expose the port Phoenix will run on
 EXPOSE 4000
 
-# Refuse to start without a distribution cookie, rather than run under a
-# well-known one. Then fetch deps, replace an esbuild binary of another version
-# (its path has no version in it, unlike Tailwind's), and compile at startup so
-# volume-mounted code changes are picked up automatically, then migrate and
-# seed, so a fresh database can log in at once.
-CMD ["sh", "-c", ": \"${ERLANG_COOKIE:?ERLANG_COOKIE must be set}\" && mix deps.get && mix esbuild.install --if-missing && mix compile && mix ecto.migrate && mix run --no-start priv/repo/seeds.exs && exec elixir --sname flezha_console --hidden --cookie \"$ERLANG_COOKIE\" -S mix phx.server"]
+# Fetch deps, replace an esbuild binary of another version (its path has no
+# version in it, unlike Tailwind's), and compile at startup so volume-mounted
+# code changes are picked up automatically, then migrate and seed, so a fresh
+# database can log in at once. The console starts no Erlang distribution: it
+# reaches its controller over HTTPS (FLEZHA_CONTROLLER_URL and its certificate
+# files), and refuses to start, naming the variable, without them.
+CMD ["sh", "-c", "mix deps.get && mix esbuild.install --if-missing && mix compile && mix ecto.migrate && mix run --no-start priv/repo/seeds.exs && exec mix phx.server"]

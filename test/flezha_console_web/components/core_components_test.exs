@@ -151,9 +151,11 @@ defmodule FlezhaConsoleWeb.CoreComponentsTest do
       refute html =~ "Store a flezha token"
     end
 
-    test "a refusal for want of an identity links to settings" do
-      for code <- ~w(authz.principal_not_bound authz.no_role_binding) do
-        assigns = %{error: {:error, Flezha.Error.new(code)}}
+    test "a refused token, or a refusal for want of an identity, links to settings" do
+      codes = ~w(authz.principal_not_bound authz.no_role_binding authz.token_malformed)
+
+      for error <- [:no_token | Enum.map(codes, &{:error, Flezha.Error.new(&1)})] do
+        assigns = %{error: error}
 
         html =
           rendered_to_string(~H"""

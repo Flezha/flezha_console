@@ -229,10 +229,10 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
       html = view |> element(~s([data-testid="schedule-run-confirm"])) |> render_click()
 
       assert html =~ "nightly ran now and started"
-      assert [["nightly", %{source: :ui}]] = FakeController.calls(node, {Schedule, :run})
+      assert [["nightly", %{token: _}]] = FakeController.calls(node, {Schedule, :run})
 
       assert confirm_remove(view) =~ "Schedule nightly removed."
-      assert [["nightly", %{source: :ui}]] = FakeController.calls(node, {Schedule, :remove})
+      assert [["nightly", %{token: _}]] = FakeController.calls(node, {Schedule, :remove})
     end
   end
 
@@ -259,10 +259,10 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
       html = submit(view, valid_form())
 
       assert html =~ "Schedule nightly created."
-      assert [[fields, %{source: :ui}]] = adds(node)
-      assert fields[:name] == "nightly"
-      assert fields[:factory_id] == "echo_steps"
-      assert fields[:namespace] == "default"
+      assert [[fields, %{token: _}]] = adds(node)
+      assert fields["name"] == "nightly"
+      assert fields["factory_id"] == "echo_steps"
+      assert fields["namespace"] == "default"
     end
 
     test "requires the fields the controller requires", %{conn: conn, node: node} do
@@ -420,8 +420,8 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
       submit(view, valid_form())
 
       assert [[fields, _ctx]] = adds(node)
-      assert fields[:namespace] == "default"
-      assert fields[:factory_id] == "echo_steps"
+      assert fields["namespace"] == "default"
+      assert fields["factory_id"] == "echo_steps"
     end
 
     test "opening the form is what reads the catalog, not the tick", %{conn: conn, node: node} do
@@ -433,7 +433,7 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
 
       view |> element(~s([data-testid="schedule-new-btn"])) |> render_click()
 
-      assert [["default", %{source: :ui}]] = FakeController.calls(node, {Fleet, :factories})
+      assert [["default", %{token: _}]] = FakeController.calls(node, {Fleet, :factories})
     end
 
     test "a scoped screen's form opens aimed at its namespace", %{conn: conn} do
@@ -455,7 +455,7 @@ defmodule FlezhaConsoleWeb.ScheduleLiveTest do
 
       assert confirm_remove(view) =~ "Schedule nightly removed."
 
-      assert [["nightly", %{source: :ui}]] = FakeController.calls(node, {Schedule, :remove})
+      assert [["nightly", %{token: _}]] = FakeController.calls(node, {Schedule, :remove})
     end
 
     test "reports a refused removal", %{conn: conn, node: node} do

@@ -36,7 +36,8 @@ archive="_build/dist/flezha_console-$version-$platform.tar.gz"
 
 mkdir -p _build/dist
 # The cookie `mix release` generated is left out: every download would share
-# it. A console takes its controller's cookie through RELEASE_COOKIE.
+# it. A console starts no distribution unless RELEASE_DISTRIBUTION says so, and
+# then takes a cookie of its own through RELEASE_COOKIE.
 COPYFILE_DISABLE=1 tar -czf "$archive" -C "$rel_root" --exclude flezha_console/releases/COOKIE flezha_console
 
 echo "$archive"

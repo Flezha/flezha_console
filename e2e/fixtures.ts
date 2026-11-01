@@ -1,7 +1,7 @@
 import { test as base, expect, type Browser, type Locator, type Page, type TestInfo } from '@playwright/test';
 import {
   cliCall,
-  devElixir,
+  consoleScript,
   inConsole,
   refusedWith,
   submitLogin,
@@ -46,7 +46,7 @@ export function createConsoleUser(email: string, password: string): void {
  * it here. Safe from `finally`: an email with no user is left alone.
  */
 export function deleteConsoleUser(email: string): void {
-  devElixir(`deleting ${email}`, ['/flezha_console/priv/dev/console_users.exs', 'delete', email]);
+  consoleScript(`deleting ${email}`, ['priv/dev/console_users.exs', 'delete', email]);
 }
 
 /**

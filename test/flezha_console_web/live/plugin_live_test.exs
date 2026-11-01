@@ -178,7 +178,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       assert disable(view, "plug_1") =~
                "Plugin plug_1 disabled."
 
-      assert [["plug_1", [namespace: "default"], %{source: :ui}]] =
+      assert [["plug_1", %{"namespace" => "default"}, %{token: _}]] =
                FakeController.calls(node, {PluginManager, :disable})
     end
 
@@ -445,11 +445,11 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
         })
 
       assert [["hooks_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
-      assert fields[:provider] == "hook_webhook"
-      assert fields[:namespace] == "default"
-      assert fields[:hooks] == ["on_relay_started", "on_relay_stopped"]
-      assert fields[:single] == true
-      refute Keyword.has_key?(fields, :relay_id)
+      assert fields["provider"] == "hook_webhook"
+      assert fields["namespace"] == "default"
+      assert fields["hooks"] == ["on_relay_started", "on_relay_stopped"]
+      assert fields["single"] == true
+      refute Map.has_key?(fields, "relay_id")
       assert html =~ "Plugin hooks_1 enabled."
     end
 
@@ -544,7 +544,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       submit_plugin_form(view, %{"name" => "hooks_1", "namespace" => "staging"})
 
       assert [["hooks_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
-      assert fields[:namespace] == "staging"
+      assert fields["namespace"] == "staging"
     end
   end
 
@@ -759,10 +759,10 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
         })
 
       assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :bind})
-      assert fields[:relay_id] == "relay_b"
-      assert fields[:hooks] == ["on_output"]
-      assert fields[:channel] == "out"
-      assert fields[:namespace] == "default"
+      assert fields["relay_id"] == "relay_b"
+      assert fields["hooks"] == ["on_output"]
+      assert fields["channel"] == "out"
+      assert fields["namespace"] == "default"
       assert html =~ "Plugin out_1 bound to relay_b."
     end
 
@@ -774,7 +774,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       submit_plugin_form(view, %{"relay_id" => "relay_b"})
 
       assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :bind})
-      assert fields[:hooks] == ["on_output"]
+      assert fields["hooks"] == ["on_output"]
     end
 
     test "a provider's Enable opens the flow on its placement", %{conn: conn} do
@@ -824,7 +824,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       with_namespaces(node, %{"default" => {:ok, [plugin("out_1", %{relays: []})]}})
       html = view |> element(~s([data-testid="plugin-unbind-confirm"])) |> render_click()
 
-      assert [["out_1", [namespace: "default", relay_id: "relay_a"], _ctx]] =
+      assert [["out_1", %{"namespace" => "default", "relay_id" => "relay_a"}, _ctx]] =
                FakeController.calls(node, {PluginManager, :unbind})
 
       assert html =~ "relay_a unbound from plugin out_1, which stays enabled."
@@ -855,7 +855,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
         assert html =~ "Plugin out_1 updated: #{said}. Bound to relay_a."
       end
 
-      assert [["out_1", [namespace: "default", opts: %{"prefix" => "x"}], _ctx] | _] =
+      assert [["out_1", %{"namespace" => "default", "opts" => %{"prefix" => "x"}}, _ctx] | _] =
                FakeController.calls(node, {PluginManager, :update})
     end
   end
@@ -1086,9 +1086,9 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
       assert html =~ "Plugin hooks_1 enabled."
       assert [["hooks_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
 
-      assert fields[:opts] == %{
+      assert fields["opts"] == %{
                "url" => "http://hooks.test",
-               "method" => :put,
+               "method" => "put",
                "timeout_ms" => 2000,
                "inverted" => true,
                "channel" => ["a", "b"],
@@ -1194,7 +1194,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
 
       assert html =~ "Plugin out_1 updated: applied live."
       assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :update})
-      assert fields[:opts] == %{"timeout_ms" => 7000}
+      assert fields["opts"] == %{"timeout_ms" => 7000}
     end
 
     test "a provider that lists no options is said to take none", %{conn: conn, node: node} do
@@ -1206,7 +1206,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
 
       enable(view, %{})
       assert [["hooks_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
-      assert fields[:opts] == %{}
+      assert fields["opts"] == %{}
     end
 
     test "an update of a provider that takes no options posts nothing and sends none", %{
@@ -1228,7 +1228,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
                "Plugin out_1 updated: nothing changed."
 
       assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :update})
-      assert fields[:opts] == %{}
+      assert fields["opts"] == %{}
     end
 
     test "a controller that lists no options gets the JSON box, which takes an object", %{
@@ -1347,7 +1347,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
              )
 
       assert [[_name, fields, _ctx]] = FakeController.calls(node, {PluginManager, :enable})
-      assert fields[:opts] == %{"url" => "http://h.test", "api_key" => @secret}
+      assert fields["opts"] == %{"url" => "http://h.test", "api_key" => @secret}
     end
 
     test "is read from the environment in the review's command, never written in it", %{
@@ -1385,7 +1385,7 @@ defmodule FlezhaConsoleWeb.PluginLiveTest do
         assert [["out_1", fields, _ctx] | _] =
                  node |> FakeController.calls({PluginManager, :update}) |> Enum.reverse()
 
-        assert fields[:opts] == sent
+        assert fields["opts"] == sent
       end
     end
 

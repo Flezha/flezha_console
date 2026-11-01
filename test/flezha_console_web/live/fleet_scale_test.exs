@@ -35,9 +35,19 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
 
   # The screen's own list reads, not the shell pulse's, which every screen makes.
   defp screen_calls(node), do: Enum.reject(list_calls(node), &(Enum.at(&1, 1) == pulse_opts()))
-  defp pulse_opts, do: FlezhaConsoleWeb.Attention.relay_opts()
+  defp pulse_opts, do: wire(FlezhaConsoleWeb.Attention.relay_opts())
   defp last_opts(node), do: node |> screen_calls() |> List.last() |> Enum.at(1)
   defp liveness_calls(node), do: FakeController.calls(node, {Controller, :liveness_counters})
+
+  # Options as the channel carries them: a keyword list is an object, a tuple
+  # an array, an atom its name.
+  defp wire([{key, _} | _] = list) when is_atom(key),
+    do: Map.new(list, fn {key, value} -> {Atom.to_string(key), wire(value)} end)
+
+  defp wire(list) when is_list(list), do: Enum.map(list, &wire/1)
+  defp wire(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> wire()
+  defp wire(atom) when is_atom(atom) and atom not in [nil, true, false], do: Atom.to_string(atom)
+  defp wire(value), do: value
 
   defp shown_rows(html),
     do: html |> testids(~s([data-testid^="relay-index-row-"])) |> length()
@@ -50,21 +60,21 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
       fleet(node, %{"default" => relays(60)})
       {view, html} = live_loaded(conn, ~p"/namespaces/default/relays")
 
-      assert last_opts(node)[:limit] == 20
+      assert last_opts(node)["limit"] == 20
       assert shown_rows(html) == 20
       assert text_of(html, ~s([data-testid="relay-rows-more"])) == "Show 20 more · 20 of 60"
 
       view |> element(~s([data-testid="relay-rows-more"])) |> render_click()
       html = render_async(view)
 
-      assert last_opts(node)[:limit] == 40
+      assert last_opts(node)["limit"] == 40
       assert shown_rows(html) == 40
       assert text_of(html, ~s([data-testid="relay-rows-more"])) == "Show 20 more · 40 of 60"
 
       # A tick re-reads the page the operator grew, not the first.
       send(view.pid, :refresh)
       html = render_async(view)
-      assert last_opts(node)[:limit] == 40
+      assert last_opts(node)["limit"] == 40
       assert shown_rows(html) == 40
     end
 
@@ -80,7 +90,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
       render_async(view)
       view |> element(~s([data-testid="relay-rows-more"])) |> render_click()
       html = render_async(view)
-      assert last_opts(node)[:limit] == 500
+      assert last_opts(node)["limit"] == 500
       refute html =~ ~s(data-testid="relay-rows-more")
 
       assert text_of(html, ~s([data-testid="relay-rows-reach"])) ==
@@ -104,10 +114,10 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
       assert length(liveness_calls(node)) == reads + 1
 
       [opts, _ctx] = List.last(liveness_calls(node))
-      named = opts[:filter][:relays]
+      named = opts["filter"]["relays"]
       assert length(named) == 20
-      assert {"billing", "r00001"} in named
-      refute Enum.any?(named, &match?({"default", "r00030"}, &1))
+      assert ["billing", "r00001"] in named
+      refute Enum.any?(named, &match?(["default", "r00030"], &1))
 
       assert FakeController.calls(node, {Relay, :relay_plugins}) == []
     end
@@ -125,11 +135,11 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
         )
 
       opts = last_opts(node)
-      assert opts[:sort] == :severity
-      assert {:text, "r0"} in opts[:filter]
-      assert {:health, "failed"} in opts[:filter]
-      assert {:run, "steps"} in opts[:filter]
-      assert {:runner, "runner-a"} in opts[:filter]
+      assert opts["sort"] == "severity"
+      assert {"text", "r0"} in opts["filter"]
+      assert {"health", "failed"} in opts["filter"]
+      assert {"run", "steps"} in opts["filter"]
+      assert {"runner", "runner-a"} in opts["filter"]
 
       view
       |> form(~s([data-testid="relay-filters"]))
@@ -138,7 +148,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
       assert assert_patch(view) =~ "q=r00003"
       render_async(view)
 
-      assert {:text, "r00003"} in last_opts(node)[:filter]
+      assert {"text", "r00003"} in last_opts(node)["filter"]
     end
 
     test "a search finds a relay from anywhere in the namespace, and states how many match", %{
@@ -183,7 +193,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
       {:ok, _view, html} = live(conn, "/namespaces/default/relays/orders%23p1")
 
       assert Enum.any?(list_calls(node), fn
-               ["default", opts, _ctx] -> opts[:filter] == [ids: ["orders#p1", "orders"]]
+               ["default", opts, _ctx] -> opts["filter"] == wire(ids: ["orders#p1", "orders"])
                _other -> false
              end)
 
@@ -267,11 +277,8 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
       fleet(node, %{"default" => relays(300, fn _index -> %{health: :halted} end)})
       {view, html} = live_loaded(conn, ~p"/problems")
 
-      assert node |> list_calls() |> List.last() |> Enum.at(1) == [
-               limit: 50,
-               sort: :severity,
-               filter: [health: ["unhealthy", "suspended"]]
-             ]
+      assert node |> list_calls() |> List.last() |> Enum.at(1) ==
+               wire(limit: 50, sort: :severity, filter: [health: ["unhealthy", "suspended"]])
 
       # The problems page 20 at a time; the item saying how many more follows them.
       assert text_of(html, ~s([data-testid="problems-more"])) == "Show 20 more · 20 of 51"
@@ -283,7 +290,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
       view |> element(~s([data-testid="problem-grow-unread:default"])) |> render_click()
       render_async(view)
 
-      assert node |> list_calls() |> List.last() |> Enum.at(1) |> Keyword.get(:limit) == 100
+      assert node |> list_calls() |> List.last() |> Enum.at(1) |> Map.get("limit") == 100
 
       assert Enum.any?(
                :sys.get_state(view.pid).socket.assigns.shell_pulse.items,
@@ -337,7 +344,8 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
 
       {view, _html} = live_loaded(conn, ~p"/namespaces/default")
 
-      assert [[[filter: [namespace: "default"], limit: 0], _ctx] | _] = liveness_calls(node)
+      assert [[opts, _ctx] | _] = liveness_calls(node)
+      assert opts == wire(filter: [namespace: "default"], limit: 0)
       assert Enum.all?(liveness_calls(node), fn [opts, _ctx] -> opts != [] end)
 
       # 40 records arrived, then 100: 60 more over the tick's second.
@@ -448,7 +456,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
         |> element(~s([phx-keyup="plugin_form_relays"]))
         |> render_keyup(%{"value" => "r00025"})
 
-      assert last_opts(node) == [limit: 20, filter: [text: "r00025"]]
+      assert last_opts(node) == wire(limit: 20, filter: [text: "r00025"])
       assert html =~ ~s(data-testid="input-plugin-relay-r00025")
       refute html =~ ~s(data-testid="input-plugin-relay-r00001")
     end
@@ -498,7 +506,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
       {_view, html} = live_loaded(conn, ~p"/plugins")
 
       assert [["default", opts, _ctx] | _] = FakeController.calls(node, {PluginManager, :enabled})
-      assert opts[:limit] == 20
+      assert opts["limit"] == 20
       assert text_of(html, ~s([data-testid="plugin-relays-more-out_1"])) == "+ 990 more"
       assert length(testids(html, ~s([data-testid^="plugin-unbind-out_1-"]))) == 10
       assert html =~ ~s(data-testid="plugin-unbind-other-out_1")
@@ -544,8 +552,11 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
       assert html =~ "relay_500"
 
       assert Enum.any?(FakeController.calls(node, {PluginManager, :enabled}), fn
-               ["default", opts, _ctx] -> opts == [filter: [relay: "relay_500", text: "out_1"]]
-               _other -> false
+               ["default", opts, _ctx] ->
+                 opts == wire(filter: [relay: "relay_500", text: "out_1"])
+
+               _other ->
+                 false
              end)
 
       view |> element(~s([data-testid="plugin-unbind-cancel"])) |> render_click()
@@ -599,7 +610,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
 
       {:ok, view, html} = live(conn, "/namespaces/default/relays/relay_a/state")
 
-      assert [_class, [limit: 20, filter: []], _ctx] =
+      assert [_class, %{"limit" => 20, "filter" => []}, _ctx] =
                node |> FakeController.calls({Steps, :cells}) |> List.last()
 
       assert length(testids(html, ~s([data-testid^="spark-relay_a/orders/"]))) == 20
@@ -613,7 +624,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
 
       html = render_async(view)
 
-      assert [_class, [limit: 20, filter: [text: "k025"]], _ctx] =
+      assert [_class, %{"limit" => 20, "filter" => %{"text" => "k025"}}, _ctx] =
                node |> FakeController.calls({Steps, :cells}) |> List.last()
 
       assert testids(html, ~s([data-testid^="spark-relay_a/orders/"])) == [
@@ -622,7 +633,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
 
       # The input log's undelivered records are counted, not read.
       assert Enum.all?(FakeController.calls(node, {Steps, :undelivered}), fn [_id, opts, _ctx] ->
-               opts == [limit: 0]
+               opts == %{"limit" => 0}
              end)
     end
 
@@ -700,8 +711,8 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
           user.email
         )
 
-      assert {:ok, %{rows: [%{seen: 1}]}} = DeadLetters.stats(nil)
-      assert {:ok, %{rows: [%{seen: 1}]}} = DeadLetters.stats(nil)
+      assert {:ok, %{rows: [%{seen: 1}]}} = DeadLetters.stats("flzt_operator")
+      assert {:ok, %{rows: [%{seen: 1}]}} = DeadLetters.stats("flzt_operator")
       assert listed(node, class) == 1
 
       :ok =
@@ -710,11 +721,11 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
           user.email
         )
 
-      assert {:ok, %{rows: [%{seen: 2}]}} = DeadLetters.stats(nil)
+      assert {:ok, %{rows: [%{seen: 2}]}} = DeadLetters.stats("flzt_operator")
       assert listed(node, class) == 2
 
       parked(node, class, 3)
-      assert {:ok, %{rows: [%{seen: 2}]}} = DeadLetters.stats(nil)
+      assert {:ok, %{rows: [%{seen: 2}]}} = DeadLetters.stats("flzt_operator")
       assert listed(node, class) == 3
     end
 
@@ -722,7 +733,9 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
       parked(node, "orders", 30)
       {:ok, _view, html} = live(conn, ~p"/dlq")
 
-      assert [nil, [limit: 20], _ctx] = node |> FakeController.calls({Dlq, :list}) |> List.last()
+      assert [nil, %{"limit" => 20}, _ctx] =
+               node |> FakeController.calls({Dlq, :list}) |> List.last()
+
       assert length(testids(html, ~s([data-testid^="dlq-row-"]))) == 20
       assert text_of(html, ~s([data-testid="dlq-more"])) == "Show 10 more · 20 of 30"
     end
@@ -735,7 +748,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
       })
 
       {:ok, _view, html} = live(conn, ~p"/namespaces")
-      assert Enum.all?(screen_calls(node), fn [_ns, opts, _ctx] -> opts == [limit: 0] end)
+      assert Enum.all?(screen_calls(node), fn [_ns, opts, _ctx] -> opts == %{"limit" => 0} end)
       assert html =~ "40 relays"
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
@@ -755,7 +768,7 @@ defmodule FlezhaConsoleWeb.FleetScaleTest do
         |> element(~s([data-testid="command-palette-search"]))
         |> render_change(%{"q" => "stop r02999"})
 
-      assert last_opts(node) == [limit: 20, filter: [text: "r02999"]]
+      assert last_opts(node) == wire(limit: 20, filter: [text: "r02999"])
       assert html =~ ~s(data-testid="command-palette-action-Stop r02999")
     end
   end

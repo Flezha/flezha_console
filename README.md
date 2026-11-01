@@ -1,8 +1,10 @@
 # Flezha Console
 
 The Phoenix LiveView console for a [flezha](../flezha) controller. It holds
-no domain state of its own — every screen is a projection of a remote call over
-Erlang distribution.
+no domain state of its own — every screen is a projection of a call to the
+controller over its HTTPS channel: the controller's HTTP API, with a client
+certificate and the operator's flezha token. The console holds no cookie and
+starts no Erlang distribution toward the controllers.
 
 ## Vocabulary
 
@@ -232,6 +234,16 @@ console reads it through `FLEZHA_TOKEN_FILE` — a file rather than an env var b
 the token does not exist until the controller has booted. A restart reuses the
 token already written; nothing is re-claimed.
 
+The same step enables the `http_api` plugin in `_system`, the channel the
+console reaches the controllers through, over mutual TLS. A one-shot `certs`
+step (`priv/dev/certs.sh channel`) makes a dev authority for it, apart from any
+distribution one: a server certificate per controller and the console's client
+certificate, into the `fcon_channel_tls` volume, kept across restarts. The
+plugin listens only on the controllers that hold `_system`, so both controllers
+answer to a shared name, `flezha_controllers`, which each server certificate
+names too, and the console's `FLEZHA_CONTROLLER_URL` names it: the console pins
+whichever controller answers and moves when it stops answering.
+
 `FLEZHA_AUTHZ_ENABLED` is set to `true` on the controller deliberately. A dev
 stack that switched enforcement off would leave the console's whole identity path —
 token, principal, refusals — untested locally.
@@ -316,24 +328,27 @@ A cold start then seeds cleanly in the current vocabulary.
 | `fcon_plugin_packages` | One-shot: builds and places the plugin packages the controller loads at boot. Any `docker compose up`, even of one service, runs it again, and the controller lists the re-placed packages as pending until `priv/dev/stack.sh restart-controllers` (`stack.sh up` does it) |
 | `flezha_controller` | The controller, built from `../flezha/deploy/docker/dev/Dockerfile.toolchain` |
 | `flezha_rust_runner` | `test/apps/rust_runner`, waits for the control socket then connects |
-| `fcon_bootstrap` | One-shot: claims the authorization bootstrap and issues the console's token |
-| `fcon_web` | This app |
+| `fcon_certs` | One-shot: makes the channel's authority, the controllers' server certificates and the console's client certificate |
+| `fcon_bootstrap` | One-shot: claims the authorization bootstrap, issues the console's token and enables `http_api` |
+| `fcon_web` | This app, reaching the controllers over HTTPS; it holds no cookie |
+| `fcon_tools` | The operator helpers that stand in for `flz` on a controller's host — `priv/dev/stack.sh`, CLI calls, shape recording — holding the cookie; run with `docker exec` |
 | `flezha_console_db` | Postgres |
 
 ### Distribution over TLS
 
-The console, the controller and the bootstrap steps talk over Erlang
-distribution. By default that is plain TCP, guarded only by the cookie
-(`ERLANG_COOKIE`, declared once at the top of `docker-compose.dev.yml`). To run
-every link over TLS instead, layer the overlay on:
+The controllers, the bootstrap steps and the tools service talk over Erlang
+distribution; the console takes no part in it. By default that is plain TCP,
+guarded only by the cookie (`ERLANG_COOKIE`, declared once at the top of
+`docker-compose.dev.yml`). To run every link over TLS 1.3 instead, layer the
+overlay on:
 
 ```bash
 docker compose -f docker-compose.dev.yml -f docker-compose.dev-tls.yml up
 ```
 
-A one-shot `fcon_dist_tls_certs` (`priv/dev/dist_tls_certs.sh`) makes a private
-CA, and a key, certificate and option file per distributed host, into the
-`fcon_dist_tls` volume. Later runs keep them, and remake only what is missing,
+A one-shot `fcon_dist_tls_certs` (`priv/dev/certs.sh dist`) makes a private
+distribution authority, apart from the channel's, and a key, certificate and
+option file per distributed host, into the `fcon_dist_tls` volume. Later runs keep them, and remake only what is missing,
 expires within 30 days, or was signed by an earlier CA. Each node then starts
 with `ELIXIR_ERL_OPTIONS="-proto_dist inet_tls -ssl_dist_optfile
 /dist_tls/<host>.conf"`.
@@ -352,8 +367,7 @@ with `ELIXIR_ERL_OPTIONS="-proto_dist inet_tls -ssl_dist_optfile
   name.
 - **Outside dev:** a deployment brings its own CA and certificates and keeps
   the CA key off the nodes. The controller's release takes
-  `FLEZHA_DIST_TLS_OPTFILE`; the console takes the same flags through
-  `ELIXIR_ERL_OPTIONS`.
+  `FLEZHA_DIST_TLS_OPTFILE`.
 
 `docker compose … down` followed by `up` without the overlay goes back to plain
 TCP. `docker volume rm flezha_console_fcon_dist_tls` discards the CA and the
@@ -367,7 +381,7 @@ docker exec fcon_web mix compile                      # after editing .ex files
 docker logs fcon_web 2>&1 | grep EventFeed            # signal feed status
 docker logs fcon_web 2>&1 | grep ConfigWatcher        # why the console restarted itself
 docker attach flezha_controller                      # controller iex (detach: Ctrl+P Ctrl+Q)
-docker exec fcon_web sh -c 'exec elixir --sname cli1 --cookie "$ERLANG_COOKIE" "$@"' _ \
+docker exec fcon_tools sh -c 'exec elixir --sname cli1 --hidden --cookie "$ERLANG_COOKIE" "$@"' _ \
   /flezha_console/priv/dev/cli_call.exs Relay.call_channel \
   '["default","orders","place",{"pair":"BTC-EUR","amount":1},{}]'   # call as flz does
 ```
@@ -514,23 +528,33 @@ the content of every screen is drawn with the console's own component kit.
 Every remote call goes through `FlezhaConsole.Service.NodeManager`, which is the
 only module that names a `Flezha.*` module, and every call is an operation on
 core's **published consumer API**: a `Flezha.Service.*` function listed in
-core's `docs/internal/api/consumers/published.txt`, run through core's one door,
-`Flezha.Service.Admin.run/4`, with the console's caller context. Only two reads
-go without a context, because a context is built from them:
-`Flezha.Service.Admin.context/2` and `Flezha.AuthZ.enforcement_posture/0`.
+core's `docs/internal/api/consumers/published.txt`, sent over the controller's
+HTTPS channel as `POST /v1/call/<Module.function>` with its arguments as a JSON
+array and the operator's token as its bearer token. The controller builds the
+caller context from that token and runs the call through its one door, as it
+does for every surface; the console builds no context. Answers are decoded from
+JSON by the recorded shapes (`FlezhaConsole.Service.ControllerShapes`,
+`priv/controller_shapes.json`), so screens read the terms they always did:
+atom keys, atoms the console knows, tuples and times. A name the console has no
+atom for stays text, so the controller's data never grows the atom table, and
+node names are always text.
 The door keeps the operations core does not let the network reach — issuing,
 revoking and binding, deleting a namespace, claiming the bootstrap and stopping
 the controller — away from the console; `flz` makes them.
 `test/flezha_console/service/published_surface_test.exs` holds the console to that
 with core's own extractor and list (`FLEZHA_CORE_PATH`, default `../flezha`).
 
-The controller is the node `FLEZHA_NODE` names, and only that one:
-`NodeManager.connected_node/0` answers it while it is connected and `nil`
-otherwise, so another node connected to the console — a remote shell, a helper
-node, a second controller — never receives a call, a caller context or a token.
+The controller is the one `FLEZHA_CONTROLLER_URL` names, and only that one.
+`FlezhaConsole.Service.NodeConnector` resolves its host, pins the first address
+that answers an unauthenticated `GET /v1/catalogue`, keeps it while it answers,
+and broadcasts `:controller_up` and `:controller_down`. TLS checks the server's
+certificate against the URL's host, also on the pinned address.
+`NodeManager.connected_node/0` answers the reached controller's name, from the
+`local?` row of its `Controller.controllers` answer, while the channel is up, and
+`nil` otherwise.
 
-A call answers the door's `{:ok, value}`, or its
-`{:error, %Flezha.Error{}}` — code, class, message, hint — untouched, or one of
+A call answers the controller's `{:ok, value}`, or its error read from the
+channel's error body — code, class, message, hint, details — or one of
 the transport conditions only this node sees: not connected, API missing,
 timeout, remote error. An operation the door does not publish reads as API
 missing. `NodeManager.error/1` reads any of them as one map, so a
@@ -548,15 +572,14 @@ whether a control renders. A controller that answers no list, or one whose
 posture is `:open`, renders every control; either way the controller still
 judges each call.
 
-Identity works the way the controller's own CLI does it: a principal comes
-*only* from `Flezha.Service.Admin.context/2`. A name typed into this console is
-never placed in a caller context, because that context is what the controller's
-audit log records. Verifications are cached briefly, and never for a transient
-`authz.registry_unavailable`. A refused
-call evicts the entry. The controller sees only the principal, never the token,
-so a revoked token stops working when its cached verification expires. A
-verification the token store cannot answer is reported as that failure; the
-call is never made unbound.
+Identity comes *only* from `Flezha.Service.Namespace.whoami`, called with the
+token: one answer gives the principal, namespace, role, granted operations and
+the controller's enforcement posture. A name typed into this console is never
+sent as a principal; the controller judges each call by the token it carries.
+Verifications are cached briefly, and never for a transient
+`authz.registry_unavailable`; a refused call evicts the entry. Without a token
+the console makes no call at all, and every screen says it needs one, since the
+HTTP API refuses any request without a bearer token.
 
 A screen reads what it shows, never a whole namespace, so it costs the
 controller the same with ten relays or ten thousand. A listing of relays,
@@ -593,16 +616,20 @@ looking at.
 Live data rides `FlezhaConsole.Service.EventFeed`, and **no code of this
 application runs on the controller**. A feed holds one published stream
 operation — `Observability.tail/2`, `Logs.tail/2` or `Relay.listen/5` —
-open with `:erpc.send_request/4`, passing its own pid as the caller context's
-`:emit`; the controller hands each event to it as `{:flezha_emit, event}`.
+open on the channel's stream route, `POST /v1/stream/<Module.function>`, by a
+process linked to it, which hands each server-sent event, decoded, to the feed
+as `{:flezha_emit, event}`. The stream ends with the operation's answer (`end`),
+with `overrun` when the console fell behind, which the feed always opens again
+and tells the screen about the gap, or with a lost connection.
 Runner connects and disconnects are observability signals on `:flezha_runner`,
 which a supervised feed tails and broadcasts on `"flezha:events"`; relay starts,
 stops and exits on `:flezha_relay` get a supervised feed of their own, on
 `"flezha:relays"`, which only the relays index hears; the audit
 and observability tails, the listen screen, the pipeline graph's payload tap
 and the relay screen's Calls section (a `:calls` listen, held only while the
-section is open) each hold a feed linked to the screen. The controller watches the feed's pid,
-so stopping the feed — or closing the screen — releases the subscription. There
+section is open) each hold a feed linked to the screen. When the feed exits its
+request is closed and the controller ends the operation, so stopping the feed —
+or closing the screen — releases the subscription. There
 is no second mechanism. `EventFeed.stop/2` also drops what the feed already
 sent under its tag, so a screen that replaces a feed never hears the old one,
 and a retrying feed reports a reconnect only once its re-opened stream is held.
@@ -629,11 +656,30 @@ runs as it is; one downloaded through a browser needs
 The release takes its settings from the environment: `DATABASE_URL` (an
 existing database), `SECRET_KEY_BASE` (`openssl rand -base64 48`), `PHX_HOST`,
 `PHX_SERVER=true`, the admin account `FLEZHA_CONSOLE_ADMIN_EMAIL` and
-`FLEZHA_CONSOLE_ADMIN_PASSWORD`, and the node: `RELEASE_DISTRIBUTION=name`,
-`RELEASE_NODE`, `FLEZHA_NODE` and the controller's cookie as `RELEASE_COOKIE`.
-The archive carries no cookie, so it refuses to start without one. The flezha
-repository's console guide (`docs/public/console/console.md`) lists every
-setting. Then:
+`FLEZHA_CONSOLE_ADMIN_PASSWORD`, and the channel to the controllers:
+
+- `FLEZHA_CONTROLLER_URL` — the controllers' HTTP API, `https://host:port`, where
+  `host` may be one DNS name for every controller: the console pins one that
+  answers. Plain `http://` is taken only for `127.0.0.1` or `[::1]`. A flezha
+  token works only on the controllers that issued it, so a name must not span
+  clusters.
+- `FLEZHA_CONTROLLER_CA` — the authority the controllers' server certificates
+  chain to; each must name the URL's host.
+- `FLEZHA_CLIENT_CERT` and `FLEZHA_CLIENT_KEY` — the console's client
+  certificate, from the authority the controllers' `http_api` plugin names as
+  `tls_client_cacertfile`.
+- A flezha token, as `FLEZHA_TOKEN` or `FLEZHA_TOKEN_FILE`, or stored per user
+  in Settings: the HTTP API refuses every request without one, even on a
+  controller whose authorization is open.
+
+The controllers need a release newer than 0.1.6, with the `http_api` plugin
+enabled in `_system` over TLS with `tls_client_cacertfile`. The console starts
+no Erlang distribution and needs no cookie; without the URL, or with an `https`
+URL and a missing or unreadable file, it refuses to start, naming the variable.
+Console replicas that cluster among themselves (`DNS_CLUSTER_QUERY`) set
+`RELEASE_DISTRIBUTION=name` and a `RELEASE_COOKIE` of their own, never the
+controllers'. The flezha repository's console guide
+(`docs/public/console/console.md`) lists every setting. Then:
 
 ```bash
 flezha_console/bin/flezha_console eval FlezhaConsole.Release.migrate
@@ -682,16 +728,16 @@ read-only access to those two repositories.
 ## Manual setup (no Docker)
 
 ```bash
-# Controller, from the flezha repo
-iex --name flezha@flezha_controller.flezha_network --cookie "$ERLANG_COOKIE" -S mix
+# Controller, from the flezha repo, then `flz plugin enable api http_api
+# --namespace _system`, which listens on 127.0.0.1:8765
+iex -S mix
 
-# Console: connects to the node FLEZHA_NODE names, and calls no other
-FLEZHA_NODE=flezha@flezha_controller.flezha_network \
-  iex --name flezha_console@flezha_console_web.flezha_network --cookie "$ERLANG_COOKIE" --hidden -S mix phx.server
+# Console: plain HTTP is taken for a controller on loopback, with a token
+FLEZHA_CONTROLLER_URL=http://127.0.0.1:8765 FLEZHA_TOKEN=<token> mix phx.server
 ```
 
-Both nodes take the same cookie, one you choose: nothing falls back to a
-built-in value.
+A controller on another machine serves `http_api` over TLS with a client
+authority, and the console is given `https://…` and its three files as above.
 
 ## License
 

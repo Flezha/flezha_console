@@ -246,6 +246,9 @@ defmodule FlezhaConsole.Format do
 
   @doc "A module name as text, for a provider shown in a table."
   def module_name(nil), do: "—"
+  # A module this node does not have arrives as its name.
+  def module_name("Elixir." <> name), do: name
+  def module_name(name) when is_binary(name), do: name
   def module_name(module), do: inspect(module)
 
   @doc """

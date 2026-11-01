@@ -432,7 +432,7 @@ defmodule FlezhaConsoleWeb.FactoryLiveTest do
 
       send(view.pid, {:flezha_event, :runner_connected, {"default", "runner-b"}})
 
-      assert PeerNode.eventually(fn ->
+      assert FakeController.eventually(fn ->
                length(FakeController.calls(node, {Fleet, :factory})) == 2
              end)
     end
@@ -461,11 +461,15 @@ defmodule FlezhaConsoleWeb.FactoryLiveTest do
 
       assert [[params, _ctx] | _] = FakeController.calls(node, {Logs, :read})
 
-      assert Keyword.take(params, [:kind, :filters, :limit]) == [
-               kind: "relay_history",
-               filters: %{"namespace" => "default", "factory" => "fan_trade", "event" => "ended"},
-               limit: 10
-             ]
+      assert Map.take(params, ["kind", "filters", "limit"]) == %{
+               "kind" => "relay_history",
+               "filters" => %{
+                 "namespace" => "default",
+                 "factory" => "fan_trade",
+                 "event" => "ended"
+               },
+               "limit" => 10
+             }
     end
 
     test "a factory that never ran says runs appear when one ends", %{conn: conn} do

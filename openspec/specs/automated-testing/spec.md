@@ -173,28 +173,29 @@ An error state a screen handles through a shared mechanic MAY be covered by that
 
 ### Requirement: The fake controller stands in by name
 
-ExUnit's fake controller SHALL be compiled only under `MIX_ENV=test`, SHALL be loaded onto the peer node rather than into the test VM, and SHALL mirror the controller's published consumer API: every stand-in module SHALL be a module on core's published surface (`Flezha.Service.*`), core's door (`Flezha.Service.Admin`, whose `run/4` applies the stand-in an operation names and answers as core's door does, and whose `context/2` is a context-free read), or the context-free `Flezha.AuthZ.enforcement_posture/0`, plus a `Flezha.Error` struct carrying `code`, `class`, `message`, `details` and `hint`. Every stub SHALL carry the published function's name and arity, take the caller context last, and answer in the real return shapes — `{:ok, value}` or `:ok` on success and `{:error, %Flezha.Error{}}` with a code from core's error catalogue on failure. Tests SHALL reach the controller through `NodeManager` and its `:erpc` transport, not around it.
+ExUnit's fake controller SHALL be compiled only under `MIX_ENV=test`. It SHALL be served over the channel by a listener in the test VM on a loopback address, answering `POST /v1/call/<operation>` and `POST /v1/stream/<operation>` as core's channel answers them. It SHALL mirror the controller's published consumer API: every stand-in module SHALL be a module on core's published surface (`Flezha.Service.*`). Every stub SHALL carry the published function's name and arity, take the caller context last, and answer in the real return shapes: `{:ok, value}` or `:ok` on success, and `{:error, error}` with a code from core's error catalogue on failure. The listener SHALL encode those answers as core's channel encodes them, with the status of the error's class. Tests SHALL reach the controller through `NodeManager` and its channel, not around it.
 
 #### Scenario: A screen's controller calls are served
 
 - **WHEN** a LiveView test drives a screen that calls the controller
-- **THEN** the call travels through `NodeManager.erpc_call/4` to the peer and is answered by the fake
+- **THEN** the call travels through `NodeManager` over the channel to the fake listener and is answered by the fake
+- **AND** the answer the screen receives went through the recorded-shape decoder
 
 #### Scenario: The fake holds only published names
 
-- **WHEN** the modules in `FakeController.modules/0` and the functions they export are compared with core's `docs/internal/api/consumers/published.txt`, the door and the two context-free reads
+- **WHEN** the modules in `FakeController.modules/0` and the functions they export are compared with core's `docs/internal/api/consumers/published.txt`
 - **THEN** every stub is on that list
 - **AND** no stand-in remains for a retired module such as `Flezha.Service.EventManager`, `Flezha.Service.HubManager`, `Flezha.Service.CliManager` or a top-level `Flezha` function
 
-#### Scenario: Stubs record the caller context
+#### Scenario: Stubs record the call as it crossed the channel
 
 - **WHEN** a test reads back the calls the fake received
-- **THEN** each recorded call carries the caller context as its last argument, with `source: :ui`
+- **THEN** each recorded call carries the arguments as the channel carried them and the bearer token it was made with
 
 #### Scenario: Refusals have the real shape
 
 - **WHEN** a test configures the fake to refuse a call
-- **THEN** the fake answers `{:error, %Flezha.Error{}}` whose `code` and `class` are those core's catalogue gives that code
+- **THEN** the listener answers the error object whose `code` and `class` are those core's catalogue gives that code, with that class's HTTP status
 
 #### Scenario: The fake is configurable per test
 
@@ -205,25 +206,6 @@ ExUnit's fake controller SHALL be compiled only under `MIX_ENV=test`, SHALL be l
 
 - **WHEN** the application is compiled in any environment other than `test`
 - **THEN** no fake controller module is compiled into the release
-
-### Requirement: Peer-backed tests are isolated and skippable
-
-Tests that boot a peer node SHALL run non-concurrently. They SHALL boot at most one peer per test module, in the module's shared setup, and SHALL reset the fake controller and the authorization identity cache before each test. Only a test that stops or disconnects its peer SHALL boot its own, and such tests SHALL live in a module of their own. Peer-backed tests SHALL be tagged so they can be excluded from a fast local run.
-
-#### Scenario: Two peer-backed modules in one run
-
-- **WHEN** the suite runs modules that each boot a peer
-- **THEN** they do not run concurrently, and neither module's peer is mistaken for the other's controller
-
-#### Scenario: Tests within one peer-backed module
-
-- **WHEN** a module's tests run against the module's peer
-- **THEN** each starts with no canned answers, no recorded calls and no cached identity or posture from an earlier test
-
-#### Scenario: A fast local run
-
-- **WHEN** a developer excludes the peer-backed tag
-- **THEN** the remaining suite runs without booting any peer node
 
 ### Requirement: Test commands are documented where they are looked for
 
@@ -298,7 +280,7 @@ The gate SHALL skip its own test file, which must name every banned term, and SH
 
 ### Requirement: Core's record of the console's calls is kept in step
 
-Every change that alters which controller functions the console calls SHALL regenerate core's `docs/internal/api/consumers/flezha_console.txt` from this checkout with core's `scripts/consumer_surface.py`, and core's `test/flezha/api/consumer_surface_test.exs` SHALL pass with `FLEZHA_CONSOLE_PATH` pointing at this checkout. Once the console calls only the published surface, that test's list of calls known not to resolve SHALL be empty, and the test SHALL assert that every recorded console call is on the published surface, is the door `Flezha.Service.Admin.run/4`, or is one of the two context-free reads.
+Every change that alters which controller operations the console calls SHALL regenerate core's `docs/internal/api/consumers/flezha_console.txt` from this checkout with core's `scripts/consumer_surface.py`. Core's `test/flezha/api/consumer_surface_test.exs` SHALL pass with `FLEZHA_CONSOLE_PATH` pointing at this checkout. That test's list of calls known not to resolve SHALL be empty, and every recorded console call SHALL be on the published surface.
 
 #### Scenario: The record matches the console
 
@@ -313,7 +295,8 @@ Every change that alters which controller functions the console calls SHALL rege
 #### Scenario: Every console call is published
 
 - **WHEN** the recorded console calls are compared with `docs/internal/api/consumers/published.txt`
-- **THEN** each is on the published surface, is `Flezha.Service.Admin.run/4`, or is `Flezha.Service.Admin.context/2` or `Flezha.AuthZ.enforcement_posture/0`
+- **THEN** each is on the published surface
+- **AND** none is `Flezha.Service.Admin.run/4`, `Flezha.Service.Admin.context/2` or `Flezha.AuthZ.enforcement_posture/0`
 
 ### Requirement: Every browser test fails on a broken page
 
@@ -640,7 +623,7 @@ Each worker SHALL have a namespace of its own, made in global setup and removed 
 
 ### Requirement: Test doubles are checked against the real controller
 
-The error catalogue the fake controller uses SHALL equal core's published error catalogue, read from the core checkout the published-surface test already locates. The fake controller's answers for every published read the console makes SHALL have the shape the real controller answers with: the tuple tag, map keys and value types, recursively, never the values. That shape SHALL be checked against a committed file recorded from the dev controller. Every browser run SHALL re-record the shapes and fail, naming each call whose live shape differs from the committed file.
+The error catalogue the fake controller uses SHALL equal core's published error catalogue, read from the core checkout the published-surface test already locates. The fake controller's answers for every operation the console calls, and its events for every stream event the console reads, SHALL have the shape the real controller answers with: the tuple tag, map keys and value types, recursively, never the values. That shape SHALL be checked against a file recorded from the dev controller and shipped with the application, which is also the decoder's schema. Every browser run SHALL re-record the shapes, check that each recorded read made through the console's own channel decodes to its recorded shape, and fail naming each call whose live shape or decoded shape differs from the shipped file.
 
 #### Scenario: Core adds or reclassifies an error code
 
@@ -654,8 +637,13 @@ The error catalogue the fake controller uses SHALL equal core's published error 
 
 #### Scenario: The controller changes an answer's shape
 
-- **WHEN** the dev controller answers a published read in a shape different from the committed recording
+- **WHEN** the dev controller answers a published read in a shape different from the shipped recording
 - **THEN** the browser run fails in global setup naming the call, before any spec runs
+
+#### Scenario: The channel loses part of an answer
+
+- **WHEN** a read made through the console's channel decodes to a shape different from its recording, such as a tuple arriving as text
+- **THEN** the browser run fails in global setup naming the call and the differing path
 
 ### Requirement: A shared mechanic is tested once
 
@@ -722,4 +710,23 @@ the run. The browser suite SHALL NOT run in CI.
 #### Scenario: A missing token fails before the build
 - **WHEN** the workflow runs without access to `flezha/flezha_stylebook`
 - **THEN** the step checking it out, named after the repository, fails, and no later step runs
+
+### Requirement: Channel-backed tests are isolated and skippable
+
+Tests that serve the fake controller over the channel SHALL run non-concurrently. They SHALL start at most one fake listener per test module, in the module's shared setup, and SHALL reset the fake controller and the authorization identity cache before each test. Only a test that stops its listener SHALL start its own, and such tests SHALL live in a module of their own. Channel-backed tests SHALL be tagged so they can be excluded from a fast local run.
+
+#### Scenario: Two channel-backed modules in one run
+
+- **WHEN** the suite runs modules that each start a fake listener
+- **THEN** they do not run concurrently, and neither module's listener is mistaken for the other's controller
+
+#### Scenario: Tests within one channel-backed module
+
+- **WHEN** a module's tests run against the module's listener
+- **THEN** each starts with no canned answers, no recorded calls and no cached identity or posture from an earlier test
+
+#### Scenario: A fast local run
+
+- **WHEN** a developer excludes the channel-backed tag
+- **THEN** the remaining suite runs without starting any fake listener
 

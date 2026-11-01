@@ -1,6 +1,7 @@
 defmodule FlezhaConsoleWeb.AuthzPostureTest do
   @moduledoc """
-  The posture the application layout states on every screen.
+  The posture the application layout states on every screen, as the token's
+  `whoami` answers it.
 
   Lives at this layer because the states worth asserting — an unclaimed
   bootstrap, a revoked token — are ones a live controller will not be put into
@@ -9,24 +10,25 @@ defmodule FlezhaConsoleWeb.AuthzPostureTest do
 
   use FlezhaConsoleWeb.LiveCase
 
-  alias Flezha.AuthZ
-  alias Flezha.Service.Admin
+  alias Flezha.Service.Namespace
+  alias FlezhaConsole.Accounts
   alias FlezhaConsole.TestEnv
 
-  setup %{node: node} do
-    # The layout caches posture and identity briefly; a token per test keeps one
-    # test's answer out of the next one's cache.
-    token = "flz_posture_#{System.unique_integer([:positive])}"
-    TestEnv.put_system("FLEZHA_TOKEN", token)
+  defp whoami(node, answer), do: FakeController.set(node, {Namespace, :whoami}, answer)
 
-    %{node: node, token: token}
-  end
+  defp identity(overrides),
+    do:
+      {:ok,
+       Map.merge(
+         %{principal: "alice", namespace: "acme", role: :ops, operations: [], posture: :enforced},
+         overrides
+       )}
 
   test "an unclaimed bootstrap is named, with the command that claims it", %{
     conn: conn,
     node: node
   } do
-    FakeController.set(node, {AuthZ, :enforcement_posture}, :bootstrap_pending)
+    whoami(node, identity(%{posture: :bootstrap_pending}))
 
     {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -34,28 +36,18 @@ defmodule FlezhaConsoleWeb.AuthzPostureTest do
     assert html =~ "flz auth bootstrap &lt; storage/app/auth/bootstrap.token"
   end
 
-  test "an enforced controller with no bound identity says calls will be refused", %{
-    conn: conn,
-    node: node
-  } do
-    FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
-    FakeController.set(node, {Admin, :context}, FakeController.error("authz.token_unknown"))
+  test "a token that binds no identity says every call is refused", %{conn: conn, node: node} do
+    whoami(node, FakeController.error("authz.token_unknown"))
 
     {:ok, _view, html} = live(conn, ~p"/cluster")
 
     assert html =~ "authz-unbound"
-    assert html =~ "will be refused"
+    assert html =~ "is refused"
     assert html =~ "/users/settings"
   end
 
   test "a rejected token states why it did not bind", %{conn: conn, node: node} do
-    FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
-
-    FakeController.set(
-      node,
-      {Admin, :context},
-      FakeController.error("authz.token_revoked", "the token has been revoked")
-    )
+    whoami(node, FakeController.error("authz.token_revoked", "the token has been revoked"))
 
     {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -63,14 +55,27 @@ defmodule FlezhaConsoleWeb.AuthzPostureTest do
     assert html =~ "revoked"
   end
 
-  test "a bound principal is named in the top bar, not banner-ed", %{conn: conn, node: node} do
-    FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
+  test "without a token, the console says it needs one and asks the controller nothing", %{
+    conn: conn,
+    node: node,
+    user: user
+  } do
+    {:ok, _user} = Accounts.clear_user_flezha_token(user)
+    TestEnv.put_system("FLEZHA_TOKEN", nil)
+    TestEnv.put_system("FLEZHA_TOKEN_FILE", nil)
 
-    FakeController.set(
-      node,
-      {Admin, :context},
-      {:ok, %{principal: "alice", namespace: "acme", role: :ops, source: :ui}}
-    )
+    {:ok, _view, html} = live(conn, ~p"/cluster")
+
+    assert text_of(html, ~s([data-testid="authz-unbound"])) =~
+             "needs a flezha token to reach the controller"
+
+    assert html =~ "/users/settings"
+    assert FakeController.calls(node, {Namespace, :whoami}) == []
+    assert FakeController.calls(node, {Flezha.Service.Admin, :run}) == []
+  end
+
+  test "a bound principal is named in the top bar, not banner-ed", %{conn: conn, node: node} do
+    whoami(node, identity(%{}))
 
     {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -97,7 +102,7 @@ defmodule FlezhaConsoleWeb.AuthzPostureTest do
   end
 
   test "an open controller says nothing on an ordinary screen", %{conn: conn, node: node} do
-    FakeController.set(node, {AuthZ, :enforcement_posture}, :open)
+    whoami(node, identity(%{posture: :open}))
 
     {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -105,31 +110,19 @@ defmodule FlezhaConsoleWeb.AuthzPostureTest do
     refute html =~ "authz-bootstrap-pending"
   end
 
-  test "the token itself never reaches the page", %{conn: conn, node: node, token: token} do
-    FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
-
-    FakeController.set(
-      node,
-      {Admin, :context},
-      {:ok, %{principal: "alice", namespace: "acme", role: :ops, source: :ui}}
-    )
+  test "the token itself never reaches the page", %{conn: conn, node: node, user: user} do
+    whoami(node, identity(%{}))
 
     {:ok, _view, html} = live(conn, ~p"/cluster")
 
-    refute html =~ token
+    refute html =~ Accounts.user_flezha_token(user)
   end
 
   test "the namespace picker offers only what the token can reach", %{conn: conn, node: node} do
-    FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
     # The controller narrows its catalog to the caller, so a token bound to
     # acme is answered acme alone.
     FakeController.set_fleet(node, namespaces: ["acme"])
-
-    FakeController.set(
-      node,
-      {Admin, :context},
-      {:ok, %{principal: "alice", namespace: "acme", role: :ops, source: :ui}}
-    )
+    whoami(node, identity(%{}))
 
     {:ok, _view, html} = live(conn, ~p"/cluster")
 
@@ -138,14 +131,8 @@ defmodule FlezhaConsoleWeb.AuthzPostureTest do
   end
 
   test "a _system token is offered every namespace", %{conn: conn, node: node} do
-    FakeController.set(node, {AuthZ, :enforcement_posture}, :enforced)
     FakeController.set_fleet(node, namespaces: ["acme", "other"])
-
-    FakeController.set(
-      node,
-      {Admin, :context},
-      {:ok, %{principal: "root", namespace: "_system", role: :admin, source: :ui}}
-    )
+    whoami(node, identity(%{principal: "root", namespace: "_system", role: :admin}))
 
     {:ok, _view, html} = live(conn, ~p"/cluster")
 

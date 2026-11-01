@@ -3,7 +3,6 @@
 ## Purpose
 What a release of the console carries, how each archive is checked on its own platform before
 it is published, and which events start CI.
-
 ## Requirements
 ### Requirement: Only `master`, pull requests and release tags SHALL start CI
 
@@ -23,11 +22,14 @@ assets, natively on Linux x86_64, macOS arm64 and macOS x86_64, and publish each
 `<platform>` is `linux-x86_64`, `macos-arm64` or `macos-x86_64`, together with a
 `SHA256SUMS.txt` covering them. A tag whose version carries a `-` SHALL make a pre-release.
 
+The release SHALL start with no Erlang distribution unless the operator sets
+`RELEASE_DISTRIBUTION`, and SHALL need no cookie to start.
+
 Before it is published, each archive SHALL be unpacked and smoke-tested on a runner of its own
-platform by `scripts/smoke-release.sh`: it migrates a fresh database, starts, answers
-`GET /users/log-in` with 200, and stops. The smoke test SHALL remove its directory and its
-database on every exit path. The release SHALL carry no asset until all three archives have
-passed.
+platform by `scripts/smoke-release.sh`: it migrates a fresh database, starts with no
+`RELEASE_COOKIE`, `RELEASE_NODE` or `RELEASE_DISTRIBUTION` set, answers `GET /users/log-in`
+with 200, and stops. The smoke test SHALL remove its directory and its database on every exit
+path. The release SHALL carry no asset until all three archives have passed.
 
 `scripts/release-archive.sh` SHALL build and pack the archive for the host by the same steps.
 
@@ -42,4 +44,8 @@ passed.
 #### Scenario: The archive is built and checked locally
 - **WHEN** a developer runs `scripts/release-archive.sh` and then `scripts/smoke-release.sh` on the archive it wrote, against a local Postgres
 - **THEN** the archive for the host's platform is in `_build/dist/` and the smoke test passes
+
+#### Scenario: The release starts without distribution
+- **WHEN** the smoke test starts the release with no cookie and no distribution variable set
+- **THEN** the release serves `GET /users/log-in` and the running VM reports that distribution is not started
 

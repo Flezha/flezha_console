@@ -1,14 +1,15 @@
 # Testing
 
 Two layers. ExUnit (`test/`) covers everything that runs inside the BEAM,
-against a fake controller on a peer node. The Playwright suite (`e2e/`) drives
+against a fake controller served over the controller's channel by a listener in
+the test VM. The Playwright suite (`e2e/`) drives
 the running dev stack in a real browser. Both are fast because neither waits for
 time to pass, and both are trusted because the gates below fail a run that
 would only look green.
 
 ```bash
 mix test                          # ExUnit, under a minute
-mix test --exclude distributed    # the fast loop: no peer node booted
+mix test --exclude channel        # the fast loop: no fake listener served
 mix test --slowest 25             # what dominates a run
 
 docker compose -f docker-compose.dev.yml up   # the browser suite needs this up
@@ -85,8 +86,9 @@ A test waits only for a condition it caused, and stops as soon as it holds:
   after, rather than waiting a second. A message
   that must not arrive is refuted after a synchronous barrier — `:sys.get_state/1`
   on the process, or a call it must answer first — never after a timeout.
-  `PeerNode.eventually/2` is the one sanctioned poll, for remote state that
-  settles on its own.
+  `FakeController.eventually/2` is the one sanctioned poll, for what the
+  console does over the channel that settles on its own, such as a stream
+  opening or closing.
 
 `test/support/naming_gate.ex` enforces this: `mix test` fails on
 `waitForTimeout`, `setTimeout`, `test.setTimeout`, `test.slow`, poll `intervals`,
@@ -155,8 +157,8 @@ Before it changes anything on the stack, global setup:
 - **takes the stack's lock**: it creates the namespace `e2e-run-lock`, which
   the controller refuses to create twice. A second run against a held stack
   stops there, naming the run that holds it and how long ago it started, and
-  leaves that run's users logged in. A run is known to be going by its nodes
-  in `fcon_web`, which are named after it (`pw_<run>_…`): a lock whose run has
+  leaves that run's users logged in. A run is known to be going by its helper
+  nodes in `fcon_tools`, which are named after it (`pw_<run>_…`): a lock whose run has
   no node left was left by a run that died, and is taken over with a warning.
   `E2E_TAKE_LOCK=1` takes a lock over regardless. A run in UI mode holds the
   stack until it is closed. Playwright clears `test-results/` before global
@@ -275,12 +277,22 @@ reason.
 
 ## The fake is checked against the controller
 
-`FakeController` stands in for the published `Flezha.Service.*` modules by name,
-on a peer node with this application's code left off its path.
-`PeerNode.start!/3` names the peer it starts as `FLEZHA_NODE` until the test or
-module that started it ends, and the console calls only that node, so a test
-that links a second node by hand names its controller itself. Two checks keep
-it honest:
+`FakeController` stands in for the published `Flezha.Service.*` modules by name.
+`FlezhaConsole.FakeListener` serves it over the channel in the test VM — a Plug
+on Bandit at `127.0.0.1` on an ephemeral port — answering `/v1/call/<op>` and
+`/v1/stream/<op>` as core's `http_api` does: each stub is applied to the JSON
+arguments as they crossed the wire, with `%{source: :http, token: token}` as its
+context, and its answer is encoded as core's channel encodes it, so every screen
+test drives the real HTTP transport and the real decoder. `start!/1` points the
+console's channel at the listener until the module that started it ends; with
+`tls:` it serves HTTPS with mutual TLS from certificates `priv/dev/certs.sh`
+made. A channel-backed module is tagged `:channel`, runs alone, starts one
+listener in its shared setup and resets the fake before each test; only a test
+that stops its listener starts its own, in a module of its own. A stream ended
+with `:overrun` is cut as core cuts a client that fell behind, and one ended
+with `:drop` loses its connection. Recorded calls carry the arguments as JSON
+(`%{"limit" => 2}`, not `[limit: 2]`) and the bearer token. Two checks keep it
+honest:
 
 - `published_surface_test.exs` reads the core checkout beside this repository
   (`FLEZHA_CORE_PATH` or `../flezha`): every call the console makes is
@@ -290,9 +302,11 @@ it honest:
 - `controller_shapes_test.exs` checks every stub's default answer and every
   fixture builder (`relay_row/2`, `runner_row/2`, `graph_channel/5`,
   `graph_tasklet/2`, `factory_row/2`, `activity_row/2`, `option_row/2`,
-  `history_record/2`, `relay_counters/2`) against
-  `test/support/fixtures/controller_shapes.json`: tuple tags, map keys and value
-  types recorded from the dev controller, never values. A map keyed by data
+  `history_record/2`, `relay_counters/2`) against `priv/controller_shapes.json`:
+  tuple tags, map keys and value types recorded from the dev controller, never
+  values. The same file is the schema the console decodes the channel's JSON
+  with, and the test fails naming any operation `NodeManager` calls, or any
+  event a stream delivers, that has no recorded shape. A map keyed by data
   rather than by fields — a provider's `opts` and the `provider_opts` it runs
   with, a relay's hook `chains`, one count per health verdict — is recorded by
   its values alone, since which keys it holds depends on what the stack runs.
@@ -301,18 +315,34 @@ it honest:
   what core refuses, so a test sets thousands of rows and a screen reads them a
   page at a time.
 
-Every browser run starts by checking the live controller against that file, and
-fails naming each read whose answer moved. When core changes an answer,
-re-record and fix the fake in the same change:
+Every browser run starts by checking the live controller against that file in
+two modes, and fails naming each read whose answer moved: over distribution
+from `fcon_tools`, where it records each read's term, and through the console's
+own channel inside `fcon_web`, where it reads each one through `NodeManager`,
+decoded, and names the path where structure was lost on the way. When core
+changes an answer, re-record and fix the fake in the same change:
 
 ```bash
-docker exec fcon_web sh -c 'exec elixir --sname rs1 --cookie "$ERLANG_COOKIE" \
-  /flezha_console/priv/dev/record_shapes.exs'          # writes the file
-docker exec fcon_web sh -c 'exec elixir --sname rs2 --cookie "$ERLANG_COOKIE" \
-  /flezha_console/priv/dev/record_shapes.exs --check'  # what global setup runs
+# writes the file: every read, every action on scratch relays it removes after,
+# and every stream event; it waits up to a minute for two schedules to fire
+docker exec fcon_tools sh -c 'exec elixir --sname rs1 --hidden --cookie "$ERLANG_COOKIE" \
+  /flezha_console/priv/dev/record_shapes.exs'
+# what global setup runs
+docker exec fcon_tools sh -c 'exec elixir --sname rs2 --hidden --cookie "$ERLANG_COOKIE" \
+  /flezha_console/priv/dev/record_shapes.exs --check --keep'
+docker exec fcon_web sh -c 'FLEZHA_CONSOLE_DEV_SETUP=false exec mix run priv/dev/record_shapes.exs --channel'
+docker exec fcon_tools sh -c 'exec elixir --sname rs3 --hidden --cookie "$ERLANG_COOKIE" \
+  /flezha_console/priv/dev/record_shapes.exs --clean'
 ```
 
-A new read the console makes is added to `FlezhaConsole.ControllerShapes.reads/0`.
+A new read the console makes is added to `FlezhaConsole.Service.ControllerShapes.reads/0`,
+and a new action or stream to the recorder's scenes.
+
+The browser suite's helpers that stand in for `flz` on a controller's host — CLI
+calls, the stack lock, shape recording — run as hidden nodes in `fcon_tools`,
+which holds the cookie; the console's container holds none. Console users are
+made and removed with `mix run --no-start priv/dev/console_users.exs` inside
+`fcon_web`, against its database.
 
 ## Page-health guards
 

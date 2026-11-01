@@ -30,7 +30,7 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
   defp open_calls(conn, node) do
     {:ok, view, _html} = live(conn, @url)
     open_section(view, "calls")
-    assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+    assert FakeController.eventually(fn -> FakeController.streams(node, @listen) != [] end)
     assert shows?(view, ~s(data-testid="calls-listening"))
     view
   end
@@ -60,7 +60,7 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
     FakeController.emit(node, @listen, {kind, value, meta})
   end
 
-  defp shows?(view, fragment), do: PeerNode.eventually(fn -> render(view) =~ fragment end)
+  defp shows?(view, fragment), do: FakeController.eventually(fn -> render(view) =~ fragment end)
 
   defp badge(html, kind, seq) do
     [_, label] = Regex.run(~r/data-testid="call-#{kind}-#{seq}"[^>]*>\s*([^<]+?)\s*</, html)
@@ -90,7 +90,7 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
       assert shows?(view, ~s(data-testid="calls-listening"))
       refute render(view) =~ ~s(data-testid="calls-starting")
 
-      assert [["default", "relay_a", :calls, [], %{source: :ui}]] =
+      assert [["default", "relay_a", "calls", [], %{token: _}]] =
                FakeController.calls(node, @listen)
     end
 
@@ -100,10 +100,10 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
       assert shows?(view, ~s(data-testid="call-entry-1"))
 
       open_section(view, "calls")
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) == [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @listen) == [] end)
 
       open_section(view, "calls")
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @listen) != [] end)
       assert render(view) =~ ~s(data-testid="call-entry-1")
       assert outcome_of(render(view), 1) == "Outcome not heard"
       assert length(FakeController.calls(node, @listen)) == 2
@@ -116,7 +116,7 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
       Process.flag(:trap_exit, true)
       GenServer.stop(view.pid, {:shutdown, :closed})
 
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) == [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @listen) == [] end)
     end
 
     test "an ended listen marks waiting calls as not heard and offers to listen again", %{
@@ -147,7 +147,10 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
 
       view |> element(~s([data-testid="calls-reopen"])) |> render_click()
 
-      assert PeerNode.eventually(fn -> length(FakeController.streams(node, @listen)) == 1 end)
+      assert FakeController.eventually(fn ->
+               length(FakeController.streams(node, @listen)) == 1
+             end)
+
       html = render(view)
       refute html =~ ~s(data-testid="calls-ended")
       refute html =~ ~s(data-testid="calls-reopen")
@@ -233,7 +236,7 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
 
       outcome(node, :answered, "c1", ~s({"status":"placed"}), channel: "placed", ms: 1_500)
 
-      assert PeerNode.eventually(fn -> outcome_of(render(view), 1) == "Answered" end)
+      assert FakeController.eventually(fn -> outcome_of(render(view), 1) == "Answered" end)
       html = render(view)
       assert html =~ "status"
       assert html =~ "1s"
@@ -294,7 +297,7 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
       call(node, "r1", source: "relay", meta: %{"flz.call_caller" => "orders"})
       outcome(node, :answered, "r1", "second time lucky")
 
-      assert PeerNode.eventually(fn ->
+      assert FakeController.eventually(fn ->
                html = render(view)
                html =~ ~s(data-testid="call-entry-2") and outcome_of(html, 2) == "Answered"
              end)
@@ -314,7 +317,7 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
       call(node, "b")
       outcome(node, :refused, "b", Flezha.Error.new("call.busy", "too many callers"))
 
-      assert PeerNode.eventually(fn ->
+      assert FakeController.eventually(fn ->
                html = render(view)
                html =~ ~s(data-testid="call-outcome-3") and outcome_of(html, 3) == "Refused"
              end)
@@ -372,7 +375,9 @@ defmodule FlezhaConsoleWeb.RelayCallActivityTest do
       |> element(~s([data-testid="topo-node-exit-out"][phx-click="graph_tap"]))
       |> render_click()
 
-      assert PeerNode.eventually(fn -> length(FakeController.streams(node, @listen)) == 2 end)
+      assert FakeController.eventually(fn ->
+               length(FakeController.streams(node, @listen)) == 2
+             end)
 
       call(node, "c1")
       FakeController.emit(node, @listen, {:output, "an output", %{}})

@@ -37,7 +37,7 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
   defp reads(node), do: node |> FakeController.calls({Logs, :read}) |> Enum.map(&hd/1)
 
   defp last_read(node) do
-    assert [params, %{source: :ui}] = node |> FakeController.calls({Logs, :read}) |> List.last()
+    assert [params, %{token: _}] = node |> FakeController.calls({Logs, :read}) |> List.last()
     params
   end
 
@@ -92,7 +92,7 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
       assert html =~ ~s(name="filter[name]")
       assert text_of(html, ".fcon-record-cols") =~ ~r/Time\s*Name\s*Controller/
       assert text_of(html, testid("log-record-head")) =~ ~r/v1\.2 to prod\s*flezha@c1/
-      assert last_read(node)[:kind] == "deploys"
+      assert last_read(node)["kind"] == "deploys"
     end
 
     test "an undeclared kind keeps the tabs and says no such log is kept", %{
@@ -143,15 +143,15 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
 
       assert query["source"] == "cli"
       assert query["name"] == "relay_start"
-      assert last_read(node)[:filters] == %{"source" => "cli", "name" => "relay_start"}
+      assert last_read(node)["filters"] == %{"source" => "cli", "name" => "relay_start"}
     end
 
     test "a link with a filter opens the view it names", %{conn: conn, node: node} do
       {_view, _html} = live_loaded(conn, ~p"/logs/relay_history?relay=fan_trade-7f3a")
 
       params = last_read(node)
-      assert params[:kind] == "relay_history"
-      assert params[:filters] == %{"relay" => "fan_trade-7f3a"}
+      assert params["kind"] == "relay_history"
+      assert params["filters"] == %{"relay" => "fan_trade-7f3a"}
     end
 
     test "a filter the kind does not declare is dropped, not sent on", %{
@@ -161,14 +161,14 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
       {_view, _html} = live_loaded(conn, ~p"/logs/audit?factory=x&name=start&limit=nope")
 
       params = last_read(node)
-      assert params[:filters] == %{"name" => "start"}
-      assert params[:limit] == 100
+      assert params["filters"] == %{"name" => "start"}
+      assert params["limit"] == 100
     end
 
     test "the time range is read as UTC", %{conn: conn, node: node} do
       {_view, _html} = live_loaded(conn, "/logs/audit?since=2026-10-29T10:00")
 
-      assert last_read(node)[:since_us] ==
+      assert last_read(node)["since_us"] ==
                DateTime.to_unix(~U[2026-10-29 10:00:00Z], :microsecond)
     end
   end
@@ -211,8 +211,8 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
       html = view |> element(~s([data-testid="logs-read-more"])) |> render_click()
 
       params = last_read(node)
-      assert params[:before] == "c1"
-      assert params[:filters] == %{"name" => "start"}
+      assert params["before"] == "c1"
+      assert params["filters"] == %{"name" => "start"}
 
       assert length(testids(html, ~s([data-testid="logs-records"] [data-testid="log-record"]))) ==
                3
@@ -236,7 +236,7 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
       assert text_of(html, testid("logs-capped")) =~ "read past the first 5000"
       refute has_element?(view, testid("logs-read-more"))
       # The logs service answers at most 1000 records to one read.
-      assert last_read(node)[:limit] == 1_000
+      assert last_read(node)["limit"] == 1_000
     end
 
     test "a Read more the controller refuses keeps the records already shown", %{
@@ -444,7 +444,7 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
 
       html = click(view, testid("logs-rotate-flezha@c2"))
 
-      assert [[[kind: "audit", node: "flezha@c2"], _ctx]] =
+      assert [[%{"kind" => "audit", "node" => "flezha@c2"}, _ctx]] =
                FakeController.calls(node, {Logs, :rotate})
 
       assert html =~ "audit-3.jsonl"
@@ -540,10 +540,15 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
       {view, _html} = live_loaded(conn, ~p"/logs/audit?name=start_7")
       start_tail(view)
 
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @tail) != [] end)
 
       # The controller narrows the tail: what it is asked for is what it forwards.
-      assert [[[kind: "audit", filters: %{"name" => "start_7"}], %{source: :ui, emit: emit}]] =
+      assert [
+               [
+                 %{"kind" => "audit", "filters" => %{"name" => "start_7"}},
+                 %{token: _, emit: emit}
+               ]
+             ] =
                FakeController.calls(node, @tail)
 
       assert is_pid(emit)
@@ -555,7 +560,7 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
       # A second record is the barrier: once it shows, the first has been handled.
       FakeController.emit(node, @tail, audited(8, %{"name" => "start_7", "source" => "cli"}))
 
-      assert PeerNode.eventually(fn -> shown.() == 2 end)
+      assert FakeController.eventually(fn -> shown.() == 2 end)
 
       html = render(view)
       assert text_of(html, ~s([data-testid="logs-tail-records"] li:first-child)) =~ "cli"
@@ -565,14 +570,14 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
     test "a changed filter reopens the running tail with it", %{conn: conn, node: node} do
       {view, _html} = live_loaded(conn, ~p"/logs/audit")
       start_tail(view)
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @tail) != [] end)
 
       submit_filters(view, %{"source" => "cli"})
       assert_patch(view)
 
-      assert PeerNode.eventually(fn ->
+      assert FakeController.eventually(fn ->
                match?(
-                 [[[kind: "audit", filters: %{"source" => "cli"}], _ctx] | _],
+                 [[%{"kind" => "audit", "filters" => %{"source" => "cli"}}, _ctx] | _],
                  Enum.reverse(FakeController.calls(node, @tail))
                )
              end)
@@ -581,23 +586,23 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
     test "switching kind stops the feed", %{conn: conn, node: node} do
       {view, _html} = live_loaded(conn, ~p"/logs/audit")
       start_tail(view)
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @tail) != [] end)
 
       click(view, testid("logs-tab-relay_history"))
       assert_patch(view, ~p"/logs/relay_history")
 
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) == [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @tail) == [] end)
       assert has_element?(view, testid("logs-tail-idle"))
     end
 
     test "stopping it ends the controller's stream", %{conn: conn, node: node} do
       {view, _html} = live_loaded(conn, ~p"/logs/audit")
       start_tail(view)
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @tail) != [] end)
 
       start_tail(view)
 
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) == [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @tail) == [] end)
     end
 
     test "a refused tail is stated, and the reads still work", %{conn: conn, node: node} do
@@ -607,7 +612,7 @@ defmodule FlezhaConsoleWeb.LogsLiveTest do
       {view, _html} = live_loaded(conn, ~p"/logs/audit")
       start_tail(view)
 
-      assert PeerNode.eventually(fn -> render(view) =~ "authz.role_insufficient" end)
+      assert FakeController.eventually(fn -> render(view) =~ "authz.role_insufficient" end)
       assert render(view) =~ "the live tail"
 
       submit_filters(view, %{"name" => "start_1"})

@@ -10,10 +10,8 @@ defmodule FlezhaConsoleWeb.NamespaceAdminTest do
 
   use FlezhaConsoleWeb.LiveCase
 
-  alias Flezha.Service.Admin
   alias Flezha.Service.Namespace
   alias Flezha.Service.Relay
-  alias FlezhaConsole.TestEnv
 
   defp record(name, quotas \\ %{}) do
     %{
@@ -146,13 +144,17 @@ defmodule FlezhaConsoleWeb.NamespaceAdminTest do
       conn: conn,
       node: node
     } do
-      token = "flzt_team_#{System.unique_integer([:positive])}"
-      TestEnv.put_system("FLEZHA_TOKEN", token)
-
       FakeController.set(
         node,
-        {Admin, :context},
-        {:ok, %{principal: "team-ops", namespace: "team", role: :ops, source: :ui}}
+        {Namespace, :whoami},
+        {:ok,
+         %{
+           principal: "team-ops",
+           namespace: "team",
+           role: :ops,
+           operations: [],
+           posture: :enforced
+         }}
       )
 
       with_catalog(node, running: ["team"], get: {:ok, record("team", %{max_relays: 3})})
@@ -169,7 +171,7 @@ defmodule FlezhaConsoleWeb.NamespaceAdminTest do
       refute html =~ ~s(data-testid="declarations-unavailable")
       calls = FakeController.calls(node, {Namespace, :get})
       assert calls != []
-      assert Enum.all?(calls, &match?(["team", %{source: :ui, namespace: "team"}], &1))
+      assert Enum.all?(calls, &match?(["team", %{token: "flzt_operator"}], &1))
     end
 
     test "a breach is visible without opening the namespace", %{conn: conn, node: node} do
@@ -224,7 +226,7 @@ defmodule FlezhaConsoleWeb.NamespaceAdminTest do
       FakeController.set(
         node,
         {Namespace, :quota},
-        {:per_arg, 1, %{relays: FakeController.quota_usage(5)}, FakeController.quota_usage(0)}
+        {:per_arg, 1, %{"relays" => FakeController.quota_usage(5)}, FakeController.quota_usage(0)}
       )
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
@@ -243,8 +245,10 @@ defmodule FlezhaConsoleWeb.NamespaceAdminTest do
         node,
         {Namespace, :quota},
         {:per_arg, 1,
-         %{relays: FakeController.quota_usage(5, %{"flezha@node-a": 3, "flezha@node-b": 2})},
-         FakeController.quota_usage(0)}
+         %{
+           "relays" =>
+             FakeController.quota_usage(5, %{"flezha@node-a" => 3, "flezha@node-b" => 2})
+         }, FakeController.quota_usage(0)}
       )
 
       {_view, html} = live_loaded(conn, ~p"/namespaces/default")
@@ -269,10 +273,10 @@ defmodule FlezhaConsoleWeb.NamespaceAdminTest do
       {:ok, view, _html} = live(conn, ~p"/namespaces")
       create(view, %{name: "analytics", max_relays: "10", max_runners: ""})
 
-      assert [["analytics", opts, %{source: :ui}]] =
+      assert [["analytics", opts, %{token: _}]] =
                FakeController.calls(node, {Namespace, :create})
 
-      assert Keyword.get(opts, :quotas) == %{max_relays: 10}
+      assert opts["quotas"] == %{"max_relays" => 10}
     end
 
     test "a quota that is not a whole number is named and nothing is created", %{
@@ -330,10 +334,13 @@ defmodule FlezhaConsoleWeb.NamespaceAdminTest do
       edit_quotas(view, %{max_relays: "250"})
       save_quotas(view)
 
-      assert [["default", sent, %{source: :ui}]] =
+      assert [["default", sent, %{token: _}]] =
                FakeController.calls(node, {Namespace, :set_quotas})
 
-      assert sent == %{record("default").quotas | max_relays: 250}
+      assert sent ==
+               Map.new(%{record("default").quotas | max_relays: 250}, fn {key, value} ->
+                 {Atom.to_string(key), value}
+               end)
     end
 
     test "a limit that is not a whole number is named and nothing is sent", %{

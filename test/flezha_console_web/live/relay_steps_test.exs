@@ -305,7 +305,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
       assert open_section(view, "input-log") =~ ~r/data-testid="input-log-last-offset"[^>]*>\s*3/
 
       # Asked by the instance alone: the controller routes it to where its state is.
-      assert [["relay_steps", _page, %{source: :ui}] | _] =
+      assert [["relay_steps", _page, %{token: _}] | _] =
                FakeController.calls(node, {Steps, :journal})
     end
 
@@ -410,7 +410,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
 
       assert rewind(view) =~ "Rewound to iteration 5."
 
-      assert [["default", "relay_steps", 5, %{source: :ui}]] =
+      assert [["default", "relay_steps", 5, %{token: _}]] =
                FakeController.calls(node, {Steps, :rewind})
     end
 
@@ -477,7 +477,7 @@ defmodule FlezhaConsoleWeb.RelayStepsTest do
 
       view |> element(~s([data-testid="rescale-confirm-btn"])) |> render_click()
 
-      assert [["default", "orders", 4, [], %{source: :ui}]] =
+      assert [["default", "orders", 4, [], %{token: _}]] =
                FakeController.calls(node, {Steps, :rescale})
     end
   end

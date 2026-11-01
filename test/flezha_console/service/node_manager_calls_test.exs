@@ -1,10 +1,10 @@
 defmodule FlezhaConsole.Service.NodeManagerCallsTest do
   @moduledoc """
-  The published calls the console's controls make, driven through the real
-  `:erpc` transport against the controller stand-in: each wrapper's argument
-  order with the caller context last, the bare answers normalised at this seam,
-  a `%Flezha.Error{}` handed on unchanged, and the operations a token's role is
-  granted, read once with its verification.
+  The published calls the console's controls make, driven over the channel
+  against the controller stand-in: each wrapper's arguments as the channel
+  carries them, with the bearer token the controller judges, the bare answers
+  normalised at this seam, a controller error handed on by its fields, and the
+  operations a token's role is granted, read once with its verification.
   """
 
   use ExUnit.Case, async: false
@@ -15,13 +15,14 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
   alias Flezha.Service.Relay
   alias Flezha.Service.Schedule
   alias Flezha.Service.Steps
-  alias FlezhaConsole.PeerNode
+  alias FlezhaConsole.FakeListener
   alias FlezhaConsole.Service.NodeManager
 
-  @moduletag :distributed
+  @moduletag :channel
+  @token "flzt_t"
 
   setup_all do
-    PeerNode.setup_controller("nm_calls_peer")
+    %{node: FakeListener.start!()}
   end
 
   setup %{node: node} do
@@ -30,16 +31,16 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
   end
 
   # Each wrapper with the published function it reaches and the arguments that
-  # function must receive before the caller context. `node` is the controller
-  # the console is connected to.
-  defp wrappers(node) do
+  # function must receive before the caller context, as the channel carries
+  # them.
+  defp wrappers do
     [
       {&NodeManager.diagnose_relay("ns", "r1", &1), {Relay, :diagnose}, ["ns", "r1"]},
       {&NodeManager.relay_api("ns", "r1", &1), {Relay, :api}, ["ns", "r1"]},
       {&NodeManager.send_relay("ns", "r1", "hi", "in", [msg_id: "m"], &1), {Relay, :send},
-       ["ns", "r1", "hi", "in", [msg_id: "m"]]},
+       ["ns", "r1", "hi", "in", %{"msg_id" => "m"}]},
       {&NodeManager.call_relay("ns", "r1", "hi", "", [deadline_ms: 100], &1), {Relay, :call},
-       ["ns", "r1", "hi", "", [deadline_ms: 100]]},
+       ["ns", "r1", "hi", "", %{"deadline_ms" => 100}]},
       {&NodeManager.call_channel("ns", "r1", "place", %{"a" => 1}, [], &1),
        {Relay, :call_channel}, ["ns", "r1", "place", %{"a" => 1}, []]},
       {&NodeManager.replay_cell("ns", "rc/t/k", "5", &1), {Relay, :replay},
@@ -48,11 +49,12 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
          "p",
          %{namespace: "ns", relay_id: "r1", hooks: ["on_output"]},
          &1
-       ), {PluginManager, :bind}, ["p", [hooks: ["on_output"], relay_id: "r1", namespace: "ns"]]},
+       ), {PluginManager, :bind},
+       ["p", %{"hooks" => ["on_output"], "relay_id" => "r1", "namespace" => "ns"}]},
       {&NodeManager.unbind_plugin("p", "ns", "r1", &1), {PluginManager, :unbind},
-       ["p", [namespace: "ns", relay_id: "r1"]]},
+       ["p", %{"namespace" => "ns", "relay_id" => "r1"}]},
       {&NodeManager.update_plugin("p", %{namespace: "ns", opts: %{"x" => 1}}, &1),
-       {PluginManager, :update}, ["p", [namespace: "ns", opts: %{"x" => 1}]]},
+       {PluginManager, :update}, ["p", %{"namespace" => "ns", "opts" => %{"x" => 1}}]},
       {&NodeManager.list_tokens(&1), {Namespace, :tokens}, []},
       {&NodeManager.inbox("r1", &1), {Steps, :inbox}, ["r1"]},
       {&NodeManager.outbox("rc/t/k", &1), {Steps, :outbox}, ["rc/t/k"]},
@@ -66,31 +68,41 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
          %{filters: %{"name" => "x"}, limit: 5_000, before: "c1"},
          &1
        ), {Logs, :read},
-       [[kind: "audit", filters: %{"name" => "x"}, before: "c1", limit: 1_000]]},
-      {&NodeManager.log_files("audit", &1), {Logs, :files}, [[kind: "audit"]]},
-      {&NodeManager.log_stats("audit", &1), {Logs, :stats}, [[kind: "audit"]]},
-      {&NodeManager.log_rotate("audit", node, &1), {Logs, :rotate},
-       [[kind: "audit", node: to_string(node)]]}
+       [%{"kind" => "audit", "filters" => %{"name" => "x"}, "before" => "c1", "limit" => 1_000}]},
+      {&NodeManager.log_files("audit", &1), {Logs, :files}, [%{"kind" => "audit"}]},
+      {&NodeManager.log_stats("audit", &1), {Logs, :stats}, [%{"kind" => "audit"}]},
+      {&NodeManager.log_rotate("audit", "flezha@c1", &1), {Logs, :rotate},
+       [%{"kind" => "audit", "node" => "flezha@c1"}]}
     ]
   end
 
   describe "the wrappers" do
-    test "call the published function with the caller context last", %{node: node} do
-      for {call, key, args} <- wrappers(node) do
-        call.(nil)
+    test "call the published function with the bearer token the controller judges", %{
+      node: node
+    } do
+      for {call, key, args} <- wrappers() do
+        call.(@token)
 
         assert [recorded] = FakeController.calls(node, key), "#{inspect(key)} was not called"
         assert Enum.drop(recorded, -1) == args, "#{inspect(key)} got #{inspect(recorded)}"
-        assert %{source: :ui} = List.last(recorded)
+        assert %{token: @token} = List.last(recorded)
       end
     end
 
-    test "hand a controller error on unchanged", %{node: node} do
+    test "hand a controller error on by its fields", %{node: node} do
       error = Flezha.Error.new("relay.not_found", "no relay r1", "flz relay list")
 
-      for {call, key, _args} <- wrappers(node) do
+      read = %{
+        code: "relay.not_found",
+        class: :not_found,
+        message: "no relay r1",
+        hint: "flz relay list",
+        details: %{}
+      }
+
+      for {call, key, _args} <- wrappers() do
         FakeController.set(node, key, {:error, error})
-        assert call.(nil) == {:error, error}, "#{inspect(key)} changed the error"
+        assert call.(@token) == {:error, read}, "#{inspect(key)} changed the error"
       end
     end
   end
@@ -99,66 +111,68 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
     test "a call answers the payload and the channel it came on", %{node: node} do
       FakeController.set(node, {Relay, :call}, {:ok, "pong", %{"channel" => "out"}})
 
-      assert NodeManager.call_relay("ns", "r1", "ping", "", [deadline_ms: 50], nil) ==
+      assert NodeManager.call_relay("ns", "r1", "ping", "", [deadline_ms: 50], @token) ==
                {:ok, %{payload: "pong", channel: "out"}}
     end
 
     test "a bind answers whether it bound or found the binding held", %{node: node} do
       fields = %{namespace: "ns", relay_id: "r1"}
-      assert NodeManager.bind_plugin("p", fields, nil) == {:ok, :bound}
+      assert NodeManager.bind_plugin("p", fields, @token) == {:ok, :bound}
 
       FakeController.set(node, {PluginManager, :bind}, :already_bound)
-      assert NodeManager.bind_plugin("p", fields, nil) == {:ok, :already_bound}
+      assert NodeManager.bind_plugin("p", fields, @token) == {:ok, :already_bound}
     end
 
     test "an unbind answers :ok", %{node: _node} do
-      assert NodeManager.unbind_plugin("p", "ns", "r1", nil) == :ok
+      assert NodeManager.unbind_plugin("p", "ns", "r1", @token) == :ok
     end
 
     test "a read answering two values keeps its own shape", %{node: node} do
-      assert NodeManager.cell_state("ns", "r1", nil, nil) == {:ok, "{}", 0}
+      assert NodeManager.cell_state("ns", "r1", nil, @token) == {:ok, "{}", 0}
 
-      FakeController.set(node, {Flezha.Service.Dlq, :get}, {:ok, %{ref: "e1"}, "payload"})
-      assert NodeManager.dlq_get("e1", nil) == {:ok, %{ref: "e1"}, "payload"}
+      # A parked entry is keyed by text, as the controller's store keeps it.
+      FakeController.set(node, {Flezha.Service.Dlq, :get}, {:ok, %{"id" => "e1"}, "payload"})
+      assert NodeManager.dlq_get("e1", @token) == {:ok, %{"id" => "e1"}, "payload"}
     end
 
     test "a log's files and statistics answer as rows, naming who did not answer", %{
       node: node
     } do
-      file = FakeController.log_file_row(:flezha@c1, "audit-1.jsonl")
-      stats = FakeController.log_stats_row(:flezha@c1)
+      # Node names cross the channel as text.
+      file = FakeController.log_file_row("flezha@c1", "audit-1.jsonl")
+      stats = FakeController.log_stats_row("flezha@c1")
 
       FakeController.set(
         node,
         {Logs, :files},
-        {:ok, %{files: [file], unreachable: [:flezha@c2]}}
+        {:ok, %{files: [file], unreachable: ["flezha@c2"]}}
       )
 
       FakeController.set(node, {Logs, :stats}, {:ok, %{controllers: [stats], unreachable: []}})
 
-      assert NodeManager.log_files("audit", nil) ==
-               {:ok, %{rows: [file], unreachable: [:flezha@c2]}}
+      assert NodeManager.log_files("audit", @token) ==
+               {:ok, %{rows: [file], unreachable: ["flezha@c2"]}}
 
-      assert NodeManager.log_stats("audit", nil) == {:ok, %{rows: [stats], unreachable: []}}
+      assert NodeManager.log_stats("audit", @token) == {:ok, %{rows: [stats], unreachable: []}}
     end
 
     test "a read drops what it leaves empty", %{node: node} do
-      NodeManager.log_read("relay_history", %{filters: %{}, before: nil, limit: 50}, nil)
+      NodeManager.log_read("relay_history", %{filters: %{}, before: nil, limit: 50}, @token)
 
       assert [[params, _ctx]] = FakeController.calls(node, {Logs, :read})
-      assert params == [kind: "relay_history", limit: 50]
+      assert params == %{"kind" => "relay_history", "limit" => 50}
     end
 
     test "a relay with no recorded end answers not_found" do
-      assert NodeManager.kept_until("r1", nil) == {:error, :not_found}
+      assert NodeManager.kept_until("r1", @token) == {:error, :not_found}
     end
 
     test "a finished relay's state is kept until a time, or was not kept", %{node: node} do
       FakeController.set(node, {Steps, :completion}, {:ok, %{state_kept: true, expires_at: 9}})
-      assert NodeManager.kept_until("r1", nil) == {:ok, 9}
+      assert NodeManager.kept_until("r1", @token) == {:ok, 9}
 
       FakeController.set(node, {Steps, :completion}, {:ok, %{state_kept: false}})
-      assert NodeManager.kept_until("r1", nil) == {:ok, nil}
+      assert NodeManager.kept_until("r1", @token) == {:ok, nil}
     end
 
     test "one relay's row is read by its id, a partition member's with its group", %{
@@ -178,22 +192,26 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
         FakeController.rows([FakeController.relay_row("r1"), group])
       )
 
-      assert {{:ok, _page}, %{id: "r1"}, []} = NodeManager.relay_and_partitions("ns", "r1", nil)
+      assert {{:ok, _page}, %{id: "r1"}, []} =
+               NodeManager.relay_and_partitions("ns", "r1", @token)
 
       assert {_read, %{id: "g#p1"}, [%{id: "g#p0"}, %{id: "g#p1"}]} =
-               NodeManager.relay_and_partitions("ns", "g#p1", nil)
+               NodeManager.relay_and_partitions("ns", "g#p1", @token)
 
-      assert {_read, nil, []} = NodeManager.relay_and_partitions("ns", "gone", nil)
+      assert {_read, nil, []} = NodeManager.relay_and_partitions("ns", "gone", @token)
 
-      assert [["ns", [filter: [ids: ["r1"]]], _ctx], ["ns", [filter: [ids: ["g#p1", "g"]]], _], _] =
-               FakeController.calls(node, {Relay, :list})
+      assert [
+               ["ns", %{"filter" => %{"ids" => ["r1"]}}, _ctx],
+               ["ns", %{"filter" => %{"ids" => ["g#p1", "g"]}}, _],
+               _
+             ] = FakeController.calls(node, {Relay, :list})
     end
 
     test "an answer of another shape is reported, never matched as success", %{node: node} do
       FakeController.set(node, {Relay, :call}, {:ok, %{unexpected: true}})
 
-      assert {:error, {:remote_error, {:ok, %{unexpected: true}}}} =
-               NodeManager.call_relay("ns", "r1", "ping", "", [deadline_ms: 50], nil)
+      assert {:error, {:remote_error, {:ok, %{"unexpected" => true}}}} =
+               NodeManager.call_relay("ns", "r1", "ping", "", [deadline_ms: 50], @token)
     end
 
     test "the provider listing carries each controller's refused package count", %{node: node} do
@@ -208,8 +226,8 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
          }}
       )
 
-      assert {:ok, %{rows: [%{id: "relay_stdout"}], refused: %{"flezha@node-a": 2}}} =
-               NodeManager.providers(nil)
+      assert {:ok, %{rows: [%{id: "relay_stdout"}], refused: %{"flezha@node-a" => 2}}} =
+               NodeManager.providers(@token)
     end
 
     test "a cluster listing that is not rows is reported, never matched as success", %{
@@ -217,7 +235,7 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
     } do
       FakeController.set(node, {Flezha.Service.Dlq, :list}, {:ok, [%{"ref" => "a/b/c"}]})
 
-      assert {:error, {:remote_error, {:ok, [_]}}} = NodeManager.dlq_list(nil, nil)
+      assert {:error, {:remote_error, {:ok, [_]}}} = NodeManager.dlq_list(nil, @token)
     end
   end
 
@@ -228,9 +246,9 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
     end
 
     test "the call carries the deadline it was given", %{node: node} do
-      NodeManager.call_relay("ns", "r1", "ping", "", [deadline_ms: 45_000], nil)
+      NodeManager.call_relay("ns", "r1", "ping", "", [deadline_ms: 45_000], @token)
 
-      assert [[_, _, _, _, [deadline_ms: 45_000], _ctx]] =
+      assert [[_, _, _, _, %{"deadline_ms" => 45_000}, _ctx]] =
                FakeController.calls(node, {Relay, :call})
     end
   end
@@ -242,8 +260,7 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
 
       for _tick <- 1..3, do: assert(NodeManager.operations(token) == ["Relay.list"])
 
-      assert [[%{source: :ui, principal: "v@acme", role: :viewer}]] =
-               FakeController.calls(node, {Namespace, :whoami})
+      assert [[%{token: ^token}]] = FakeController.calls(node, {Namespace, :whoami})
     end
 
     test "are read again once the verification is evicted", %{node: node} do
@@ -266,8 +283,7 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
     end
 
     test "are nil under the open posture, whatever the role", %{node: node} do
-      bind(node, ["Relay.list"])
-      FakeController.set(node, {Flezha.AuthZ, :enforcement_posture}, :open)
+      bind(node, ["Relay.list"], :open)
 
       assert NodeManager.operations(token()) == nil
     end
@@ -281,21 +297,20 @@ defmodule FlezhaConsole.Service.NodeManagerCallsTest do
 
   defp token, do: "flzt_ops_#{System.unique_integer([:positive])}"
 
-  defp bind(node, operations) do
-    FakeController.set(node, {Flezha.AuthZ, :enforcement_posture}, :enforced)
-
+  # Whoami answers the identity, the operations granted (or no list) and the
+  # posture in one answer.
+  defp bind(node, operations, posture \\ :enforced) do
     FakeController.set(
       node,
-      {Flezha.Service.Admin, :context},
-      {:ok, %{principal: "v@acme", namespace: "default", role: :viewer, source: :ui}}
+      {Namespace, :whoami},
+      {:ok,
+       %{
+         principal: "v@acme",
+         namespace: "default",
+         role: :viewer,
+         operations: operations,
+         posture: posture
+       }}
     )
-
-    if operations do
-      FakeController.set(
-        node,
-        {Namespace, :whoami},
-        {:ok, %{principal: "v@acme", namespace: "default", role: :viewer, operations: operations}}
-      )
-    end
   end
 end

@@ -3,22 +3,23 @@ defmodule FlezhaConsole.Service.PeerLossTest do
   What the seam and the feed answer when the controller goes away: before a
   call, in the middle of one, and while a stream is held.
 
-  Each test stops its peer, so each boots its own rather than sharing one per
-  module as the other peer-backed modules do.
+  Each test stops its listener, so each serves its own rather than sharing one
+  per module as the other channel-backed modules do.
   """
 
   use ExUnit.Case, async: false
 
-  alias FlezhaConsole.PeerNode
+  alias FlezhaConsole.FakeListener
   alias FlezhaConsole.Service.EventFeed
   alias FlezhaConsole.Service.NodeManager
 
-  @moduletag :distributed
+  @moduletag :channel
 
   @tail {Flezha.Service.Observability, :tail}
+  @token "flzt_t"
 
   setup do
-    PeerNode.setup_controller("loss_peer")
+    %{node: FakeListener.start!()}
   end
 
   # Linked, so a feed that crashed would fail the test rather than vanish.
@@ -26,7 +27,7 @@ defmodule FlezhaConsole.Service.PeerLossTest do
     {:ok, feed} =
       EventFeed.start_link(
         [
-          open: &NodeManager.observability_tail(:flezha_health, nil, &1),
+          open: &NodeManager.observability_tail(:flezha_health, @token, &1),
           to: {:send, self(), :tail}
         ] ++ opts
       )
@@ -35,85 +36,66 @@ defmodule FlezhaConsole.Service.PeerLossTest do
   end
 
   describe "a controller already gone" do
-    test "a feed answers an error rather than crashing", %{peer: peer} do
-      PeerNode.stop(peer)
+    test "a feed answers an error rather than crashing", %{node: node} do
+      FakeListener.stop(node)
       feed = tail_feed()
 
       assert_receive {:feed_error, :tail, :node_not_connected}
-      assert PeerNode.eventually(fn -> not Process.alive?(feed) end)
+      assert FakeController.eventually(fn -> not Process.alive?(feed) end)
     end
 
-    test "a transport failure is not an answer about the token", %{peer: peer} do
+    test "a transport failure is not an answer about the token", %{node: node} do
       token = "flzt_test_#{System.unique_integer([:positive])}"
-      PeerNode.stop(peer)
+      FakeListener.stop(node)
 
       assert {:error, :node_not_connected} = NodeManager.verify_token(token)
       # Nothing was cached, so a reachable controller answers for itself.
       assert {:error, :node_not_connected} = NodeManager.verify_token(token)
     end
 
-    test "an unreachable controller is not reported as open", %{peer: peer} do
-      PeerNode.stop(peer)
+    test "an unreachable controller is reported with no posture, not as open", %{node: node} do
+      FakeListener.stop(node)
 
-      assert {:error, :node_not_connected} = NodeManager.enforcement_posture()
+      assert %{posture: nil, reason: :node_not_connected} = NodeManager.authz_status(@token)
     end
   end
 
   describe "a controller lost mid-call" do
-    test "a call in flight answers node_not_connected", %{peer: peer, node: node} do
-      # A stream operation holds its call open until its emit pid exits, which
-      # makes it a call that is observably in flight.
-      call =
-        Task.async(fn ->
-          NodeManager.erpc_call(Flezha.Service.Observability, :tail, [
-            :flezha_runner,
-            %{source: :ui, emit: self()}
-          ])
-        end)
+    test "a call in flight answers node_not_connected", %{node: node} do
+      FakeController.close_gate(node, :held)
+      FakeController.set(node, {Flezha.Service.Relay, :stop}, {:gated, :held, {:ok, %{}}})
+      call = Task.async(fn -> NodeManager.stop_relay("default", "r1", @token) end)
+      assert_receive {:gate_reached, :held}
 
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) == [call.pid] end)
-
-      PeerNode.stop(peer)
+      FakeListener.stop(node)
 
       assert Task.await(call) == {:error, :node_not_connected}
     end
 
-    test "a held stream ends as node_not_connected", %{peer: peer, node: node} do
-      assert {:ok, request} = NodeManager.observability_tail(:flezha_runner, nil, self())
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) == [self()] end)
+    test "a held stream ends as node_not_connected", %{node: node} do
+      assert {:ok, request} = NodeManager.observability_tail(:flezha_runner, @token, self())
+      assert FakeController.eventually(fn -> FakeController.streams(node, @tail) != [] end)
 
-      PeerNode.stop(peer)
+      FakeListener.stop(node)
 
       assert {:ended, {:error, :node_not_connected}} = await_end(request)
     end
   end
 
   describe "a feed whose controller goes down" do
-    test "retries once and holds one stream on the controller that replaces it", %{
-      peer: peer,
-      node: node
-    } do
+    test "retries and holds one stream on the controller that replaces it", %{node: node} do
       feed = tail_feed(retry: true)
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) == [feed] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @tail) != [] end)
 
-      # Held still, so both the nodedown and the stream's own answer are
-      # waiting for it once a new controller is up.
-      :sys.suspend(feed)
-      PeerNode.stop(peer)
-      %{node: successor} = PeerNode.setup_controller("loss_successor")
-      :sys.resume(feed)
-      :sys.get_state(feed)
+      FakeListener.stop(node)
+      assert_receive {:feed_error, :tail, :node_not_connected}
 
-      assert_received {:feed_error, :tail, :node_not_connected}
-      refute_received {:feed_error, :tail, _}
+      successor = FakeListener.start!()
 
-      assert PeerNode.eventually(fn ->
-               match?(%{request: %{node: ^successor}, reopening?: false}, :sys.get_state(feed))
-             end)
-
+      assert FakeController.eventually(fn -> FakeController.streams(successor, @tail) != [] end)
+      assert FakeController.eventually(fn -> not :sys.get_state(feed).reopening? end)
       assert_received {:feed_reconnected, :tail}
-      assert FakeController.streams(successor, @tail) == [feed]
-      assert length(FakeController.calls(successor, @tail)) == 1
+      assert length(FakeController.streams(successor, @tail)) == 1
     end
   end
 

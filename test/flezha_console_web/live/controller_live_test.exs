@@ -343,7 +343,7 @@ defmodule FlezhaConsoleWeb.ControllerLiveTest do
 
   describe "shutdown and boot" do
     test "a shutdown in progress shows its phase", %{conn: conn, node: node} do
-      with_status(node, %{shutdown_in_progress: true, shutdown_phase: :draining})
+      with_status(node, %{shutdown_in_progress: true, shutdown_phase: :drain})
 
       {:ok, _view, html} = live(conn, ~p"/controller")
 

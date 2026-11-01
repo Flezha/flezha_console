@@ -1,29 +1,34 @@
 defmodule FlezhaConsole.Service.NodeManager do
   @moduledoc """
-  The single seam between this UI and the flezha controller node.
+  The single seam between this UI and the flezha controller.
 
-  Every remote call is an operation on core's published consumer surface — a
+  Every call is an operation on core's published consumer surface — a
   `Flezha.Service.*` function listed in core's
-  `docs/internal/api/consumers/published.txt` — run through core's one door,
-  `Flezha.Service.Admin.run/4`, with this UI's caller context; or one of the
-  two context-free reads a context is built from,
-  `Flezha.Service.Admin.context/2` and `Flezha.AuthZ.enforcement_posture/0`.
-  Each operation's module is spelled in full at its call site, because core
+  `docs/internal/api/consumers/published.txt` — sent over the controller's
+  HTTPS channel as `POST /v1/call/<operation>`, and every stream is opened as
+  `POST /v1/stream/<operation>`, each with the operator's token as its bearer
+  token. The controller builds the caller context from that token. Each
+  operation's module is spelled in full at its call site, because core
   records this console's calls by reading them from there
   (`scripts/consumer_surface.py`).
 
+  Answers are decoded from JSON by the recorded shapes
+  (`FlezhaConsole.Service.ControllerShapes`), so screens read the terms they
+  always did.
+
   Every UI-facing function takes the flezha token as its last argument.
 
-  Callers receive the door's answer — `{:ok, value}`, or
-  `{:error, %Flezha.Error{}}` untouched — or one of the transport conditions
-  only this node can see:
+  Callers receive the answer — `{:ok, value}`, or `{:error, error}` with the
+  controller's error read into `%{code:, class:, message:, hint:, details:}` —
+  or one of the transport conditions only this node can see:
 
-    * `{:error, :node_not_connected}` — no controller node is reachable.
+    * `{:error, :node_not_connected}` — no controller is reachable.
     * `{:error, {:api_missing, module, function, arity}}` — the controller does
-      not export the call, or its door does not publish the operation: console and
-      controller versions have diverged.
+      not publish the operation: console and controller versions have
+      diverged.
     * `{:error, :timeout}` — the controller did not answer in time.
-    * `{:error, {:remote_error, term}}` — the call raised on the controller.
+    * `{:error, {:remote_error, term}}` — the controller answered something
+      that is neither an answer nor an error.
 
   `error/1` reads any of them as one map, so a screen decides how to present an
   error from its class and code and never by matching its text.
@@ -31,6 +36,7 @@ defmodule FlezhaConsole.Service.NodeManager do
 
   require Logger
 
+  alias FlezhaConsole.Service.ControllerShapes
   alias FlezhaConsole.Service.NodeConnector
 
   @default_timeout 15_000
@@ -42,10 +48,14 @@ defmodule FlezhaConsole.Service.NodeManager do
   # `Relay.call_channel/6`'s own default deadline.
   @channel_deadline_ms 30_000
 
-  # Verified identities, the enforcement posture and shared reads, so a screen
-  # that makes several controller calls on one tick does not spend a round trip
-  # re-establishing who it is before each of them, and tabs of one operator
-  # share a read within a tick.
+  # A stream the controller writes nothing on, not even the comment line it
+  # writes every 15 seconds while quiet, has lost its connection.
+  @stream_idle_ms 60_000
+
+  # Verified identities and shared reads, so a screen that makes several
+  # controller calls on one tick does not spend a round trip re-establishing
+  # who it is before each of them, and tabs of one operator share a read
+  # within a tick.
   @cache :flezha_console_authz_cache
   @token_ttl_ms 30_000
   @posture_ttl_ms 2_000
@@ -54,68 +64,125 @@ defmodule FlezhaConsole.Service.NodeManager do
   # so it is cached. `authz.registry_unavailable` is transient and is not.
   @token_codes ~w(authz.token_malformed authz.token_unknown authz.token_revoked authz.token_expired)
 
-  @doc """
-  The configured controller node while it is connected, otherwise `nil`.
-
-  Any other connected node — a remote shell, a helper, another controller — is
-  never answered, so it never receives a call, a caller context or a token.
-  """
-  def connected_node do
-    node = NodeConnector.target_node()
-    if node in Node.list(:connected), do: node
-  end
+  # The classes core's error catalogue gives a code.
+  @classes [:invalid, :denied, :not_found, :conflict, :unavailable, :unreachable, :internal]
 
   @doc """
-  Runs `module.function(args)` on the connected controller node.
-
-  Only the context-free reads and the door are called this way directly; every
-  operation goes through `authorized_call/4`, which runs it through the door
-  with the caller context.
+  The name of the controller the channel reaches, as text, while it is up,
+  otherwise `nil`. See `NodeConnector.controller/0`.
   """
-  def erpc_call(module, function, args, timeout \\ @default_timeout) do
-    case connected_node() do
-      nil ->
-        {:error, :node_not_connected}
+  def connected_node, do: NodeConnector.controller()
 
-      node ->
-        try do
-          :erpc.call(node, module, function, args, timeout)
-        catch
-          kind, reason -> classify(kind, reason, module, function, args)
-        end
+  # ---- The channel ----
+
+  # A published operation, sent to the pinned controller with the token as
+  # its bearer token. Answers the value decoded by the operation's shape, or
+  # the error the controller or the transport answered.
+  defp channel_call(token, module, function, args, timeout) do
+    call = call(module, function, args)
+
+    with {:ok, request} <- channel_request(token, "/v1/call/" <> call.operation, args) do
+      request
+      |> NodeConnector.request(timeout)
+      |> response(call)
     end
   end
 
-  # `:erpc` raises `ErlangError` wrapping `{:exception, :undef, stack}` when the
-  # remote module or function does not exist. The head of that stack names the
-  # entry point that was missing, which is exactly the version-skew signal.
-  defp classify(:error, %ErlangError{original: {:exception, :undef, stack}}, m, f, args),
-    do: undef_error(stack, m, f, args)
+  # What a call or stream names, for decoding its answer and reporting its
+  # refusal.
+  defp call(module, function, args),
+    do: %{operation: operation(module, function), module: module, function: function, args: args}
 
-  defp classify(:error, {:exception, :undef, stack}, m, f, args),
-    do: undef_error(stack, m, f, args)
+  defp channel_request(token, _path, _args) when token in [nil, ""], do: {:error, :no_token}
 
-  defp classify(:error, {:erpc, :timeout}, _m, _f, _args), do: {:error, :timeout}
-  defp classify(:exit, {:erpc, :timeout}, _m, _f, _args), do: {:error, :timeout}
-  defp classify(:error, {:erpc, :noconnection}, _m, _f, _args), do: {:error, :node_not_connected}
-  defp classify(:exit, {:erpc, :noconnection}, _m, _f, _args), do: {:error, :node_not_connected}
-  defp classify(_kind, reason, _m, _f, _args), do: {:error, {:remote_error, reason}}
+  defp channel_request(token, path, args) when is_binary(token) do
+    case NodeConnector.target() do
+      nil ->
+        {:error, :node_not_connected}
 
-  defp undef_error(stack, m, f, args) do
-    {mod, fun, arity} =
-      case stack do
-        [{mod, fun, a, _} | _] when is_list(a) -> {mod, fun, length(a)}
-        [{mod, fun, a, _} | _] when is_integer(a) -> {mod, fun, a}
-        _ -> {m, f, length(args)}
-      end
+      %{base: base} ->
+        headers = [
+          {"authorization", "Bearer " <> token},
+          {"content-type", "application/json"}
+        ]
+
+        {:ok, Finch.build(:post, base <> path, headers, args |> wire() |> Jason.encode!())}
+    end
+  end
+
+  defp channel_request(_token, _path, _args), do: {:error, :no_token}
+
+  # The console's arguments as the JSON the door reads: a keyword list is an
+  # object, a tuple an array, an atom its name.
+  defp wire([]), do: []
+
+  defp wire(list) when is_list(list) do
+    if Keyword.keyword?(list),
+      do: Map.new(list, fn {key, value} -> {Atom.to_string(key), wire(value)} end),
+      else: Enum.map(list, &wire/1)
+  end
+
+  defp wire(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> wire()
+
+  defp wire(%{} = map) when not is_struct(map),
+    do: Map.new(map, fn {key, value} -> {wire_key(key), wire(value)} end)
+
+  defp wire(atom) when is_atom(atom) and atom not in [nil, true, false], do: Atom.to_string(atom)
+  defp wire(value), do: value
+
+  defp wire_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp wire_key(key), do: key
+
+  defp response({:ok, %Finch.Response{status: 200, body: body}}, call) do
+    case Jason.decode(body) do
+      {:ok, json} -> {:ok, ControllerShapes.answer(call.operation, json)}
+      {:error, _invalid} -> {:error, {:remote_error, body}}
+    end
+  end
+
+  defp response({:ok, %Finch.Response{status: status, body: body}}, call) do
+    case Jason.decode(body) do
+      {:ok, %{"error" => %{"code" => _} = error}} -> refusal(read_error(error), call)
+      _other -> {:error, {:remote_error, {status, body}}}
+    end
+  end
+
+  defp response({:error, error}, _call), do: transport_error(error)
+
+  # The door refuses an operation it does not publish with
+  # `control.unknown_function`, which is the version skew a missing function is.
+  defp refusal(%{code: "control.unknown_function"}, %{module: module, function: function} = call) do
+    arity = length(call.args) + 1
 
     Logger.warning(
-      "[NodeManager] Controller does not export #{inspect(mod)}.#{fun}/#{arity} " <>
-        "(called as #{inspect(m)}.#{f}/#{length(args)}). Console and controller versions have " <>
-        "diverged. Remote stacktrace: #{inspect(stack)}"
+      "[NodeManager] The controller does not publish #{inspect(module)}.#{function}/#{arity}: " <>
+        "console and controller versions have diverged."
     )
 
-    {:error, {:api_missing, mod, fun, arity}}
+    {:error, {:api_missing, module, function, arity}}
+  end
+
+  defp refusal(%{code: "control.timeout"}, _call), do: {:error, :timeout}
+  defp refusal(error, _call), do: {:error, error}
+
+  defp transport_error(%{reason: reason}) when reason in [:timeout, :request_timeout],
+    do: {:error, :timeout}
+
+  # The connector logs why, once per change, and looks for the controller again.
+  defp transport_error(_error) do
+    NodeConnector.lost()
+    {:error, :node_not_connected}
+  end
+
+  # The error object the channel answers, by its fields.
+  defp read_error(%{"code" => code} = error) do
+    %{
+      code: code,
+      class: Enum.find(@classes, &(Atom.to_string(&1) == error["class"])),
+      message: error["message"],
+      hint: error["hint"],
+      details: error["details"] || %{}
+    }
   end
 
   # ---- Errors ----
@@ -123,23 +190,12 @@ defmodule FlezhaConsole.Service.NodeManager do
   @doc """
   Any error a call can answer, as `%{code:, class:, message:, hint:, details:}`.
 
-  A controller error is read by its fields: this node does not have the
-  `Flezha.Error` module, so it is matched as the map it is on the wire. Its
+  A controller error is read by its fields as the channel answered it. Its
   `details` keep the text keys core gives them, such as the option a refusal
   is about. The transport conditions get the same shape with no details, so a
   screen renders both one way.
   """
   def error({:error, reason}), do: error(reason)
-
-  def error(%{__struct__: Flezha.Error, code: code, class: class, message: message} = e) do
-    %{
-      code: code,
-      class: class,
-      message: message,
-      hint: Map.get(e, :hint),
-      details: Map.get(e, :details) || %{}
-    }
-  end
 
   # A diagnosis finding has this shape with a `level` in place of a class.
   def error(%{code: _, message: _} = error),
@@ -156,6 +212,14 @@ defmodule FlezhaConsole.Service.NodeManager do
   def error(:timeout),
     do: console_error("timeout", :unavailable, "The flezha controller did not answer in time.")
 
+  def error(:overrun) do
+    console_error(
+      "overrun",
+      :unavailable,
+      "This console fell behind the controller's stream, which it opens again."
+    )
+  end
+
   # A read that died in this console. Its reason stays in the server log: a
   # stack carries call arguments, which can include the operator's token.
   def error(:read_failed),
@@ -165,14 +229,18 @@ defmodule FlezhaConsole.Service.NodeManager do
     console_error(
       "api_missing",
       :internal,
-      "This console and the flezha controller have diverged: the controller does not export " <>
+      "This console and the flezha controller have diverged: the controller does not publish " <>
         "#{inspect(module)}.#{function}/#{arity}."
     )
   end
 
-  def error({:remote_error, reason}),
-    do:
-      console_error("remote_error", :internal, "The flezha controller raised: #{inspect(reason)}")
+  def error({:remote_error, reason}) do
+    console_error(
+      "remote_error",
+      :internal,
+      "The flezha controller answered something this console cannot read: #{inspect(reason)}"
+    )
+  end
 
   def error({:controller_unreachable, node}) do
     console_error(
@@ -191,14 +259,17 @@ defmodule FlezhaConsole.Service.NodeManager do
   @doc "Whether an answer is the controller refusing the caller."
   def denied?(answer), do: match?(%{class: :denied}, error(answer))
 
+  @doc "Whether `answer` refuses the token itself rather than what it may do."
+  def token_refused?(answer), do: error(answer).code in @token_codes
+
   @doc "Whether an answer is the controller saying what was asked for does not exist."
   def not_found?(answer), do: match?(%{class: :not_found}, error(answer))
 
   # ---- Identity ----
   #
   # Identity comes only from a verified token. A principal typed into this UI
-  # is never trusted, because a context this node assembles is a context the
-  # controller's audit log would name — forging it would forge the trail.
+  # is never sent: the controller builds the caller context from the token
+  # every request carries, so the audit log names who the token proves.
 
   @doc """
   Creates the cache the identity reads share. Called once from the application
@@ -212,20 +283,16 @@ defmodule FlezhaConsole.Service.NodeManager do
   end
 
   @doc """
-  Verifies a flezha token through the controller's door.
+  Verifies a flezha token with the controller's `Namespace.whoami`, called
+  with the token as its bearer token.
 
-  Answers `{:ok, %{principal:, namespace:, role:}}`, the caller context
-  `Flezha.Service.Admin.context/2` builds from the token, or its
-  `{:error, %Flezha.Error{}}` with an `authz.token_*` code. Results are cached
-  per token for a short period; a transport failure or
-  `authz.registry_unavailable` is not cached.
-
-  A verified identity also carries `operations`, the names `whoami/1` answers
-  the token's role is granted, read once with the verification and cached with
-  it. A controller that answers none leaves it out.
+  Answers `{:ok, %{principal:, namespace:, role:, operations:, posture:}}`:
+  who the token proves, the operations its role is granted and the
+  controller's enforcement posture. Or `{:error, error}` with an `authz.*`
+  code. Results are cached per token for a short period; a transport failure
+  or `authz.registry_unavailable` is not cached. No token makes no call.
   """
-  def verify_token(nil), do: {:error, :no_token}
-  def verify_token(""), do: {:error, :no_token}
+  def verify_token(token) when token in [nil, ""], do: {:error, :no_token}
 
   def verify_token(token) when is_binary(token) do
     case cache_get({:token, token_key(token)}) do
@@ -233,7 +300,7 @@ defmodule FlezhaConsole.Service.NodeManager do
         cached
 
       :miss ->
-        result = with_operations(erpc_call(Flezha.Service.Admin, :context, [:ui, token]))
+        result = authorized_call(token, Flezha.Service.Namespace, :whoami, [])
         maybe_cache_verification(token, result)
         result
     end
@@ -241,26 +308,14 @@ defmodule FlezhaConsole.Service.NodeManager do
 
   def verify_token(_token), do: {:error, :no_token}
 
-  defp with_operations({:ok, %{principal: principal} = identity}) when is_binary(principal) do
-    case door(identity_context(identity), Flezha.Service.Namespace, :whoami, []) do
-      {:ok, %{operations: operations}} when is_list(operations) ->
-        {:ok, Map.put(identity, :operations, operations)}
-
-      _none ->
-        {:ok, identity}
-    end
-  end
-
-  defp with_operations(result), do: result
-
   @doc """
   The names of the operations the token's role is granted, or `nil` when every
   control should render: the posture is `:open`, or the controller answered
   no list. See `granted?/2`.
   """
   def operations(token) do
-    with %{posture: posture} when posture != :open <- authz_status(token),
-         {:ok, %{operations: operations}} <- verify_token(token) do
+    with {:ok, %{posture: posture, operations: operations}}
+         when posture != :open and is_list(operations) <- verify_token(token) do
       operations
     else
       _all -> nil
@@ -278,9 +333,7 @@ defmodule FlezhaConsole.Service.NodeManager do
   Drops a token's cached verification, so the next call re-asks the controller.
 
   Called when a call is refused, so a principal whose binding was removed is
-  re-verified on its next call. A revoked token is not refused by the
-  controller, which sees only the principal: it stops working when its cached
-  verification expires.
+  re-verified on its next call.
   """
   def evict_token(token) when is_binary(token) do
     key = token_key(token)
@@ -292,75 +345,20 @@ defmodule FlezhaConsole.Service.NodeManager do
 
   def evict_token(_token), do: :ok
 
-  @doc """
-  The caller context every published controller function is called with.
-
-  `source: :ui` plus the principal, namespace and role a verified token
-  answered. An unresolvable token leaves the context unbound, which is the
-  state the controller refuses and this UI explains.
-
-  This is the only construction site for a caller context in the UI.
-  """
-  def caller_context(token) do
-    case resolve_context(token) do
-      {:ok, context} -> context
-      {:error, _transient} -> %{source: :ui}
-    end
-  end
-
-  # A verification that could not be answered is that failure, not an unbound
-  # caller: calling unbound would show a refusal the token did not earn.
-  defp resolve_context(token) do
-    case verify_token(token) do
-      {:ok, %{principal: principal} = identity} when is_binary(principal) ->
-        {:ok, identity_context(identity)}
-
-      {:error, :timeout} = failed ->
-        failed
-
-      {:error, %{code: "authz.registry_unavailable"}} = failed ->
-        failed
-
-      _ ->
-        {:ok, %{source: :ui}}
-    end
-  end
-
-  defp identity_context(identity) do
-    %{
-      source: :ui,
-      principal: identity.principal,
-      namespace: Map.get(identity, :namespace),
-      role: Map.get(identity, :role)
-    }
-  end
-
-  # A published operation, run through the door for the token's caller
-  # context. A refusal evicts the token's cached verification on the way out.
+  # A published operation, judged by the controller as the token's principal.
+  # A refusal evicts the token's cached verification on the way out.
   defp authorized_call(token, module, function, args, timeout \\ @default_timeout) do
-    with {:ok, context} <- resolve_context(token) do
-      context
-      |> door(module, function, args, timeout)
-      |> evicting(token)
-    end
+    token
+    |> channel_call(module, function, args, timeout)
+    |> evicting(token)
   end
 
-  # The door refuses an operation it does not publish with
-  # `control.unknown_function`, which is the version skew a missing function is.
-  defp door(context, module, function, args, timeout \\ @default_timeout) do
-    case erpc_call(
-           Flezha.Service.Admin,
-           :run,
-           [operation(module, function), args, context, :given],
-           timeout
-         ) do
-      {:error, %{code: "control.unknown_function"}} ->
-        {:error, {:api_missing, module, function, length(args) + 1}}
-
-      answer ->
-        answer
-    end
-  end
+  @doc """
+  `module.function`'s answer to `args`, read as every function here reads
+  one. For the shape check's channel mode (`priv/dev/record_shapes.exs`),
+  which makes each recorded read through this console's own channel.
+  """
+  def read(module, function, args, token), do: authorized_call(token, module, function, args)
 
   # The name core's catalogue gives the published `module.function`.
   defp operation(module, function),
@@ -401,66 +399,160 @@ defmodule FlezhaConsole.Service.NodeManager do
   defp pair({:ok, [value, more]}), do: {:ok, value, more}
   defp pair(other), do: unexpected(other)
 
-  # A published stream operation, issued through the door without waiting: the
-  # controller runs it in an `:erpc` worker and hands each event to `emit_pid`
-  # as `{:flezha_emit, event}` until that process exits. Answers the request,
-  # which `stream_result/2` recognises the operation's own answer by.
-  defp authorized_stream(token, module, function, args, emit_pid) when is_pid(emit_pid) do
-    case connected_node() do
-      nil ->
-        {:error, :node_not_connected}
+  # ---- Streams ----
 
-      node ->
-        with {:ok, context} <- resolve_context(token) do
-          context = Map.put(context, :emit, emit_pid)
+  # A published stream operation, opened on the channel's stream route by a
+  # process linked to `emit_pid`. It hands `emit_pid` each server-sent event,
+  # decoded by its shape, as `{:flezha_emit, event}`, and ends with the
+  # operation's answer, which `stream_result/2` recognises. When `emit_pid`
+  # exits, the linked process exits too, which closes the request, and the
+  # controller ends the operation. With `attach?` the response opening is
+  # handed on as `:attached`, which the controller writes no event for.
+  defp authorized_stream(token, module, function, args, emit_pid, attach? \\ false)
+       when is_pid(emit_pid) do
+    call = call(module, function, args)
 
-          request_id =
-            :erpc.send_request(node, Flezha.Service.Admin, :run, [
-              operation(module, function),
-              args,
-              context,
-              :given
-            ])
+    with {:ok, request} <- channel_request(token, "/v1/stream/" <> call.operation, args) do
+      stream = Map.merge(call, %{id: make_ref(), emit: emit_pid, attach?: attach?})
 
-          {:ok, %{node: node, id: request_id, token: token}}
-        end
+      spawn_link(fn ->
+        stream = Map.put(stream, :watch, Process.monitor(emit_pid))
+        send(emit_pid, {:flezha_stream, stream.id, stream(request, stream)})
+      end)
+
+      {:ok, %{id: stream.id, token: token}}
     end
   end
 
   @doc """
   Whether `message` is the answer of a stream `request`: `:no_response`, or
-  `{:ended, result}` with the operation's answer or a transport error. A
-  refusal evicts the token, as a refused call does.
+  `{:ended, result}` with the operation's answer, `{:error, :overrun}` when
+  the console fell behind, or a transport error. A refusal evicts the token,
+  as a refused call does.
   """
-  def stream_result(message, %{id: request_id, token: token}) do
-    case :erpc.check_response(message, request_id) do
-      {:response, result} -> {:ended, evicting(result, token)}
-      :no_response -> :no_response
-    end
-  catch
-    kind, reason -> {:ended, classify(kind, reason, nil, nil, [])}
-  end
+  def stream_result({:flezha_stream, id, result}, %{id: id, token: token}),
+    do: {:ended, evicting(result, token)}
+
+  def stream_result(_message, _request), do: :no_response
 
   defp evicting(result, token) do
     if match?({:error, _}, result) and denied?(result), do: evict_token(token)
     result
   end
 
-  @doc """
-  The controller's enforcement posture: `:open`, `:bootstrap_pending` or
-  `:enforced`.
-
-  A controller predating authorization does not export it; that controller is
-  open by definition, so the version-skew answer is normalised rather than
-  shown as a broken panel.
-  """
-  def enforcement_posture do
-    case erpc_call(Flezha.AuthZ, :enforcement_posture, []) do
-      posture when posture in [:open, :bootstrap_pending, :enforced] -> posture
-      {:error, {:api_missing, _m, _f, _a}} -> :open
-      other -> unexpected(other)
+  defp stream(request, stream) do
+    case NodeConnector.async_request(request) do
+      {:ok, ref} -> read_stream(Map.merge(stream, %{ref: ref, status: nil, buffer: "", body: ""}))
+      {:error, error} -> transport_error(error)
     end
   end
+
+  defp read_stream(%{ref: ref} = stream) do
+    receive do
+      {^ref, {:status, status}} ->
+        read_stream(%{stream | status: status})
+
+      {^ref, {:headers, _headers}} ->
+        if stream.status == 200 and stream.attach?,
+          do: send(stream.emit, {:flezha_emit, :attached})
+
+        read_stream(stream)
+
+      {^ref, {:data, data}} when stream.status == 200 ->
+        {events, rest} = sse_events(stream.buffer <> data)
+        relay_events(events, %{stream | buffer: rest})
+
+      {^ref, {:data, data}} ->
+        read_stream(%{stream | body: stream.body <> data})
+
+      {^ref, :done} when stream.status == 200 ->
+        transport_error(:closed)
+
+      {^ref, :done} ->
+        response({:ok, %Finch.Response{status: stream.status, body: stream.body}}, stream)
+
+      {^ref, {:error, error}} ->
+        transport_error(error)
+
+      # A link carries no normal exit, so the feed is watched too.
+      {:DOWN, watch, :process, _feed, _reason} when watch == stream.watch ->
+        Finch.cancel_async_request(ref)
+        exit(:normal)
+    after
+      @stream_idle_ms ->
+        Finch.cancel_async_request(ref)
+        transport_error(:idle)
+    end
+  end
+
+  # Each event goes to the feed until the controller ends the stream: `end`
+  # with the operation's answer or error, `overrun` when the console fell
+  # behind.
+  defp relay_events([], stream), do: read_stream(stream)
+
+  defp relay_events([{"end", data} | _rest], stream) do
+    case Jason.decode(data) do
+      {:ok, %{"answer" => answer}} -> {:ok, ControllerShapes.answer(stream.operation, answer)}
+      {:ok, %{"error" => %{"code" => _} = error}} -> {:error, read_error(error)}
+      _other -> {:error, {:remote_error, data}}
+    end
+  end
+
+  defp relay_events([{"overrun", _data} | _rest], _stream), do: {:error, :overrun}
+
+  defp relay_events([{name, data} | rest], stream) do
+    case Jason.decode(data) do
+      {:ok, object} -> send(stream.emit, {:flezha_emit, event(stream.operation, name, object)})
+      {:error, _invalid} -> Logger.warning("[NodeManager] Unreadable #{name} event: #{data}")
+    end
+
+    relay_events(rest, stream)
+  end
+
+  # Complete server-sent events, as `{name, data}`, and what is left of the
+  # buffer after the last of them. A comment line is the controller saying it
+  # is still there, and is no event.
+  defp sse_events(buffer) do
+    {blocks, [rest]} = buffer |> String.split(~r/\r?\n\r?\n/) |> Enum.split(-1)
+
+    events =
+      for block <- blocks,
+          lines = String.split(block, ~r/\r?\n/),
+          data = for("data:" <> value <- lines, do: String.replace_prefix(value, " ", "")),
+          data != [] do
+        name =
+          Enum.find_value(lines, "message", fn
+            "event:" <> name -> String.trim(name)
+            _line -> nil
+          end)
+
+        {name, Enum.join(data, "\n")}
+      end
+
+    {events, rest}
+  end
+
+  # An event in the JSON form of the term the console matches, decoded by its
+  # shape. A relay frame is written as an object of its kind, channel,
+  # metadata and payload (`payload_base64` for bytes) or error; a tally as its
+  # kind, totals and the fields of its reading; a signal and a log record as
+  # their fields.
+  defp event(operation, "tally" = name, %{"totals" => totals} = object),
+    do:
+      ControllerShapes.event(operation, name, [name, totals, Map.drop(object, ["kind", "totals"])])
+
+  defp event(operation, name, %{"kind" => name, "metadata" => metadata} = object) do
+    element =
+      case object do
+        %{"error" => error} -> error
+        %{"payload_base64" => encoded} -> %{"base64" => encoded}
+        %{"payload" => payload} -> payload
+      end
+
+    ControllerShapes.event(operation, name, [name, element, metadata])
+  end
+
+  defp event(operation, name, object), do: ControllerShapes.event(operation, name, object)
 
   @doc """
   Posture and bound identity together, as the layout renders them.
@@ -468,8 +560,8 @@ defmodule FlezhaConsole.Service.NodeManager do
   Cached for the length of one refresh tick, because the layout is rendered far
   more often than the controller's answer changes.
 
-    * `:posture` — `:open | :bootstrap_pending | :enforced`, or `nil` when the
-      controller could not be asked.
+    * `:posture` — `:open | :bootstrap_pending | :enforced` as the token's
+      `whoami` answered it, or `nil` when no token verified.
     * `:principal`, `:namespace`, `:role` — the bound identity, or `nil`.
     * `:token?` — whether a token was presented at all, which separates "no
       credential" from "a credential the controller rejected".
@@ -488,14 +580,8 @@ defmodule FlezhaConsole.Service.NodeManager do
   end
 
   defp build_authz_status(token) do
-    posture =
-      case enforcement_posture() do
-        posture when is_atom(posture) -> posture
-        {:error, _reason} -> nil
-      end
-
     base = %{
-      posture: posture,
+      posture: nil,
       principal: nil,
       namespace: nil,
       role: nil,
@@ -507,7 +593,8 @@ defmodule FlezhaConsole.Service.NodeManager do
       {:ok, identity} ->
         %{
           base
-          | principal: Map.get(identity, :principal),
+          | posture: Map.get(identity, :posture),
+            principal: Map.get(identity, :principal),
             namespace: Map.get(identity, :namespace),
             role: Map.get(identity, :role)
         }
@@ -1601,7 +1688,7 @@ defmodule FlezhaConsole.Service.NodeManager do
 
       {:error, reason} = refused ->
         with true <- denied?(reason),
-             %{namespace: own} when is_binary(own) <- caller_context(token),
+             {:ok, %{namespace: own}} when is_binary(own) <- verify_token(token),
              {:ok, record} <- namespace_record(own, token) do
           {:ok, [record]}
         else
@@ -1997,9 +2084,9 @@ defmodule FlezhaConsole.Service.NodeManager do
 
   @doc """
   Whether a sink is running: a sink entry carries no enabled flag, only the
-  `:pid` set while its process is up.
+  `:pid` set while its process is up, which crosses the channel as text.
   """
-  def sink_running?(sink), do: is_pid(Map.get(sink, :pid))
+  def sink_running?(sink), do: Map.get(sink, :pid) not in [nil, ""]
 
   @doc """
   Every source once, with its state on each controller in `statuses` and its
@@ -2016,21 +2103,20 @@ defmodule FlezhaConsole.Service.NodeManager do
 
   @doc """
   Enables an observability source on every controller, answering `{:ok,
-  %{applied: nodes, unreachable: nodes}}`. `source` must be an atom the
-  controller already named, so a value typed into a form can never grow the
-  atom table.
+  %{applied: nodes, unreachable: nodes}}`. `source` is the name the controller
+  listed, an atom or, for one this console has no atom for, its text.
   """
-  def enable_source(source, token) when is_atom(source) do
+  def enable_source(source, token) when is_atom(source) or is_binary(source) do
     authorized_call(token, Flezha.Service.Observability, :enable_source, [to_string(source)])
   end
 
   @doc "As `enable_source/2`, switching it off."
-  def disable_source(source, token) when is_atom(source) do
+  def disable_source(source, token) when is_atom(source) or is_binary(source) do
     authorized_call(token, Flezha.Service.Observability, :disable_source, [to_string(source)])
   end
 
   @doc "Opens a live tail of `source` on every controller for `emit_pid`. See `authorized_stream/5`."
-  def observability_tail(source, token, emit_pid) when is_atom(source) do
+  def observability_tail(source, token, emit_pid) when is_atom(source) or is_binary(source) do
     authorized_stream(token, Flezha.Service.Observability, :tail, [to_string(source)], emit_pid)
   end
 
@@ -2054,7 +2140,8 @@ defmodule FlezhaConsole.Service.NodeManager do
       Flezha.Service.Relay,
       :listen,
       [namespace, relay_id, direction, []],
-      emit_pid
+      emit_pid,
+      true
     )
   end
 
@@ -2123,7 +2210,14 @@ defmodule FlezhaConsole.Service.NodeManager do
   controller is not told.
   """
   def controllers(token) do
-    authorized_rows_call(token, Flezha.Service.Controller, :controllers, [])
+    with {:ok, %{rows: rows}} = answer <-
+           authorized_rows_call(token, Flezha.Service.Controller, :controllers, []) do
+      for %{local?: true, node: node} <- rows,
+          is_binary(node),
+          do: NodeConnector.name_controller(node)
+
+      answer
+    end
   end
 
   @doc """

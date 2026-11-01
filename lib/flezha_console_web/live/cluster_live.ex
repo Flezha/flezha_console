@@ -63,10 +63,11 @@ defmodule FlezhaConsoleWeb.ClusterLive do
   end
 
   defp read(token) do
-    connected = NodeManager.connected_node()
     {names, load_error} = NodeManager.scoped_namespaces(token)
     namespaces = Enum.map(names, &describe_namespace(&1, token))
     controllers = NodeManager.controllers(token)
+    # After the controllers, whose own row names the controller reached.
+    connected = NodeManager.connected_node()
     status = NodeManager.controller_status(token)
 
     %{

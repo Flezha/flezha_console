@@ -1,3 +1,10 @@
+# The console alone, against a controller that already runs elsewhere and
+# serves its HTTP API over mutual TLS. Give it the controller's URL and a
+# directory holding the controller's authority and the console's client
+# certificate and key:
+#
+#   FLEZHA_CONTROLLER_URL=https://controller.example:8765 \
+#   FLEZHA_CHANNEL_TLS_DIR=/path/to/certs docker compose up
 services:
   web:
     build:
@@ -9,23 +16,16 @@ services:
       - "4000:4000"
     environment:
       MIX_ENV: dev
-      # Must match the cookie used when starting the flezha node.
-      # The dev README uses: iex --sname flezha --cookie flezha_dev_cookie -S mix
-      ERLANG_COOKIE: flezha_dev_cookie
-      # Atom name of the flezha node. With --sname flezha inside the
-      # flezha_agent_dev container the name becomes flezha@flezha_agent_dev.
-      FLEZHA_NODE: flezha@flezha_agent_dev
+      FLEZHA_CONTROLLER_URL: ${FLEZHA_CONTROLLER_URL:?set it to the controller's https URL}
+      FLEZHA_CONTROLLER_CA: /channel_tls/ca.pem
+      FLEZHA_CLIENT_CERT: /channel_tls/console.pem
+      FLEZHA_CLIENT_KEY: /channel_tls/console.key
     volumes:
       - .:/flezha_console
       - deps:/flezha_console/deps
       - build:/flezha_console/_build
-    networks:
-      - flezha_network
+      - ${FLEZHA_CHANNEL_TLS_DIR:?set it to the directory of the channel certificates}:/channel_tls:ro
 
 volumes:
   deps:
   build:
-
-networks:
-  flezha_network:
-    external: true

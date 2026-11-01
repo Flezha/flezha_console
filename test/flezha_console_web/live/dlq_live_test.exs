@@ -171,14 +171,15 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
 
       # The filter is pushed down to the controller rather than applied to a
       # full list here.
-      assert ["orders", [limit: 20], %{source: :ui}] =
+      assert ["orders", %{"limit" => 20}, %{token: _}] =
                node |> FakeController.calls({Dlq, :list}) |> List.last()
     end
 
     test "an unfiltered listing asks for every class", %{conn: conn, node: node} do
       {:ok, _view, _html} = live(conn, ~p"/dlq")
 
-      assert [nil, [limit: 20], _ctx] = node |> FakeController.calls({Dlq, :list}) |> List.last()
+      assert [nil, %{"limit" => 20}, _ctx] =
+               node |> FakeController.calls({Dlq, :list}) |> List.last()
     end
   end
 
@@ -235,7 +236,7 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       html = drop(view)
 
       assert html =~ "Entry dropped"
-      assert [[@ref, %{source: :ui}]] = FakeController.calls(node, {Dlq, :drop})
+      assert [[@ref, %{token: _}]] = FakeController.calls(node, {Dlq, :drop})
     end
 
     test "a refused drop is reported", %{conn: conn, node: node} do
@@ -268,7 +269,7 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       html = replayed(view)
 
       assert html =~ ~s(data-testid="replay-succeeded")
-      assert [[@ref, %{source: :ui}]] = FakeController.calls(node, {Dlq, :replay})
+      assert [[@ref, %{token: _}]] = FakeController.calls(node, {Dlq, :replay})
     end
 
     test "reports a re-park with its new generation", %{conn: conn, node: node} do
@@ -428,10 +429,10 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       {:ok, view, _html} = live(conn, ~p"/dlq")
 
       assert drop(view) =~ "Entry dropped"
-      assert [[@ref, %{source: :ui}]] = FakeController.calls(node, {Dlq, :drop})
+      assert [[@ref, %{token: _}]] = FakeController.calls(node, {Dlq, :drop})
 
       assert replayed(view) =~ ~s(data-testid="replay-succeeded")
-      assert [[@ref, %{source: :ui}]] = FakeController.calls(node, {Dlq, :replay})
+      assert [[@ref, %{token: _}]] = FakeController.calls(node, {Dlq, :replay})
 
       view |> element(~s([data-testid="dlq-mark-seen-#{@ref}"])) |> render_click()
       refute render_async(view) =~ ~s(data-testid="dlq-row-#{@ref}")
@@ -540,7 +541,7 @@ defmodule FlezhaConsoleWeb.DlqLiveTest do
       send(view.pid, :refresh)
 
       assert render_async(view) =~ ~s(data-testid="dlq-row-#{@ref}")
-      assert {:ok, %{rows: [%{seen: 0}]}} = DeadLetters.stats(nil)
+      assert {:ok, %{rows: [%{seen: 0}]}} = DeadLetters.stats("flzt_operator")
       # The mark of the generation that left is forgotten.
       assert Repo.all(Acknowledgement) == []
     end

@@ -68,11 +68,11 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       FakeController.set(node, {Fleet, :runners}, {:ok, [FakeController.runner_row("runner-a")]})
       FakeController.set(node, {Controller, :cluster_status}, {:ok, status([])})
 
-      # The one controller is the node this console calls.
+      # The one controller is the one this console reaches, its row marked local.
       FakeController.set(
         node,
         {Controller, :controllers},
-        FakeController.rows([FakeController.controller_row("peer", %{node: node})])
+        FakeController.rows([FakeController.controller_row("peer")])
       )
     end
 
@@ -95,7 +95,7 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
       assert text_of(html, ~s([data-testid="cluster-connected"])) =~ "served by 1 runner"
       assert text_of(html, ~s([data-testid="sys-nodes-value"])) == "1"
       assert text_of(html, ~s([data-testid="sys-nodes-verdict"])) == "Connected"
-      assert text_of(html, ~s([data-testid="sys-nodes-condition"])) =~ "connected to #{node}"
+      assert text_of(html, ~s([data-testid="sys-nodes-condition"])) =~ "connected to flezha@peer"
 
       assert text_of(html, ~s([data-testid="sys-problems-condition"])) ==
                "Nothing needs attention"
@@ -190,8 +190,9 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/cluster")
 
+      # The controller the default listing marks local is the one reached.
       assert html =~ "Connected to this console"
-      assert html =~ to_string(node)
+      assert html =~ "flezha@node-a"
     end
 
     test "lists every hub node the controller reports, unioned across namespaces", %{
@@ -204,7 +205,6 @@ defmodule FlezhaConsoleWeb.ClusterLiveTest do
 
       assert html =~ ~s(data-testid="cluster-node-flezha@node-a")
       assert html =~ ~s(data-testid="cluster-node-flezha@node-b")
-      assert html =~ ~s(data-testid="cluster-node-#{node}")
       # Membership comes from the controller's answer, never `:erlang.nodes/1`.
       refute html =~ ~s(data-testid="cluster-node-#{Node.self()}")
     end

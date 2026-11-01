@@ -78,11 +78,10 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
     test "a partition member shows its index, key range and group", %{conn: conn, node: node} do
       overwatch(node, %{factory_id: "store_input"})
 
-      registry_row(node, %{
-        partition: %{group: "orders", index: 1, count: 4, range: {64, 127}}
-      })
+      # As the controller lists a member: inside its group's row.
+      FakeController.set(node, {Relay, :list}, FakeController.rows([group_row("orders", 4)]))
 
-      {:ok, _view, html} = live(conn, @url)
+      {:ok, _view, html} = live(conn, "/namespaces/default/relays/orders%23p1")
 
       assert html =~ ~s(data-testid="relay-partition")
       assert text_of(html, ~s([data-testid="relay-partition"])) =~ "Partition p1 of 4"
@@ -295,14 +294,14 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
     end
 
     test "reports version skew by naming the missing call", %{conn: conn, node: node} do
-      # Turning a remote `:undef` into `:api_missing` is `NodeManager`'s job and
-      # is covered in `node_manager_distributed_test`; what matters here is that
+      # Turning `control.unknown_function` into `:api_missing` is `NodeManager`'s
+      # job and is covered in `node_manager_channel_test`; what matters here is that
       # the screen tells an operator the two have diverged rather than that
       # something merely broke.
       FakeController.set(
         node,
         {Relay, :overwatch_state},
-        {:error, {:api_missing, Relay, :overwatch_state, 3}}
+        FakeController.error("control.unknown_function")
       )
 
       {:ok, _view, html} = live(conn, @url)
@@ -344,10 +343,10 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
       assert html =~ ~s(href="/logs/relay_history?namespace=default&amp;relay=relay_a")
 
       assert [params] =
-               node |> history_reads() |> Enum.filter(&(&1[:limit] == 5))
+               node |> history_reads() |> Enum.filter(&(&1["limit"] == 5))
 
-      assert params[:kind] == "relay_history"
-      assert params[:filters] == %{"namespace" => "default", "relay" => "relay_a"}
+      assert params["kind"] == "relay_history"
+      assert params["filters"] == %{"namespace" => "default", "relay" => "relay_a"}
     end
 
     test "says when nothing is recorded for the relay yet", %{conn: conn, node: node} do
@@ -368,11 +367,11 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
       history(node, [FakeController.history_record("relay_a")])
 
       {:ok, view, _html} = live(conn, @url)
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @tail) != [] end)
 
       assert [[params, _ctx]] = FakeController.calls(node, @tail)
-      assert params[:kind] == "relay_history"
-      assert params[:filters] == %{"namespace" => "default", "relay" => "relay_a"}
+      assert params["kind"] == "relay_history"
+      assert params["filters"] == %{"namespace" => "default", "relay" => "relay_a"}
       reads = length(FakeController.calls(node, {Logs, :read}))
 
       ended =
@@ -384,7 +383,7 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
 
       FakeController.emit(node, @tail, ended)
 
-      assert PeerNode.eventually(fn ->
+      assert FakeController.eventually(fn ->
                view
                |> render()
                |> text_of(~s([data-testid="recent-activity-sentence"]))
@@ -402,16 +401,16 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
       registry_row(node, %{})
 
       {:ok, view, _html} = live(conn, @url)
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
-      reads = length(history_reads(node) |> Enum.filter(&(&1[:limit] == 5)))
+      assert FakeController.eventually(fn -> FakeController.streams(node, @tail) != [] end)
+      reads = length(history_reads(node) |> Enum.filter(&(&1["limit"] == 5)))
 
       render_hook(view, "refresh_visibility", %{"hidden" => true})
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) == [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @tail) == [] end)
 
       render_hook(view, "refresh_visibility", %{"hidden" => false})
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @tail) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @tail) != [] end)
 
-      assert length(history_reads(node) |> Enum.filter(&(&1[:limit] == 5))) == reads + 1
+      assert length(history_reads(node) |> Enum.filter(&(&1["limit"] == 5))) == reads + 1
       assert length(FakeController.calls(node, @tail)) == 2
     end
 
@@ -494,13 +493,13 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
         node
         |> FakeController.calls({Logs, :read})
         |> Enum.map(&hd/1)
-        |> Enum.filter(&(&1[:limit] == 1))
+        |> Enum.filter(&(&1["limit"] == 1))
 
       assert last_runs != []
 
       assert Enum.all?(
                last_runs,
-               &(&1[:filters] == %{
+               &(&1["filters"] == %{
                    "namespace" => "default",
                    "relay" => "relay_a",
                    "event" => "ended"
@@ -509,7 +508,7 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
 
       completions = FakeController.calls(node, {Flezha.Service.Steps, :completion})
       assert completions != []
-      assert Enum.all?(completions, &match?(["relay_a", %{source: :ui}], &1))
+      assert Enum.all?(completions, &match?(["relay_a", %{token: _}], &1))
     end
 
     test "whose state was not kept says so and how a factory keeps it", %{conn: conn, node: node} do
@@ -596,7 +595,7 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
       view |> element(~s([data-testid="unbind-btn-gone_1"])) |> render_click()
       view |> element(~s([data-testid="unbind-confirm-btn"])) |> render_click()
 
-      assert [["gone_1", [namespace: "default", relay_id: "relay_a"], %{source: :ui}]] =
+      assert [["gone_1", %{"namespace" => "default", "relay_id" => "relay_a"}, %{token: _}]] =
                FakeController.calls(node, {PluginManager, :unbind})
     end
 
@@ -616,7 +615,7 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
       assert view |> element(~s([data-testid="unbind-confirm-btn"])) |> render_click() =~
                "relay_a unbound from plugin plug_1."
 
-      assert [["plug_1", [namespace: "default", relay_id: "relay_a"], %{source: :ui}]] =
+      assert [["plug_1", %{"namespace" => "default", "relay_id" => "relay_a"}, %{token: _}]] =
                FakeController.calls(node, {PluginManager, :unbind})
 
       assert FakeController.calls(node, {PluginManager, :disable}) == []
@@ -705,14 +704,14 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
 
       assert html =~ "Plugin out_1 enabled and bound to relay_a."
 
-      assert [["out_1", fields, %{source: :ui}]] =
+      assert [["out_1", fields, %{token: _}]] =
                FakeController.calls(node, {PluginManager, :enable})
 
-      assert fields[:provider] == "relay_stdout"
-      assert fields[:opts] == %{"prefix" => "out"}
-      assert fields[:namespace] == "default"
-      assert fields[:relay_id] == "relay_a"
-      assert fields[:hooks] == ["on_output"]
+      assert fields["provider"] == "relay_stdout"
+      assert fields["opts"] == %{"prefix" => "out"}
+      assert fields["namespace"] == "default"
+      assert fields["relay_id"] == "relay_a"
+      assert fields["hooks"] == ["on_output"]
     end
 
     test "options that are not a JSON object are refused before any call", %{
@@ -798,8 +797,8 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
       assert submit_plugin_form(view, %{}) =~ "Plugin out_1 bound to relay_a."
 
       assert [["out_1", fields, _ctx]] = FakeController.calls(node, {PluginManager, :bind})
-      assert fields[:relay_id] == "relay_a"
-      assert fields[:hooks] == ["on_output"]
+      assert fields["relay_id"] == "relay_a"
+      assert fields["hooks"] == ["on_output"]
       assert FakeController.calls(node, {PluginManager, :enable}) == []
     end
 
@@ -835,11 +834,11 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
       view |> element(~s([data-testid="topo-node-exit-out"])) |> render_click()
 
       key = {Relay, :listen}
-      assert PeerNode.eventually(fn -> FakeController.streams(node, key) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, key) != [] end)
 
       FakeController.end_stream(node, key, {:ok, :relay_ended})
 
-      assert PeerNode.eventually(fn -> render(view) =~ ~s(data-testid="tap-ended") end)
+      assert FakeController.eventually(fn -> render(view) =~ ~s(data-testid="tap-ended") end)
       refute render(view) =~ "Waiting for a record"
     end
   end
@@ -857,7 +856,7 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
 
       assert html =~ "Relay relay_a stopped."
 
-      assert [["default", "relay_a", %{source: :ui}]] = FakeController.calls(node, {Relay, :stop})
+      assert [["default", "relay_a", %{token: _}]] = FakeController.calls(node, {Relay, :stop})
     end
 
     test "a cooperative stop says the relay finishes its in-flight work", %{
@@ -916,7 +915,7 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
 
       fetch_state(view)
 
-      assert [["default", "relay_a", "charge/cust-9", %{source: :ui}]] =
+      assert [["default", "relay_a", "charge/cust-9", %{token: _}]] =
                FakeController.calls(node, {Relay, :cell_state})
     end
 
@@ -924,7 +923,7 @@ defmodule FlezhaConsoleWeb.RelayLiveTest do
       {:ok, view, _html} = live(conn, @url <> "/state")
       fetch_state(view)
 
-      assert [["default", "relay_a", nil, %{source: :ui}]] =
+      assert [["default", "relay_a", nil, %{token: _}]] =
                FakeController.calls(node, {Relay, :cell_state})
     end
 

@@ -34,12 +34,12 @@ The Rust runner SHALL run as a dedicated compose service that waits for the cont
 
 ### Requirement: One command brings up the whole stack
 
-`docker compose -f docker-compose.dev.yml up` SHALL start the controller, the UI, the database, and Kafka, and the UI SHALL connect to the controller node with no manual step. The UI service SHALL also have the `flezha_stylebook` sibling repository bind-mounted at the container path that the resolved package symlink points to, so the asset watchers can build the stylesheet without a further step.
+`docker compose -f docker-compose.dev.yml up` SHALL start the controller, the UI, the database, and Kafka, and the UI SHALL reach the controller over the channel with no manual step. The UI service SHALL also have the `flezha_stylebook` sibling repository bind-mounted at the container path that the resolved package symlink points to, so the asset watchers can build the stylesheet without a further step.
 
 #### Scenario: Cold start
 
 - **WHEN** an operator brings the stack up from a clean state
-- **THEN** the UI reaches the controller node and the Cluster screen reports a connected controller
+- **THEN** the UI reaches the controller over the channel and the Cluster screen reports a connected controller
 
 #### Scenario: Controller restarts
 
@@ -247,36 +247,20 @@ The seed SHALL also keep `testnet_chain`. Like every seed, it SHALL be idempoten
 - **WHEN** the runner does not announce `showcase`
 - **THEN** the other seeds run, and the log states that `testnet_showcase` was skipped and why
 
-### Requirement: The console never starts under a fallback cookie
-
-The console image SHALL refuse to start its node when `ERLANG_COOKIE` is unset or empty, and SHALL say which variable is missing. The dev stack SHALL declare its cookie once. The controller, the bootstrap steps, the console and the browser suite's helper nodes SHALL all read that one value from the environment rather than repeat it as a literal.
-
-#### Scenario: The image is started without a cookie
-
-- **WHEN** the console image is started with `ERLANG_COOKIE` unset
-- **THEN** it exits before starting an Erlang node
-- **AND** its output names `ERLANG_COOKIE`
-
-#### Scenario: The dev cookie is changed in one place
-
-- **WHEN** the cookie declared in `docker-compose.dev.yml` is changed and the stack is brought up
-- **THEN** the controller, the bootstrap steps and the console all use the new value
-- **AND** the browser suite's helper nodes reach the console and the controller with it
-
 ### Requirement: The dev stack can run its distribution over TLS
 
-`docker-compose.dev-tls.yml`, layered over `docker-compose.dev.yml`, SHALL run every Erlang distribution link in the dev stack over TLS, with each side checking the other's certificate against a private CA the stack makes for itself. A one-shot step SHALL make the CA, one certificate per distributed host, and one option file per host into a volume. It SHALL keep what already exists across restarts and replace only what is missing or close to expiry. Without the overlay, the stack SHALL run exactly as before.
+`docker-compose.dev-tls.yml`, layered over `docker-compose.dev.yml`, SHALL run every Erlang distribution link in the dev stack over TLS 1.3. Those links are the ones between the controllers and between the controllers and the operator helpers. Each side SHALL check the other's certificate against a private distribution authority the stack makes for itself, separate from the channel's authority. A one-shot step SHALL make the authority, one certificate per distributed host, and one option file per host into a volume. It SHALL keep what already exists across restarts and replace only what is missing or close to expiry. The console takes no part in distribution under either file. Without the overlay, the stack SHALL run exactly as before.
 
 #### Scenario: The stack comes up with the overlay
 
 - **WHEN** an operator runs the stack with both compose files from a clean state
-- **THEN** the certificates are made, the bootstrap is claimed, and the console serves its screens
-- **AND** the controller reports every link to the console and the bootstrap step as `tls`
+- **THEN** the certificates are made, the bootstrap is claimed, and the console serves its screens over the channel
+- **AND** the controller reports every link to the other controller and the helpers as `tls`
 
 #### Scenario: The stack restarts with the overlay
 
 - **WHEN** the overlay stack is restarted
-- **THEN** the CA and the certificates from the previous run are reused
+- **THEN** the authority and the certificates from the previous run are reused
 - **AND** the links come back over TLS
 
 #### Scenario: A node without TLS tries to connect
@@ -284,26 +268,31 @@ The console image SHALL refuse to start its node when `ERLANG_COOKIE` is unset o
 - **WHEN** a node with the right cookie but no TLS connects to the overlay stack's controller
 - **THEN** the connection is refused
 
-#### Scenario: A node with a certificate from another CA tries to connect
+#### Scenario: A node with a certificate from another authority tries to connect
 
-- **WHEN** a TLS node with the right cookie presents a certificate not signed by the stack's CA
+- **WHEN** a TLS node with the right cookie presents a certificate not signed by the stack's distribution authority, the channel's authority included
 - **THEN** the TLS handshake fails and the connection is refused
 
 #### Scenario: A node with the right certificate and the wrong cookie tries to connect
 
-- **WHEN** a TLS node with a certificate from the stack's CA presents the wrong cookie
+- **WHEN** a TLS node with a certificate from the stack's distribution authority presents the wrong cookie
 - **THEN** the connection is refused
+
+#### Scenario: The controller does not warn about the dev TLS file
+
+- **WHEN** a controller starts under the overlay
+- **THEN** its boot log carries no warning about its distribution TLS file
 
 #### Scenario: The browser suite runs against the overlay stack
 
 - **WHEN** the browser suite runs against the console of the overlay stack
-- **THEN** its helper nodes reach the console and the controller over TLS with no change to the suite
+- **THEN** its helpers reach the controller over TLS with no change to the suite
 - **AND** the suite passes
 
 #### Scenario: The overlay is not used
 
 - **WHEN** the stack runs with `docker-compose.dev.yml` alone
-- **THEN** no service sets `-proto_dist`, and the links run over plain TCP as before
+- **THEN** no service sets `-proto_dist`, and the distribution links run over plain TCP as before
 
 ### Requirement: The dev stack runs two controllers
 
@@ -323,4 +312,53 @@ The console image SHALL refuse to start its node when `ERLANG_COOKIE` is unset o
 
 - **WHEN** the second controller is not ready within global setup's bound
 - **THEN** the run fails before any test, naming the second controller
+
+### Requirement: The console never starts without its channel credentials
+
+The console image SHALL start the console with no Erlang distribution toward the controllers and no cookie in its environment. It SHALL refuse to start, naming the variable, when `FLEZHA_CONTROLLER_URL` is unset, or when an `https` URL lacks `FLEZHA_CONTROLLER_CA`, `FLEZHA_CLIENT_CERT` or `FLEZHA_CLIENT_KEY`. The dev stack SHALL declare the controller's URL once and SHALL provision the three files itself.
+
+#### Scenario: The image is started without its certificate
+
+- **WHEN** the console image is started with an `https` URL and `FLEZHA_CLIENT_CERT` unset
+- **THEN** it exits before serving a request
+- **AND** its output names `FLEZHA_CLIENT_CERT`
+
+#### Scenario: The console's container holds no cookie
+
+- **WHEN** the environment and the command line of the dev stack's console container are read
+- **THEN** neither carries `ERLANG_COOKIE`, `RELEASE_COOKIE`, `--cookie`, `--sname` or `--hidden`
+
+### Requirement: The dev stack serves the channel over mutual TLS
+
+Each controller in the dev stack SHALL enable the `http_api` plugin in `_system` with a server certificate and a client authority, both made by the stack from a dev authority that is not the distribution one. The console SHALL be given a client certificate from that authority. The certificate step SHALL keep what already exists across restarts and replace only what is missing or close to expiry.
+
+#### Scenario: Cold start
+
+- **WHEN** an operator brings the stack up from a clean state
+- **THEN** the certificates are made, `http_api` runs on each controller, and the console serves its screens over the channel
+
+#### Scenario: A client without a certificate
+
+- **WHEN** a client with a valid token but no client certificate connects to a controller's `http_api` port
+- **THEN** the TLS handshake fails
+
+#### Scenario: The stack restarts
+
+- **WHEN** the stack is restarted
+- **THEN** the authority and the certificates from the previous run are reused
+
+### Requirement: Operator helpers run outside the console's container
+
+The dev stack's helpers that stand in for `flz` on the controller's host (the bootstrap step, CLI calls, seeding and shape recording) SHALL run in a tools service of their own, which holds the cookie. The browser suite's helpers SHALL reach the controller through that service. No helper SHALL label its calls with the console's source `:ui`.
+
+#### Scenario: A browser test sends through the CLI helper
+
+- **WHEN** a browser test needs a record sent the way `flz` sends it
+- **THEN** the helper runs in the tools service and reaches the controller over distribution
+- **AND** the console's container is not used for it
+
+#### Scenario: No helper speaks as the console
+
+- **WHEN** `priv/dev/` is searched for `source: :ui`
+- **THEN** no occurrence exists
 

@@ -68,7 +68,8 @@ test.describe('Calls to a relay', () => {
     await page.getByTestId('talk-close-btn').click();
 
     const fromUi = callRow(page, ui).first();
-    await expect(fromUi.locator('[data-testid^="call-source-"]')).toHaveText('UI');
+    // The console calls through the controller's HTTP API.
+    await expect(fromUi.locator('[data-testid^="call-source-"]')).toHaveText('HTTP');
     await expect(fromUi.locator('[data-testid^="call-outcome-"]')).toHaveText('Answered');
 
     const timedOut = callRow(page, unanswered).first();

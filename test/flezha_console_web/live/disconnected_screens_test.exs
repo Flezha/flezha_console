@@ -4,8 +4,9 @@ defmodule FlezhaConsoleWeb.DisconnectedScreensTest do
 
   A screen that crashes when the controller is away is worse than one that says
   so, and "away" is the state an operator is most likely to be looking at the
-  UI during. No peer is started here: `NodeManager.connected_node/0` reads the
-  VM's connection list, so the absence has to be real rather than mocked.
+  UI during. No fake controller is served here: the channel's configured
+  address answers nothing, so the absence is real rather than mocked. The
+  operator holds a token, so each screen does try the controller.
 
   Each screen is a row: its route and the element that states the condition.
   A screen added to the router takes one row.
@@ -16,13 +17,16 @@ defmodule FlezhaConsoleWeb.DisconnectedScreensTest do
   import Phoenix.LiveViewTest
   import FlezhaConsoleWeb.LiveCase, only: [text_of: 2]
 
-  alias FlezhaConsole.PeerNode
   alias FlezhaConsole.Service.NodeManager
 
   @condition "Not connected to a flezha controller"
 
+  @token "flzt_t"
+
   setup %{conn: conn} do
-    %{conn: log_in_user(conn, FlezhaConsole.AccountsFixtures.user_fixture())}
+    user = FlezhaConsole.AccountsFixtures.user_fixture()
+    {:ok, user} = FlezhaConsole.Accounts.update_user_flezha_token(user, @token)
+    %{conn: log_in_user(conn, user)}
   end
 
   # `section` is a folded panel that holds the statement; `async` marks a
@@ -82,7 +86,7 @@ defmodule FlezhaConsoleWeb.DisconnectedScreensTest do
           else: html
 
       if @screen[:async],
-        do: assert(PeerNode.eventually(fn -> render(view) =~ @condition end)),
+        do: assert(FakeController.eventually(fn -> render(view) =~ @condition end)),
         else: assert(text_of(html, selector) =~ @condition)
 
       assert has_element?(view, selector)
@@ -128,8 +132,8 @@ defmodule FlezhaConsoleWeb.DisconnectedScreensTest do
 
   test "the seam reports no connection rather than raising", _context do
     assert NodeManager.connected_node() == nil
-    assert {:error, :node_not_connected} = NodeManager.relay_list("default", nil)
-    assert {:error, :node_not_connected} = NodeManager.enforcement_posture()
-    assert {:error, :node_not_connected} = NodeManager.factory_catalog("default", nil)
+    assert {:error, :node_not_connected} = NodeManager.relay_list("default", @token)
+    assert %{posture: nil, reason: :node_not_connected} = NodeManager.authz_status(@token)
+    assert {:error, :node_not_connected} = NodeManager.factory_catalog("default", @token)
   end
 end

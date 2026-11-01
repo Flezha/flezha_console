@@ -49,6 +49,7 @@ defmodule Flezha.Error do
     "observability.pubsub_disabled" => :unavailable,
     "audit.disabled" => :unavailable,
     "logs.kind_disabled" => :unavailable,
+    "control.timeout" => :unavailable,
     "controller.timeout" => :unavailable,
     "internal.uncatalogued" => :internal,
     "control.unknown_function" => :not_found,

@@ -108,7 +108,7 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
 
       calls = FakeController.calls(node, {Steps, :cells})
       assert calls != []
-      assert Enum.all?(calls, &match?(["relay_a", _page, %{source: :ui}], &1))
+      assert Enum.all?(calls, &match?(["relay_a", _page, %{token: _}], &1))
     end
 
     test "a builder's relay class is the class read", %{conn: conn, node: node} do
@@ -210,7 +210,7 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
       assert text_of(html, ~s([data-testid="finished-retention"])) ==
                "Kept for 48 hours after a run ends"
 
-      assert [["relay_a", %{source: :ui}] | _] =
+      assert [["relay_a", %{token: _}] | _] =
                FakeController.calls(node, {Steps, :completed_retention_hours})
     end
 
@@ -513,7 +513,7 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
       assert html =~ "2.0 KB"
       assert html =~ "512 B"
 
-      assert [["relay_a/orders/k1", "42", %{source: :ui}]] =
+      assert [["relay_a/orders/k1", "42", %{token: _}]] =
                FakeController.calls(node, {Steps, :time_travel})
     end
 
@@ -591,7 +591,7 @@ defmodule FlezhaConsoleWeb.RelayStateLiveTest do
       assert FakeController.calls(node, {Steps, :cells}) == []
       completions = FakeController.calls(node, {Steps, :completion})
       assert completions != []
-      assert Enum.all?(completions, &match?(["relay_a", %{source: :ui}], &1))
+      assert Enum.all?(completions, &match?(["relay_a", %{token: _}], &1))
     end
 
     test "a run whose state is kept lists its cells as before", %{conn: conn, node: node} do

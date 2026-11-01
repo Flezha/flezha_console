@@ -1,9 +1,10 @@
 defmodule FlezhaConsole.Service.DevSetup do
   @moduledoc """
   Dev-only GenServer that seeds testnet relays and plugins through the
-  published API, with the service token, when the controller node becomes
-  available. Retries every 5s for up to 5 minutes. Resets and re-attempts on
-  nodedown.
+  published API, with the service token, when the controller becomes
+  reachable. Retries every 5s for up to 5 minutes. Seeds again whenever the
+  connector reaches the controller anew (`:controller_up`), since a restarted
+  controller may have lost what was seeded.
 
   Idempotent: a relay already running is left alone, and a plugin already
   enabled answers `already_enabled` and only takes the seed's options, so a UI
@@ -15,6 +16,7 @@ defmodule FlezhaConsole.Service.DevSetup do
   use GenServer
   require Logger
 
+  alias FlezhaConsole.Service.NodeConnector
   alias FlezhaConsole.Service.NodeManager
 
   @retry_interval 5_000
@@ -26,6 +28,7 @@ defmodule FlezhaConsole.Service.DevSetup do
 
   @impl true
   def init(_opts) do
+    Phoenix.PubSub.subscribe(FlezhaConsole.PubSub, NodeConnector.topic())
     config = Application.get_env(:flezha_console, :dev_setup)
     {:ok, %{config: config, retries: 0, ready: false}, {:continue, :setup}}
   end
@@ -41,8 +44,8 @@ defmodule FlezhaConsole.Service.DevSetup do
   end
 
   @impl true
-  def handle_info({:nodedown, node}, state) do
-    Logger.warning("[DevSetup] Controller node #{node} went down, will re-attempt on reconnect")
+  def handle_info(:controller_up, %{ready: true} = state) do
+    Logger.info("[DevSetup] Reached the controller again, seeding anew")
     {:noreply, %{state | retries: 0, ready: false}, {:continue, :setup}}
   end
 
@@ -69,8 +72,6 @@ defmodule FlezhaConsole.Service.DevSetup do
            plugins = Enum.reject(plugins, &(&1.relay_id in skipped)),
            :ok <- ensure_relays(ns, relays, token),
            :ok <- ensure_plugins(ns, plugins, token) do
-        Node.monitor(node, true)
-
         relay_ids = Enum.map_join(relays, ", ", & &1.id)
         plugin_names = Enum.map_join(plugins, ", ", & &1.name)
 

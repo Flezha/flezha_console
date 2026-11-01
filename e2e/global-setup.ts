@@ -48,33 +48,46 @@ export function workerNamespace(index: number, run = process.env.E2E_RUN_ID): st
   return `e2e-w${index}-${run}`;
 }
 
-/** The dev stack's console container, where every helper node and CLI call runs. */
+/** The dev stack's console container, where the console's own mix tasks run. */
 const CONSOLE_CONTAINER = 'fcon_web';
+
+/**
+ * The dev stack's tools container, which holds the cookie: every helper node
+ * and CLI call runs there, reaching the controllers over distribution as `flz`
+ * would on a controller's host. The console holds no cookie.
+ */
+const TOOLS_CONTAINER = 'fcon_tools';
 
 /** A run id's form: `Date.now()` in base 36, 8 characters until 2059. */
 const RUN_ID = /[0-9a-z]{8}/.source;
 const WORKER_NAMESPACE = new RegExp(`^e2e-w\\d+-(${RUN_ID})$`);
 
 /**
- * Runs `argv` inside `fcon_web` and answers its output. Throws with that output
- * when it fails.
+ * Runs `argv` inside `container` and answers its output. Throws with that
+ * output when it fails.
  */
-export function inConsole(what: string, argv: string[]): string {
+function inContainer(container: string, what: string, argv: string[]): string {
   try {
-    return execFileSync('docker', ['exec', CONSOLE_CONTAINER, ...argv], { encoding: 'utf8', stdio: 'pipe' });
+    return execFileSync('docker', ['exec', container, ...argv], { encoding: 'utf8', stdio: 'pipe' });
   } catch (error) {
     throw failed(what, error);
   }
 }
 
-/** `inConsole`, without holding the caller up while it runs. */
-async function inConsoleAsync(what: string, argv: string[]): Promise<string> {
+/** `inContainer`, without holding the caller up while it runs. */
+async function inContainerAsync(container: string, what: string, argv: string[]): Promise<string> {
   try {
-    return (await promisify(execFile)('docker', ['exec', CONSOLE_CONTAINER, ...argv], { encoding: 'utf8' })).stdout;
+    return (await promisify(execFile)('docker', ['exec', container, ...argv], { encoding: 'utf8' })).stdout;
   } catch (error) {
     throw failed(what, error);
   }
 }
+
+/** Runs `argv` inside `fcon_web`, the console's container. */
+export const inConsole = (what: string, argv: string[]) => inContainer(CONSOLE_CONTAINER, what, argv);
+
+/** Runs `argv` inside `fcon_tools`, where the helper nodes run. */
+const inTools = (what: string, argv: string[]) => inContainer(TOOLS_CONTAINER, what, argv);
 
 function failed(what: string, error: unknown): Error {
   const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string };
@@ -99,18 +112,23 @@ export const elixirArgv = (args: string[]) => [
 ];
 
 /**
- * The runs with a node up in `fcon_web`, read from its epmd. Global setup keeps
- * its CLI node until its teardown, so a run is listed for as long as it holds
- * the stack, however long that is, and not once its process has gone.
+ * The runs with a node up in `fcon_tools`, read from its epmd. Global setup
+ * keeps its CLI node until its teardown, so a run is listed for as long as it
+ * holds the stack, however long that is, and not once its process has gone.
  */
 function liveRuns(): Set<string> {
-  const names = inConsole('listing the nodes in the console', ['epmd', '-names']);
+  const names = inTools('listing the helper nodes', ['epmd', '-names']);
   return new Set([...names.matchAll(new RegExp(`^name pw_(${RUN_ID})_`, 'gm'))].map(([, run]) => run));
 }
 
-/** Runs `elixir` with `args` inside `fcon_web` and answers its output. */
+/** Runs `elixir` with `args` as a helper node inside `fcon_tools` and answers its output. */
 export function devElixir(what: string, args: string[]): string {
-  return inConsole(what, elixirArgv(args));
+  return inTools(what, elixirArgv(args));
+}
+
+/** Runs a script of `priv/dev` against the console's database, inside `fcon_web`. */
+export function consoleScript(what: string, args: string[]): string {
+  return inConsole(what, ['mix', 'run', '--no-start', ...args]);
 }
 
 type Waiting = { what: string; resolve: (out: string) => void; reject: (error: Error) => void };
@@ -119,7 +137,7 @@ let cliNode: CliNode | undefined;
 
 /**
  * Sends `requests` to `door` through this process's CLI node: one
- * `priv/dev/cli_call.exs --serve` inside `fcon_web`, booted on the first call
+ * `priv/dev/cli_call.exs --serve` inside `fcon_tools`, booted on the first call
  * and kept for the process's life, since a node boot costs over a CPU-second.
  * Answers what the door printed; rejects with the door's error.
  */
@@ -127,7 +145,7 @@ export function viaCliNode(what: string, door: string, requests: unknown[][]): P
   if (!cliNode) {
     // `docker exec -i`: the node serves until its stdin closes.
     const argv = elixirArgv(['/flezha_console/priv/dev/cli_call.exs', '--serve']);
-    const child = spawn('docker', ['exec', '-i', CONSOLE_CONTAINER, ...argv], { stdio: 'pipe' });
+    const child = spawn('docker', ['exec', '-i', TOOLS_CONTAINER, ...argv], { stdio: 'pipe' });
     const waiting: Waiting[] = [];
     let stderr = '';
 
@@ -208,7 +226,7 @@ export async function submitLogin(
   await form.getByRole('button', { name: /log in/i }).click();
 }
 
-/** The dev stack's controllers: the console's own, then the second. */
+/** The dev stack's controllers: the one `default` runs on, then the second. */
 export const CONTROLLERS = ['flezha@flezha_controller', 'flezha@flezha_controller_2'];
 
 /** The machine a controller node runs on, as the console names it. */
@@ -434,19 +452,16 @@ async function globalSetup(config: FullConfig) {
     );
 
     if (shared.size > 0) {
-      // The fake controller ExUnit drives is checked against these shapes, so
-      // a controller that answers differently fails here, before any spec. It
-      // only reads, so it runs while the workers are made and logged in.
-      logins.push(
-        inConsoleAsync(
-          "checking the controller's answer shapes",
-          elixirArgv(['/flezha_console/priv/dev/record_shapes.exs', '--check']),
-        ).then(() => undefined),
-      );
+      // The console decodes its controller's answers by these shapes, and the
+      // fake controller ExUnit drives is checked against them, so a controller
+      // that answers differently, or a channel that loses part of an answer,
+      // fails here, before any spec. It only reads, so it runs while the
+      // workers are made and logged in.
+      logins.push(checkShapes());
 
       // Made afresh each run, so nothing a previous run left on a user reaches this one.
-      devElixir('creating the worker users', [
-        '/flezha_console/priv/dev/console_users.exs',
+      consoleScript('creating the worker users', [
+        'priv/dev/console_users.exs',
         'renew',
         WORKER_PASSWORD,
         ...workers.map((i) => workerUser(i).email),
@@ -466,6 +481,27 @@ async function globalSetup(config: FullConfig) {
   }
 
   return release;
+}
+
+/**
+ * Records the shapes of the controller's reads over distribution and checks
+ * them against the committed file, then reads them again through the
+ * console's own channel, decoded, while the scratch relays the reads need are
+ * in place; they are removed whatever the outcome.
+ */
+async function checkShapes(): Promise<void> {
+  const recorder = '/flezha_console/priv/dev/record_shapes.exs';
+
+  try {
+    await inContainerAsync(TOOLS_CONTAINER, "checking the controller's answer shapes", elixirArgv([recorder, '--check', '--keep']));
+    await inContainerAsync(CONSOLE_CONTAINER, "checking the shapes through the console's channel", [
+      'sh',
+      '-c',
+      'FLEZHA_CONSOLE_DEV_SETUP=false exec mix run priv/dev/record_shapes.exs --channel',
+    ]);
+  } finally {
+    await inContainerAsync(TOOLS_CONTAINER, "removing the shape check's relays", elixirArgv([recorder, '--clean']));
+  }
 }
 
 async function logIn(

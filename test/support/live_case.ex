@@ -2,17 +2,18 @@ defmodule FlezhaConsoleWeb.LiveCase do
   @moduledoc """
   Case template for LiveView tests that need a controller to answer them.
 
-  Boots one peer node per test module standing in for the controller (see
-  `FakeController`) and logs a user in, so a test only has to say what the
-  controller should answer and then drive the screen.
+  Serves the fake controller over the channel for each test module (see
+  `FlezhaConsole.FakeListener`) and logs in a user holding a flezha token, so
+  a test only has to say what the controller should answer and then drive the
+  screen.
 
-  Never concurrent, and one peer per module rather than per test: the
-  controller `NodeManager.connected_node/0` answers is named by `FLEZHA_NODE`,
-  which is global VM state, so two modules with their own peers would each
-  repoint the other's screens.
+  Never concurrent, and one listener per module rather than per test: the
+  controller the console reaches is named by its configured URL, which is
+  global VM state, so two modules with their own listeners would each repoint
+  the other's screens.
 
-  Tagged `:distributed`, so `mix test --exclude distributed` still gives a fast
-  inner loop with no peer boots.
+  Tagged `:channel`, so `mix test --exclude channel` still gives a fast inner
+  loop with no listener.
 
       use FlezhaConsoleWeb.LiveCase
 
@@ -21,6 +22,9 @@ defmodule FlezhaConsoleWeb.LiveCase do
         {:ok, _view, html} = live(conn, ~p"/namespaces")
         assert html =~ "default"
       end
+
+  `node` is the fake controller's handle, which every `FakeController`
+  function takes first.
   """
 
   use ExUnit.CaseTemplate
@@ -51,21 +55,22 @@ defmodule FlezhaConsoleWeb.LiveCase do
           grant_operations: 3
         ]
 
-      alias FlezhaConsole.PeerNode
+      alias FlezhaConsole.FakeListener
       alias FlezhaConsole.Service.NodeManager
 
-      @moduletag :distributed
+      @moduletag :channel
 
       setup_all do
-        PeerNode.setup_controller()
+        %{node: FakeListener.start!()}
       end
 
       setup %{conn: conn, node: node} do
-        # Canned answers are node-global, so without this one test's setup is
-        # the next one's surprise.
+        # Canned answers live as long as the listener, so without this one
+        # test's setup is the next one's surprise.
         FakeController.reset(node)
 
         user = FlezhaConsole.AccountsFixtures.user_fixture()
+        {:ok, user} = FlezhaConsole.Accounts.update_user_flezha_token(user, "flzt_operator")
         %{conn: log_in_user(conn, user), user: user}
       end
     end
@@ -248,21 +253,18 @@ defmodule FlezhaConsoleWeb.LiveCase do
   def enforce_operations(node, user, identity) do
     token = "flzt_#{System.unique_integer([:positive])}"
     {:ok, _user} = FlezhaConsole.Accounts.update_user_flezha_token(user, token)
-    FakeController.set(node, {Flezha.AuthZ, :enforcement_posture}, :enforced)
-
-    FakeController.set(
-      node,
-      {Flezha.Service.Admin, :context},
-      {:ok, Map.put(identity, :source, :ui)}
-    )
+    grant_operations(node, identity, nil)
   end
 
-  @doc "Makes whoami answer `identity` with exactly `operations` granted."
+  @doc """
+  Makes whoami answer `identity` under an enforced posture with exactly
+  `operations` granted, or no list for `nil`.
+  """
   def grant_operations(node, identity, operations) do
     FakeController.set(
       node,
       {Flezha.Service.Namespace, :whoami},
-      {:ok, Map.put(identity, :operations, operations)}
+      {:ok, Map.merge(identity, %{operations: operations, posture: :enforced})}
     )
   end
 end

@@ -15,7 +15,7 @@ defmodule FlezhaConsoleWeb.ListenLiveTest do
   @listen {Relay, :listen}
 
   defp eventually_renders(view, pattern) do
-    assert PeerNode.eventually(fn -> render(view) =~ pattern end),
+    assert FakeController.eventually(fn -> render(view) =~ pattern end),
            "the screen never rendered #{inspect(pattern)}"
 
     render(view)
@@ -65,7 +65,7 @@ defmodule FlezhaConsoleWeb.ListenLiveTest do
                ~s(a[data-testid="listen-send"][href="/namespaces/default/relays/relay_a?do=talk"])
              )
 
-      assert [["default", "relay_a", :output, [], %{source: :ui}]] =
+      assert [["default", "relay_a", "output", [], %{token: _}]] =
                FakeController.calls(node, @listen)
     end
 
@@ -91,7 +91,7 @@ defmodule FlezhaConsoleWeb.ListenLiveTest do
       refute html =~ ~s(data-testid="listen-unservable")
 
       # The relay is named, never its controller: the controller routes the listen.
-      assert [["default", "relay_a", :output, [], %{source: :ui}]] =
+      assert [["default", "relay_a", "output", [], %{token: _}]] =
                FakeController.calls(node, @listen)
     end
 
@@ -197,11 +197,11 @@ defmodule FlezhaConsoleWeb.ListenLiveTest do
 
     test "closing the screen ends the listen on the controller", %{conn: conn, node: node} do
       view = listening(conn)
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) != [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @listen) != [] end)
 
       GenServer.stop(view.pid)
 
-      assert PeerNode.eventually(fn -> FakeController.streams(node, @listen) == [] end)
+      assert FakeController.eventually(fn -> FakeController.streams(node, @listen) == [] end)
     end
   end
 
@@ -319,9 +319,12 @@ defmodule FlezhaConsoleWeb.ListenLiveTest do
       refute html =~ "an output"
 
       eventually_renders(view, ~s(data-testid="listen-empty"))
-      assert PeerNode.eventually(fn -> length(FakeController.streams(node, @listen)) == 1 end)
 
-      assert [[_, _, :output, _, _], [_, _, :input, _, _]] = FakeController.calls(node, @listen)
+      assert FakeController.eventually(fn ->
+               length(FakeController.streams(node, @listen)) == 1
+             end)
+
+      assert [[_, _, "output", _, _], [_, _, "input", _, _]] = FakeController.calls(node, @listen)
     end
   end
 end

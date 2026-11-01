@@ -38,7 +38,8 @@ test.describe('Controller health', () => {
     await expect(page.getByTestId('shutdown-in-progress')).toHaveText('No');
     // Said in words, never the raw `nil` a not-shutting-down coordinator reports.
     await expect(page.getByTestId('shutdown-phase')).toHaveText('Not stopping');
-    await expect(page.getByTestId('boot-default')).toContainText('Serving');
+    // The console reaches a controller holding `_system`, whose HTTP API it calls.
+    await expect(page.getByTestId('boot-_system')).toContainText('Serving');
     await expect(page.getByTestId('authz-posture')).toContainText('Enforced');
 
     await expect(page.getByTestId('shipper-not-applicable')).toBeVisible();

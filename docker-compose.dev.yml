@@ -12,8 +12,9 @@ x-default-runner-credential: &default-runner-credential
   FLEZHA_RUNNER_NAMESPACE: ${FLEZHA_DEMO_NAMESPACE:-default}
   FLEZHA_RUNNER_TOKEN_FILE: /auth/runner.token
 
-# The Erlang distribution cookie, named once: the controller, the bootstrap
-# steps, the console and every helper node run inside fcon_web read this value.
+# The Erlang distribution cookie, named once: the controllers, the bootstrap
+# steps and the operator helpers of the tools service read this value. The
+# console holds none.
 x-dev-cookie: &dev-cookie
   ERLANG_COOKIE: flezha_dev_cookie
 
@@ -67,6 +68,8 @@ services:
       # The plugin root is read once, at boot.
       plugin_packages:
         condition: service_completed_successfully
+      certs:
+        condition: service_completed_successfully
     # Healthy once the code is compiled and the application has started: the
     # testnet listener is one of the last things it opens.
     healthcheck:
@@ -82,8 +85,12 @@ services:
       nofile:
         soft: 65536
         hard: 65536
+    # Its own channel certificate is linked to the one path the HTTP API plugin
+    # is enabled with on every controller (priv/dev/bootstrap_authz.exs).
     command: >
       sh -c 'trap "exit 0" TERM INT;
+      ln -sf /channel_tls/$$HOSTNAME.pem /tmp/channel_server.pem;
+      ln -sf /channel_tls/$$HOSTNAME.key /tmp/channel_server.key;
       while true; do
         pkill node 2>/dev/null;
         echo "==> Starting flezha iex...";
@@ -98,8 +105,13 @@ services:
       - fcon_flezha_build:/flezha/_build
       - fcon_flezha_deps:/flezha/deps
       - fcon_flezha_cargo_target:/flezha/_build/.target
+      - fcon_channel_tls:/channel_tls:ro
     networks:
-      - fcon_network
+      fcon_network:
+        # The console's controller URL names every controller, as a DNS name
+        # for a cluster does: the HTTP API listens only on the controllers that
+        # hold `_system`, and the console pins whichever answers.
+        aliases: [flezha_controllers]
 
   # A second controller in the same cluster, so every screen is exercised on a
   # relay, a runner and a dead letter the console's own controller does not
@@ -124,8 +136,12 @@ services:
         condition: service_completed_successfully
       controller_2_storage:
         condition: service_completed_successfully
+      certs:
+        condition: service_completed_successfully
     command: >
       sh -c 'trap "exit 0" TERM INT;
+      ln -sf /channel_tls/$$HOSTNAME.pem /tmp/channel_server.pem;
+      ln -sf /channel_tls/$$HOSTNAME.key /tmp/channel_server.key;
       while true; do
         echo "==> Starting flezha iex...";
         iex --sname flezha --cookie "$$ERLANG_COOKIE" -S mix;
@@ -134,6 +150,7 @@ services:
       done'
     volumes:
       - fcon_controller_2_storage:/flezha/storage
+      - fcon_channel_tls:/channel_tls:ro
 
   # Readies the second controller's storage before it boots: its plugin root
   # gets the packages the first one loads, since a loader writes into its own
@@ -156,6 +173,28 @@ services:
     volumes:
       - fcon_controller_2_storage:/storage
       - ../flezha/storage/app/plugins:/packages:ro
+
+  # Makes the controllers' channel certificates and the console's client
+  # certificate, from a dev authority of their own, into the volume each reads
+  # them from. Keeps what already exists. See priv/dev/certs.sh.
+  certs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fcon_certs
+    user: root
+    restart: "no"
+    command:
+      - sh
+      - /flezha_console_dev/certs.sh
+      - channel
+      - --name
+      - flezha_controllers
+      - flezha_controller
+      - flezha_controller_2
+    volumes:
+      - ./priv/dev:/flezha_console_dev:ro
+      - fcon_channel_tls:/channel_tls
 
   # Builds the flezha_http plugin package with the controller's toolchain and
   # places it, with a copy the loader refuses, in the plugin root the
@@ -380,8 +419,12 @@ services:
       - "4000:4000"
     environment:
       MIX_ENV: dev
-      <<: *dev-cookie
-      FLEZHA_NODE: flezha@flezha_controller
+      # The console's channel to its controller: HTTPS with a client
+      # certificate, every certificate made by the `certs` step.
+      FLEZHA_CONTROLLER_URL: https://flezha_controllers:8765
+      FLEZHA_CONTROLLER_CA: /channel_tls/ca.pem
+      FLEZHA_CLIENT_CERT: /channel_tls/console.pem
+      FLEZHA_CLIENT_KEY: /channel_tls/console.key
       # Written by the `bootstrap` service. Read as a file rather than an env
       # var because it is issued after this container starts.
       FLEZHA_TOKEN_FILE: /auth/ui.token
@@ -401,6 +444,7 @@ services:
       - fcon_web_deps:/flezha_console/deps
       - fcon_web_build:/flezha_console/_build
       - fcon_auth_data:/auth:ro
+      - fcon_channel_tls:/channel_tls:ro
       # The stylebook is an npm `file:` dependency, and npm writes a relative
       # symlink for one. From assets/node_modules/@flezha/ it walks up four
       # levels, which lands on the container root — so this path is the one
@@ -411,6 +455,32 @@ services:
     networks:
       - fcon_network
     restart: unless-stopped
+
+  # The operator helpers, which stand in for `flz` on a controller's host: the
+  # stack script, CLI calls for the browser suite, seeding and shape recording.
+  # They hold the cookie and reach the controllers over distribution, so the
+  # console does not have to. Each runs here with `docker exec`.
+  tools:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fcon_tools
+    hostname: fcon_tools
+    init: true
+    environment:
+      <<: *dev-cookie
+      FLEZHA_NODE: flezha@flezha_controller
+      FLEZHA_TOKEN_FILE: /auth/ui.token
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes:
+      - .:/flezha_console
+      - fcon_auth_data:/auth:ro
+    networks:
+      - fcon_network
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
 
   # One broker that is also its own controller (KRaft), so no ZooKeeper.
   # Nothing on the host talks to it: it advertises only its in-network name.
@@ -494,6 +564,7 @@ volumes:
   fcon_sandbox_build:
   fcon_sandbox_deps:
   fcon_controller_2_storage:
+  fcon_channel_tls:
 
 networks:
   fcon_network:

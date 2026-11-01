@@ -1,5 +1,5 @@
 # Drives a dev controller over Erlang distribution, for priv/dev/stack.sh.
-# Run inside `fcon_web`, as a hidden node of the dev stack:
+# Run inside `fcon_tools`, as a hidden node of the dev stack:
 #
 #     elixir --sname <unique> --hidden --cookie <cookie> priv/dev/controller.exs <command> <node>
 #

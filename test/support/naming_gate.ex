@@ -88,6 +88,7 @@ defmodule FlezhaConsole.NamingGate do
     {".claude/", ~r/workflow/i,
      "OpenSpec's generated commands and skills use the word for OpenSpec's own process"},
     {"", ~r/\.github\/workflows\//, "the directory GitHub reads CI definitions from"},
+    {"", ~r/\/v1\/stream/, "the route core's HTTP API serves its streams at"},
     {"test/flezha_console_web/live/console_navigation_test.exs", ~r/\/operatives/,
      "asserts the retired routes answer 404"},
     {"test/flezha_console_web/live/console_navigation_test.exs", ~r/\/stream(?![A-Za-z0-9_-])/,
@@ -103,16 +104,14 @@ defmodule FlezhaConsole.NamingGate do
      "the naming gate's own requirement lists every name it bans"},
     {"e2e/global-setup.ts", ~r/setTimeout\(resolve, 500\)/,
      "global setup paces its reads of a controller that is still booting; no test has started"},
-    {"test/support/peer_node.ex", ~r/Process\.sleep\(20\)/,
+    {"test/support/fake_controller.ex", ~r/Process\.sleep\(20\)/,
      "eventually/2 is the one sanctioned poll: short steps toward a condition the test caused"},
     {"lib/flezha_console_web/log_lines.ex", ~r/"operator"/,
      "core's relay history names a start an operator asked for by its origin kind, not by a role"},
     {"test/flezha_console_web/core/log_lines_test.exs", ~r/"operator"/,
      "core's relay history names a start an operator asked for by its origin kind, not by a role"},
     {"test/support/fake_controller.ex", ~r/"operator"/,
-     "core's relay history names a start an operator asked for by its origin kind, not by a role"},
-    {"test/support/fake_controller.ex", ~r/Process\.sleep\(:infinity\)/,
-     "parks the process that owns the answer table; nothing waits on it"}
+     "core's relay history names a start an operator asked for by its origin kind, not by a role"}
   ]
 
   @type hit :: %{file: String.t(), line: non_neg_integer(), term: String.t(), use: String.t()}

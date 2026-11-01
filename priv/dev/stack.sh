@@ -18,9 +18,10 @@ CONTROLLERS=(flezha_controller flezha_controller_2)
 
 compose() { docker compose -f docker-compose.dev.yml "$@"; }
 
-# priv/dev/controller.exs, run as a hidden node inside fcon_web.
+# priv/dev/controller.exs, run as a hidden node inside fcon_tools, which holds
+# the cookie.
 controller() {
-  docker exec fcon_web sh -c \
+  docker exec fcon_tools sh -c \
     'cd /flezha_console && exec elixir --sname "stack_$$" --hidden --cookie "$ERLANG_COOKIE" priv/dev/controller.exs "$@"' \
     sh "$@"
 }
