@@ -17,7 +17,7 @@ defmodule FlezhaConsole.NamingGate do
   an entry nothing needs any more is itself a failure.
   """
 
-  @binary_ext ~w(.png .ico .woff .woff2 .jpg)
+  @binary_ext ~w(.png .ico .woff .woff2 .jpg .webp)
   @own_files ~w(test/support/naming_gate.ex test/flezha_console/naming_gate_test.exs)
   @legal ~w(LICENSE)
 
@@ -86,6 +86,7 @@ defmodule FlezhaConsole.NamingGate do
   # {path prefix, text, reason}
   @allowlist [
     {"", ~r/\.github\/workflows\//, "the directory GitHub reads CI definitions from"},
+    {"README.md", ~r/actions\/workflows\//, "the address GitHub serves a CI status badge at"},
     {"", ~r/\/v1\/stream/, "the route core's HTTP API serves its streams at"},
     {"test/flezha_console_web/live/console_navigation_test.exs", ~r/\/operatives/,
      "asserts the retired routes answer 404"},
