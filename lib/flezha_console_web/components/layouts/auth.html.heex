@@ -1,0 +1,19 @@
+<div class="fcon-auth" data-testid="auth-canvas">
+  <header class="fcon-auth-bar" data-testid="auth-topbar">
+    <.link navigate={~p"/"} aria-label={product_name()}>
+      <.brand_lockup on={:canvas} />
+    </.link>
+    <.theme_toggle />
+  </header>
+  <main class="fcon-auth-main">
+    <div class="fcon-auth-form">
+      <%= if assigns[:inner_block] do %>
+        {render_slot(@inner_block)}
+      <% else %>
+        {@inner_content}
+      <% end %>
+    </div>
+  </main>
+</div>
+
+<.flash_group flash={@flash} />

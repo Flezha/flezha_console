@@ -1,0 +1,257 @@
+<.page_header
+  eyebrow="Platform"
+  title={@page_title}
+  tabs={kind_tabs(@kinds, @kind)}
+  tabs_label="Logs"
+>
+  <:sentence>
+    <%= if assigns[:declared] do %>
+      {@declared.description}
+    <% else %>
+      The controller's durable logs: who did what, and every relay run's start and end. Read one
+      with a filter, or tail it live.
+    <% end %>
+  </:sentence>
+</.page_header>
+<div class="space-y-6">
+  <.skeleton :if={is_nil(@kinds)} rows={3} testid="logs-loading" />
+  <.runtime_error :if={@kinds_error} error={@kinds_error} action="the log listing" />
+
+  <p :if={@kinds == [] and is_nil(@kinds_error)} class="fcon-figures" data-testid="logs-none">
+    The controller keeps no log.
+  </p>
+
+  <.notice
+    :if={(@kinds not in [nil, []] and @kind) && is_nil(@declared)}
+    testid="logs-unknown-kind"
+  >
+    The controller keeps no log named <code>{@kind}</code>. Its logs are the tabs above.
+  </.notice>
+
+  <.runtime_error error={@load_error} action="this log" />
+
+  <.notice :if={@disabled} testid="logs-disabled">
+    {disabled_text(@disabled)}
+  </.notice>
+
+  <.partial_answer
+    unreachable={Enum.uniq(@catalog_unreachable ++ @read_unreachable)}
+    controllers={@shell_pulse[:controllers]}
+  />
+
+  <%= if assigns[:declared] && is_nil(@disabled) do %>
+    <%!-- Files, per controller --%>
+    <.section
+      testid="logs-files-panel"
+      flush
+      digest={Words.count(Enum.count(@catalog, &(!&1.current?)), "rotated file")}
+    >
+      <:title>Files</:title>
+      <div :for={stats <- @stats} class="mb-4" data-testid={"logs-stats-#{stats.node}"}>
+        <p class="fcon-figures mb-1">
+          <.controller_name node={stats.node} controllers={@shell_pulse[:controllers]} />
+        </p>
+        <dl class="fcon-facts">
+          <.stat :for={{label, value} <- stat_tiles(stats)} label={label}>{value}</.stat>
+        </dl>
+        <p :if={stats[:dropped_count] not in [nil, 0]} class="mt-2 fcon-tone-negative">
+          {Words.count(stats[:dropped_count], "record")} dropped rather than written.
+        </p>
+      </div>
+      <div :if={@rotate_error} data-testid="logs-rotate-error" class="mb-3">
+        <.runtime_error error={@rotate_error} action="the rotation" />
+      </div>
+      <% rotatable? = NodeManager.granted?(@operations, "Logs.rotate") %>
+      <p :if={@catalog != []} class="fcon-figures mb-2">
+        A rotated file holds the records written before a rotation. Records below reads every
+        file, newest first.
+      </p>
+      <.grid
+        :if={@catalog != []}
+        paging={@paging}
+        id="logs-file-rows"
+        rows={@catalog}
+        testid="logs-files"
+        row_id={&"logs-file-#{&1.node}-#{&1.filename}"}
+        row_testid={&"logs-file#{if &1.current?, do: "-current"}"}
+      >
+        <:col :let={file} label="Controller">
+          <.controller_name node={file.node} controllers={@shell_pulse[:controllers]} />
+        </:col>
+        <:col :let={file} label="File">
+          <span class="fcon-num">{file.filename}</span>
+          <.chip :if={file.current?}>current</.chip>
+        </:col>
+        <:col :let={file} label="Records" num>{file[:record_count] || "—"}</:col>
+        <:col :let={file} label="Size" num>
+          {(file[:size_bytes] && Format.bytes(file[:size_bytes])) || "—"}
+        </:col>
+        <:col :let={file} :if={rotatable?} label="Actions">
+          <.button
+            :if={file.current?}
+            variant="secondary"
+            size="sm"
+            icon="hero-arrow-path-rounded-square"
+            phx-click="rotate"
+            phx-value-node={file.node}
+            aria-label={"Rotate #{file.filename} on #{file.node}"}
+            data-testid={"logs-rotate-#{file.node}"}
+          >
+            Rotate
+          </.button>
+        </:col>
+      </.grid>
+    </.section>
+
+    <%!-- Read --%>
+    <.section id="logs-records" testid="logs-records-panel">
+      <:title>Records</:title>
+      <div class="space-y-4">
+        <form
+          id="logs-filters"
+          phx-change="filter_change"
+          phx-submit="read"
+          class="grid gap-4 sm:grid-cols-4 items-end"
+          data-testid="logs-filters"
+        >
+          <%= for filter <- @declared.filters do %>
+            <.input
+              :if={filter.type == "enum"}
+              type="select"
+              name={"filter[#{filter.field}]"}
+              label={filter.label}
+              value={@filter[filter.field]}
+              prompt="Any"
+              options={
+                for value <- filter.values, do: {LogLines.choice(filter.field, value), value}
+              }
+              data-testid={"logs-filter-#{filter.field}"}
+            />
+            <.input
+              :if={filter.type != "enum"}
+              type="text"
+              name={"filter[#{filter.field}]"}
+              label={filter.label}
+              value={@filter[filter.field]}
+              placeholder="any"
+              data-testid={"logs-filter-#{filter.field}"}
+            />
+          <% end %>
+          <.input
+            type="datetime-local"
+            name="filter[since]"
+            label="From (UTC)"
+            value={@filter["since"]}
+            data-testid="logs-filter-since"
+          />
+          <.input
+            type="datetime-local"
+            name="filter[until]"
+            label="Until (UTC)"
+            value={@filter["until"]}
+            data-testid="logs-filter-until"
+          />
+          <.input
+            type="number"
+            name="filter[limit]"
+            label="Limit"
+            value={@filter["limit"] || "100"}
+            data-testid="logs-filter-limit"
+          />
+          <div>
+            <.button
+              type="submit"
+              variant="secondary"
+              size="sm"
+              icon="hero-arrow-path"
+              data-testid="logs-read-btn"
+            >
+              Read
+            </.button>
+          </div>
+        </form>
+
+        <.runtime_error :if={@read_error} error={@read_error} action="this read" />
+
+        <%= cond do %>
+          <% @read_error && is_nil(@records) -> %>
+          <% is_nil(@records) -> %>
+            <.skeleton rows={3} testid="logs-records-loading" />
+          <% @records == [] -> %>
+            <p data-testid="logs-records-empty" class="fcon-figures">
+              No record matches this filter.
+            </p>
+          <% true -> %>
+            <.log_records
+              records={@records}
+              kind={@kind}
+              declared={@declared}
+              expanded={@expanded}
+              testid="logs-records"
+            />
+            <div :if={@next} class="flex items-center gap-3">
+              <span class="fcon-figures" data-testid="logs-truncated">
+                Older records match than this read took.
+              </span>
+              <span :if={!more_readable?(@records)} class="fcon-figures" data-testid="logs-capped">
+                Narrow the filter to read past the first {max_records()}.
+              </span>
+              <.button
+                :if={more_readable?(@records)}
+                variant="secondary"
+                size="sm"
+                phx-click="read_more"
+                data-testid="logs-read-more"
+              >
+                Read more
+              </.button>
+            </div>
+        <% end %>
+      </div>
+    </.section>
+
+    <%!-- Tail --%>
+    <.section
+      testid="logs-tail-panel"
+      digest={
+        if @tailing,
+          do: Words.count(length(@tail_records), "record") <> " so far",
+          else: "stopped"
+      }
+    >
+      <:title>Live tail</:title>
+      <:actions>
+        <.switch
+          checked={@tailing != nil}
+          label="Tail new records"
+          phx-click={if @tailing, do: "stop_tail", else: "start_tail"}
+          testid="logs-tail-toggle"
+        />
+      </:actions>
+      <div>
+        <%!-- A subscription the controller refused is stated: a tail that never
+              started looks exactly like a quiet one otherwise. --%>
+        <.runtime_error :if={@tail_error} error={@tail_error} action="the live tail" />
+        <%= cond do %>
+          <% is_nil(@tailing) -> %>
+            <p data-testid="logs-tail-idle" class="fcon-figures">
+              The tail is stopped. Start it to see new records, narrowed by the filters above, as
+              they are written.
+            </p>
+          <% @tail_records == [] -> %>
+            <p class="fcon-figures" data-testid="logs-tail-waiting">
+              Tailing — waiting for the next record.
+            </p>
+          <% true -> %>
+            <.log_records
+              records={@tail_records}
+              kind={@kind}
+              declared={@declared}
+              expanded={@expanded}
+              testid="logs-tail-records"
+            />
+        <% end %>
+      </div>
+    </.section>
+  <% end %>
+</div>

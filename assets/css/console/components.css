@@ -1,0 +1,3079 @@
+/*
+ * The console's component kit. One recipe per element, each drawn by exactly
+ * one function component in `FlezhaConsoleWeb.CoreComponents`; a screen composes
+ * them and adds layout utilities, never a colour, a border or a radius of
+ * its own. Every element is listed on the dev-only `/dev/kit` page.
+ *
+ * Raised surfaces (raised fill and an elevation) are kept for what floats:
+ * live canvases, drawers, dialogs, popovers and toasts. Everything else sits
+ * on the canvas, separated by space and hairlines.
+ */
+
+/* ======================================================================
+   Brand on the canvas, counts and strips
+   (the shell itself — rail and topbar — is the stylebook's; the console's
+   one layer on it is shell.css)
+   ====================================================================== */
+
+.fcon-brand {
+  align-items: center;
+  color: var(--fcon-ink-1);
+  display: inline-flex;
+  flex: none;
+}
+
+.fcon-brand:hover {
+  text-decoration: none;
+}
+
+.fcon-brand--canvas {
+  color: var(--fcon-logo);
+}
+
+.fcon-logo {
+  background-color: currentColor;
+  display: block;
+  height: 2.75rem;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+}
+
+.fcon-count {
+  align-items: center;
+  border-radius: var(--fcon-radius-control);
+  display: inline-flex;
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-xs);
+  font-weight: 500;
+  height: 1.25rem;
+  justify-content: center;
+  min-width: 1.25rem;
+  padding: 0 var(--fcon-space-1);
+}
+
+.fcon-count--warning {
+  background: var(--fcon-warning);
+  color: var(--fcon-on-warning);
+}
+
+.fcon-count--negative {
+  background: var(--fcon-negative-solid);
+  color: var(--fcon-on-negative);
+}
+
+.fcon-count--neutral {
+  background: var(--fcon-hover);
+  color: var(--fcon-ink-2);
+}
+
+/* A namespace's health, as one strip of segments sized by count. */
+.fcon-strip {
+  background: var(--fcon-hover);
+  border-radius: var(--fcon-radius-control);
+  display: flex;
+  gap: 1px;
+  grid-column: 1 / -1;
+  height: 4px;
+  overflow: hidden;
+}
+
+.fcon-strip-part {
+  min-width: 4px;
+}
+
+.fcon-strip-part[data-tone="positive"] { background: var(--fcon-positive); }
+.fcon-strip-part[data-tone="warning"] { background: var(--fcon-warning); }
+.fcon-strip-part[data-tone="negative"] { background: var(--fcon-negative); }
+.fcon-strip-part[data-tone="neutral"] { background: var(--fcon-ink-3); }
+
+/* ======================================================================
+   Page grammar: a header of kind, name, sentence, actions and tabs
+   ====================================================================== */
+
+/* The actions sit beside the title while 20rem of it fits, and move under it
+   rather than narrow it, whatever room the canvas has. */
+.fcon-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fcon-space-2) var(--fcon-space-6);
+  margin-bottom: var(--fcon-space-7);
+}
+
+.fcon-page-heading {
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+
+.fcon-crumbs {
+  align-items: center;
+  color: var(--fcon-ink-3);
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-2);
+}
+
+.fcon-crumbs a {
+  color: var(--fcon-ink-2);
+}
+
+.fcon-crumbs a:hover {
+  color: var(--fcon-accent);
+}
+
+.fcon-crumbs [aria-current] {
+  color: var(--fcon-ink-1);
+}
+
+.fcon-crumb-sep {
+  color: var(--fcon-line-strong);
+}
+
+.fcon-eyebrow {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fcon-title {
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-3xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: var(--fcon-leading-tight);
+  overflow-wrap: anywhere;
+}
+
+.fcon-sentence {
+  color: var(--fcon-ink-2);
+  font-size: var(--fcon-text-lg);
+  max-width: 72ch;
+}
+
+.fcon-sentence--headline {
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-2xl);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: var(--fcon-leading-tight);
+}
+
+.fcon-figures {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-md);
+}
+
+.fcon-page-actions {
+  align-items: flex-start;
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: var(--fcon-space-2);
+}
+
+.fcon-page-header .fcon-tabs {
+  flex-basis: 100%;
+  margin-top: var(--fcon-space-3);
+}
+
+@media (width <= 599px) {
+  .fcon-title {
+    font-size: var(--fcon-text-2xl);
+  }
+}
+
+/* Scrolls sideways on a narrow screen; the tab's -1px overlap of the line
+   must not make it scroll vertically too. */
+.fcon-tabs {
+  border-bottom: 1px solid var(--fcon-line);
+  display: flex;
+  gap: var(--fcon-space-1);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.fcon-tab {
+  border-bottom: 3px solid transparent;
+  color: var(--fcon-ink-2);
+  font-size: var(--fcon-text-lg);
+  font-weight: 600;
+  margin-bottom: -1px;
+  padding: var(--fcon-space-3) var(--fcon-space-4);
+  white-space: nowrap;
+}
+
+.fcon-tab:hover {
+  color: var(--fcon-accent);
+  text-decoration: none;
+}
+
+.fcon-tab[aria-current] {
+  border-bottom-color: var(--fcon-accent);
+  color: var(--fcon-accent);
+}
+
+/* Sections: separated by space and a hairline, not drawn as cards. */
+.fcon-section {
+  border-top: 1px solid var(--fcon-line);
+  margin-top: var(--fcon-space-8);
+  padding-top: var(--fcon-space-5);
+}
+
+.fcon-section--flush {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.fcon-section-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fcon-space-2) var(--fcon-space-4);
+  justify-content: space-between;
+  min-height: var(--fcon-control-h);
+}
+
+.fcon-section-title {
+  align-items: baseline;
+  color: var(--fcon-ink-1);
+  display: inline-flex;
+  flex-wrap: wrap;
+  font-size: var(--fcon-text-lg);
+  font-weight: 600;
+  gap: var(--fcon-space-2) var(--fcon-space-3);
+}
+
+/* An object's own name heading its section, after the eyebrow naming its kind. */
+.fcon-section-name {
+  font-family: var(--fcon-font-display);
+  overflow-wrap: anywhere;
+}
+
+.fcon-section-digest {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-sm);
+  font-weight: 400;
+}
+
+.fcon-section-toggle {
+  align-items: center;
+  border-radius: var(--fcon-radius-control);
+  display: inline-flex;
+  gap: var(--fcon-space-2);
+  margin-left: calc(-1 * var(--fcon-space-1));
+  padding: 0 var(--fcon-space-1);
+  text-align: left;
+}
+
+.fcon-section-toggle:hover .fcon-section-title {
+  color: var(--fcon-accent);
+}
+
+.fcon-chevron {
+  color: var(--fcon-ink-3);
+  transition: transform var(--fcon-base) var(--fcon-ease);
+}
+
+[aria-expanded="true"] > .fcon-chevron {
+  transform: rotate(90deg);
+}
+
+.fcon-section-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fcon-space-2);
+}
+
+.fcon-section-body {
+  margin-top: var(--fcon-space-4);
+}
+
+/* A notice stands apart from what follows it in a section. */
+.fcon-section-body > .fcon-note:not(:last-child) {
+  margin-bottom: var(--fcon-space-4);
+}
+
+/* ======================================================================
+   Controls
+   ====================================================================== */
+
+/* Buttons are the stylebook's `.flz-button`. In the console's packed rows a
+   label neither wraps nor gives up its width, and a link that is a button
+   keeps no hover underline. */
+.flz-button {
+  flex: none;
+  white-space: nowrap;
+}
+
+.flz-button:hover {
+  text-decoration: none;
+}
+
+/* An icon-only control: a row's menu, a close, a dismiss. Its hit area is a
+   full control's height, whatever the icon's size. */
+.fcon-iconbtn {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-2);
+  cursor: pointer;
+  display: inline-flex;
+  height: var(--fcon-control-h);
+  justify-content: center;
+  min-width: var(--fcon-control-h);
+  padding: 0 var(--fcon-space-1);
+}
+
+.fcon-iconbtn:hover {
+  background: var(--fcon-hover);
+  color: var(--fcon-ink-1);
+}
+
+/* An action in flight answers at once, whatever it does next: the button
+   dims, stops taking clicks and shows a spinner in place of its icon. */
+.phx-submit-loading .flz-button[type="submit"],
+.flz-button.phx-click-loading,
+.fcon-iconbtn.phx-click-loading {
+  cursor: progress;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.flz-button.phx-click-loading::before,
+.phx-submit-loading .flz-button[type="submit"]::before {
+  animation: fcon-spin 0.9s linear infinite;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  border-right-color: transparent;
+  content: "";
+  flex: none;
+  height: 1em;
+  width: 1em;
+}
+
+/* A result just brought into view by `fcon:reveal`: its edge glows once in the
+   accent, then fades. */
+.fcon-revealed {
+  animation: fcon-reveal 1.6s var(--fcon-ease);
+}
+
+@keyframes fcon-reveal {
+  from { box-shadow: 0 0 0 3px var(--fcon-accent); }
+  to { box-shadow: 0 0 0 3px transparent; }
+}
+
+/* The spinner stands in for a button's leading icon, never beside it. */
+.flz-button.phx-click-loading > [class*="hero-"]:first-child,
+.phx-submit-loading .flz-button[type="submit"] > [class*="hero-"]:first-child {
+  display: none;
+}
+
+.fcon-spin {
+  animation: fcon-spin 0.9s linear infinite;
+}
+
+@keyframes fcon-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---- Fields ---- */
+.fcon-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fcon-space-1);
+}
+
+.fcon-label {
+  color: var(--fcon-ink-1);
+  font-size: var(--fcon-text-md);
+  font-weight: 600;
+}
+
+.fcon-hint {
+  color: var(--fcon-ink-2);
+  font-size: var(--fcon-text-sm);
+}
+
+.fcon-error {
+  align-items: center;
+  color: var(--fcon-negative);
+  display: flex;
+  font-size: var(--fcon-text-xs);
+  gap: var(--fcon-space-1);
+}
+
+.fcon-input--mono {
+  font-family: var(--fcon-font-mono);
+}
+
+.fcon-input--compact {
+  font-size: var(--fcon-text-sm);
+  min-height: var(--fcon-control-h-sm);
+}
+
+/* Outranks base.css's phone rule, so it keeps the 16 px floor itself. */
+@media (width <= 599px) {
+  .fcon-input--compact {
+    font-size: max(16px, var(--fcon-text-sm));
+  }
+}
+
+.fcon-check {
+  align-items: center;
+  color: var(--fcon-ink-1);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: var(--fcon-text-md);
+  gap: var(--fcon-space-2);
+}
+
+/* A switch is a button with `role="switch"`; its state is `aria-checked`. */
+.fcon-switch {
+  align-items: center;
+  cursor: pointer;
+  display: inline-flex;
+  gap: var(--fcon-space-2);
+}
+
+.fcon-switch-track {
+  background: var(--fcon-line-strong);
+  border-radius: var(--fcon-radius-control);
+  display: inline-block;
+  flex: none;
+  height: 1.125rem;
+  position: relative;
+  transition: background-color var(--fcon-fast) var(--fcon-ease);
+  width: 2rem;
+}
+
+.fcon-switch-track::after {
+  background: var(--fcon-surface);
+  border-radius: var(--fcon-radius-control);
+  box-shadow: 0 1px 2px var(--fcon-shadow);
+  content: "";
+  height: 0.875rem;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  transition: transform var(--fcon-fast) var(--fcon-ease);
+  width: 0.875rem;
+}
+
+.fcon-switch[aria-checked="true"] .fcon-switch-track {
+  background: var(--fcon-accent);
+}
+
+.fcon-switch[aria-checked="true"] .fcon-switch-track::after {
+  transform: translateX(0.875rem);
+}
+
+/* On for part of what it switches: the knob rests halfway. */
+.fcon-switch[aria-checked="mixed"] .fcon-switch-track::after {
+  transform: translateX(0.4375rem);
+}
+
+.fcon-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.fcon-switch-label {
+  color: var(--fcon-ink-1);
+  font-size: var(--fcon-text-sm);
+}
+
+/* ---- Segmented control ---- */
+.fcon-segmented {
+  background: var(--fcon-canvas);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-control);
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+}
+
+.fcon-segment {
+  align-items: center;
+  border-radius: calc(var(--fcon-radius-control) - 2px);
+  color: var(--fcon-ink-2);
+  display: inline-flex;
+  font-size: var(--fcon-text-sm);
+  font-weight: 500;
+  gap: var(--fcon-space-1);
+  height: var(--fcon-control-h-sm);
+  padding: 0 var(--fcon-space-3);
+}
+
+.fcon-segment:hover {
+  color: var(--fcon-accent);
+  text-decoration: none;
+}
+
+.fcon-segment[aria-pressed="true"],
+.fcon-segment[aria-current] {
+  background: var(--fcon-surface);
+  box-shadow: 0 1px 2px var(--fcon-shadow);
+  color: var(--fcon-ink-1);
+}
+
+/* ---- Popover, menu and combobox ---- */
+.fcon-pop {
+  display: inline-block;
+  position: relative;
+}
+
+.fcon-popover {
+  background: var(--fcon-raised);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-surface);
+  box-shadow: 0 12px 32px var(--fcon-shadow);
+  margin-top: var(--fcon-space-1);
+  max-height: min(28rem, 70vh);
+  min-width: 12rem;
+  overflow: auto;
+  padding: var(--fcon-space-1);
+  position: absolute;
+  top: 100%;
+  z-index: var(--fcon-z-popover);
+}
+
+/* The technical name beside a plain one: small and quiet like a stream's
+   time, and never cut off. */
+.fcon-tech-name {
+  overflow-wrap: anywhere;
+}
+
+/* A drawer's status line, set off from what follows by a rule. */
+.fcon-drawer-status {
+  border-bottom: 1px solid var(--fcon-line);
+  padding-bottom: var(--fcon-space-2);
+}
+
+/* A live tail fills the drawer it opens in. Its lines are event rows whose
+   detail takes the drawer's whole width under the time and the name. */
+.fcon-tail {
+  max-height: calc(100vh - 16rem);
+  overflow-y: auto;
+}
+
+.fcon-tail .fcon-river-event {
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+}
+
+.fcon-tail .fcon-river-event > :last-child {
+  grid-column: 1 / -1;
+}
+
+/* A review before an action: each fact on its own row, the term on the left,
+   what will happen on the right, with a quieter line explaining it. */
+.fcon-review {
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-surface);
+  display: grid;
+}
+
+.fcon-review-row {
+  display: grid;
+  gap: var(--fcon-space-1) var(--fcon-space-4);
+  grid-template-columns: minmax(7rem, 9rem) 1fr;
+  padding: var(--fcon-space-3) var(--fcon-space-4);
+}
+
+.fcon-review-row + .fcon-review-row {
+  border-top: 1px solid var(--fcon-line);
+}
+
+.fcon-review-row > dt {
+  color: var(--fcon-ink-2);
+  font-weight: 600;
+}
+
+.fcon-review-row > dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fcon-review-note {
+  color: var(--fcon-ink-2);
+  display: block;
+  font-size: var(--fcon-text-sm);
+}
+
+.fcon-review-values {
+  display: grid;
+  gap: var(--fcon-space-1);
+}
+
+.fcon-review-values > div {
+  display: flex;
+  gap: var(--fcon-space-3);
+}
+
+.fcon-review-values dt::after {
+  content: ":";
+}
+
+@media (width <= 599px) {
+  .fcon-review-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* A row's own name, linking to its page: underlined so it reads as a link
+   inside a row that also opens an inspector. */
+.fcon-row-link {
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--fcon-line-strong);
+  text-underline-offset: 3px;
+}
+
+.fcon-row-members {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fcon-space-1) var(--fcon-space-3);
+  margin-top: var(--fcon-space-1);
+}
+
+/* A partition listed under its open group. */
+.fcon-row-partition {
+  border-left: 2px solid var(--fcon-line-strong);
+  display: inline-flex;
+  flex-direction: column;
+  margin-left: var(--fcon-space-2);
+  padding-left: var(--fcon-space-3);
+}
+
+.fcon-row-partition .fcon-figures,
+.fcon-rate-figures .fcon-figures {
+  font-size: var(--fcon-text-xs);
+}
+
+.fcon-row-link:hover {
+  color: var(--fcon-accent);
+  text-decoration-color: currentColor;
+}
+
+/* The "?" that explains what sits beside it. Muted until pointed at, so a
+   screen with many of them still reads as its content. */
+.fcon-help-tip {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--fcon-ink-3);
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 2rem;
+  min-width: 2rem;
+}
+
+/* Controls drawn smaller than a control still give a finger a full one. */
+@media (pointer: coarse) {
+  .fcon-switch,
+  .fcon-section-toggle,
+  .fcon-help-tip,
+  button.fcon-chip {
+    justify-content: center;
+    min-height: var(--fcon-control-h);
+    min-width: var(--fcon-control-h);
+  }
+
+  .fcon-check > input[type="checkbox"] {
+    height: var(--fcon-control-h);
+  }
+}
+
+.fcon-help-tip:hover,
+.fcon-help-tip[aria-expanded="true"] {
+  color: var(--fcon-accent);
+}
+
+.fcon-help-panel {
+  color: var(--fcon-ink-2);
+  font-family: var(--fcon-font-sans);
+  font-size: var(--fcon-text-md);
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: var(--fcon-leading-normal);
+  padding: var(--fcon-space-3) var(--fcon-space-4);
+  text-align: start;
+  text-transform: none;
+  white-space: normal;
+  width: min(24rem, 80vw);
+}
+
+.fcon-popover--end {
+  right: 0;
+}
+
+.fcon-popover--start {
+  left: 0;
+}
+
+.fcon-menu-item {
+  align-items: center;
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
+  display: flex;
+  font-size: var(--fcon-text-md);
+  gap: var(--fcon-space-2);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
+  text-align: left;
+  white-space: nowrap;
+  width: 100%;
+}
+
+a.fcon-menu-item:hover,
+button.fcon-menu-item:hover,
+.fcon-menu-item:focus-visible {
+  background: var(--fcon-accent-subtle);
+  color: var(--fcon-ink-1);
+  text-decoration: none;
+}
+
+.fcon-menu-item--danger,
+a.fcon-menu-item--danger:hover,
+button.fcon-menu-item--danger:hover {
+  color: var(--fcon-negative);
+}
+
+button.fcon-menu-item--danger:hover {
+  background: var(--fcon-negative-subtle);
+}
+
+.fcon-menu-note {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
+}
+
+.fcon-menu-sep {
+  border: 0;
+  border-top: 1px solid var(--fcon-line);
+  margin: var(--fcon-space-1) 0;
+}
+
+.fcon-combobox {
+  display: block;
+  position: relative;
+}
+
+.fcon-combobox-trigger {
+  align-items: center;
+  background: var(--fcon-surface);
+  border: 1px solid var(--fcon-line-strong);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
+  display: flex;
+  font-size: var(--fcon-text-md);
+  gap: var(--fcon-space-2);
+  min-height: var(--fcon-control-h);
+  padding: 0 var(--fcon-space-2) 0 var(--fcon-space-3);
+  width: 100%;
+}
+
+.fcon-combobox-trigger:hover {
+  border-color: var(--fcon-ink-3);
+}
+
+.fcon-combobox-trigger:disabled {
+  background: var(--fcon-canvas);
+  color: var(--fcon-ink-3);
+  cursor: not-allowed;
+}
+
+.fcon-combobox .fcon-popover {
+  left: 0;
+  min-width: 100%;
+}
+
+.fcon-combobox-search {
+  margin-bottom: var(--fcon-space-1);
+}
+
+.fcon-option {
+  align-items: center;
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
+  display: flex;
+  font-size: var(--fcon-text-md);
+  gap: var(--fcon-space-2);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
+  text-align: left;
+  width: 100%;
+}
+
+.fcon-option:hover,
+.fcon-option:focus-visible {
+  background: var(--fcon-accent-subtle);
+}
+
+.fcon-option-check {
+  color: var(--fcon-accent);
+  visibility: hidden;
+}
+
+.fcon-option[aria-checked="true"] .fcon-option-check {
+  visibility: visible;
+}
+
+.fcon-option[aria-checked="true"] {
+  font-weight: 600;
+}
+
+/* ---- Chip ---- */
+.fcon-chip {
+  align-items: center;
+  background: var(--fcon-surface);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-2);
+  display: inline-flex;
+  font-size: var(--fcon-text-xs);
+  gap: var(--fcon-space-1);
+  height: 1.375rem;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 var(--fcon-space-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fcon-chip--mono {
+  font-family: var(--fcon-font-mono);
+}
+
+/* "Live": a solid signal tag on a live canvas. */
+.fcon-live {
+  align-items: center;
+  background: var(--fcon-signal);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-on-signal);
+  display: inline-flex;
+  font-size: var(--fcon-text-xs);
+  font-weight: 600;
+  gap: var(--fcon-space-1);
+  letter-spacing: 0.06em;
+  padding: 0 var(--fcon-space-2);
+  text-transform: uppercase;
+}
+
+/* ---- State badge: words, a tone, and a shape per value ---- */
+.fcon-badge {
+  align-items: center;
+  background: var(--fcon-hover);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-2);
+  display: inline-flex;
+  flex: none;
+  font-size: var(--fcon-text-xs);
+  font-weight: 500;
+  gap: var(--fcon-space-1);
+  min-height: 1.375rem;
+  padding: 0 var(--fcon-space-2);
+  white-space: nowrap;
+}
+
+/* On a phone a label longer than its column wraps rather than widen the page. */
+@media (width <= 599px) {
+  .fcon-badge {
+    max-width: 100%;
+    white-space: normal;
+  }
+}
+
+.fcon-badge--positive {
+  background: var(--fcon-positive-subtle);
+  color: var(--fcon-positive);
+}
+
+.fcon-badge--warning {
+  background: var(--fcon-warning-subtle);
+  color: var(--fcon-warning);
+}
+
+.fcon-badge--negative {
+  background: var(--fcon-negative-subtle);
+  color: var(--fcon-negative);
+}
+
+.fcon-badge-count {
+  font-family: var(--fcon-font-mono);
+  font-weight: 600;
+}
+
+/* A shape per value, so state is never colour alone. */
+.fcon-shape {
+  background: currentColor;
+  display: inline-block;
+  flex: none;
+  height: 0.5rem;
+  width: 0.5rem;
+}
+
+.fcon-shape[data-shape="dot"] { border-radius: 50%; }
+.fcon-shape[data-shape="ring"] { background: transparent; border: 1.5px solid currentColor; border-radius: 50%; }
+.fcon-shape[data-shape="triangle"] { clip-path: polygon(50% 0, 100% 100%, 0 100%); height: 0.5625rem; width: 0.625rem; }
+.fcon-shape[data-shape="diamond"] { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); height: 0.625rem; width: 0.625rem; }
+.fcon-shape[data-shape="square"] { border-radius: 1px; }
+.fcon-shape[data-shape="cross"] { clip-path: polygon(20% 0, 50% 30%, 80% 0, 100% 20%, 70% 50%, 100% 80%, 80% 100%, 50% 70%, 20% 100%, 0 80%, 30% 50%, 0 20%); height: 0.5625rem; width: 0.5625rem; }
+.fcon-shape[data-shape="bars"] { background: linear-gradient(90deg, currentColor 0 35%, transparent 35% 65%, currentColor 65% 100%); }
+.fcon-shape[data-shape="half"] { background: linear-gradient(90deg, currentColor 0 50%, transparent 50% 100%); border: 1.5px solid currentColor; border-radius: 50%; }
+
+/* Ink levels for running text, and mono figures. */
+.fcon-strong { color: var(--fcon-ink-1); }
+.fcon-quiet { color: var(--fcon-ink-2); }
+.fcon-muted { color: var(--fcon-ink-3); }
+
+.fcon-num {
+  font-family: var(--fcon-font-mono);
+}
+
+/* Tone as ink, for a word in a sentence rather than a badge. */
+.fcon-tone-positive { color: var(--fcon-positive); }
+.fcon-tone-warning { color: var(--fcon-warning); }
+.fcon-tone-negative { color: var(--fcon-negative); }
+.fcon-tone-neutral { color: var(--fcon-ink-2); }
+
+/* ======================================================================
+   Data display
+   ====================================================================== */
+
+.fcon-grid-wrap {
+  overflow-x: auto;
+  position: relative;
+  width: 100%;
+}
+
+.fcon-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--fcon-text-sm);
+  width: 100%;
+}
+
+.fcon-grid th {
+  background: var(--fcon-canvas);
+  border-bottom: 1px solid var(--fcon-line-strong);
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
+  font-weight: 500;
+  padding: var(--fcon-space-2) var(--fcon-space-3);
+  position: sticky;
+  text-align: left;
+  top: 0;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.fcon-grid td {
+  border-bottom: 1px solid var(--fcon-line);
+  color: var(--fcon-ink-1);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
+  vertical-align: middle;
+}
+
+.fcon-grid tbody tr:hover td {
+  background: var(--fcon-hover);
+}
+
+.fcon-grid tbody tr[aria-selected="true"] td {
+  background: var(--fcon-accent-subtle);
+}
+
+.fcon-grid tr[data-activate] {
+  cursor: pointer;
+}
+
+/* The health edge bar: a row's tone on its leading edge. */
+.fcon-grid tr[data-tone] td:first-child {
+  box-shadow: inset 3px 0 0 var(--fcon-line-strong);
+}
+
+.fcon-grid tr[data-tone="positive"] td:first-child { box-shadow: inset 3px 0 0 var(--fcon-positive); }
+.fcon-grid tr[data-tone="warning"] td:first-child { box-shadow: inset 3px 0 0 var(--fcon-warning); }
+.fcon-grid tr[data-tone="negative"] td:first-child { box-shadow: inset 3px 0 0 var(--fcon-negative); }
+
+.fcon-grid .fcon-cell-num {
+  font-family: var(--fcon-font-mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.fcon-grid th.fcon-cell-num {
+  font-family: inherit;
+}
+
+.fcon-grid .fcon-cell-menu {
+  text-align: right;
+  width: 1%;
+}
+
+.fcon-grid-foot {
+  align-items: center;
+  color: var(--fcon-ink-3);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--fcon-text-xs);
+  gap: var(--fcon-space-2) var(--fcon-space-4);
+  justify-content: space-between;
+  padding: var(--fcon-space-2) var(--fcon-space-3);
+}
+
+/* Audit records: one line each — when, from where, what, who, with what
+   outcome — that opens in place to the whole record. */
+.fcon-records {
+  border-top: 1px solid var(--fcon-line);
+}
+
+.fcon-records > li {
+  border-bottom: 1px solid var(--fcon-line);
+}
+
+.fcon-record-head {
+  align-items: baseline;
+  color: var(--fcon-ink-1);
+  display: grid;
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-1) var(--fcon-space-4);
+  /* A time column, as many as the log kind declares (each row sets the
+     count inline), then the row's Open label. */
+  --fcon-record-cols: 2;
+  grid-template-columns: 11rem repeat(var(--fcon-record-cols), minmax(0, 1fr)) auto;
+  min-height: var(--fcon-control-h);
+  padding: var(--fcon-space-2) var(--fcon-space-3);
+  text-align: left;
+  width: 100%;
+}
+
+.fcon-record-head > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (width <= 899px) {
+  .fcon-record-cols {
+    display: none;
+  }
+}
+
+button.fcon-record-head:hover,
+.fcon-record-head[aria-expanded="true"] {
+  background: var(--fcon-hover);
+}
+
+.fcon-records pre {
+  margin: 0 var(--fcon-space-3) var(--fcon-space-3);
+}
+
+@media (width <= 899px) {
+  .fcon-record-head {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+/* Grows a listing by a page; the count beside it says how much is left. */
+.fcon-more {
+  color: var(--fcon-accent);
+  font-size: var(--fcon-text-sm);
+  font-weight: 600;
+  min-height: var(--fcon-control-h-sm);
+}
+
+.fcon-more:hover {
+  text-decoration: underline;
+}
+
+/* On a phone a row is a card: its first cell the title, its menu at the top
+   right, and the other cells captioned by their column, several to a line.
+   The header stays for a screen reader. */
+@media (width <= 599px) {
+  .fcon-grid {
+    display: block;
+  }
+
+  .fcon-grid thead {
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+
+  /* A header that explains its columns stays, as one line of the captions
+     that have an explanation, each with its "?". */
+  .fcon-grid thead[data-explained] {
+    clip-path: none;
+    display: block;
+    height: auto;
+    margin-bottom: var(--fcon-space-2);
+    overflow: visible;
+    position: static;
+    white-space: normal;
+    width: auto;
+  }
+
+  .fcon-grid thead[data-explained] tr {
+    border: 0;
+    gap: 0 var(--fcon-space-3);
+    padding: 0;
+  }
+
+  .fcon-grid thead[data-explained] th {
+    background: none;
+    border: 0;
+    padding: 0;
+    position: static;
+  }
+
+  .fcon-grid thead[data-explained] th:not(:has(.fcon-help-tip)) {
+    display: none;
+  }
+
+  .fcon-grid thead[data-explained] .fcon-cell-menu .sr-only {
+    clip: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    position: static;
+    white-space: nowrap;
+    width: auto;
+  }
+
+  .fcon-grid tbody {
+    display: grid;
+    gap: var(--fcon-space-3);
+  }
+
+  .fcon-grid tr {
+    border: 1px solid var(--fcon-line);
+    border-radius: var(--fcon-radius-surface);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--fcon-space-3) var(--fcon-space-5);
+    padding: var(--fcon-space-3) var(--fcon-space-4);
+    position: relative;
+  }
+
+  .fcon-grid tr[data-tone] { box-shadow: inset 3px 0 0 var(--fcon-line-strong); }
+  .fcon-grid tr[data-tone="positive"] { box-shadow: inset 3px 0 0 var(--fcon-positive); }
+  .fcon-grid tr[data-tone="warning"] { box-shadow: inset 3px 0 0 var(--fcon-warning); }
+  .fcon-grid tr[data-tone="negative"] { box-shadow: inset 3px 0 0 var(--fcon-negative); }
+
+  .fcon-grid tbody tr[aria-selected="true"] {
+    background: var(--fcon-accent-subtle);
+  }
+
+  @media (hover: hover) {
+    .fcon-grid tbody tr:hover {
+      background: var(--fcon-hover);
+    }
+  }
+
+  .fcon-grid td,
+  .fcon-grid tbody tr:hover td,
+  .fcon-grid tbody tr[aria-selected="true"] td,
+  .fcon-grid tr[data-tone] td:first-child {
+    background: none;
+    border: 0;
+    box-shadow: none;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    padding: 0;
+  }
+
+  .fcon-grid td:first-child {
+    flex-basis: 100%;
+    font-weight: 600;
+  }
+
+  .fcon-grid tr:has(> .fcon-cell-menu) td:first-child {
+    padding-right: calc(var(--fcon-control-h) + var(--fcon-space-2));
+  }
+
+  .fcon-grid td:not(:first-child)[data-label]::before {
+    color: var(--fcon-ink-3);
+    content: attr(data-label);
+    display: block;
+    font-family: var(--fcon-font-sans);
+    font-size: var(--fcon-text-xs);
+    font-weight: 500;
+  }
+
+  .fcon-grid .fcon-cell-num {
+    text-align: left;
+  }
+
+  .fcon-grid .fcon-cell-menu {
+    position: absolute;
+    right: var(--fcon-space-2);
+    top: var(--fcon-space-1);
+    width: auto;
+  }
+}
+
+/* Facts: a definition list of labelled figures. */
+.fcon-facts {
+  display: grid;
+  gap: var(--fcon-space-4) var(--fcon-space-6);
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+}
+
+.fcon-fact dt {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.fcon-fact dd {
+  color: var(--fcon-ink-1);
+  font-size: var(--fcon-text-md);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.fcon-figure {
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-2xl);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* A figure that just changed, marked for a moment by the client. */
+[data-changed] {
+  animation: fcon-changed 1.6s var(--fcon-ease) 1;
+  border-radius: 3px;
+}
+
+@keyframes fcon-changed {
+  0% { background: var(--fcon-signal-subtle); box-shadow: 0 0 0 2px var(--fcon-signal-subtle); }
+  100% { background: transparent; box-shadow: 0 0 0 2px transparent; }
+}
+
+.fcon-spark {
+  display: inline-block;
+  flex: none;
+  overflow: visible;
+  vertical-align: middle;
+}
+
+.fcon-spark polyline {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke: var(--fcon-signal);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.fcon-rate {
+  color: var(--fcon-signal);
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-sm);
+  white-space: nowrap;
+}
+
+/* Sized for the widest figure a relay reaches, so a listing's rate column
+   keeps its width as the traffic changes. */
+.fcon-rate-cell {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--fcon-space-2);
+}
+
+.fcon-rate-figures {
+  display: inline-flex;
+  flex-direction: column;
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--fcon-leading-tight);
+  white-space: nowrap;
+  width: 14ch;
+}
+
+/* Held open before a line has two samples to draw. */
+.fcon-rate-spark {
+  display: inline-flex;
+  flex: none;
+  width: 56px;
+}
+
+.fcon-rate-figures > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fcon-meter {
+  background: var(--fcon-hover);
+  border-radius: var(--fcon-radius-control);
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.fcon-meter-fill {
+  background: var(--fcon-accent);
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+}
+
+.fcon-meter[data-tone="warning"] .fcon-meter-fill { background: var(--fcon-warning); }
+.fcon-meter[data-tone="negative"] .fcon-meter-fill { background: var(--fcon-negative); }
+
+.fcon-code {
+  background: var(--fcon-canvas);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-sm);
+  max-height: 28rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: var(--fcon-space-3);
+  white-space: pre-wrap;
+}
+
+.fcon-kbd {
+  background: var(--fcon-surface);
+  border: 1px solid var(--fcon-line-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  color: var(--fcon-ink-2);
+  display: inline-block;
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-xs);
+  line-height: 1.4;
+  min-width: 1.25rem;
+  padding: 0 var(--fcon-space-1);
+  text-align: center;
+}
+
+/* An identifier: shortened past 16 characters, copied whole on activation. */
+.fcon-ident {
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-mono);
+  font-size: 0.95em;
+  overflow-wrap: anywhere;
+}
+
+button.fcon-ident {
+  border-bottom: 1px dotted var(--fcon-ink-3);
+  cursor: copy;
+}
+
+button.fcon-ident:hover {
+  color: var(--fcon-accent);
+}
+
+button.fcon-ident[data-copied]::after {
+  color: var(--fcon-positive);
+  content: " copied";
+  font-family: var(--fcon-font-sans);
+  font-size: var(--fcon-text-xs);
+}
+
+/* A flezha term, explained in place on hover and focus. */
+.fcon-term {
+  border-bottom: 1px dotted var(--fcon-ink-3);
+  cursor: help;
+}
+
+.fcon-tip-host {
+  display: inline;
+  position: relative;
+}
+
+.fcon-tooltip {
+  background: var(--fcon-raised);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-control);
+  bottom: calc(100% + var(--fcon-space-2));
+  box-shadow: 0 12px 32px var(--fcon-shadow);
+  color: var(--fcon-ink-1);
+  font-family: var(--fcon-font-sans);
+  font-size: var(--fcon-text-sm);
+  font-weight: 400;
+  left: 0;
+  letter-spacing: 0;
+  line-height: var(--fcon-leading-normal);
+  /* Out of the layout until shown, so a term near the edge cannot widen the
+     page. */
+  display: none;
+  padding: var(--fcon-space-2) var(--fcon-space-3);
+  pointer-events: none;
+  position: absolute;
+  text-transform: none;
+  white-space: normal;
+  width: max-content;
+  max-width: min(20rem, 80vw);
+  z-index: var(--fcon-z-popover);
+}
+
+/* Not on a touch screen, which leaves a tapped tooltip half shown; a tap on
+   a term pins its definition instead. */
+@media (hover: hover) {
+  .fcon-tip-host:hover > .fcon-tooltip,
+  .fcon-tip-host:focus-within > .fcon-tooltip {
+    display: block;
+  }
+}
+
+/* A pinned definition: the term reads as the one open, and its hover copy
+   steps aside for the panel. */
+.fcon-term[aria-expanded="true"] {
+  border-bottom-style: solid;
+  border-bottom-color: var(--fcon-accent);
+  color: var(--fcon-accent);
+}
+
+.fcon-tip-host:has(> .fcon-term[aria-expanded="true"]) > .fcon-tooltip {
+  display: none;
+}
+
+.fcon-tooltip-term {
+  color: var(--fcon-ink-1);
+  display: block;
+  font-weight: 600;
+}
+
+/* ======================================================================
+   Statements: notes, empty states, skeletons
+   ====================================================================== */
+
+.fcon-note {
+  align-items: flex-start;
+  background: var(--fcon-surface);
+  border: 1px solid var(--fcon-line);
+  border-left: 3px solid var(--fcon-accent);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
+  display: flex;
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-3);
+  padding: var(--fcon-space-3) var(--fcon-space-4);
+}
+
+.fcon-note--error {
+  background: var(--fcon-negative-subtle);
+  border-color: var(--fcon-negative);
+}
+
+.fcon-note-icon {
+  color: var(--fcon-accent);
+  flex: none;
+  margin-top: 1px;
+}
+
+.fcon-note--error .fcon-note-icon {
+  color: var(--fcon-negative);
+}
+
+.fcon-note a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.fcon-note-title {
+  font-size: var(--fcon-text-md);
+}
+
+.fcon-note-meta {
+  align-items: baseline;
+  color: var(--fcon-ink-2);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--fcon-text-xs);
+  gap: var(--fcon-space-1) var(--fcon-space-4);
+}
+
+.fcon-note-meta code {
+  font-family: var(--fcon-font-mono);
+}
+
+.fcon-empty {
+  border: 1px dashed var(--fcon-line-strong);
+  border-radius: var(--fcon-radius-surface);
+  display: grid;
+  gap: var(--fcon-space-2);
+  justify-items: start;
+  padding: var(--fcon-space-6);
+}
+
+.fcon-empty-icon {
+  color: var(--fcon-ink-3);
+}
+
+.fcon-empty-text {
+  color: var(--fcon-ink-2);
+  font-size: var(--fcon-text-md);
+  max-width: 64ch;
+}
+
+.fcon-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fcon-space-2);
+  margin-top: var(--fcon-space-2);
+}
+
+.fcon-skeleton {
+  animation: fcon-shimmer 1.4s ease-in-out infinite;
+  background: var(--fcon-hover);
+  border-radius: var(--fcon-radius-control);
+  display: block;
+  height: 0.875rem;
+}
+
+.fcon-skeleton-rows {
+  display: grid;
+  gap: var(--fcon-space-3);
+}
+
+@keyframes fcon-shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* ======================================================================
+   Overlays: drawer, dialog, toast
+   ====================================================================== */
+
+.fcon-scrim {
+  background: var(--fcon-scrim);
+  inset: 0;
+  position: fixed;
+}
+
+.fcon-drawer {
+  inset: 0;
+  position: fixed;
+  z-index: var(--fcon-z-drawer);
+}
+
+.fcon-drawer .fcon-scrim {
+  background: transparent;
+}
+
+.fcon-drawer-panel {
+  animation: fcon-slide-in var(--fcon-slow) var(--fcon-ease) 1;
+  background: var(--fcon-raised);
+  border-left: 1px solid var(--fcon-line);
+  bottom: 0;
+  box-shadow: 0 12px 32px var(--fcon-shadow);
+  display: flex;
+  flex-direction: column;
+  max-width: 100vw;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: var(--fcon-drawer-w);
+}
+
+.fcon-drawer-head {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--fcon-line);
+  display: flex;
+  gap: var(--fcon-space-3);
+  justify-content: space-between;
+  padding: var(--fcon-space-4) var(--fcon-space-5);
+}
+
+.fcon-drawer-title {
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-xl);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.fcon-drawer-body {
+  display: grid;
+  flex: 1;
+  gap: var(--fcon-space-5);
+  align-content: start;
+  overflow-y: auto;
+  padding: var(--fcon-space-5);
+}
+
+@keyframes fcon-slide-in {
+  from { opacity: 0; transform: translateX(var(--fcon-space-7)); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@media (width <= 599px) {
+  .fcon-drawer .fcon-scrim {
+    background: var(--fcon-scrim);
+  }
+
+  .fcon-drawer-panel {
+    border-left: 0;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    width: 100vw;
+  }
+}
+
+/* Below desk width the page itself scrolls, and holds still behind an
+   overlay. */
+@media (width <= 1023px) {
+  html:has(.fcon-dialog, .fcon-drawer, dialog[open]) {
+    overflow: hidden;
+  }
+}
+
+.fcon-dialog {
+  display: grid;
+  inset: 0;
+  overflow-y: auto;
+  padding: var(--fcon-space-9) var(--fcon-space-4);
+  place-items: start center;
+  position: fixed;
+  z-index: var(--fcon-z-dialog);
+}
+
+.fcon-dialog-panel {
+  animation: fcon-rise var(--fcon-base) var(--fcon-ease) 1;
+  background: var(--fcon-raised);
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-surface);
+  box-shadow: 0 12px 32px var(--fcon-shadow);
+  position: relative;
+  width: 100%;
+}
+
+.fcon-dialog-panel--confirm { max-width: 28rem; }
+.fcon-dialog-panel--form { max-width: 38rem; }
+.fcon-dialog-panel--wide { max-width: 52rem; }
+
+.fcon-dialog-head {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--fcon-space-3);
+  justify-content: space-between;
+  padding: var(--fcon-space-5) var(--fcon-space-5) 0;
+}
+
+.fcon-dialog-title {
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-xl);
+  font-weight: 600;
+}
+
+.fcon-dialog-body {
+  color: var(--fcon-ink-1);
+  display: grid;
+  gap: var(--fcon-space-4);
+  padding: var(--fcon-space-5);
+}
+
+.fcon-dialog-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fcon-space-2);
+  justify-content: flex-end;
+  padding: 0 var(--fcon-space-5) var(--fcon-space-5);
+}
+
+/* On a phone, upright or on its side, a dialog is a sheet risen from the
+   bottom edge, within thumb reach: its body scrolls, while its title and its
+   actions stay in view. Help is a native dialog with the same panel. */
+@media (width <= 599px), (height <= 500px) {
+  .fcon-dialog {
+    overflow: hidden;
+    padding: env(safe-area-inset-top) 0 0;
+    place-items: end stretch;
+  }
+
+  .fcon-dialog > .fcon-dialog-panel,
+  dialog.fcon-dialog-panel[open] {
+    animation-name: fcon-sheet;
+    border-bottom: 0;
+    border-radius: var(--fcon-radius-surface) var(--fcon-radius-surface) 0 0;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - env(safe-area-inset-top) - var(--fcon-space-4));
+    max-width: none;
+  }
+
+  dialog.fcon-dialog-panel[open] {
+    inset: auto 0 0;
+    margin: 0;
+    position: fixed;
+    width: 100%;
+  }
+
+  :is(.fcon-dialog > .fcon-dialog-panel, dialog.fcon-dialog-panel) > .fcon-dialog-body {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  :is(.fcon-dialog > .fcon-dialog-panel, dialog.fcon-dialog-panel) > :last-child {
+    padding-bottom: calc(var(--fcon-space-5) + env(safe-area-inset-bottom));
+  }
+
+  .fcon-dialog-foot {
+    border-top: 1px solid var(--fcon-line);
+    padding-top: var(--fcon-space-4);
+  }
+
+  /* A stepped form's controls, or a form's closing row of buttons, are the
+     sheet's actions. */
+  .fcon-dialog .fcon-steps-foot,
+  .fcon-dialog-body form > :last-child:has([type="submit"]) {
+    background: var(--fcon-raised);
+    bottom: calc(-1 * var(--fcon-space-5));
+    padding-bottom: var(--fcon-space-4);
+    position: sticky;
+  }
+}
+
+@keyframes fcon-sheet {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes fcon-rise {
+  from { opacity: 0; transform: translateY(var(--fcon-space-2)); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Top right, just under the topbar, where the eye already is after a click
+   in the header or a section's actions. */
+.fcon-toasts {
+  top: var(--fcon-topbar-clear);
+  display: flex;
+  flex-direction: column;
+  gap: var(--fcon-space-2);
+  max-width: min(26rem, 100vw);
+  padding: var(--fcon-space-4);
+  pointer-events: none;
+  position: fixed;
+  right: 0;
+  z-index: var(--fcon-z-toast);
+}
+
+/* A phone's topbar is one row of controls, so a toast rises from the bottom
+   edge instead, clear of the bar when there is one. */
+@media (width <= 599px) {
+  .fcon-toasts {
+    bottom: env(safe-area-inset-bottom);
+    left: 0;
+    max-width: none;
+    top: auto;
+  }
+
+  body:has(.flz-tabbar) .fcon-toasts {
+    bottom: calc(var(--fcon-tabbar-clear) + env(safe-area-inset-bottom));
+  }
+}
+
+.fcon-toast {
+  align-items: flex-start;
+  animation: fcon-rise var(--fcon-base) var(--fcon-ease) 1;
+  background: var(--fcon-raised);
+  border: 1px solid var(--fcon-line);
+  border-left: 3px solid var(--fcon-positive);
+  border-radius: var(--fcon-radius-control);
+  box-shadow: 0 12px 32px var(--fcon-shadow);
+  color: var(--fcon-ink-1);
+  display: flex;
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-3);
+  padding: var(--fcon-space-3) var(--fcon-space-3) var(--fcon-space-3) var(--fcon-space-4);
+  pointer-events: auto;
+}
+
+.fcon-toast--error {
+  border-left-color: var(--fcon-negative);
+}
+
+.fcon-toast-icon {
+  color: var(--fcon-positive);
+  flex: none;
+  margin-top: 1px;
+}
+
+.fcon-toast--error .fcon-toast-icon {
+  color: var(--fcon-negative);
+}
+
+.fcon-toast-title {
+  font-weight: 600;
+}
+
+/* The help overlay is a native dialog: the browser keeps its focus and
+   closes it on Escape. */
+/* In the top layer, so it is placed against the viewport rather than the page. */
+dialog.fcon-dialog-panel {
+  color: var(--fcon-ink-1);
+  inset: 0 0 auto;
+  margin: 10vh auto 0;
+  position: fixed;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 0;
+  width: calc(100% - 2 * var(--fcon-space-4));
+}
+
+dialog.fcon-dialog-panel::backdrop {
+  background: var(--fcon-scrim);
+}
+
+/* ======================================================================
+   Flows: steps
+   ====================================================================== */
+
+.fcon-steps {
+  counter-reset: fcon-step;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fcon-space-2) var(--fcon-space-5);
+  list-style: none;
+}
+
+.fcon-step {
+  align-items: center;
+  color: var(--fcon-ink-3);
+  counter-increment: fcon-step;
+  display: inline-flex;
+  font-size: var(--fcon-text-sm);
+  font-weight: 500;
+  gap: var(--fcon-space-2);
+}
+
+.fcon-step::before {
+  align-items: center;
+  border: 1.5px solid currentColor;
+  border-radius: var(--fcon-radius-round);
+  content: counter(fcon-step);
+  display: inline-flex;
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-xs);
+  height: 1.375rem;
+  justify-content: center;
+  width: 1.375rem;
+}
+
+.fcon-step[aria-current="step"] {
+  color: var(--fcon-accent);
+}
+
+.fcon-step[data-done] {
+  color: var(--fcon-ink-2);
+}
+
+.fcon-step[data-done]::before {
+  background: var(--fcon-positive);
+  border-color: var(--fcon-positive);
+  color: var(--fcon-on-positive);
+  content: "✓";
+}
+
+.fcon-steps-body {
+  display: grid;
+  gap: var(--fcon-space-4);
+  margin-top: var(--fcon-space-5);
+}
+
+.fcon-steps-foot {
+  align-items: center;
+  border-top: 1px solid var(--fcon-line);
+  display: flex;
+  gap: var(--fcon-space-2);
+  justify-content: space-between;
+  margin-top: var(--fcon-space-5);
+  padding-top: var(--fcon-space-4);
+}
+
+/* A choice drawn as a card: a factory in the start flow. */
+.fcon-choice {
+  align-items: start;
+  border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
+  display: grid;
+  gap: var(--fcon-space-1);
+  padding: var(--fcon-space-3) var(--fcon-space-4);
+  text-align: left;
+  width: 100%;
+}
+
+.fcon-choice:hover:not(:disabled) {
+  border-color: var(--fcon-accent);
+}
+
+.fcon-choice[aria-pressed="true"],
+.fcon-choice:has(input:checked) {
+  background: var(--fcon-accent-subtle);
+  border-color: var(--fcon-accent);
+}
+
+/* A card holding a radio: the radio beside the text, the whole card the
+   label that picks it. */
+.fcon-choice:has(> input[type="radio"]) {
+  cursor: pointer;
+  gap: var(--fcon-space-1) var(--fcon-space-3);
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.fcon-choice > input[type="radio"] {
+  margin-top: 0.15rem;
+}
+
+.fcon-choice:disabled {
+  background: var(--fcon-canvas);
+  color: var(--fcon-ink-3);
+  cursor: not-allowed;
+}
+
+.fcon-choices {
+  display: grid;
+  gap: var(--fcon-space-2);
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+/* A card laid out as a row: a glyph, the text, and a mark at the end that
+   turns to a check once chosen. */
+.fcon-choice--row {
+  align-items: center;
+  gap: var(--fcon-space-3);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  transition: border-color var(--fcon-fast) var(--fcon-ease), background var(--fcon-fast) var(--fcon-ease);
+}
+
+.fcon-choice-mark {
+  color: var(--fcon-ink-3);
+  opacity: 0;
+  transition: opacity var(--fcon-fast) var(--fcon-ease), transform var(--fcon-fast) var(--fcon-ease);
+}
+
+.fcon-choice--row:hover:not(:disabled) .fcon-choice-mark,
+.fcon-choice--row:focus-visible .fcon-choice-mark {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+.fcon-choice[aria-pressed="true"] .fcon-choice-mark {
+  color: var(--fcon-accent);
+  opacity: 1;
+  transform: none;
+}
+
+/* A card holding a checkbox reads as a card holding a radio. */
+.fcon-choice:has(> input[type="checkbox"]) {
+  cursor: pointer;
+  gap: var(--fcon-space-1) var(--fcon-space-3);
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.fcon-choice > input[type="checkbox"] {
+  margin-top: 0.15rem;
+}
+
+/* Choices side by side, as many as fit: a provider's hooks. */
+.fcon-choices--tiles {
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  max-height: none;
+  overflow: visible;
+}
+
+/* A role or a run told apart by one of the wire hues; what it is, is said in
+   words beside it. */
+.fcon-glyph {
+  align-items: center;
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-2);
+  display: inline-flex;
+  flex: none;
+  height: 2.25rem;
+  justify-content: center;
+  width: 2.25rem;
+}
+
+.fcon-glyph--lg {
+  height: 3rem;
+  width: 3rem;
+}
+
+.fcon-glyph[data-tone="0"] { background: color-mix(in oklab, var(--fcon-wire-0) 13%, var(--fcon-surface)); color: var(--fcon-wire-0); }
+.fcon-glyph[data-tone="1"] { background: color-mix(in oklab, var(--fcon-wire-1) 13%, var(--fcon-surface)); color: var(--fcon-wire-1); }
+.fcon-glyph[data-tone="2"] { background: color-mix(in oklab, var(--fcon-wire-2) 13%, var(--fcon-surface)); color: var(--fcon-wire-2); }
+.fcon-glyph[data-tone="3"] { background: color-mix(in oklab, var(--fcon-wire-3) 13%, var(--fcon-surface)); color: var(--fcon-wire-3); }
+.fcon-glyph[data-tone="4"] { background: color-mix(in oklab, var(--fcon-wire-4) 13%, var(--fcon-surface)); color: var(--fcon-wire-4); }
+.fcon-glyph[data-tone="5"] { background: color-mix(in oklab, var(--fcon-wire-5) 13%, var(--fcon-surface)); color: var(--fcon-wire-5); }
+.fcon-glyph[data-tone="positive"] { background: var(--fcon-positive-subtle); color: var(--fcon-positive); }
+.fcon-glyph[data-tone="warning"] { background: var(--fcon-warning-subtle); color: var(--fcon-warning); }
+.fcon-glyph[data-tone="negative"] { background: var(--fcon-negative-subtle); color: var(--fcon-negative); }
+.fcon-glyph[data-tone="neutral"] { background: var(--fcon-hover); }
+
+/* ---- A guided flow down a rail ----
+ * The steps stand in a rail beside the body, under a bar of how far the flow
+ * has come; each step says what was chosen there. The dialog holding it keeps
+ * one height, so moving between steps never makes it jump.
+ */
+.fcon-dialog-panel--flow {
+  display: flex;
+  flex-direction: column;
+  height: min(48rem, calc(100dvh - 2 * var(--fcon-space-9)));
+  max-width: 68rem;
+}
+
+.fcon-dialog-panel--flow > .fcon-dialog-head {
+  padding-bottom: var(--fcon-space-4);
+}
+
+.fcon-dialog-panel--flow > .fcon-dialog-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+}
+
+.fcon-flow {
+  display: grid;
+  grid-template-areas:
+    "bar bar"
+    "rail body"
+    "rail foot";
+  grid-template-columns: 15rem minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+}
+
+.fcon-flow-progress {
+  background: var(--fcon-line);
+  grid-area: bar;
+  height: 3px;
+}
+
+.fcon-flow-progress > span {
+  background: var(--fcon-accent);
+  display: block;
+  height: 100%;
+  transition: width var(--fcon-slow) var(--fcon-ease);
+}
+
+.fcon-flow-rail {
+  background: var(--fcon-canvas);
+  border-right: 1px solid var(--fcon-line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--fcon-space-5);
+  grid-area: rail;
+  overflow-y: auto;
+  padding: var(--fcon-space-5) var(--fcon-space-4);
+}
+
+.fcon-flow-rail > .fcon-steps {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+
+.fcon-flow-rail .fcon-step {
+  align-items: start;
+  display: grid;
+  gap: var(--fcon-space-3);
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  min-height: 4.25rem;
+  position: relative;
+}
+
+.fcon-flow-rail .fcon-step::before {
+  background: var(--fcon-raised);
+  border-color: var(--fcon-line-strong);
+  height: 1.75rem;
+  position: relative;
+  transition: background var(--fcon-base) var(--fcon-ease), border-color var(--fcon-base) var(--fcon-ease);
+  width: 1.75rem;
+  z-index: 1;
+}
+
+/* The line from one step to the next, filled once the step is done. */
+.fcon-flow-rail .fcon-step:not(:last-child)::after {
+  background: var(--fcon-line);
+  bottom: var(--fcon-space-1);
+  content: "";
+  left: calc(0.875rem - 1px);
+  position: absolute;
+  top: 1.875rem;
+  width: 2px;
+}
+
+.fcon-flow-rail .fcon-step[data-done]::after {
+  background: var(--fcon-positive);
+}
+
+.fcon-flow-rail .fcon-step[data-done]::before {
+  background: var(--fcon-positive);
+  border-color: var(--fcon-positive);
+  color: var(--fcon-on-positive);
+}
+
+.fcon-flow-rail .fcon-step[aria-current="step"]::before {
+  animation: fcon-pulse 1.8s var(--fcon-ease) infinite;
+  background: var(--fcon-accent);
+  border-color: var(--fcon-accent);
+  color: var(--fcon-on-accent);
+}
+
+/* A ripple out of whatever it marks, in `--fcon-pulse` (the accent unless set). */
+@keyframes fcon-pulse {
+  from { box-shadow: 0 0 0 0 color-mix(in oklab, var(--fcon-pulse, var(--fcon-accent)) 45%, transparent); }
+  to { box-shadow: 0 0 0 0.5rem transparent; }
+}
+
+.fcon-step-text {
+  color: inherit;
+  display: grid;
+  min-width: 0;
+  text-align: left;
+}
+
+.fcon-flow-rail .fcon-step-label {
+  color: var(--fcon-ink-2);
+  font-weight: 600;
+  padding-top: 0.2rem;
+}
+
+.fcon-flow-rail .fcon-step[aria-current="step"] .fcon-step-label {
+  color: var(--fcon-ink-1);
+}
+
+button.fcon-step-text:hover .fcon-step-label {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.fcon-step-summary {
+  color: var(--fcon-ink-3);
+  display: block;
+  font-size: var(--fcon-text-xs);
+  font-weight: 400;
+  line-height: 1.35;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.fcon-step[data-done] .fcon-step-summary {
+  color: var(--fcon-ink-2);
+  font-family: var(--fcon-font-mono);
+}
+
+.fcon-flow-note {
+  border: 1px dashed var(--fcon-line-strong);
+  color: var(--fcon-ink-2);
+  font-size: var(--fcon-text-xs);
+  line-height: 1.45;
+  margin-top: auto;
+  padding: var(--fcon-space-3);
+}
+
+.fcon-flow > .fcon-steps-body {
+  align-content: start;
+  animation: fcon-step-in var(--fcon-slow) var(--fcon-ease);
+  grid-area: body;
+  margin-top: 0;
+  overflow-y: auto;
+  padding: var(--fcon-space-5) var(--fcon-space-6);
+}
+
+@keyframes fcon-step-in {
+  from { opacity: 0; transform: translateX(var(--fcon-space-4)); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.fcon-flow > .fcon-steps-foot {
+  background: var(--fcon-raised);
+  grid-area: foot;
+  margin-top: 0;
+  padding: var(--fcon-space-3) var(--fcon-space-6);
+}
+
+/* The first control of the foot (Cancel) stands apart from the rest. */
+.fcon-flow > .fcon-steps-foot > :first-child {
+  margin-right: auto;
+}
+
+.fcon-flow-form,
+.fcon-flow-section {
+  display: grid;
+  gap: var(--fcon-space-5);
+}
+
+.fcon-flow-section[hidden] {
+  display: none;
+}
+
+.fcon-flow-group {
+  display: grid;
+  gap: var(--fcon-space-2);
+}
+
+.fcon-flow-fields {
+  display: grid;
+  gap: var(--fcon-space-4) var(--fcon-space-5);
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+}
+
+.fcon-flow-fields > .fcon-field:has(textarea) {
+  grid-column: 1 / -1;
+}
+
+/* A typed value's check, stated under its field as it is typed. */
+.fcon-flow-check {
+  align-items: center;
+  color: var(--fcon-ink-2);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--fcon-text-xs);
+  gap: var(--fcon-space-1);
+  margin-top: var(--fcon-space-2);
+}
+
+/* A section folded away until it is wanted. */
+.fcon-disclosure {
+  border-top: 1px solid var(--fcon-line);
+  padding-top: var(--fcon-space-3);
+}
+
+.fcon-disclosure > summary,
+.fcon-disclosure-toggle {
+  align-items: baseline;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  font-family: var(--fcon-font-display);
+  font-weight: 600;
+  gap: var(--fcon-space-2);
+  text-align: left;
+}
+
+.fcon-disclosure-mark {
+  align-self: center;
+  transition: transform var(--fcon-fast) var(--fcon-ease);
+}
+
+.fcon-disclosure-toggle[aria-expanded="true"] .fcon-disclosure-mark,
+.fcon-disclosure[open] > summary .fcon-disclosure-mark {
+  transform: rotate(90deg);
+}
+
+.fcon-flow-fields[hidden] {
+  display: none;
+}
+
+:is(.fcon-disclosure > summary, .fcon-disclosure-toggle) .fcon-muted {
+  font-family: var(--fcon-font-sans);
+  font-size: var(--fcon-text-xs);
+  font-weight: 400;
+}
+
+/* ---- Choosing from a list, with the choice described beside it ---- */
+.fcon-pick {
+  display: grid;
+  gap: var(--fcon-space-4);
+}
+
+.fcon-pick-tools {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fcon-space-3);
+}
+
+.fcon-pick-tools > input[type="search"] {
+  flex: 1 1 14rem;
+}
+
+.fcon-pick-split {
+  align-items: start;
+  display: grid;
+  gap: var(--fcon-space-5);
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
+}
+
+.fcon-pick-list {
+  display: grid;
+  gap: var(--fcon-space-2);
+}
+
+.fcon-pick-group {
+  display: grid;
+  gap: var(--fcon-space-2);
+}
+
+.fcon-pick-group + .fcon-pick-group {
+  margin-top: var(--fcon-space-3);
+}
+
+/* A group whose every item the filter hid says nothing. */
+.fcon-pick-group:not(:has([data-fcon-item]:not([hidden]))) {
+  display: none;
+}
+
+.fcon-pane {
+  animation: fcon-step-in var(--fcon-base) var(--fcon-ease);
+  background: var(--fcon-canvas);
+  border: 1px solid var(--fcon-line);
+  display: grid;
+  gap: var(--fcon-space-4);
+  padding: var(--fcon-space-5);
+  position: sticky;
+  top: 0;
+}
+
+.fcon-pane--empty {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-sm);
+  justify-items: center;
+  padding: var(--fcon-space-8) var(--fcon-space-5);
+  text-align: center;
+}
+
+.fcon-pane-head {
+  align-items: center;
+  display: flex;
+  gap: var(--fcon-space-3);
+}
+
+.fcon-pane-title {
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-xl);
+  font-weight: 600;
+  line-height: var(--fcon-leading-tight);
+  overflow-wrap: anywhere;
+}
+
+.fcon-pane-needs {
+  display: grid;
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-2);
+}
+
+.fcon-pane-needs dt {
+  font-weight: 500;
+}
+
+/* A command that does what the flow will, ready to copy. */
+.fcon-command {
+  display: grid;
+  gap: var(--fcon-space-2);
+}
+
+.fcon-command-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.flz-button[data-copied] {
+  border-color: var(--fcon-positive);
+  color: var(--fcon-positive);
+}
+
+/* What a flow did, once it is done. */
+.fcon-done {
+  display: grid;
+  gap: var(--fcon-space-3);
+  justify-items: center;
+  padding: var(--fcon-space-5) 0;
+  text-align: center;
+}
+
+.fcon-done-mark {
+  align-items: center;
+  animation: fcon-pop var(--fcon-slow) var(--fcon-ease);
+  background: var(--fcon-positive-subtle);
+  border-radius: var(--fcon-radius-round);
+  color: var(--fcon-positive);
+  display: inline-flex;
+  height: 4.5rem;
+  justify-content: center;
+  width: 4.5rem;
+}
+
+@keyframes fcon-pop {
+  0% { opacity: 0; transform: scale(0.4); }
+  70% { transform: scale(1.1); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Below desk width the list and its description stack, the description
+   first once there is one; on a phone the rail lies across the top. */
+@media (width <= 899px) {
+  .fcon-pick-split {
+    grid-template-columns: 1fr;
+  }
+
+  .fcon-pane {
+    order: -1;
+    position: static;
+  }
+
+  .fcon-pane--empty {
+    display: none;
+  }
+}
+
+@media (width <= 699px) {
+  .fcon-dialog-panel--flow {
+    height: auto;
+  }
+
+  .fcon-flow {
+    grid-template-areas: "bar" "rail" "body" "foot";
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto auto;
+  }
+
+  .fcon-flow-rail {
+    border-bottom: 1px solid var(--fcon-line);
+    border-right: 0;
+    padding: var(--fcon-space-3) var(--fcon-space-4);
+  }
+
+  .fcon-flow-rail > .fcon-steps {
+    flex-direction: row;
+    gap: var(--fcon-space-4);
+  }
+
+  .fcon-flow-rail .fcon-step {
+    min-height: 0;
+  }
+
+  /* Across a phone only the current step is named; the others are their
+     dots, which still say done or to come. */
+  .fcon-flow-rail .fcon-step::after,
+  .fcon-flow-rail .fcon-step-summary,
+  .fcon-flow-rail .fcon-step:not([aria-current]) .fcon-step-text,
+  .fcon-flow-note {
+    display: none;
+  }
+
+  .fcon-flow-rail .fcon-step:not([aria-current]) {
+    grid-template-columns: 1.75rem;
+  }
+
+  .fcon-flow > .fcon-steps-body {
+    overflow: visible;
+    padding: var(--fcon-space-4);
+  }
+
+  .fcon-dialog .fcon-flow > .fcon-steps-foot {
+    padding: var(--fcon-space-3) var(--fcon-space-4);
+  }
+}
+
+/* ======================================================================
+   Problems and the event river
+   ====================================================================== */
+
+/* A condition as labelled rows: the label on the left, the fact on the
+   right, one line each; a phone stacks them. */
+.fcon-state-summary {
+  display: grid;
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-2);
+}
+
+.fcon-state-summary > div {
+  display: grid;
+  gap: var(--fcon-space-1) var(--fcon-space-4);
+  grid-template-columns: 9rem minmax(0, 1fr);
+}
+
+.fcon-state-summary dt {
+  padding-top: 2px;
+}
+
+.fcon-state-summary dd {
+  color: var(--fcon-ink-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fcon-state-summary dd.fcon-condition-said {
+  align-items: center;
+  display: flex;
+  gap: var(--fcon-space-2);
+}
+
+.fcon-state-summary > div:first-child dd {
+  font-weight: 600;
+}
+
+@media (width <= 599px) {
+  .fcon-state-summary > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.fcon-problems {
+  display: grid;
+  gap: var(--fcon-space-3);
+}
+
+.fcon-problem {
+  border: 1px solid var(--fcon-line);
+  border-left: 3px solid var(--fcon-warning);
+  border-radius: var(--fcon-radius-control);
+  display: grid;
+  gap: var(--fcon-space-1) var(--fcon-space-4);
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: var(--fcon-space-3) var(--fcon-space-4);
+}
+
+.fcon-problem--negative {
+  border-left-color: var(--fcon-negative);
+}
+
+.fcon-problem-what {
+  align-items: center;
+  color: var(--fcon-ink-1);
+  display: flex;
+  flex-wrap: wrap;
+  font-weight: 600;
+  gap: var(--fcon-space-2);
+}
+
+.fcon-problem > .fcon-state-summary {
+  grid-column: 1;
+}
+
+.fcon-problem-meta {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
+  grid-column: 1;
+}
+
+.fcon-problem-actions {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fcon-space-2);
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  justify-content: flex-end;
+}
+
+.fcon-problem-detail {
+  grid-column: 1 / -1;
+  margin-top: var(--fcon-space-2);
+}
+
+@media (width <= 599px) {
+  .fcon-problem {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fcon-problem-actions {
+    grid-column: 1;
+    grid-row: auto;
+    justify-content: flex-start;
+  }
+}
+
+.fcon-river {
+  display: grid;
+  gap: var(--fcon-space-3);
+}
+
+.fcon-river-track {
+  background: var(--fcon-hover);
+  border-radius: var(--fcon-radius-control);
+  height: 0.5rem;
+  position: relative;
+}
+
+.fcon-river-mark {
+  background: var(--fcon-signal);
+  border-radius: var(--fcon-radius-round);
+  height: 0.5rem;
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: 3px;
+}
+
+.fcon-river-mark[data-tone="warning"] { background: var(--fcon-warning); }
+.fcon-river-mark[data-tone="negative"] { background: var(--fcon-negative); }
+.fcon-river-mark[data-tone="positive"] { background: var(--fcon-positive); }
+
+.fcon-river-scale {
+  color: var(--fcon-ink-3);
+  display: flex;
+  font-size: var(--fcon-text-xs);
+  justify-content: space-between;
+}
+
+.fcon-river-list {
+  display: grid;
+}
+
+.fcon-river-event {
+  align-items: baseline;
+  border-bottom: 1px solid var(--fcon-line);
+  display: grid;
+  font-size: var(--fcon-text-sm);
+  gap: var(--fcon-space-1) var(--fcon-space-3);
+  grid-template-columns: 5.5rem minmax(0, 12rem) minmax(0, 1fr);
+  padding: var(--fcon-space-2) 0;
+}
+
+.fcon-river-time,
+.fcon-tech-name {
+  color: var(--fcon-ink-3);
+  font-family: var(--fcon-font-mono);
+  font-size: var(--fcon-text-xs);
+}
+
+.fcon-river-object {
+  font-family: var(--fcon-font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (width <= 599px) {
+  .fcon-river-event {
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+  }
+
+  .fcon-river-event > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ======================================================================
+   Tiles: a namespace, a source, a provider
+   ====================================================================== */
+
+.fcon-tiles {
+  display: grid;
+  gap: var(--fcon-space-4);
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+}
+
+/* A tile's surface, edge, hover and focus are the stylebook's `.flz-tile`.
+   Its fixed rows belong to an indicator; a tile in a list of objects stacks
+   what it holds from the top, and its end — a fold, an action — sits on its
+   bottom line, so a row of tiles keeps those level. */
+.fcon-tile {
+  gap: var(--fcon-space-3);
+}
+
+.fcon-tiles > .fcon-tile {
+  display: flex;
+  flex-direction: column;
+}
+
+.fcon-tile-end {
+  display: grid;
+  gap: var(--fcon-space-3);
+  margin-top: auto;
+}
+
+.fcon-tile-title {
+  font-family: var(--fcon-font-display);
+  font-size: var(--fcon-text-xl);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Indicators: a row of figures, each under its label. */
+/* Every row of indicators shares one minimum height, so two rows on a screen
+   stand level whatever each tile holds. */
+.fcon-indicators {
+  display: grid;
+  gap: var(--fcon-space-3);
+  grid-auto-rows: minmax(16rem, auto);
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+}
+
+/* Doubled up: the stylebook's `.flz-tile` loads after this sheet. */
+.flz-tile.fcon-indicator {
+  gap: var(--fcon-space-3);
+}
+
+/* The glyph and the verdict pill carry the tone, so the tile's tone
+   edge would only say it a third time. */
+.flz-tile.fcon-indicator::before {
+  content: none;
+}
+
+.fcon-indicator-head {
+  align-items: center;
+  display: flex;
+  gap: var(--fcon-space-2);
+  min-width: 0;
+}
+
+/* A figure re-read every few seconds: a slow ripple in the live signal's
+   colour. Positioned, it takes no cell of the tile's grid. */
+.fcon-indicator-pulse {
+  --fcon-pulse: var(--fcon-signal);
+
+  animation: fcon-pulse 2s var(--fcon-ease) infinite;
+  background: var(--fcon-signal);
+  border-radius: 50%;
+  height: 0.5rem;
+  position: absolute;
+  right: var(--fcon-space-3);
+  top: var(--fcon-space-3);
+  width: 0.5rem;
+}
+
+/* Digits that keep changing hold their width, so the figure does not jitter. */
+.fcon-indicator--live .fcon-figure {
+  font-family: var(--fcon-font-mono);
+}
+
+/* The end row: an edge-to-edge chart, then the foot. */
+.fcon-indicator-end {
+  align-content: end;
+  display: grid;
+  gap: var(--fcon-space-2);
+}
+
+.fcon-indicator .fcon-indicator-end > .fcon-spark {
+  height: 2.5rem;
+  margin: 0 calc(-1 * var(--fcon-space-4));
+  width: calc(100% + 2 * var(--fcon-space-4));
+}
+
+.fcon-spark-area {
+  fill: var(--fcon-signal-subtle);
+}
+
+/* A tile's body and its meters: one column that never outgrows the tile. */
+.fcon-indicator-body,
+.fcon-indicator-meters {
+  align-content: start;
+  display: grid;
+  gap: var(--fcon-space-2);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.fcon-indicator-foot {
+  align-items: center;
+  border-top: 1px solid var(--fcon-line);
+  color: var(--fcon-ink-3);
+  display: flex;
+  gap: var(--fcon-space-2);
+  justify-content: space-between;
+  padding-top: var(--fcon-space-2);
+}
+
+.fcon-indicator-foot-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A live tile's foot is a shaded strip across its bottom, under the chart. */
+.fcon-indicator--live .fcon-indicator-foot {
+  background: var(--fcon-page);
+  border-radius: 0 0 var(--fcon-radius-surface) var(--fcon-radius-surface);
+  border-top: 0;
+  margin: 0 calc(-1 * var(--fcon-space-4)) calc(-1 * var(--fcon-space-3));
+  padding: var(--fcon-space-2) var(--fcon-space-4);
+}
+
+/* Scoped past the icon utility, which sets its own size. */
+.fcon-indicator .fcon-indicator-go {
+  color: var(--fcon-ink-3);
+  flex: none;
+  height: 1rem;
+  transition: color var(--fcon-fast), transform var(--fcon-fast);
+  width: 1rem;
+}
+
+a.fcon-indicator:hover .fcon-indicator-go {
+  color: var(--fcon-accent);
+  transform: translateX(3px);
+}
+
+/* Inside a tile a sparkline takes the tile's width, never its own. */
+.fcon-indicator .fcon-spark {
+  display: block;
+  width: 100%;
+}
+
+/* The micro-label over a figure, a fact or a column. */
+.fcon-indicator-label,
+.fcon-state-summary dt,
+.fcon-record-cols {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The figure and its verdict pill share a line while both fit; on a narrow
+   tile the pill drops under the figure. Doubled up to win over the
+   stylebook's `.flz-figure-fit`, which loads after this sheet. */
+.fcon-indicator .fcon-indicator-figure {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--fcon-space-1) var(--fcon-space-2);
+  min-height: 2.25rem;
+}
+
+.fcon-indicator .flz-figure-value {
+  font-size: clamp(var(--fcon-text-xl), 20cqi, var(--fcon-text-3xl));
+}
+
+.fcon-indicator .fcon-figures {
+  overflow-wrap: anywhere;
+}
+
+.fcon-indicator-links {
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--fcon-text-xs);
+  gap: var(--fcon-space-1) var(--fcon-space-3);
+}
+
+.fcon-indicator-meters {
+  font-size: var(--fcon-text-xs);
+}
+
+@media (width <= 599px) {
+  .fcon-indicators {
+    grid-auto-rows: minmax(12rem, auto);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ======================================================================
+   The command palette and help
+   ====================================================================== */
+
+.fcon-palette .fcon-dialog-panel {
+  max-width: 40rem;
+  overflow: hidden;
+}
+
+.fcon-palette form {
+  align-items: center;
+  border-bottom: 1px solid var(--fcon-line);
+  display: flex;
+}
+
+.fcon-palette-input {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  flex: 1 1 auto;
+  font-size: var(--fcon-text-lg);
+  min-height: 3.25rem;
+  min-width: 0;
+  padding: 0 var(--fcon-space-5);
+}
+
+.fcon-palette-input:focus-visible {
+  box-shadow: none;
+}
+
+.fcon-palette-cancel {
+  display: none;
+}
+
+.fcon-palette-list {
+  max-height: min(26rem, 60vh);
+  overflow-y: auto;
+  padding: var(--fcon-space-2);
+}
+
+.fcon-palette-option {
+  align-items: center;
+  border-radius: var(--fcon-radius-control);
+  color: var(--fcon-ink-1);
+  display: flex;
+  gap: var(--fcon-space-3);
+  justify-content: space-between;
+  padding: var(--fcon-space-2) var(--fcon-space-3);
+  text-align: left;
+  width: 100%;
+}
+
+.fcon-palette-option:hover,
+.fcon-palette-option:focus-visible {
+  background: var(--fcon-accent-subtle);
+  text-decoration: none;
+}
+
+.fcon-palette-meta {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-xs);
+}
+
+.fcon-palette-note {
+  color: var(--fcon-ink-3);
+  font-size: var(--fcon-text-sm);
+  padding: var(--fcon-space-4) var(--fcon-space-5);
+}
+
+/* A phone's palette fills the screen, input on top, so the keyboard never
+   covers what it found. */
+@media (width <= 599px), (height <= 500px) {
+  .fcon-palette.fcon-dialog {
+    padding: 0;
+    place-items: stretch;
+  }
+
+  .fcon-palette .fcon-dialog-panel {
+    border: 0;
+    border-radius: 0;
+    height: 100dvh;
+    max-height: none;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  }
+
+  .fcon-palette-list {
+    flex: 1 1 auto;
+    max-height: none;
+    min-height: 0;
+  }
+
+  .fcon-palette-input {
+    outline-offset: -2px;
+  }
+
+  .fcon-palette-cancel {
+    color: var(--fcon-accent);
+    display: block;
+    font-weight: 600;
+    min-height: var(--fcon-control-h);
+    padding: 0 var(--fcon-space-4);
+  }
+}
+
+.fcon-shortcuts {
+  display: grid;
+  gap: var(--fcon-space-2) var(--fcon-space-4);
+  grid-template-columns: max-content 1fr;
+}
+
+.fcon-shortcuts dt {
+  display: flex;
+  gap: var(--fcon-space-1);
+}
+
+.fcon-shortcuts dd {
+  color: var(--fcon-ink-2);
+}
+
+.fcon-glossary {
+  display: grid;
+  gap: var(--fcon-space-3);
+}
+
+.fcon-glossary dt {
+  font-weight: 600;
+}
+
+.fcon-glossary dd {
+  color: var(--fcon-ink-2);
+  font-size: var(--fcon-text-sm);
+}
+
+/* ======================================================================
+   Signed-out pages: a bar with the brand and the theme toggle, over one
+   centred column
+   ====================================================================== */
+
+.fcon-auth {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+.fcon-auth-bar {
+  align-items: center;
+  border-bottom: 1px solid var(--fcon-line);
+  display: flex;
+  justify-content: space-between;
+  padding: var(--fcon-space-2) var(--fcon-space-5);
+}
+
+.fcon-auth-bar .fcon-logo {
+  height: 2rem;
+}
+
+.fcon-auth-main {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 28rem);
+  justify-content: center;
+  padding: var(--fcon-space-9) var(--fcon-space-6);
+}
+
+.fcon-auth-form {
+  display: grid;
+  gap: var(--fcon-space-5);
+}
+
+/* The column's gap spaces its blocks; a console header's own margin would double it. */
+.fcon-auth-form > .fcon-page-header {
+  margin-bottom: 0;
+}
+
+.fcon-auth-mascot {
+  height: auto;
+  justify-self: center;
+  max-width: 16rem;
+}
+
+/* The shell sizes its own chrome buttons for a finger; this bar sits outside it. */
+@media (pointer: coarse) {
+  .fcon-auth .flz-chrome-icon-btn {
+    min-height: var(--fcon-control-h);
+    min-width: var(--fcon-control-h);
+  }
+}
+
+@media (width <= 599px) {
+  .fcon-auth-main {
+    padding: var(--fcon-space-7) var(--fcon-space-4);
+  }
+}
+
+/* A sampled series drawn as bars, a missing sample as a gap. */
+.fcon-bars {
+  align-items: flex-end;
+  display: flex;
+  gap: 1px;
+  height: 3rem;
+}
+
+.fcon-bar {
+  background: var(--fcon-signal);
+  border-radius: 1px;
+  width: 4px;
+}
+
+.fcon-bar[data-gap] {
+  background: transparent;
+}

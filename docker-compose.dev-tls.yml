@@ -1,0 +1,79 @@
+# Runs every Erlang distribution link of the dev stack over TLS 1.3, each side
+# checking the other's certificate against a private distribution authority the
+# stack makes itself, apart from the channel's. Those links are between the
+# controllers, and between them and the operator helpers (the bootstrap steps
+# and the tools service); the console takes no part in distribution. Layered
+# over the dev stack:
+#
+#   docker compose -f docker-compose.dev.yml -f docker-compose.dev-tls.yml up
+#
+# A node needs a certificate from that authority as well as the cookie, and a
+# node without TLS cannot connect at all. `docker exec` inherits
+# ELIXIR_ERL_OPTIONS, so a helper node started inside fcon_tools runs over TLS
+# with that container's certificate. Without this file the stack runs over
+# plain TCP.
+
+x-dist-tls: &dist-tls
+  depends_on:
+    dist_tls_certs:
+      condition: service_completed_successfully
+  volumes:
+    - fcon_dist_tls:/dist_tls:ro
+
+services:
+  # Makes the distribution authority, and a key, certificate and option file per
+  # distributed host, into the volume every node reads them from. Keeps what
+  # already exists. See priv/dev/certs.sh.
+  dist_tls_certs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fcon_dist_tls_certs
+    user: root
+    restart: "no"
+    command:
+      - sh
+      - /flezha_console_dev/certs.sh
+      - dist
+      - flezha_controller
+      - flezha_controller_2
+      - fcon_tools
+      - fcon_bootstrap
+      - fcon_sandbox_bootstrap
+      - fcon_second_bootstrap
+    volumes:
+      - ./priv/dev:/flezha_console_dev:ro
+      - fcon_dist_tls:/dist_tls
+
+  controller:
+    <<: *dist-tls
+    environment:
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/flezha_controller.conf
+
+  controller_2:
+    <<: *dist-tls
+    environment:
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/flezha_controller_2.conf
+
+  bootstrap:
+    <<: *dist-tls
+    environment:
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fcon_bootstrap.conf
+
+  sandbox_bootstrap:
+    <<: *dist-tls
+    environment:
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fcon_sandbox_bootstrap.conf
+
+  second_bootstrap:
+    <<: *dist-tls
+    environment:
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fcon_second_bootstrap.conf
+
+  tools:
+    <<: *dist-tls
+    environment:
+      ELIXIR_ERL_OPTIONS: -proto_dist inet_tls -ssl_dist_optfile /dist_tls/fcon_tools.conf
+
+volumes:
+  fcon_dist_tls:

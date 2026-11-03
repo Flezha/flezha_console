@@ -1,0 +1,94 @@
+{
+  "tokens": "tokens.css",
+  "own": "--fcon-",
+  "light": ":root",
+  "dark": "[data-theme='dark']",
+  "parity": [],
+  "surfaces": [
+    "--fcon-page",
+    "--fcon-canvas",
+    "--fcon-surface",
+    "--fcon-raised",
+    "--fcon-hover"
+  ],
+  "inks": [
+    "--fcon-ink-1",
+    "--fcon-ink-2",
+    "--fcon-ink-3",
+    "--fcon-accent",
+    "--fcon-signal",
+    "--fcon-positive",
+    "--fcon-warning",
+    "--fcon-negative",
+    "--fcon-logo",
+    "--fcon-wire-0",
+    "--fcon-wire-1",
+    "--fcon-wire-2",
+    "--fcon-wire-3",
+    "--fcon-wire-4",
+    "--fcon-wire-5"
+  ],
+  "fills": [
+    "--fcon-accent",
+    "--fcon-negative",
+    "--fcon-negative-solid",
+    "--fcon-signal"
+  ],
+  "chromeSurfaces": [],
+  "chromeInks": [],
+  "solidPairs": [
+    [
+      "--fcon-accent",
+      "--fcon-on-accent"
+    ],
+    [
+      "--fcon-signal",
+      "--fcon-on-signal"
+    ],
+    [
+      "--fcon-positive",
+      "--fcon-on-positive"
+    ],
+    [
+      "--fcon-warning",
+      "--fcon-on-warning"
+    ],
+    [
+      "--fcon-negative-solid",
+      "--fcon-on-negative"
+    ],
+    [
+      "--fcon-accent-subtle",
+      "--fcon-accent"
+    ],
+    [
+      "--fcon-accent-subtle",
+      "--fcon-ink-1"
+    ],
+    [
+      "--fcon-signal-subtle",
+      "--fcon-signal"
+    ],
+    [
+      "--fcon-positive-subtle",
+      "--fcon-positive"
+    ],
+    [
+      "--fcon-warning-subtle",
+      "--fcon-warning"
+    ],
+    [
+      "--fcon-negative-subtle",
+      "--fcon-negative"
+    ],
+    [
+      "--fcon-negative-subtle",
+      "--fcon-ink-1"
+    ]
+  ],
+  "base": {
+    "tokens": "../../node_modules/@flezha/stylebook/css/tokens.css",
+    "light": ":root",
+    "dark": "[data-theme='dark']"
+  }
+}

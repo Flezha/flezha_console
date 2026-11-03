@@ -1,0 +1,522 @@
+<.page_header
+  eyebrow="Plugins"
+  title={(@scoped_namespace && "Plugins in #{@scoped_namespace}") || "Every plugin"}
+>
+  <:sentence>
+    A <.term key="plugin" /> is a <.term key="provider" />
+    enabled by name and bound to relays on <.term key="hook">hooks</.term>. {if @scoped_namespace,
+      do: "These are enabled in #{@scoped_namespace}.",
+      else: "These are enabled in every namespace you can reach."}
+  </:sentence>
+  <:actions>
+    <Layouts.scope_switch
+      collection="plugins"
+      shell_namespace={@shell_namespace}
+      scoped_namespace={@scoped_namespace}
+    />
+    <.button
+      :if={NodeManager.granted?(@operations, "PluginManager.enable")}
+      phx-click="plugin_form_open"
+      phx-value-mode="enable"
+      phx-value-namespace={@scoped_namespace}
+      data-testid="enable-plugin-btn"
+      icon="hero-plus"
+    >
+      Enable plugin
+    </.button>
+  </:actions>
+</.page_header>
+
+<div :for={{namespace, reason} <- @refused} data-testid={"plugins-refused-#{namespace}"}>
+  <.runtime_error error={reason} action={"the plugin listing of #{namespace}"} />
+</div>
+
+<.runtime_error error={@namespaces_error} action="list the namespaces" />
+
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
+<.skeleton :if={!@loaded?} rows={4} testid="plugins-loading" />
+
+<form
+  :if={@loaded? and (@plugins != [] or searched?(@view))}
+  id="plugins-view"
+  phx-change="view"
+  onsubmit="return false"
+  class="flex flex-wrap items-end gap-3 mb-5"
+  data-testid="plugins-view"
+>
+  <.input
+    type="search"
+    name="view[q]"
+    id="plugins-q"
+    label="Search"
+    value={@view["q"]}
+    placeholder="Plugin name"
+    phx-debounce="300"
+    compact
+    data-testid="plugins-q"
+  />
+  <.input
+    type="search"
+    name="view[provider]"
+    id="plugins-provider"
+    label="Provider"
+    value={@view["provider"]}
+    placeholder="Any"
+    phx-debounce="300"
+    compact
+    data-testid="plugins-provider"
+  />
+  <.input
+    type="search"
+    name="view[relay]"
+    id="plugins-relay"
+    label="Bound to relay"
+    value={@view["relay"]}
+    placeholder="Any"
+    phx-debounce="300"
+    compact
+    data-testid="plugins-relay"
+  />
+</form>
+
+<%!-- Enabled plugins --%>
+<p
+  :if={@loaded? and @plugins == [] and searched?(@view)}
+  class="fcon-figures"
+  data-testid="plugins-none-match"
+>
+  No plugin matches this search.
+</p>
+
+<.empty_state
+  :if={
+    @loaded? and @plugins == [] and is_nil(@namespaces_error) and
+      not searched?(@view)
+  }
+  icon="hero-puzzle-piece"
+  testid="plugins-empty"
+>
+  A plugin adds behaviour to relays — reading their input, carrying their output — once a provider
+  is enabled by name. <span :if={@scoped_namespace}>None is enabled in {@scoped_namespace}.</span>
+  <span :if={!@scoped_namespace}>None is enabled.</span>
+  <:action :if={NodeManager.granted?(@operations, "PluginManager.enable")}>
+    <.button
+      size="sm"
+      phx-click="plugin_form_open"
+      phx-value-mode="enable"
+      phx-value-namespace={@scoped_namespace}
+      data-testid="enable-plugin-empty-btn"
+    >
+      Enable plugin
+    </.button>
+  </:action>
+</.empty_state>
+
+<.grid
+  :if={@plugins != []}
+  paging={@paging}
+  id="plugins"
+  rows={@plugins}
+  total={@total}
+  row_testid={&"plugin-row-#{&1.name}"}
+  row_tone={&(&1[:lagging] not in [nil, []] && "warning")}
+  row_label={&"Inspect #{&1.name}"}
+  row_activate={
+    &JS.push("inspect", value: %{kind: "plugin", id: inspect_id(&1, @scoped_namespace)})
+  }
+  row_selected={
+    &(@inspected != nil and @inspected.kind == "plugin" and
+        @inspected.id == inspect_id(&1, @scoped_namespace))
+  }
+>
+  <:col :let={plugin} label="Plugin">
+    <span class="fcon-num">{plugin.name}</span>
+    <span
+      :if={plugin[:single]}
+      data-testid={"plugin-single-#{plugin.name}"}
+      class="fcon-badge ml-1"
+    >
+      Single
+    </span>
+  </:col>
+  <:col :let={plugin} label="Provider">
+    <span class="font-medium">{Format.humanize(provider_id(plugin))}</span>
+    <span
+      :if={@provider_details[provider_id(plugin)][:description]}
+      class="block fcon-muted text-xs"
+      data-testid={"plugin-description-#{plugin.name}"}
+    >
+      {@provider_details[provider_id(plugin)].description}
+    </span>
+  </:col>
+  <:col :let={plugin} label="Hooks">
+    <span class="flex flex-wrap gap-1">
+      <.chip :for={hook <- plugin[:hooks] || []} mono>{hook}</.chip>
+    </span>
+  </:col>
+  <:col :let={plugin} :if={!@scoped_namespace} label="Namespace">
+    <span class="fcon-num">{plugin.namespace}</span>
+  </:col>
+  <:col :let={plugin} label="Relays">
+    <span data-testid={"plugin-relays-#{plugin.name}"} class="fcon-num">
+      {join_or_dash(plugin[:relays])}<span
+        :if={relays_more(plugin) > 0}
+        class="fcon-figures"
+        data-testid={"plugin-relays-more-#{plugin.name}"}
+      > + {Format.count(relays_more(plugin))} more</span>
+    </span>
+    <.button
+      :if={
+        not controller_plugin?(plugin, @available_providers) and
+          NodeManager.granted?(@operations, "PluginManager.bind")
+      }
+      variant="ghost"
+      size="sm"
+      icon="hero-plus-mini"
+      phx-click="plugin_form_open"
+      phx-value-mode="bind"
+      phx-value-name={plugin.name}
+      phx-value-provider={provider_id(plugin)}
+      phx-value-namespace={plugin.namespace}
+      phx-value-hooks={Enum.join(plugin[:hooks] || [], ",")}
+      data-testid={"plugin-bind-#{plugin.name}"}
+    >
+      Bind relay
+    </.button>
+  </:col>
+  <:col :let={plugin} label="Runs on">
+    <span class="fcon-num" data-testid={"plugin-controllers-#{plugin.name}"}>
+      {join_or_dash(plugin[:controllers])}
+    </span>
+    <span
+      :if={plugin[:lagging] not in [nil, []]}
+      data-testid={"plugin-lagging-#{plugin.name}"}
+      class="fcon-badge fcon-badge--warning ml-1"
+    >
+      Lagging on {Enum.join(plugin.lagging, ", ")}
+    </span>
+  </:col>
+  <:menu :let={plugin}>
+    <.row_menu
+      id={"plugin-menu-#{plugin.namespace}-#{plugin.name}"}
+      label={"Actions for #{plugin.name}"}
+      testid={"plugin-menu-#{plugin.name}"}
+    >
+      <:item
+        click="inspect"
+        values={%{kind: "plugin", id: inspect_id(plugin, @scoped_namespace)}}
+        icon="hero-eye"
+        testid={"plugin-inspect-#{plugin.name}"}
+      >
+        Inspect
+      </:item>
+      <:item
+        :if={NodeManager.granted?(@operations, "PluginManager.update")}
+        click="plugin_form_open"
+        values={
+          %{
+            mode: "update",
+            name: plugin.name,
+            provider: provider_id(plugin),
+            namespace: plugin.namespace,
+            hooks: Enum.join(plugin[:hooks] || [], ",")
+          }
+        }
+        testid={"plugin-update-#{plugin.name}"}
+      >
+        Update options
+      </:item>
+      <:item
+        :for={
+          relay <-
+            (NodeManager.granted?(@operations, "PluginManager.unbind") && plugin[:relays]) || []
+        }
+        click="confirm_unbind"
+        values={%{name: plugin.name, namespace: plugin.namespace, relay: relay}}
+        testid={"plugin-unbind-#{plugin.name}-#{relay}"}
+        danger
+      >
+        Unbind {relay}
+      </:item>
+      <:item
+        :if={
+          relays_more(plugin) > 0 and NodeManager.granted?(@operations, "PluginManager.unbind")
+        }
+        click="unbind_other_open"
+        values={%{name: plugin.name, namespace: plugin.namespace}}
+        testid={"plugin-unbind-other-#{plugin.name}"}
+        danger
+      >
+        Unbind another relay…
+      </:item>
+      <:item
+        :if={NodeManager.granted?(@operations, "PluginManager.disable")}
+        click="confirm_disable"
+        values={%{name: plugin.name, namespace: plugin.namespace}}
+        testid={"plugin-disable-#{plugin.name}"}
+        danger
+      >
+        Disable
+      </:item>
+    </.row_menu>
+  </:menu>
+</.grid>
+
+<%!-- What the controller can enable --%>
+<.section
+  testid="providers-panel"
+  fold="providers"
+  open={@sections["providers"]}
+  digest={Words.count(length(@available_providers), "provider")}
+>
+  <:title>Providers the controllers offer</:title>
+  <.runtime_error error={@providers_error} action="the provider listing" />
+  <.notice :if={refused_words(@refused_packages)} kind={:error} testid="providers-refused">
+    {refused_words(@refused_packages)}; their providers are not offered there. The installed
+    catalog below says why.
+  </.notice>
+  <.partial_empty
+    :if={@available_providers == [] and is_nil(@providers_error) and @unreachable != []}
+    noun="provider"
+    testid="providers-partial-empty"
+  />
+  <.empty_state
+    :if={@available_providers == [] and is_nil(@providers_error) and @unreachable == []}
+    icon="hero-puzzle-piece"
+  >
+    The controllers offer no plugin providers.
+  </.empty_state>
+  <.paged :let={page} id="providers" rows={@available_providers} paging={@paging}>
+    <div :if={@available_providers != []} class="fcon-tiles">
+      <div
+        :for={provider <- page}
+        data-testid={"provider-#{provider.id}"}
+        class="fcon-tile flz-tile"
+      >
+        <p class="fcon-tile-title">{Format.humanize(provider.id)}</p>
+        <p
+          :if={@provider_details[to_string(provider.id)][:description]}
+          class="fcon-quiet text-sm"
+        >
+          {@provider_details[to_string(provider.id)].description}
+        </p>
+        <p class="flex flex-wrap gap-1">
+          <.chip
+            :for={hook <- (@provider_details[to_string(provider.id)] || %{hooks: []}).hooks}
+            mono
+          >
+            {hook}
+          </.chip>
+        </p>
+        <p class="fcon-muted text-xs">Runs on the {provider.type}.</p>
+        <p
+          :if={lacking(provider, Map.keys(@refused_packages)) != []}
+          class="fcon-tone-warning text-xs"
+          data-testid={"provider-lacking-#{provider.id}"}
+        >
+          Not offered on
+          <.controller_name
+            :for={node <- lacking(provider, Map.keys(@refused_packages))}
+            node={node}
+            controllers={@shell_pulse[:controllers]}
+          />
+        </p>
+        <div class="fcon-tile-end">
+          <details class="fcon-disclosure" data-testid={"provider-module-#{provider.id}"}>
+            <summary>
+              <.icon name="hero-chevron-right-mini" class="fcon-disclosure-mark h-4 w-4" />
+              <span class="fcon-muted">Implementation</span>
+            </summary>
+            <p class="fcon-num text-xs mt-2 break-all">{provider.module}</p>
+          </details>
+          <.button
+            :if={NodeManager.granted?(@operations, "PluginManager.enable")}
+            variant="secondary"
+            size="sm"
+            icon="hero-plus-mini"
+            phx-click="plugin_form_open"
+            phx-value-mode="enable"
+            phx-value-provider={provider.id}
+            phx-value-namespace={@scoped_namespace}
+            data-testid={"provider-enable-#{provider.id}"}
+          >
+            Enable
+          </.button>
+        </div>
+      </div>
+    </div>
+  </.paged>
+</.section>
+
+<.inspector inspected={@inspected} operations={@operations} />
+
+<.confirm_dialog
+  :if={@confirm_disable}
+  title="Disable plugin?"
+  confirm_label="Disable"
+  on_confirm="disable_plugin"
+  on_cancel="cancel_disable"
+  values={%{"name" => @confirm_disable.name, "namespace" => @confirm_disable.namespace}}
+  testid="plugin-disable-modal"
+  cancel_testid="plugin-disable-cancel"
+  confirm_testid="plugin-disable-confirm"
+>
+  Disable plugin <span class="fcon-ident">{@confirm_disable.name}</span>
+  in <span class="fcon-ident">{@confirm_disable.namespace}</span>? Every running copy stops; its bindings stay.
+</.confirm_dialog>
+
+<.confirm_dialog
+  :if={@confirm_unbind}
+  title="Unbind plugin?"
+  confirm_label="Unbind"
+  on_confirm="unbind_plugin"
+  on_cancel="cancel_unbind"
+  values={
+    %{
+      "name" => @confirm_unbind.name,
+      "namespace" => @confirm_unbind.namespace,
+      "relay" => @confirm_unbind.relay
+    }
+  }
+  testid="plugin-unbind-modal"
+  cancel_testid="plugin-unbind-cancel"
+  confirm_testid="plugin-unbind-confirm"
+>
+  Unbind plugin <span class="fcon-ident">{@confirm_unbind.name}</span>
+  from <span class="fcon-ident">{@confirm_unbind.relay}</span>? The plugin stays enabled; this relay stops
+  using it.
+</.confirm_dialog>
+
+<.plugin_form_dialog form={@plugin_form} />
+
+<.section testid="installed-catalog" digest={Words.count(length(@catalog), "package")}>
+  <:title>Installed on the controllers</:title>
+
+  <p class="fcon-figures mb-3">
+    Installing, upgrading and uninstalling move files on the controller host — those are
+    <code>flz plugin</code>
+    verbs, not control-panel actions.
+  </p>
+
+  <.notice
+    :if={@catalog_error}
+    kind={:info}
+    testid="catalog-unavailable"
+  >
+    The installed-plugin catalog is unavailable on this controller. The enabled plugins above
+    still list normally.
+  </.notice>
+
+  <.partial_empty
+    :if={@catalog == [] and is_nil(@catalog_error) and @unreachable != []}
+    noun="installed plugin"
+    testid="catalog-partial-empty"
+  />
+  <.empty_state
+    :if={@catalog == [] and is_nil(@catalog_error) and @unreachable == []}
+    icon="hero-archive-box"
+  >
+    No plugins are installed on the controllers.
+  </.empty_state>
+
+  <div :if={@catalog != []} class="mt-3">
+    <.grid
+      paging={@paging}
+      id="installed-plugins"
+      rows={@catalog}
+      row_testid={&"installed-#{&1[:id]}"}
+    >
+      <:col :let={plugin} label="Plugin" class="fcon-strong fcon-num text-xs">{plugin[:id]}</:col>
+      <:col :let={plugin} label="Version" class="fcon-num text-xs">
+        {plugin[:version]}
+        <span
+          :if={plugin[:status] == :pending and plugin[:loaded_version]}
+          data-testid={"installed-loaded-#{plugin[:id]}"}
+          class="block fcon-muted"
+        >
+          {plugin[:loaded_version]} still loaded until the next boot
+        </span>
+      </:col>
+      <:col :let={plugin} label="Controllers">
+        <span class="flex flex-wrap gap-2" data-testid={"installed-nodes-#{plugin[:id]}"}>
+          <.controller_name
+            :for={node <- plugin.nodes}
+            node={node}
+            controllers={@shell_pulse[:controllers]}
+          />
+        </span>
+      </:col>
+      <:col :let={plugin} label="Status">
+        <span
+          data-testid={"installed-status-#{plugin[:id]}"}
+          class={["fcon-badge", plugin[:status] == :loaded && "fcon-badge--positive"]}
+        >
+          {Words.humanize(plugin[:status])}
+        </span>
+      </:col>
+      <:col :let={plugin} label="Providers" class="text-xs">
+        <div data-testid={"installed-providers-#{plugin[:id]}"}>
+          {join_or_dash(plugin[:providers])}
+          <div :if={plugin[:error]} data-testid={"installed-error-#{plugin[:id]}"} class="mt-2">
+            <.runtime_error error={plugin.error} action="the package" />
+          </div>
+        </div>
+      </:col>
+    </.grid>
+  </div>
+</.section>
+
+<.dialog
+  :if={@unbind_other}
+  testid="plugin-unbind-other-modal"
+  size="confirm"
+  on_close="unbind_other_close"
+>
+  <:title>Unbind <span class="fcon-ident">{@unbind_other.name}</span> from a relay</:title>
+  <form
+    id="unbind-other-form"
+    phx-change="unbind_other_change"
+    onsubmit="return false"
+    data-testid="unbind-other-form"
+  >
+    <.combobox
+      id="unbind-other-relay"
+      name="unbind[relay]"
+      label="Relay"
+      value={@unbind_other.relay}
+      prompt="Search a relay..."
+      search="unbind_other_search"
+      query={@unbind_other.query}
+      matches={@unbind_other.matching}
+      testid="unbind-other-relay"
+    >
+      <:option :for={relay <- @unbind_other.relays} value={relay}>{relay}</:option>
+    </.combobox>
+  </form>
+  <p
+    :if={@unbind_other.error == :not_bound}
+    class="fcon-error"
+    data-testid="unbind-other-not-bound"
+  >
+    {@unbind_other.relay} is not bound to {@unbind_other.name}.
+  </p>
+  <.runtime_error
+    :if={@unbind_other.error not in [nil, :not_bound]}
+    error={@unbind_other.error}
+    action="the relay search"
+  />
+  <:actions>
+    <.button variant="ghost" phx-click="unbind_other_close" data-testid="unbind-other-cancel">
+      Cancel
+    </.button>
+    <.button
+      variant="danger"
+      phx-click="unbind_other_next"
+      disabled={@unbind_other.relay == ""}
+      data-testid="unbind-other-next"
+    >
+      Unbind
+    </.button>
+  </:actions>
+</.dialog>

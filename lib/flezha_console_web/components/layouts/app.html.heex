@@ -1,0 +1,367 @@
+<% node = FlezhaConsole.Service.NodeManager.connected_node()
+
+token = FlezhaConsole.Accounts.Scope.flezha_token(assigns[:current_scope])
+authz = FlezhaConsole.Service.NodeManager.authz_status(token)
+
+# The settings screens are plain controller pages sharing this shell, and a
+# LiveComponent cannot be mounted into one.
+live? = is_nil(assigns[:conn])
+
+current_path = assigns[:current_path] || (assigns[:conn] && assigns[:conn].request_path) || "/"
+
+scope =
+  if live?,
+    do: assigns[:shell_namespace],
+    else: FlezhaConsoleWeb.Layouts.dead_namespace(assigns)
+
+namespaces =
+  if live?,
+    do: assigns[:shell_namespaces] || [],
+    else: FlezhaConsoleWeb.Layouts.dead_namespaces(assigns)
+
+problems = assigns[:shell_pulse] && assigns[:shell_pulse].items %>
+<div class="flz-app" phx-mounted={JS.ignore_attributes(["data-nav-open"])}>
+  <%!-- Every screen hears when its tab is hidden: the pulse and the screen's
+        own reads hold until it is shown again. --%>
+  <div :if={live?} id="shell-visibility" phx-hook="FlzVisibility" hidden></div>
+  <aside id="shell-nav" class="flz-sidebar" aria-label="Navigation">
+    <div class="fcon-rail-head">
+      <.link
+        navigate={~p"/"}
+        class="flz-sidebar-brand"
+        aria-label={product_name()}
+        data-testid="brand-link"
+      >
+        <.brand_lockup on={:chrome} />
+        <.brand_lockup on={:chrome} mark class="fcon-rail-mark" />
+      </.link>
+      <%!-- Collapses the rail to its icons at desk width; app.js keeps its
+            label naming what a press would do. --%>
+      <button
+        type="button"
+        class="flz-chrome-icon-btn fcon-rail-toggle"
+        data-fcon-rail-toggle
+        aria-controls="shell-nav"
+        aria-label="Collapse navigation"
+        title="Collapse navigation"
+        data-testid="rail-toggle"
+        data-shell-at="desk"
+        phx-mounted={JS.ignore_attributes(["aria-label", "title"])}
+      >
+        <.icon name="hero-chevron-double-left" class="w-5 h-5" />
+      </button>
+    </div>
+
+    <nav class="flz-sidebar-nav">
+      <%= for section <- nav_sections(scope) do %>
+        <p
+          class="flz-sidebar-section"
+          data-current={
+            Enum.any?(section.entries, &nav_current?(current_path, &1.path)) && "true"
+          }
+        >
+          {section.heading}<span :if={section.scope} class="flz-num">{section.scope}</span>
+        </p>
+
+        <p :if={section.entries == []} class="flz-sidebar-hint" data-testid="no-namespace-scoped">
+          No namespace in scope. <.link navigate={~p"/namespaces"} class="underline">Pick one</.link>.
+        </p>
+
+        <.link
+          :for={entry <- section.entries}
+          navigate={entry.path}
+          aria-current={nav_current?(current_path, entry.path) && "page"}
+          class="flz-sidebar-link"
+        >
+          <.icon name={entry.icon} class="w-[18px] h-[18px] shrink-0" /><span class="fcon-rail-label">{entry.label}</span>
+          <%!-- Names the destination beside a collapsed rail's icon, from its
+                label, so the link's own text holds the name once; app.js
+                places it against the viewport. --%>
+          <span
+            class="fcon-tooltip"
+            aria-hidden="true"
+            data-fcon-rail-tip
+            data-label={entry.label}
+            phx-mounted={JS.ignore_attributes(["style"])}
+          ></span>
+          <.problems_count
+            :if={entry.count == :problems}
+            problems={problems}
+            class="ml-auto"
+            testid="problems-count"
+          />
+        </.link>
+      <% end %>
+    </nav>
+
+    <div class="flz-sidebar-foot">
+      <div class="flex items-center gap-2 mb-2">
+        <span
+          class={["fcon-shape", (node && "fcon-tone-positive") || "fcon-tone-negative"]}
+          data-shape="dot"
+          aria-hidden="true"
+        ></span>
+        <span :if={node} class="flz-num truncate">{node}</span>
+        <span :if={!node}>Disconnected</span>
+      </div>
+      <.principal
+        :if={authz.principal}
+        status={authz}
+        class="mb-2"
+        data-testid="drawer-principal"
+        data-shell-at="compact phone"
+      />
+      <div class="flex items-center justify-between gap-2">
+        <p class="flz-num">flezha_console v{Application.spec(:flezha_console, :vsn)}</p>
+        <.theme_toggle testid="drawer-theme-toggle" data-shell-at="phone" />
+      </div>
+    </div>
+  </aside>
+
+  <div class="flz-app-main" phx-mounted={JS.ignore_attributes(["inert"])}>
+    <header class="flz-topbar" data-testid="topbar">
+      <%!-- Beside the rail the bar keeps one row: a long node name or principal
+           truncates instead. --%>
+      <div class="flz-topbar-group lg:flex-nowrap">
+        <.nav_toggle
+          class="flz-chrome-icon-btn relative"
+          aria-label="Menu"
+          data-testid="nav-toggle"
+          data-shell-at="compact"
+        >
+          <.icon name="hero-bars-3" class="w-5 h-5" />
+          <.problems_count
+            problems={problems}
+            class="flz-corner-badge"
+            testid="nav-toggle-problems-count"
+          />
+        </.nav_toggle>
+
+        <span :if={node} class="flex min-w-0 items-center gap-1.5" data-shell-at="desk">
+          <span class="fcon-shape fcon-tone-positive shrink-0" data-shape="dot" aria-hidden="true"></span><span
+            class="truncate"
+            title={node}
+          >{node}</span>
+        </span>
+        <span :if={!node} class="flz-topbar-muted flex items-center gap-1.5">
+          <span class="fcon-shape fcon-tone-negative" data-shape="dot" aria-hidden="true"></span>
+          Not connected
+        </span>
+
+        <%!-- One meaning in both places: show me this namespace. --%>
+        <div
+          :if={live? and Map.has_key?(assigns, :shell_namespaces)}
+          id="namespace-picker"
+          class="relative min-w-0"
+          data-fcon-pop
+        >
+          <button
+            type="button"
+            class="flz-dropdown-trigger flz-chrome-icon-btn max-w-full"
+            data-fcon-pop-trigger
+            data-testid="namespace-picker"
+            aria-label="Namespace scope"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            phx-mounted={JS.ignore_attributes(["aria-expanded"])}
+          >
+            <.icon name="hero-rectangle-stack" class="w-[18px] h-[18px] shrink-0" />
+            <span class="flz-num truncate min-w-0">{@shell_namespace || "no namespace"}</span>
+            <.icon name="hero-chevron-down-micro" class="shrink-0" />
+          </button>
+          <div
+            class="flz-dropdown flz-menu mt-1"
+            role="menu"
+            data-fcon-pop-panel
+            hidden
+            phx-mounted={JS.ignore_attributes(["hidden", "style"])}
+          >
+            <%!-- Read from assigns, not the template's own variables, so a
+                  render re-sends the menu only when the namespaces change. --%>
+            <p :if={@shell_namespaces == []} class="flz-menu-item">No namespace is reachable.</p>
+            <.link
+              :for={name <- @shell_namespaces}
+              navigate={scope_target(@current_path, name)}
+              aria-current={name == @shell_namespace && "true"}
+              data-testid={"namespace-picker-#{name}"}
+              data-fcon-pop-item
+              class="flz-menu-item flz-num"
+            >
+              {name}
+            </.link>
+          </div>
+        </div>
+      </div>
+
+      <div class="flz-topbar-group lg:flex-nowrap">
+        <div
+          :if={assigns[:refresh_interval]}
+          data-testid="liveness"
+          class="flex items-center gap-2"
+        >
+          <span
+            class="flz-topbar-muted whitespace-nowrap tabular-nums"
+            data-testid="liveness-state"
+          >
+            <span :if={assigns[:refresh_paused]}>Paused</span>
+            <span :if={!assigns[:refresh_paused]}>
+              <span data-shell-at="desk compact">
+                Every {FlezhaConsole.Format.duration(@refresh_interval)} ·
+              </span>
+              {FlezhaConsole.Format.time_of_day(assigns[:refresh_at])}
+            </span>
+          </span>
+          <button
+            type="button"
+            phx-click="refresh_toggle"
+            aria-pressed={to_string(assigns[:refresh_paused] || false)}
+            data-testid="liveness-toggle"
+            class="flz-chrome-icon-btn"
+            title={if assigns[:refresh_paused], do: "Resume refreshing", else: "Pause refreshing"}
+            aria-label={
+              if assigns[:refresh_paused], do: "Resume refreshing", else: "Pause refreshing"
+            }
+          >
+            <.icon :if={assigns[:refresh_paused]} name="hero-play" class="w-[18px] h-[18px]" />
+            <.icon :if={!assigns[:refresh_paused]} name="hero-pause" class="w-[18px] h-[18px]" />
+          </button>
+        </div>
+
+        <.principal
+          :if={authz.principal}
+          status={authz}
+          class="flz-topbar-muted"
+          data-testid="authz-identity"
+          data-shell-at="desk"
+        />
+
+        <button
+          :if={live?}
+          type="button"
+          class="flz-chrome-icon-btn"
+          phx-click={FlezhaConsoleWeb.CommandPalette.open()}
+          aria-label="Search or run a command"
+          data-testid="search-open"
+          data-shell-at="compact"
+        >
+          <.icon name="hero-magnifying-glass" class="w-5 h-5" />
+        </button>
+
+        <button
+          type="button"
+          class="flz-chrome-icon-btn"
+          data-fcon-help-open
+          aria-label="Help for this screen"
+          data-testid="help-btn"
+          data-shell-at="desk compact"
+        >
+          <.icon name="hero-question-mark-circle" class="w-5 h-5" />
+        </button>
+
+        <.theme_toggle data-shell-at="desk compact" />
+
+        <div id="account-menu" class="relative" data-fcon-pop>
+          <button
+            type="button"
+            class="flz-dropdown-trigger flz-chrome-icon-btn"
+            data-fcon-pop-trigger
+            data-testid="account-menu"
+            aria-label="Account"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            phx-mounted={JS.ignore_attributes(["aria-expanded"])}
+          >
+            <.icon name="hero-user-circle" class="w-5 h-5" />
+            <.icon name="hero-chevron-down-micro" class="shrink-0" />
+          </button>
+          <div
+            class="flz-dropdown flz-menu mt-1 right-0"
+            role="menu"
+            data-fcon-pop-panel
+            hidden
+            phx-mounted={JS.ignore_attributes(["hidden", "style"])}
+          >
+            <p class="flz-menu-item" data-testid="account-identity">
+              {assigns[:current_scope] && assigns[:current_scope].user &&
+                assigns[:current_scope].user.email}
+            </p>
+            <hr class="flz-menu-sep" />
+            <.link href={~p"/users/settings"} class="flz-menu-item" data-fcon-pop-item>
+              <.icon name="hero-cog-6-tooth" class="w-4 h-4" /> Settings
+            </.link>
+            <hr class="flz-menu-sep" />
+            <.link
+              href={~p"/users/log-out"}
+              method="delete"
+              class="flz-menu-item"
+              data-fcon-pop-item
+              data-testid="log-out"
+            >
+              <.icon name="hero-arrow-right-start-on-rectangle" class="w-4 h-4" /> Log out
+            </.link>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="flz-canvas" data-testid="main">
+      <.authz_banner status={authz} />
+      <%= if assigns[:inner_block] do %>
+        {render_slot(@inner_block)}
+      <% else %>
+        {@inner_content}
+      <% end %>
+    </main>
+  </div>
+
+  <nav
+    class="flz-tabbar"
+    aria-label="Main"
+    data-testid="tabbar"
+    data-shell-at="phone"
+    phx-mounted={JS.ignore_attributes(["inert"])}
+  >
+    <.link
+      :for={{key, entry} <- shortcuts(scope)}
+      navigate={entry.path}
+      data-shortcut={key}
+      hidden={key == "c"}
+      aria-current={nav_current?(current_path, entry.path) && "page"}
+      class="flz-tabbar-item"
+      data-testid={"tabbar-#{String.downcase(entry.label)}"}
+    >
+      <.icon name={entry.icon} class="w-[22px] h-[22px] shrink-0" />{entry.label}
+      <.problems_count
+        :if={entry.count == :problems}
+        problems={problems}
+        class="flz-corner-badge"
+        testid="tabbar-problems-count"
+      />
+    </.link>
+    <button
+      :if={live?}
+      type="button"
+      class="flz-tabbar-item"
+      phx-click={FlezhaConsoleWeb.CommandPalette.open()}
+      data-testid="tabbar-search"
+    >
+      <.icon name="hero-magnifying-glass" class="w-[22px] h-[22px] shrink-0" />Search
+    </button>
+    <.nav_toggle class="flz-tabbar-item" data-testid="tabbar-menu">
+      <.icon name="hero-bars-3" class="w-[22px] h-[22px] shrink-0" />Menu
+    </.nav_toggle>
+  </nav>
+</div>
+
+<.flash_group flash={@flash} />
+<.help_overlay screen={FlezhaConsoleWeb.Layouts.screen(current_path)} />
+
+<.live_component
+  :if={live?}
+  module={FlezhaConsoleWeb.CommandPalette}
+  id={FlezhaConsoleWeb.CommandPalette.id()}
+  namespaces={namespaces}
+  scope={scope}
+  token={token}
+  operations={assigns[:operations]}
+/>

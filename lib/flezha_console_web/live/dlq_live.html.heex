@@ -1,0 +1,244 @@
+<.page_header eyebrow="Problems" title="Dead-letter queue">
+  <:sentence>
+    <% hidden = length(@entries) - length(@shown) %>
+    <%= cond do %>
+      <% @entries == [] and @unreachable != [] -> %>
+        No dead letters on the controllers that answered.
+      <% @entries == [] and @filter in [nil, ""] -> %>
+        No dead letters: every record reached its tasklet.
+      <% @entries == [] -> %>
+        No dead letters for {@filter}.
+      <% @shown == [] -> %>
+        {hidden_seen(hidden, "dead letter")}
+      <% true -> %>
+        {Words.count(length(@shown), "record")} could not be processed and wait here as <.term key="dead letter">dead letters</.term>, to be replayed or dropped.
+        <span :if={hidden > 0} data-testid="dlq-hidden-seen">
+          {hidden_seen(hidden, "more", "more")}
+        </span>
+    <% end %>
+  </:sentence>
+  <:actions>
+    <form id="dlq-filter" phx-change="filter" class="flex flex-wrap items-center gap-3">
+      <div class="w-64">
+        <.input
+          type="text"
+          name="filter[relay_class]"
+          value={@filter}
+          placeholder="Filter by relay class"
+          aria-label="Filter by relay class"
+          compact
+          phx-debounce="300"
+          data-testid="dlq-filter"
+        />
+      </div>
+      <.controller_filter
+        rows={@listed}
+        name="filter[controller]"
+        value={@controller}
+        controllers={@shell_pulse[:controllers]}
+      />
+      <.input
+        type="checkbox"
+        name="filter[show_seen]"
+        id="dlq-show-seen"
+        label="Show seen"
+        checked={@show_seen?}
+        data-testid="dlq-show-seen"
+      />
+    </form>
+  </:actions>
+</.page_header>
+
+<.runtime_error error={@load_error} />
+
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
+<%= case @replay_outcome do %>
+  <% {:pending, ref} -> %>
+    <.notice testid="replay-pending" icon="hero-arrow-path">
+      Replaying <span class="fcon-ident">{ref}</span>
+      — the controller is waiting to see whether it fails again.
+    </.notice>
+  <% {:replayed, ref} -> %>
+    <.notice testid="replay-succeeded" icon="hero-check-circle">
+      Replayed <span class="fcon-ident">{ref}</span>: the payload was accepted and the entry left the queue.
+    </.notice>
+  <% {:reparked, ref, generation} -> %>
+    <.notice kind={:error} testid="replay-reparked">
+      <span class="fcon-ident">{ref}</span>
+      failed again and is a dead letter again, as generation {generation}; its new error is on the row.
+    </.notice>
+  <% {:refused, _ref, reason} -> %>
+    <div data-testid="replay-refused">
+      <.runtime_error error={reason} action="the replay" />
+    </div>
+  <% nil -> %>
+<% end %>
+
+<%!-- Statistics: dead letters per tasklet --%>
+<div :if={@stats != []} class="mb-6" data-testid="dlq-stats">
+  <.paged :let={page} id="dlq-stats" rows={@stats} paging={@paging}>
+    <dl class="fcon-facts">
+      <.stat :for={stat <- page} label={"#{stat[:relay_class]}/#{stat[:tasklet_id]}"}>
+        <span class="fcon-figure">{stat[:entries]}</span> {if stat[:entries] == 1,
+          do: "dead letter",
+          else: "dead letters"}
+      </.stat>
+      <.stat label="Total size" testid="dlq-total-bytes">
+        {@stats |> Enum.map(&(&1[:bytes] || 0)) |> Enum.sum() |> Format.bytes()}
+      </.stat>
+    </dl>
+  </.paged>
+</div>
+
+<.partial_empty :if={@entries == [] and @unreachable != []} noun="dead letter" />
+
+<.empty_state
+  :if={@shown == [] and not (@entries == [] and @unreachable != [])}
+  icon="hero-check-circle"
+  testid="dlq-empty"
+>
+  A record a tasklet cannot process waits here as a dead letter, so it can be inspected, replayed or dropped.
+  <%= cond do %>
+    <% @entries != [] -> %>
+      Every one waiting here is marked seen; Show seen lists them.
+    <% @filter in [nil, ""] -> %>
+      The queue is empty.
+    <% true -> %>
+      None waits for that relay class.
+  <% end %>
+</.empty_state>
+
+<div :if={@shown != []} class="space-y-8">
+  <div
+    :for={group <- @groups}
+    data-testid={"dlq-group-#{group.relay_class}-#{group.tasklet_id}"}
+    class="space-y-2"
+  >
+    <h3 class="flex flex-wrap items-center gap-3">
+      <span class="fcon-num font-medium">{group.relay_class}/{group.tasklet_id}</span>
+      <span
+        data-testid={"dlq-group-count-#{group.relay_class}-#{group.tasklet_id}"}
+        class="fcon-figures"
+      >
+        {Words.count(group.parked, "dead letter")}{if group.seen > 0, do: ", #{group.seen} seen"}
+      </span>
+      <.button
+        :if={group.seen < group.parked}
+        variant="ghost"
+        size="sm"
+        icon="hero-eye-slash"
+        phx-click="mark_group_seen"
+        phx-value-class={group.relay_class}
+        phx-value-tasklet={group.tasklet_id}
+        data-testid={"dlq-group-seen-#{group.relay_class}-#{group.tasklet_id}"}
+      >
+        Mark all seen
+      </.button>
+    </h3>
+    <.grid
+      id={"dlq-#{group.relay_class}-#{group.tasklet_id}"}
+      rows={group.entries}
+      testid="dlq-table"
+      row_testid={&"dlq-row-#{&1.ref}"}
+      row_tone={&((&1.generation > 1 && "negative") || "warning")}
+      row_label={&"Inspect #{&1.ref}"}
+      row_activate={&JS.push("inspect", value: %{kind: "entry", id: &1.ref})}
+      row_selected={&(@inspected != nil and @inspected.id == &1.ref)}
+    >
+      <:col :let={entry} label="Entry"><.ident value={entry.ref} /></:col>
+      <:col :let={entry} label="Controller">
+        <.controller_name node={entry.node} controllers={@shell_pulse[:controllers]} />
+      </:col>
+      <:col :let={entry} label="Cell"><span class="fcon-num">{entry.cell_key || "—"}</span></:col>
+      <:col :let={entry} label="Channel">
+        <span class="fcon-num">{entry.channel || "—"}</span>
+      </:col>
+      <:col :let={entry} label="Generation" num>{entry.generation}</:col>
+      <:col :let={entry} label="Dead-lettered">
+        <.moment at={entry.ts_ms} unit={:millisecond} testid={"dlq-at-#{entry.ref}"} />
+      </:col>
+      <:col :let={entry} label="Attempts" num>{entry.attempts || "—"}</:col>
+      <:col :let={entry} label="Size" num>{Format.bytes(entry.payload_bytes)}</:col>
+      <:col :let={entry} label="State">
+        <span data-testid={"dlq-state-#{entry.ref}"}>
+          {if entry.replaying?, do: "Replaying", else: "Waiting"}
+        </span>
+        <span :if={entry.seen?} class="fcon-badge ml-1" data-testid={"dlq-seen-#{entry.ref}"}>
+          Seen
+        </span>
+      </:col>
+      <:col :let={entry} label="Error">
+        <code class="block max-w-xs truncate" title={entry.error}>{entry.error || "—"}</code>
+      </:col>
+      <:menu :let={entry}>
+        <.row_menu
+          id={"dlq-menu-#{entry.ref}"}
+          label={"Actions for #{entry.ref}"}
+          testid={"dlq-menu-#{entry.ref}"}
+        >
+          <:item
+            click="inspect"
+            values={%{kind: "entry", id: entry.ref}}
+            icon="hero-eye"
+            testid={"dlq-inspect-#{entry.ref}"}
+          >
+            Inspect
+          </:item>
+          <:item
+            :if={not entry.seen?}
+            click="mark_seen"
+            values={%{ref: entry.ref}}
+            icon="hero-eye-slash"
+            testid={"dlq-mark-seen-#{entry.ref}"}
+          >
+            Mark seen
+          </:item>
+          <:item
+            :if={NodeManager.granted?(@operations, "Dlq.replay")}
+            click="confirm"
+            values={%{action: "replay", ref: entry.ref}}
+            icon="hero-arrow-path"
+            testid={"dlq-replay-#{entry.ref}"}
+          >
+            Replay
+          </:item>
+          <:item
+            :if={NodeManager.granted?(@operations, "Dlq.drop")}
+            click="confirm"
+            values={%{action: "drop", ref: entry.ref}}
+            testid={"dlq-drop-#{entry.ref}"}
+            danger
+          >
+            Drop
+          </:item>
+        </.row_menu>
+      </:menu>
+    </.grid>
+  </div>
+  <.more id="dlq" shown={length(@listed)} total={@total} reach={Sections.reach()} />
+</div>
+
+<.inspector inspected={@inspected} operations={@operations} />
+
+<.confirm_dialog
+  :if={@confirm}
+  title={if @confirm.action == "replay", do: "Replay entry?", else: "Drop entry?"}
+  confirm_label={if @confirm.action == "replay", do: "Replay", else: "Drop"}
+  variant={if @confirm.action == "replay", do: "primary", else: "danger"}
+  on_confirm={@confirm.action}
+  on_cancel="cancel_confirm"
+  values={%{"ref" => @confirm.ref}}
+  testid="dlq-confirm-modal"
+  cancel_testid="dlq-confirm-cancel"
+  confirm_testid="dlq-confirm-submit"
+>
+  <%= if @confirm.action == "replay" do %>
+    Re-send <span class="fcon-ident">{@confirm.ref}</span>
+    to its relay as a new input. If it fails again it becomes
+    a dead letter again, and the outcome is reported here.
+  <% else %>
+    Discard <span class="fcon-ident">{@confirm.ref}</span>
+    and its payload. This is permanent and cannot be undone.
+  <% end %>
+</.confirm_dialog>

@@ -1,0 +1,108 @@
+import { test, expect } from './fixtures';
+import { CONTROLLERS, machine, SECOND_NAMESPACE } from './global-setup';
+
+/**
+ * The controller-health screen.
+ *
+ * The dev stack runs `local_only` with no remote tier, so that posture is the
+ * one asserted; a controller reporting another one is a changed stack. A
+ * breached RPO and a shutdown in progress cannot be arranged against a
+ * controller that is meant to keep serving; both are covered in
+ * `test/flezha_console_web/live/controller_live_test.exs`, as is a shipper retry,
+ * which only a remote tier has.
+ */
+test.describe('Controller health', () => {
+  test('states the posture, shutdown, boot, authz and shipper; memory is snapshotted only when asked', async ({
+    page,
+    live,
+  }) => {
+    await live('/controller');
+
+    // The controller this console reached is one of those listed, and marked.
+    await expect(page.locator('[data-testid^="controller-local-"]')).toHaveText('Connected here');
+
+    // local_only ships nowhere, so it has no backend and nothing to breach.
+    await expect(page.getByTestId('durability-backend')).toHaveText('None');
+    await expect(
+      page.getByTestId('durability-posture'),
+      'the dev stack runs local_only; check docker-compose.dev.yml',
+    ).toContainText('one copy, on the node that wrote it');
+    await expect(page.getByTestId('durability-breaches')).toHaveText('0');
+    await expect(page.getByTestId('durability-superseded')).toHaveText('0');
+
+    // Informational, not an error: an alarm would carry the alert role.
+    const notice = page.getByTestId('durability-local-only');
+    await expect(notice).toContainText('exactly one copy');
+    await expect(notice).not.toHaveAttribute('role', 'alert');
+
+    await expect(page.getByTestId('shutdown-in-progress')).toHaveText('No');
+    // Said in words, never the raw `nil` a not-shutting-down coordinator reports.
+    await expect(page.getByTestId('shutdown-phase')).toHaveText('Not stopping');
+    // The console reaches a controller holding `_system`, whose HTTP API it calls.
+    await expect(page.getByTestId('boot-_system')).toContainText('Serving');
+    await expect(page.getByTestId('authz-posture')).toContainText('Enforced');
+
+    await expect(page.getByTestId('shipper-not-applicable')).toBeVisible();
+    await expect(page.getByTestId('shipper-table')).toHaveCount(0);
+
+    // Nothing on arrival: a process scan is too expensive for a refresh tick.
+    await expect(page.getByTestId('memory-panel')).toBeVisible();
+    await expect(page.getByTestId('memory-captured-at')).toHaveCount(0);
+
+    await page.getByTestId('memory-snapshot-btn').click();
+
+    // The answer is brought into view and announced, never left below the fold.
+    const captured = page.getByTestId('memory-captured-at');
+    await expect(captured).toBeInViewport();
+    await expect(page.locator('.fcon-toast').filter({ hasText: 'Memory snapshot taken.' })).toBeVisible();
+    await expect(captured).toContainText('Captured at');
+    await expect(page.getByTestId('memory-top-processes')).toBeVisible();
+    // Each process reads with its queue and how it was started, named when it
+    // is registered: a controller's busiest processes include named servers.
+    const table = page.getByTestId('memory-top-processes');
+    await expect(table.locator('th')).toContainText(['Process', 'Memory', 'Queue', 'Started as']);
+    await expect(table.locator('tbody td[data-label="Process"]').filter({ hasNotText: '<0.' })).not.toHaveCount(0);
+  });
+
+  test('the listing chooses whose facts are shown, and the address keeps the choice', async ({ page, live }) => {
+    await live('/controller');
+    const [connected, second] = CONTROLLERS;
+
+    // The controller this console is connected to is chosen on open.
+    await expect(page.getByTestId('controllers-table').locator('tbody tr')).toHaveCount(CONTROLLERS.length);
+    await expect(page.getByTestId('chosen-controller')).toContainText(connected);
+
+    await page.getByTestId(`choose-controller-${second}`).click();
+    await expect(page).toHaveURL(new RegExp(`controller=${encodeURIComponent(second)}`));
+    await expect(page.getByTestId('chosen-machine')).toHaveText(machine(second));
+    // Its own hubs: only it runs the namespace its runner serves.
+    await expect(page.getByTestId(`boot-${SECOND_NAMESPACE}`)).toContainText('Serving');
+    await expect(page.getByTestId('durability-posture')).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByTestId('chosen-machine')).toHaveText(machine(second));
+    await expect(page.getByTestId(`choose-controller-${second}`)).toHaveAttribute('aria-current', 'true');
+  });
+
+  test('a term pins its own definition, and only the clicked term is open', async ({ page, live }) => {
+    await live('/controller');
+    const role = page.getByTestId('term-role');
+    const principal = page.getByTestId('term-principal');
+
+    await role.click();
+    await expect(role).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByTestId('term-panel-role')).toBeVisible();
+    await expect(page.getByTestId('term-panel-role')).toContainText('What a principal may do in a namespace');
+    await expect(page.getByTestId('help-overlay')).not.toBeVisible();
+
+    await principal.click();
+    await expect(principal).toHaveAttribute('aria-expanded', 'true');
+    await expect(role).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('term-panel-principal')).toContainText('The identity a call is made as');
+    await expect(page.getByTestId('term-panel-role')).toBeHidden();
+
+    await page.keyboard.press('Escape');
+    await expect(principal).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('term-panel-principal')).toBeHidden();
+  });
+});

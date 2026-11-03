@@ -1,0 +1,127 @@
+#!/bin/sh
+# Makes the dev stack's certificates, each kind from an authority of its own:
+#
+#     certs.sh channel [--name <name>] <host>...
+#                                  the controllers' HTTPS channel: an authority, a
+#                                  server certificate per controller host, also
+#                                  naming `name`, a name every controller answers
+#                                  to, and the console's client certificate,
+#                                  `console`
+#     certs.sh dist <host>...      the TLS overlay's Erlang distribution: an
+#                                  authority, and per host a certificate and an
+#                                  `inet_tls_dist` option file
+#
+# Writes into $CHANNEL_TLS_DIR (default /channel_tls) and $DIST_TLS_DIR (default
+# /dist_tls). What already exists is kept, so a restart neither rotates an
+# authority nor breaks running links; a file that is missing, expires within 30
+# days, or was signed by an earlier authority is made again.
+#
+# A server certificate names its host and the shared name, which the console
+# checks against the host of its controller URL. A distribution certificate names its host
+# because inet_tls_dist checks a peer against the host part of its node name,
+# and is good for client and server use, because every node is both.
+set -eu
+
+days=365
+renew_within=$((30 * 24 * 3600))
+
+usage() {
+  echo "usage: $0 channel [--name <name>] <host>... | dist <host>..." >&2
+  exit 64
+}
+
+[ "$#" -gt 1 ] || usage
+kind=$1
+shift
+
+shared=
+if [ "$kind" = channel ] && [ "$1" = --name ]; then
+  [ "$#" -gt 2 ] || usage
+  shared=$2
+  shift 2
+fi
+
+case "$kind" in
+  channel) dir=${CHANNEL_TLS_DIR:-/channel_tls} ;;
+  dist) dir=${DIST_TLS_DIR:-/dist_tls} ;;
+  *) usage ;;
+esac
+
+mkdir -p "$dir"
+cd "$dir"
+umask 077
+
+fresh() {
+  [ -s "$1" ] && openssl x509 -in "$1" -noout -checkend "$renew_within" >/dev/null 2>&1
+}
+
+# A certificate for `name`, signed by this kind's authority, unless a fresh one
+# signed by it, naming every name in `names`, is already here. `ext` is its
+# extension section.
+issue() {
+  name=$1
+  ext=$2
+  names=${3:-}
+
+  if fresh "$name.pem" && [ -s "$name.key" ] &&
+    openssl verify -CAfile ca.pem "$name.pem" >/dev/null 2>&1 &&
+    names_all "$name.pem" "$names"; then
+    echo "[certs] kept $kind $name"
+    return
+  fi
+
+  openssl ecparam -name prime256v1 -genkey -noout -out "$name.key"
+  openssl req -new -key "$name.key" -subj "/CN=$name" -out "$name.csr"
+  printf '%s\n' "$ext" >"$name.ext"
+  openssl x509 -req -in "$name.csr" -CA ca.pem -CAkey ca.key -CAcreateserial \
+    -days "$days" -sha256 -extfile "$name.ext" -out "$name.pem" 2>/dev/null
+  rm -f "$name.csr" "$name.ext"
+  echo "[certs] made $kind $name"
+}
+
+# Whether `pem` names every DNS name in the space-separated `names`.
+names_all() {
+  san=$(openssl x509 -in "$1" -noout -ext subjectAltName 2>/dev/null)
+  for dns in $2; do
+    case "$san" in
+      *"DNS:$dns"*) ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
+if ! fresh ca.pem || [ ! -s ca.key ]; then
+  openssl ecparam -name prime256v1 -genkey -noout -out ca.key
+  openssl req -x509 -new -key ca.key -sha256 -days "$days" \
+    -subj "/CN=flezha dev $kind authority" -out ca.pem
+  echo "[certs] made a new $kind authority"
+fi
+
+case "$kind" in
+  channel)
+    for host in "$@"; do
+      san="DNS:$host${shared:+,DNS:$shared}"
+      issue "$host" "$(printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\nkeyUsage=critical,digitalSignature' "$san")" "$host $shared"
+    done
+    issue console "$(printf 'extendedKeyUsage=clientAuth\nkeyUsage=critical,digitalSignature')"
+    ;;
+  dist)
+    for host in "$@"; do
+      issue "$host" "$(printf 'subjectAltName=DNS:%s\nextendedKeyUsage=serverAuth,clientAuth\nkeyUsage=critical,digitalSignature' "$host")"
+      # Written every time, so a file kept from an earlier run takes its options.
+      cat >"$host.conf" <<CONF
+[{server, [{certfile, "$dir/$host.pem"}, {keyfile, "$dir/$host.key"},
+           {cacertfile, "$dir/ca.pem"}, {verify, verify_peer},
+           {fail_if_no_peer_cert, true}, {versions, ['tlsv1.3']}]},
+ {client, [{certfile, "$dir/$host.pem"}, {keyfile, "$dir/$host.key"},
+           {cacertfile, "$dir/ca.pem"}, {verify, verify_peer},
+           {versions, ['tlsv1.3']}]}].
+CONF
+    done
+    ;;
+esac
+
+# The images run as uid 1000; run as root, this step hands the files to it.
+if [ "$(id -u)" = 0 ]; then
+  chown -R 1000:1000 "$dir"
+fi

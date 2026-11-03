@@ -1,0 +1,203 @@
+# The console on Kubernetes, beside the controllers that core's deploy/kubernetes/ runs in the
+# namespace `flezha`: a Postgres for its accounts, the console itself, and a headless service
+# that resolves to every controller pod's HTTP API. The console reaches the controllers over
+# HTTPS with a client certificate and a flezha token; it holds no cookie and starts no Erlang
+# distribution.
+#
+# Before applying:
+#   - enable the `http_api` plugin in `_system` on the controllers with TLS and
+#     `tls_client_cacertfile`, each controller's certificate naming
+#     flezha-controllers.flezha.svc.cluster.local;
+#   - create the Secret `flezha-console` (see the console guide in the Flezha docs);
+#   - create the Secret `flezha-console-channel` holding `ca.pem`, the authority the
+#     controllers' certificates chain to, and `console.pem` and `console.key`, a client
+#     certificate from the authority `tls_client_cacertfile` names.
+
+# Every controller pod's HTTP API, by address: the console pins one that answers, which is
+# one holding `_system`, and moves to another when it stops answering.
+apiVersion: v1
+kind: Service
+metadata:
+  name: flezha-controllers
+  namespace: flezha
+spec:
+  clusterIP: None
+  selector:
+    app: flezha
+  ports:
+    - name: http-api
+      port: 8765
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: console-db
+  namespace: flezha
+spec:
+  clusterIP: None
+  selector:
+    app: console-db
+  ports:
+    - name: postgres
+      port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: console-db
+  namespace: flezha
+spec:
+  serviceName: console-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: console-db
+  template:
+    metadata:
+      labels:
+        app: console-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17.11-alpine
+          env:
+            - name: POSTGRES_USER
+              value: console
+            - name: POSTGRES_DB
+              value: console
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-console
+                  key: DB_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "console"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: console
+  namespace: flezha
+spec:
+  selector:
+    app: console
+  ports:
+    - name: http
+      port: 4000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: console
+  namespace: flezha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: console
+  template:
+    metadata:
+      labels:
+        app: console
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: console
+          image: flezha/flezha-console:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4000
+          env:
+            # The controllers' HTTP API, and the files the console proves itself and checks
+            # theirs with. A token works only on the controller cluster that issued it.
+            - name: FLEZHA_CONTROLLER_URL
+              value: https://flezha-controllers.flezha.svc.cluster.local:8765
+            - name: FLEZHA_CONTROLLER_CA
+              value: /etc/flezha-console/channel/ca.pem
+            - name: FLEZHA_CLIENT_CERT
+              value: /etc/flezha-console/channel/console.pem
+            - name: FLEZHA_CLIENT_KEY
+              value: /etc/flezha-console/channel/console.key
+            - name: FLEZHA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-console
+                  key: FLEZHA_TOKEN
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-console
+                  key: DB_PASSWORD
+            - name: DATABASE_URL
+              value: ecto://console:$(DB_PASSWORD)@console-db/console
+            - name: SECRET_KEY_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-console
+                  key: SECRET_KEY_BASE
+            - name: FLEZHA_CONSOLE_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-console
+                  key: ADMIN_EMAIL
+            - name: FLEZHA_CONSOLE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flezha-console
+                  key: ADMIN_PASSWORD
+            # The address browsers use; LiveView compares a page's origin with it.
+            - name: PHX_HOST
+              value: localhost
+            - name: PHX_URL_SCHEME
+              value: http
+            - name: PHX_URL_PORT
+              value: "4000"
+          volumeMounts:
+            - name: channel
+              mountPath: /etc/flezha-console/channel
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /users/log-in
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /users/log-in
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 50m
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: channel
+          secret:
+            secretName: flezha-console-channel
+            defaultMode: 0400

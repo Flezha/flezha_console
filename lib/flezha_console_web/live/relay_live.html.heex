@@ -1,0 +1,670 @@
+<.page_header
+  eyebrow="Relay"
+  title={@relay_id}
+  crumbs={@breadcrumbs}
+  tabs={Layouts.relay_tabs(@ns, @relay_id, :live)}
+  tabs_label="Relay views"
+>
+  <:sentence>
+    <%= if @finished do %>
+      This relay has finished; its last run is below.
+    <% else %>
+      <%!-- One line: whitespace between the fragments would show before their commas. --%>
+      <span phx-no-format><%= for {text, testid} <- sentence_parts(assigns) do %><span :if={match?({:runner, true}, text)}>, bound to <.term key="runner" /></span><span :if={match?({:runner, false}, text)}>, with no <.term key="runner" /></span><span :if={match?({:factory, _}, text)} data-testid={testid}> from <.link navigate={~p"/namespaces/#{@ns}/factories/#{elem(text, 1)}"} class="fcon-ident">{elem(text, 1)}</.link></span><span :if={is_binary(text)} data-testid={testid}>{text}</span><% end %></span>.
+      <%!-- A relay that failed to initialise never reads as healthy. --%>
+      <span
+        :if={@row && assigns[:init_error]}
+        data-testid="relay-health"
+        class="fcon-tone-negative"
+      >
+        It failed to initialise; its State view says why.
+      </span>
+      <span :if={@row && !assigns[:init_error]} data-testid="relay-health">
+        It is <.said kind={:health} value={@relay_state} lower />.
+      </span>
+      <span :if={is_nil(@row) and @suspended} data-testid="relay-health">
+        It is <.said kind={:health} value={:suspended} lower />.
+      </span>
+      <span :if={is_nil(@row) and not @suspended} data-testid="relay-health">
+        Its health is not known.
+      </span>
+    <% end %>
+  </:sentence>
+  <:figures :if={is_nil(@finished)}>
+    <span :if={@run == :steps} data-testid="relay-durable">
+      {if @durable_steps, do: "Durable", else: "Not durable"}{if @effectively_once,
+        do: ", effectively once"}.
+      <.link
+        navigate={~p"/namespaces/#{@ns}/relays/#{@relay_id}/state" <> "#steps"}
+        data-testid="relay-steps-link"
+      >
+        Its steps facts are on State.
+      </.link>
+    </span>
+    <span :if={@run != :steps && @effectively_once} data-testid="relay-effectively-once">
+      Effectively once.
+    </span>
+    <span :if={@row && @row[:partition]} data-testid="relay-partition">
+      Partition p{@row.partition.index} of {@row.partition.count}, key groups {Format.key_range(
+        @row.partition.range
+      )}, in <.link
+        navigate={~p"/namespaces/#{@ns}"}
+        data-testid="relay-partition-group"
+      >group {@row.partition.group}</.link>.
+    </span>
+    <span :if={@default_input_type}>
+      Default input: {Words.text(:input_type, @default_input_type)}.
+    </span>
+  </:figures>
+  <:actions>
+    <Layouts.partition_menu
+      ns={@ns}
+      relay_id={@relay_id}
+      view={:live}
+      members={@partitions}
+      paging={@paging}
+      searches={@searches}
+    />
+    <.button
+      :if={is_nil(@finished) and NodeManager.granted?(@operations, "Relay.send")}
+      icon="hero-paper-airplane"
+      phx-click="talk_open"
+      aria-describedby={
+        FlezhaConsoleWeb.RelayState.unservable(@serving, @factory_id) && "talk-unavailable"
+      }
+      data-testid="talk-open-btn"
+    >
+      {if FlezhaConsoleWeb.RelayState.unservable(@serving, @factory_id),
+        do: "Send",
+        else: "Send or call"}
+    </.button>
+    <.button
+      :if={is_nil(@finished) and NodeManager.granted?(@operations, "Relay.stop")}
+      variant="danger"
+      phx-click="confirm_stop"
+      data-testid="stop-relay-btn"
+    >
+      Stop relay
+    </.button>
+  </:actions>
+</.page_header>
+
+<.runtime_error :if={is_nil(@finished)} error={@load_error} />
+
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
+<div
+  :if={
+    is_nil(@finished) and FlezhaConsoleWeb.RelayState.unservable(@serving, @factory_id) != nil and
+      NodeManager.granted?(@operations, "Relay.send")
+  }
+  id="talk-unavailable"
+>
+  <.notice testid="talk-unavailable">
+    {FlezhaConsoleWeb.RelayState.no_runner_note(@relay_state, @serving, @factory_id)}
+  </.notice>
+</div>
+
+<.pipeline_graph topology={@topology} tapped={@tap && @tap.feed && @tap.port}>
+  <:tap><.payload_tap tap={@tap} /></:tap>
+</.pipeline_graph>
+
+<%!-- A finished relay is in neither the registry nor an overwatch: its last run --%>
+<.section :if={@finished} testid="finished-run">
+  <:title>Finished run</:title>
+  <% record = @finished.record %>
+  <dl class="fcon-facts">
+    <.stat label="Outcome" testid="finished-outcome">
+      <.said kind={:run_outcome} value={record["outcome"]} />
+      <span :if={LogLines.outcome_note(record["outcome"])} class="fcon-figures block">
+        {LogLines.outcome_note(record["outcome"])}
+      </span>
+    </.stat>
+    <.stat label="Started">
+      <.moment at={record["first_started_at"]} unit={:millisecond} testid="finished-started" />
+    </.stat>
+    <.stat label="Ended">
+      <.moment at={LogLines.time(record)} unit={:millisecond} testid="finished-ended" />
+    </.stat>
+    <.stat :if={is_integer(record["duration_ms"])} label="Ran for" testid="finished-duration">
+      {Format.took(record["duration_ms"])}
+    </.stat>
+    <.stat :if={LogLines.origin_line(record)} label="Started by" testid="finished-origin">
+      <LogLines.line line={LogLines.origin_line(record)} />
+    </.stat>
+    <.stat :if={record["error"] not in [nil, ""]} label="Error" tone={:negative} mono>
+      {record["error"]}
+    </.stat>
+  </dl>
+  <p class="mt-3" data-testid="finished-state">
+    <%= if @finished.kept_until do %>
+      Its state is kept until <span data-testid="finished-kept-until">{Format.unix_time(@finished.kept_until, :second)}</span>, {Format.relative(
+        @finished.kept_until,
+        :second
+      )}.
+      <.link navigate={~p"/namespaces/#{@ns}/relays/#{@relay_id}/state"}>
+        Read it on State.
+      </.link>
+    <% else %>
+      Its state was not kept. A factory keeps the state of its finished runs by declaring <code>keep_finished</code>.
+    <% end %>
+  </p>
+  <p class="fcon-figures mt-3">
+    Actions that need a live relay are not offered.
+  </p>
+</.section>
+
+<%!-- The relay's own history: read on open, then kept live by a narrowed tail --%>
+<.section testid="recent-activity">
+  <:title>Recent activity</:title>
+  <:actions>
+    <.link
+      navigate={~p"/logs/relay_history?#{[namespace: @ns, relay: @relay_id]}"}
+      data-testid="recent-activity-link"
+    >
+      Its whole history
+    </.link>
+  </:actions>
+  <.runtime_error :if={@tail_error} error={@tail_error} action="the relay history" />
+  <%= cond do %>
+    <% not @history_read? or @tail_error -> %>
+    <% @tail_records == [] -> %>
+      <p class="fcon-figures" data-testid="recent-activity-empty">
+        Nothing is recorded for this relay yet. Its start and its end are recorded as they happen.
+      </p>
+    <% true -> %>
+      <ol class="space-y-1" data-testid="recent-activity-records">
+        <li :for={record <- @tail_records} class="flex gap-3 items-baseline">
+          <span class="fcon-figures shrink-0 w-44">
+            <.moment at={LogLines.time(record)} unit={:millisecond} />
+          </span>
+          <LogLines.line
+            line={LogLines.sentence("relay_history", record)}
+            testid="recent-activity-sentence"
+          />
+        </li>
+      </ol>
+  <% end %>
+</.section>
+
+<%!-- Its condition, and the controller's diagnosis on request --%>
+<.section
+  :if={is_nil(@finished)}
+  fold="diagnosis"
+  open={@sections["diagnosis"] or @relay_state != :healthy}
+  forced={@diagnosis != nil or @diagnosis_error != nil or @relay_state != :healthy}
+  testid="diagnose-panel"
+  digest={
+    cond do
+      @diagnosis -> Words.text(:diagnosis, @diagnosis.verdict)
+      @diagnosis_error -> "could not be asked"
+      true -> "not asked yet"
+    end
+  }
+>
+  <:title>Condition</:title>
+  <:actions>
+    <.button
+      :if={NodeManager.granted?(@operations, "Relay.diagnose")}
+      variant="secondary"
+      size="sm"
+      icon="hero-magnifying-glass"
+      phx-click="diagnose"
+      data-testid="diagnose-btn"
+    >
+      {if @diagnosis || @diagnosis_error, do: "Run again", else: "Diagnose"}
+    </.button>
+  </:actions>
+  <FlezhaConsoleWeb.RelayState.summary
+    state={@relay_state}
+    factory={@factory_id && to_string(@factory_id)}
+    runner={if @load_error, do: :unread, else: @runner_id && to_string(@runner_id)}
+    serving={@serving}
+    diagnosis={@diagnosis}
+    error={@diagnosis_error}
+  />
+  <p :if={is_nil(@diagnosis) and is_nil(@diagnosis_error)} class="fcon-figures mt-3">
+    Diagnose asks the controller what is wrong with this relay and what to do about it.
+  </p>
+</.section>
+
+<%!-- Calls made to the relay from anywhere, as they happen --%>
+<.section
+  :if={is_nil(@finished) and NodeManager.granted?(@operations, "Relay.listen")}
+  fold="calls"
+  open={@sections["calls"]}
+  testid="calls-panel"
+  digest={calls_digest(@calls)}
+>
+  <:title>Calls</:title>
+  <div :if={@calls} class="space-y-3">
+    <div :if={@calls.error} data-testid="calls-error">
+      <.runtime_error error={@calls.error} action="listening to calls" />
+    </div>
+    <p :if={@calls.ended?} data-testid="calls-ended" class="fcon-figures">
+      No longer listening: the relay stopped or the controller let the listen go.
+    </p>
+    <.button
+      :if={is_nil(@calls.feed)}
+      variant="ghost"
+      size="sm"
+      icon="hero-arrow-path"
+      phx-click="calls_reopen"
+      data-testid="calls-reopen"
+    >
+      Listen again
+    </.button>
+    <p
+      :if={is_pid(@calls.feed) and not @calls.attached?}
+      data-testid="calls-starting"
+      class="fcon-figures"
+    >
+      Starting to listen…
+    </p>
+    <p
+      :if={@calls.entries == [] and @calls.attached?}
+      data-testid="calls-listening"
+      class="fcon-figures"
+    >
+      Listening for calls to this relay from anywhere. Calls made before this section opened are not shown.
+    </p>
+    <ol :if={@calls.entries != []} class="fcon-river-list">
+      <li
+        :for={entry <- @calls.entries}
+        data-testid={"call-entry-#{entry.seq}"}
+        data-call-id={entry.call_id}
+        class="fcon-river-event block space-y-2"
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="fcon-river-time">{Format.time_of_day(entry.at)}</span>
+          <.chip testid={"call-source-#{entry.seq}"}>{call_source(entry.source)}</.chip>
+          <.ident :if={entry.caller} value={entry.caller} />
+          <span class="fcon-ident">{entry.channel || "—"}</span>
+          <span class="fcon-figures">{Format.bytes(entry.payload.bytes)}</span>
+          <.state_badge
+            kind={:call_outcome}
+            value={call_outcome_kind(entry)}
+            testid={"call-outcome-#{entry.seq}"}
+          />
+          <span :if={entry.outcome && entry.outcome.duration_ms} class="fcon-figures">
+            {Format.duration(entry.outcome.duration_ms)}
+          </span>
+        </div>
+        <.code_block>{entry.payload.text}</.code_block>
+        <div :if={entry.outcome && entry.outcome.kind == :answered} class="space-y-1">
+          <p class="fcon-figures">
+            Answer on <span class="fcon-ident">{entry.outcome.channel || "—"}</span>
+          </p>
+          <.code_block>{entry.outcome.payload.text}</.code_block>
+        </div>
+        <.runtime_error :if={entry.outcome && entry.outcome.error} error={entry.outcome.error} />
+      </li>
+    </ol>
+  </div>
+</.section>
+
+<%!-- The relay's announced API --%>
+<.section
+  :if={is_nil(@finished)}
+  fold="api"
+  open={@sections["api"]}
+  testid="api-panel"
+  digest={Words.count(length(api_channels(@api)), "channel") <> " announced"}
+>
+  <:title>API</:title>
+  <div class="space-y-4">
+    <.runtime_error error={@api_error} action="the relay's API" />
+    <.api_entries entries={@api} paging={@paging}>
+      The relay can still be sent a message or called.
+    </.api_entries>
+  </div>
+</.section>
+
+<%!-- Bindings --%>
+<.section
+  fold="plugins"
+  open={@sections["plugins"]}
+  testid="bindings-panel"
+  digest={Words.count(length(Enum.uniq_by(@bindings, & &1.plugin_id)), "plugin") <> " bound"}
+>
+  <:title>Plugins bound to it</:title>
+  <:actions>
+    <.button
+      :if={NodeManager.granted?(@operations, "PluginManager.enable")}
+      variant="secondary"
+      size="sm"
+      icon="hero-plus"
+      phx-click="plugin_form_open"
+      phx-value-mode="enable"
+      phx-value-namespace={@ns}
+      phx-value-relay={@relay_id}
+      data-testid="attach-plugin-btn"
+    >
+      Attach plugin
+    </.button>
+  </:actions>
+
+  <.empty_state
+    :if={@bindings == [] and @idle_bindings == []}
+    icon="hero-puzzle-piece"
+    testid="no-plugins-msg"
+  >
+    A plugin adds behaviour to a relay at a hook, such as reading its input or carrying its output.
+    None is bound to this relay.
+  </.empty_state>
+  <.grid
+    :if={@bindings != [] or @idle_bindings != []}
+    paging={@paging}
+    id="bindings"
+    rows={binding_rows(@bindings, @idle_bindings)}
+    testid="bindings-table"
+    row_testid={&"binding-row-#{&1.plugin_id}"}
+    row_tone={&(&1.idle? && "warning")}
+  >
+    <:col :let={row} label="Plugin"><span class="fcon-ident">{row.plugin_id}</span></:col>
+    <:col :let={row} label="Hooks">
+      <span class="flex flex-wrap gap-1">
+        <.chip :for={hook <- row.hooks} mono>{hook}</.chip>
+      </span>
+    </:col>
+    <:col :let={row} label="Provider">
+      {Enum.map_join(row.providers, ", ", &Words.humanize/1)}
+    </:col>
+    <:col :let={row} label="Position">
+      <span
+        :if={row.idle?}
+        data-testid={"binding-idle-#{row.plugin_id}"}
+        class="fcon-badge fcon-badge--warning"
+      >
+        Not running
+      </span>
+      <span :if={!row.idle?}>{Enum.join(row.positions, ", ")}</span>
+    </:col>
+    <:menu :let={row}>
+      <.row_menu
+        :if={NodeManager.granted?(@operations, "PluginManager.unbind")}
+        id={"binding-menu-#{row.plugin_id}"}
+        label={"Actions for #{row.plugin_id}"}
+        testid={"binding-menu-#{row.plugin_id}"}
+      >
+        <:item
+          click="confirm_unbind"
+          values={%{plugin_id: row.plugin_id}}
+          testid={"unbind-btn-#{row.plugin_id}"}
+          danger
+        >
+          Unbind
+        </:item>
+      </.row_menu>
+    </:menu>
+  </.grid>
+</.section>
+
+<.confirm_dialog
+  :if={@confirm_stop}
+  title="Stop relay?"
+  confirm_label="Stop"
+  on_confirm="stop_relay"
+  on_cancel="cancel_stop"
+  testid="stop-confirm-modal"
+  cancel_testid="stop-cancel-btn"
+  confirm_testid="stop-confirm-btn"
+>
+  Stop <.ident value={@relay_id} full />? A steps relay finishes its in-flight work first.
+</.confirm_dialog>
+
+<.confirm_dialog
+  :if={@confirm_unbind}
+  title="Unbind plugin?"
+  confirm_label="Unbind"
+  on_confirm="unbind_plugin"
+  on_cancel="cancel_unbind"
+  values={%{"plugin_id" => @confirm_unbind}}
+  testid="unbind-confirm-modal"
+  cancel_testid="unbind-cancel-btn"
+  confirm_testid="unbind-confirm-btn"
+>
+  Unbind plugin <.ident value={@confirm_unbind} full /> from <.ident value={@relay_id} full />?
+  The plugin stays enabled for any other relay it is bound to.
+</.confirm_dialog>
+
+<.plugin_form_dialog form={@plugin_form} />
+
+<%!-- Send to the relay, call it, or call an entry channel of its API --%>
+<.dialog
+  :if={@talk}
+  testid="talk-modal"
+  size="form"
+  on_close="talk_close"
+  close_testid="talk-close-btn"
+>
+  <:title>Talk to {@relay_id}</:title>
+
+  <.segmented label="What to send">
+    <:option
+      :if={api_channels(@api) != []}
+      click="talk_mode"
+      value="channel"
+      current={@talk.mode == :channel}
+      testid="talk-mode-channel"
+    >
+      API channel
+    </:option>
+    <:option click="talk_mode" value="raw" current={@talk.mode == :raw} testid="talk-mode-raw">
+      Raw message
+    </:option>
+  </.segmented>
+
+  <.form_error error={@talk.error} action="the call" testid="talk-error" />
+
+  <.notice
+    :if={FlezhaConsoleWeb.RelayState.unservable(@serving, @factory_id)}
+    testid="talk-send-note"
+    class="mb-4"
+  >
+    {FlezhaConsoleWeb.RelayState.no_runner_note(@relay_state, @serving, @factory_id)}
+  </.notice>
+
+  <.notice :if={@talk.waiting} testid="talk-waiting" icon="hero-clock" class="mb-4">
+    Waiting for {@relay_id} to answer. Closing this dialog stops waiting; the relay may still
+    act on what was sent.
+  </.notice>
+
+  <form
+    :if={@talk.mode == :channel and @talk.channel}
+    id="talk-channel-form"
+    data-testid="talk-channel-form"
+    phx-change="talk_change"
+    phx-submit="talk_submit"
+    class="space-y-4"
+  >
+    <.input
+      type="select"
+      name="talk[channel_pick]"
+      label="Channel"
+      value={@talk.channel.channel}
+      options={Enum.map(api_channels(@api), & &1.channel)}
+      data-testid="talk-channel-pick"
+    />
+    <p class="text-xs fcon-muted" data-testid="talk-channel-facts">
+      {@talk.channel[:description] || "No description."} Takes <span class="font-mono">{@talk.channel.codec}</span>{if @talk.channel[
+                                                                                                                         :answer_codec
+                                                                                                                       ],
+                                                                                                                       do:
+                                                                                                                         ", answers #{@talk.channel.answer_codec}.",
+                                                                                                                       else:
+                                                                                                                         "; does not answer."}
+    </p>
+    <%= case channel_form(@talk.channel) do %>
+      <% {:fields, specs} -> %>
+        <TypedFields.typed_inputs
+          specs={specs}
+          form={to_form(@talk.fields["value"], as: "talk[value]", errors: @talk.field_errors)}
+          testid="talk-field-"
+        />
+      <% :json -> %>
+        <.input
+          type="textarea"
+          name="talk[json]"
+          label="Value"
+          hint="JSON"
+          value={@talk.fields["json"]}
+          mono
+          data-testid="talk-json"
+        />
+      <% :text -> %>
+        <.input
+          type="textarea"
+          name="talk[json]"
+          label="Value"
+          hint={if @talk.channel.codec == "text", do: "text", else: "base64"}
+          value={@talk.fields["json"]}
+          mono
+          data-testid="talk-json"
+        />
+    <% end %>
+    <.input
+      type="number"
+      name="talk[deadline_ms]"
+      label="Deadline (ms)"
+      value={@talk.fields["deadline_ms"]}
+      data-testid="talk-deadline"
+    />
+    <div class="flex justify-end">
+      <.button
+        :if={NodeManager.granted?(@operations, "Relay.call_channel")}
+        type="submit"
+        disabled={
+          @talk.waiting != nil or
+            FlezhaConsoleWeb.RelayState.unservable(@serving, @factory_id) != nil
+        }
+        data-testid="talk-channel-submit"
+      >
+        {if @talk.channel[:answer_codec], do: "Call", else: "Send"}
+      </.button>
+    </div>
+  </form>
+
+  <form
+    :if={@talk.mode == :raw}
+    id="talk-raw-form"
+    data-testid="talk-raw-form"
+    phx-change="talk_change"
+    phx-submit="talk_submit"
+    class="space-y-4"
+  >
+    <.input
+      type="textarea"
+      name="talk[payload]"
+      label="Payload"
+      value={@talk.fields["payload"]}
+      mono
+      data-testid="talk-payload"
+    />
+    <div class="grid gap-3 sm:grid-cols-3">
+      <.input
+        type="text"
+        name="talk[channel]"
+        label="Input channel"
+        hint="optional"
+        value={@talk.fields["channel"]}
+        mono
+        data-testid="talk-channel"
+      />
+      <.input
+        type="text"
+        name="talk[key]"
+        label="Partition key"
+        hint="optional"
+        value={@talk.fields["key"]}
+        mono
+        data-testid="talk-key"
+      />
+      <.input
+        type="text"
+        name="talk[msg_id]"
+        label="Message id"
+        hint="optional, send only"
+        value={@talk.fields["msg_id"]}
+        mono
+        data-testid="talk-msg-id"
+      />
+    </div>
+    <.input
+      type="number"
+      name="talk[deadline_ms]"
+      label="Deadline (ms)"
+      hint="for a call"
+      value={@talk.fields["deadline_ms"]}
+      data-testid="talk-deadline"
+    />
+    <div class="flex justify-end gap-3">
+      <.button
+        :if={NodeManager.granted?(@operations, "Relay.send")}
+        type="submit"
+        name="talk[action]"
+        value="send"
+        variant="secondary"
+        disabled={@talk.waiting != nil}
+        data-testid="talk-send-btn"
+      >
+        Send
+      </.button>
+      <.button
+        :if={NodeManager.granted?(@operations, "Relay.call")}
+        type="submit"
+        name="talk[action]"
+        value="call"
+        disabled={
+          @talk.waiting != nil or
+            FlezhaConsoleWeb.RelayState.unservable(@serving, @factory_id) != nil
+        }
+        data-testid="talk-call-btn"
+      >
+        Call
+      </.button>
+    </div>
+  </form>
+
+  <div :if={@talk_results != []} data-testid="talk-results" class="mt-6 space-y-3">
+    <p class="fcon-eyebrow">This session</p>
+    <ol class="space-y-3">
+      <li :for={result <- @talk_results} data-testid="talk-result" class="space-y-2">
+        <p class="text-xs fcon-muted font-mono">{Format.time_of_day(result.at)}</p>
+        <%= case result do %>
+          <% %{error: error} -> %>
+            <.runtime_error
+              error={error}
+              action={if result.kind == :send, do: "the send", else: "the call"}
+            />
+          <% %{kind: :send, answer: %{verdict: :delivered} = sent} -> %>
+            <.notice icon="hero-check-circle">
+              Delivered to <span class="fcon-ident">{sent.to}</span>.
+            </.notice>
+          <% %{kind: :send, answer: %{verdict: :absorbed} = sent} -> %>
+            <.notice>
+              Already received: <span class="fcon-ident">{sent.to}</span>'s
+              input log holds that message id.
+            </.notice>
+          <% %{kind: :send, answer: %{verdict: :suspended} = sent} -> %>
+            <.notice>
+              Kept until it wakes: <span class="fcon-ident">{sent.to}</span>
+              is suspended, and its input log holds the message.
+            </.notice>
+          <% %{kind: :call, answer: answer} -> %>
+            <p class="text-xs fcon-muted">
+              Answer on <span class="font-mono">{answer.channel || "—"}</span>
+            </p>
+            <pre data-testid="talk-answer" class="fcon-code">{answer_text(answer.payload)}</pre>
+          <% %{kind: :channel, answer: %{accepted: true}} -> %>
+            <.notice icon="hero-check-circle">The relay accepted the input.</.notice>
+          <% %{kind: :channel, answer: answer} -> %>
+            <p class="text-xs fcon-muted">
+              Answer, <span class="font-mono">{answer.answer_codec}</span>
+            </p>
+            <pre data-testid="talk-answer" class="fcon-code">{answer_text(answer.answer)}</pre>
+        <% end %>
+      </li>
+    </ol>
+  </div>
+</.dialog>

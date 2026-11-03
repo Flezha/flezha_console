@@ -1,0 +1,217 @@
+<%= if @live_action == :index do %>
+  <.page_header eyebrow="Factories" title={(@ns && "Factories in #{@ns}") || "Every factory"}>
+    <:sentence>
+      <span data-testid="factories-count">
+        <%= if @loaded? do %>
+          {Words.count(Enum.sum(Enum.map(@groups, &length(&1.rows))), "factory", "factories")}{if @ns,
+            do: " in #{@ns}",
+            else: " across " <> Words.count(length(@groups), "namespace")}, running or not: what each does, how it
+          <.term key="run">runs</.term>
+          and the
+          <.term key="runner">runners</.term>
+          serving it.
+        <% else %>
+          Reading the factories you can reach…
+        <% end %>
+      </span>
+    </:sentence>
+    <:actions>
+      <Layouts.scope_switch
+        collection="factories"
+        shell_namespace={@shell_namespace}
+        scoped_namespace={@ns}
+      />
+    </:actions>
+  </.page_header>
+
+  <.runtime_error error={@load_error} />
+  <.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
+  <.section
+    :for={group <- @groups}
+    testid={"factories-#{group.namespace}"}
+    digest={Words.count(length(group.rows), "factory", "factories")}
+  >
+    <:title>{if @ns, do: "Registered factories", else: group.namespace}</:title>
+    <.runtime_error error={group.error} action="the factory listing" />
+    <.partial_empty
+      :if={group.rows == [] and is_nil(group.error) and @unreachable != []}
+      noun="factory"
+    />
+    <.empty_state
+      :if={group.rows == [] and is_nil(group.error) and @unreachable == []}
+      icon="hero-cube"
+      testid="factories-empty"
+    >
+      Factories appear here when a runner announces them.
+    </.empty_state>
+    <.grid
+      :if={group.rows != []}
+      paging={@paging}
+      id={"factories-#{group.namespace}"}
+      rows={group.rows}
+      testid="factories-grid"
+      row_testid={&"factory-row-#{&1.id}"}
+    >
+      <:col :let={factory} label="Factory">
+        <.link
+          navigate={~p"/namespaces/#{group.namespace}/factories/#{factory.id}"}
+          class="fcon-ident"
+          data-testid={"factory-link-#{factory.id}"}
+        >
+          {factory.id}
+        </.link>
+      </:col>
+      <:col :let={factory} label="Description">{factory.description || "—"}</:col>
+      <:col :let={factory} label="How it runs">{run_summary(factory)}</:col>
+      <:col :let={factory} label="Served by">
+        <span
+          :if={factory.runners == []}
+          class="fcon-tone-warning"
+          data-testid={"factory-unserved-#{factory.id}"}
+        >
+          No runner serves it
+        </span>
+        <span :if={factory.runners != []} data-testid={"factory-served-#{factory.id}"}>
+          {Words.count(length(factory.runners), "runner")} on
+          <.controller_name
+            :for={node <- factory.nodes}
+            node={node}
+            controllers={@shell_pulse[:controllers]}
+          />
+        </span>
+      </:col>
+    </.grid>
+  </.section>
+<% else %>
+  <.page_header eyebrow="Factory" title={@factory_id} crumbs={@breadcrumbs}>
+    <:sentence>
+      <%= cond do %>
+        <% @factory && run_parts(@factory) != [] -> %>
+          <%!-- One line: whitespace between the parts would show before their punctuation. --%>
+          <span data-testid="factory-run" phx-no-format><%= for {term, lead, words} <- run_parts(@factory) do %>{lead}<.term key={term} id={"factory-term-#{term}"}>{words}</.term><% end %>.</span>
+        <% @factory -> %>
+          <span data-testid="factory-run">Its runners do not say how it runs.</span>
+        <% NodeManager.not_found?(@factory_error) -> %>
+          No runner in {@ns} announces this factory.
+        <% @factory_error -> %>
+          Its description could not be read.
+        <% true -> %>
+          Reading how it works…
+      <% end %>
+    </:sentence>
+    <:figures :if={@factory}>
+      <span data-testid="factory-served">{Target.served(@factory)}</span>
+      <span :if={@factory.nodes != []} data-testid="factory-controllers">
+        Controllers:
+        <.controller_name
+          :for={node <- @factory.nodes}
+          node={node}
+          controllers={@shell_pulse[:controllers]}
+        />
+      </span>
+    </:figures>
+  </.page_header>
+
+  <.empty_state
+    :if={NodeManager.not_found?(@factory_error)}
+    icon="hero-cube"
+    testid="factory-not-found"
+  >
+    No runner in {@ns} announces the factory <span class="fcon-ident">{@factory_id}</span>.
+    <:action>
+      <.link navigate={~p"/namespaces/#{@ns}/factories"} data-testid="factory-not-found-back">
+        See the factories of {@ns}
+      </.link>
+    </:action>
+  </.empty_state>
+  <.runtime_error
+    :if={@factory_error && not NodeManager.not_found?(@factory_error)}
+    error={@factory_error}
+    action="the factory"
+  />
+  <.runtime_error error={@load_error} />
+  <.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
+  <%= if @factory do %>
+    <.notice :if={@factory.disagree} testid="factory-disagree">
+      Its runners do not all announce the same factory: their graphs, APIs or settings differ, and the newest announcement is shown.
+    </.notice>
+
+    <.section testid="factory-about">
+      <:title>What it declares</:title>
+      <p :if={@factory.description} data-testid="factory-description">{@factory.description}</p>
+      <ul :if={@factory.declarations} data-testid="factory-declarations" class="space-y-1">
+        <li
+          :for={declared <- Words.declared(@factory.declarations)}
+          data-testid={"declaration-#{declared.key}"}
+        >
+          It
+          <.term
+            :if={declared.term}
+            key={declared.term}
+            id={"factory-term-#{declared.key}"}
+          >
+            {declared.text}
+          </.term>
+          <span :if={!declared.term}>{declared.text}</span>.
+        </li>
+      </ul>
+      <p :if={is_nil(@factory.declarations)} data-testid="factory-no-declarations">
+        Its runners do not describe its settings.
+      </p>
+      <.compensation factory={@factory} />
+    </.section>
+
+    <div class="mt-6"><.pipeline_graph topology={@topology} /></div>
+
+    <.section testid="factory-api">
+      <:title>Entry API</:title>
+      <RelayLive.api_entries entries={api_of(@factory)} paging={@paging}>
+        A relay started from it can still be sent a message or called.
+      </RelayLive.api_entries>
+    </.section>
+
+    <.section testid="factory-runs">
+      <:title>Last runs</:title>
+      <:actions>
+        <.link
+          navigate={~p"/logs/relay_history?#{[namespace: @ns, factory: @factory_id]}"}
+          data-testid="factory-runs-all"
+        >
+          All its runs
+        </.link>
+      </:actions>
+      <.runtime_error :if={@runs_error} error={@runs_error} action="the factory's last runs" />
+      <.empty_state
+        :if={@runs == [] and is_nil(@runs_error)}
+        icon="hero-clock"
+        testid="factory-runs-empty"
+      >
+        Runs appear here when one ends.
+      </.empty_state>
+      <.grid
+        :if={@runs != []}
+        id="factory-runs"
+        rows={@runs}
+        row_id={&"run-#{&1["relay"]}-#{&1["ts_us"]}"}
+        row_testid={&"factory-run-#{&1["relay"]}"}
+      >
+        <:col :let={run} label="Ended">
+          <.moment at={LogLines.time(run)} unit={:millisecond} />
+        </:col>
+        <:col :let={run} label="Run">
+          <LogLines.line line={LogLines.sentence("relay_history", run)} />
+        </:col>
+        <:col :let={run} label="History">
+          <.link
+            navigate={~p"/logs/relay_history?#{[namespace: @ns, relay: run["relay"]]}"}
+            data-testid={"factory-run-link-#{run["relay"]}"}
+          >
+            Its records
+          </.link>
+        </:col>
+      </.grid>
+    </.section>
+  <% end %>
+<% end %>

@@ -1,0 +1,31 @@
+# The console alone, against a controller that already runs elsewhere and
+# serves its HTTP API over mutual TLS. Give it the controller's URL and a
+# directory holding the controller's authority and the console's client
+# certificate and key:
+#
+#   FLEZHA_CONTROLLER_URL=https://controller.example:8765 \
+#   FLEZHA_CHANNEL_TLS_DIR=/path/to/certs docker compose up
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flezha_console_web
+    hostname: flezha_console_web
+    ports:
+      - "4000:4000"
+    environment:
+      MIX_ENV: dev
+      FLEZHA_CONTROLLER_URL: ${FLEZHA_CONTROLLER_URL:?set it to the controller's https URL}
+      FLEZHA_CONTROLLER_CA: /channel_tls/ca.pem
+      FLEZHA_CLIENT_CERT: /channel_tls/console.pem
+      FLEZHA_CLIENT_KEY: /channel_tls/console.key
+    volumes:
+      - .:/flezha_console
+      - deps:/flezha_console/deps
+      - build:/flezha_console/_build
+      - ${FLEZHA_CHANNEL_TLS_DIR:?set it to the directory of the channel certificates}:/channel_tls:ro
+
+volumes:
+  deps:
+  build:

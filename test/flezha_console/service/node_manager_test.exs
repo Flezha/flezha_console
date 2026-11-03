@@ -1,0 +1,360 @@
+defmodule FlezhaConsole.Service.NodeManagerTest do
+  @moduledoc """
+  The pieces of `NodeManager` that decide whether a controller change is
+  diagnosable or a mystery: how failures are classified while no controller is
+  reachable, and the pure helpers every screen reads rows through.
+  """
+
+  use ExUnit.Case, async: true
+
+  import ExUnit.CaptureLog
+
+  alias FlezhaConsole.Service.NodeManager
+
+  describe "error classification while no controller answers" do
+    # Unit tests run while no fake listener is served, which is the
+    # unreachable controller.
+    test "every controller call degrades instead of raising" do
+      for call <- controller_calls("flzt_t") do
+        assert {:error, :node_not_connected} = call.()
+      end
+    end
+
+    test "without a token, no call is made and that is the answer" do
+      for call <- controller_calls(nil) do
+        assert {:error, :no_token} = call.()
+      end
+    end
+  end
+
+  # Every call the screens make. A new one added without a normalised failure
+  # path shows up here as a raise rather than as a banner.
+  defp controller_calls(token) do
+    [
+      fn -> NodeManager.list_namespaces(token) end,
+      fn -> NodeManager.relay_list("default", token) end,
+      fn -> NodeManager.relay_list("default", token, limit: 20) end,
+      fn -> "default" |> NodeManager.relay_and_partitions("r1", token) |> elem(0) end,
+      fn -> NodeManager.relay_plugins("default", token) end,
+      fn -> NodeManager.runners("default", token) end,
+      fn -> NodeManager.factories("default", token) end,
+      fn -> NodeManager.factory_catalog("default", token) end,
+      fn -> NodeManager.start_relay("default", %{factory_id: "store_input"}, token) end,
+      fn -> NodeManager.stop_relay("default", "r1", token) end,
+      fn -> NodeManager.cell_state("default", "r1", nil, token) end,
+      fn -> NodeManager.overwatch_state("default", "r1", token) end,
+      fn -> NodeManager.overwatch_facts("default", "r1", token) end,
+      fn -> NodeManager.last_run("default", "r1", token) end,
+      fn -> NodeManager.task_journal("r1", token) end,
+      fn -> NodeManager.plugins("default", token) end,
+      fn -> NodeManager.providers(token) end,
+      fn -> NodeManager.disable_plugin("p1", "default", token) end,
+      fn -> NodeManager.dlq_list(nil, token) end,
+      fn -> NodeManager.dlq_get("a/b/c", token) end,
+      fn -> NodeManager.dlq_stats(token) end,
+      fn -> NodeManager.schedule_list(token) end,
+      fn -> NodeManager.log_kinds(token) end,
+      fn -> NodeManager.log_read("audit", %{}, token) end,
+      fn -> NodeManager.log_files("audit", token) end,
+      fn -> NodeManager.log_stats("audit", token) end,
+      fn -> NodeManager.log_rotate("audit", "flezha@c1", token) end,
+      fn -> NodeManager.controller_status(token) end,
+      fn -> NodeManager.cluster_status("default", token) end,
+      fn -> NodeManager.liveness_snapshot(token, filter: [relays: [{"default", "r1"}]]) end,
+      fn -> NodeManager.namespace_records(token) end,
+      fn -> NodeManager.log_tail("audit", %{}, token, self()) end,
+      fn -> NodeManager.listen("default", "r1", :output, token, self()) end
+    ]
+  end
+
+  describe "ok_or/2" do
+    test "takes the value out of a success" do
+      assert [1, 2] = NodeManager.ok_or({:ok, [1, 2]}, [])
+    end
+
+    test "falls back on a failure, so one dead section does not empty a page" do
+      assert [] = NodeManager.ok_or({:error, :node_not_connected}, [])
+      assert nil == NodeManager.ok_or({:error, :timeout}, nil)
+    end
+
+    test "takes a cluster answer's rows, partial or not" do
+      assert [1] = NodeManager.ok_or({:ok, %{rows: [1], unreachable: [:flezha@c2]}}, [])
+      assert {[1], nil} = NodeManager.ok_or_error({:ok, %{rows: [1], unreachable: []}}, [])
+    end
+  end
+
+  describe "unreachable/1" do
+    test "gathers the controllers a screen's reads lack, once each and sorted" do
+      answers = [
+        {:ok, %{rows: [], unreachable: [:flezha@c3]}},
+        {:ok, %{rows: [1], unreachable: []}},
+        {:error, :timeout},
+        {:ok, %{relays: [], unreachable: [:flezha@c2, :flezha@c3]}},
+        %{kind: :relays, value: 2, unreachable: [:flezha@c2]}
+      ]
+
+      assert NodeManager.unreachable(answers) == [:flezha@c2, :flezha@c3]
+      assert NodeManager.unreachable([{:ok, [1, 2]}]) == []
+    end
+  end
+
+  describe "rows by controller" do
+    # Node names cross the channel as text.
+    @rows [%{id: 1, node: "flezha@c1"}, %{id: 2, node: "flezha@c2"}, %{id: 3, node: nil}]
+
+    test "names each controller the rows live on, once" do
+      assert NodeManager.row_controllers(@rows) == ["flezha@c1", "flezha@c2"]
+    end
+
+    test "narrows to one controller by its name, and keeps every row for none" do
+      assert [%{id: 2}] = NodeManager.rows_with(@rows, :node, "flezha@c2")
+      assert NodeManager.rows_with(@rows, :node, "") == @rows
+      assert NodeManager.rows_with(@rows, :node, nil) == @rows
+    end
+
+    test "picks a controller's own rows, or says it did not answer" do
+      answer = {:ok, %{rows: @rows, unreachable: ["flezha@c3"]}}
+
+      assert {:ok, [%{id: 1}]} = NodeManager.of_controller(answer, "flezha@c1")
+      assert {:ok, %{id: 2}} = NodeManager.controller_row(answer, "flezha@c2")
+
+      assert NodeManager.of_controller(answer, "flezha@c3") ==
+               {:error, {:controller_unreachable, "flezha@c3"}}
+
+      assert NodeManager.controller_row(answer, "flezha@c9") ==
+               {:error, {:controller_unreachable, "flezha@c9"}}
+
+      assert NodeManager.of_controller({:error, :timeout}, "flezha@c1") == {:error, :timeout}
+    end
+  end
+
+  describe "scoped_namespaces/1" do
+    test "answers no names and the reason while disconnected" do
+      assert {[], :node_not_connected} = NodeManager.scoped_namespaces("flzt_t")
+    end
+  end
+
+  describe "health_verdicts/0" do
+    test "follows the controller's rank order, recovering and parked included" do
+      assert NodeManager.health_verdicts() == [
+               :healthy,
+               :unknown,
+               :suspended,
+               :degraded,
+               :recovering,
+               :unbound,
+               :failed,
+               :halted
+             ]
+    end
+
+    test "health_pairs/1 gives every verdict its own bucket, in rank order" do
+      counted = %{halted: 1, recovering: 1, healthy: 1, unknown: 1, failed: 0}
+
+      assert [healthy: 1, unknown: 1, recovering: 1, halted: 1] =
+               NodeManager.health_pairs(counted)
+    end
+
+    test "health_pairs/1 keeps a verdict it does not know under its own name" do
+      assert [healthy: 1, novel: 1] = NodeManager.health_pairs(%{novel: 1, healthy: 1})
+    end
+  end
+
+  describe "factories_by_runner/1" do
+    test "inverts a catalog onto the runners serving each factory" do
+      catalog = [
+        %{id: "compare_filter", description: nil, runners: ["runner-a"], servable?: true},
+        %{id: "store_input", description: nil, runners: ["runner-b", "runner-a"], servable?: true}
+      ]
+
+      assert %{
+               "runner-a" => ["compare_filter", "store_input"],
+               "runner-b" => ["store_input"]
+             } = NodeManager.factories_by_runner(catalog)
+    end
+
+    test "a factory no runner serves contributes no entry" do
+      catalog = [%{id: "store_input", description: nil, runners: [], servable?: false}]
+
+      assert %{} == NodeManager.factories_by_runner(catalog)
+    end
+  end
+
+  describe "hook_entries/1" do
+    test "flattens a hook table into one row per binding" do
+      state = %{
+        extensions: %{
+          subs: %{
+            on_input: [
+              %{plugin_id: "b", provider: Flezha.Plugin.Provider.StdOut, position: 1},
+              %{plugin_id: "a", provider: Flezha.Plugin.Provider.Filter, position: 0}
+            ],
+            on_terminate: [%{plugin_id: "c", provider: Flezha.Plugin.Provider.Websocket}]
+          }
+        }
+      }
+
+      rows = NodeManager.hook_entries(state)
+
+      assert [
+               %{plugin_id: "a", hook: "on_input", position: 0},
+               %{plugin_id: "b", hook: "on_input", position: 1},
+               %{plugin_id: "c", hook: "on_terminate"}
+             ] = rows
+
+      assert Enum.at(rows, 0).provider =~ "Filter"
+    end
+
+    test "a relay with no plugins yields no rows" do
+      assert [] = NodeManager.hook_entries(%{extensions: %{subs: %{}}})
+    end
+
+    test "each row names the channels its plugin acts on, as the controller resolved them" do
+      state = %{
+        extensions: %{
+          subs: %{
+            on_input: [%{plugin_id: "filter", provider: Flezha.Plugin.Provider.Filter}],
+            on_output: [%{plugin_id: "kafka", provider: FlezhaKafka.Producer, position: 0}]
+          },
+          plugins: %{
+            "filter" => %{provider: Flezha.Plugin.Provider.Filter, opts: %{filter_channel: nil}},
+            "kafka" => %{
+              provider: FlezhaKafka.Producer,
+              opts: %{channel: ["sma_out", "ema_out"], filter_channel: ["sma_out", "ema_out"]}
+            }
+          }
+        }
+      }
+
+      assert [%{plugin_id: "filter", channel: nil}, %{plugin_id: "kafka", channel: channels}] =
+               NodeManager.hook_entries(state)
+
+      assert channels == ["sma_out", "ema_out"]
+    end
+
+    test "a state without a hook table yields no rows rather than raising" do
+      assert [] = NodeManager.hook_entries(%{})
+      assert [] = NodeManager.hook_entries(nil)
+    end
+
+    test "renders a missing provider as a placeholder" do
+      state = %{extensions: %{subs: %{on_input: [%{plugin_id: "a"}]}}}
+      assert [%{provider: "—"}] = NodeManager.hook_entries(state)
+    end
+  end
+
+  describe "entry_sources/2" do
+    test "lists the plugins that feed an entry, hooked or not, and no others" do
+      state = %{
+        extensions: %{
+          subs: %{},
+          plugins: %{
+            "trade_ws" => %{
+              provider: Flezha.Plugin.Provider.Websocket,
+              opts: %{channel_in: ["trades_in"], entry_channel: "trades_in"}
+            },
+            "config" => %{
+              provider: Flezha.Plugin.Provider.HttpPoll,
+              opts: %{entry_channel: :config_in}
+            },
+            "kafka" => %{provider: FlezhaKafka.Producer, opts: %{entry_channel: nil}}
+          }
+        }
+      }
+
+      assert [
+               %{plugin_id: "config", channel: ["config_in"]},
+               %{plugin_id: "trade_ws", channel: ["trades_in"], provider: provider}
+             ] = NodeManager.entry_sources(state)
+
+      assert provider =~ "Websocket"
+    end
+
+    test "a state without a plugin table has no sources" do
+      assert [] = NodeManager.entry_sources(%{extensions: %{subs: %{}}})
+      assert [] = NodeManager.entry_sources(nil)
+    end
+
+    test "a plugin whose provider feeds a relay is a source, naming its entry or none" do
+      state = %{
+        extensions: %{
+          subs: %{},
+          plugins: %{
+            "ws_chain" => %{
+              provider: Flezha.Plugin.Provider.Websocket,
+              opts: %{entry_channel: nil}
+            },
+            "trade_ws" => %{
+              provider: Flezha.Plugin.Provider.Websocket,
+              opts: %{entry_channel: "trades_in"}
+            },
+            "stdout" => %{provider: Flezha.Plugin.Provider.StdOut, opts: %{entry_channel: "x"}}
+          }
+        }
+      }
+
+      feeding = MapSet.new(["Flezha.Plugin.Provider.Websocket"])
+
+      assert [
+               %{plugin_id: "trade_ws", channel: ["trades_in"]},
+               %{plugin_id: "ws_chain", channel: []}
+             ] = NodeManager.entry_sources(state, feeding)
+    end
+  end
+
+  describe "declared_bindings/2" do
+    test "lists one relay's declared plugins with their hooks and provider" do
+      pairs = [
+        {"relay_a",
+         [
+           {"ws_1", %{hooks: [on_terminate: []], provider: Flezha.Plugin.Provider.Websocket}},
+           {"out_1", %{hooks: [:on_output], provider: Flezha.Plugin.Provider.StdOut}}
+         ]},
+        {"relay_b", [{"other", %{hooks: [], provider: nil}}]}
+      ]
+
+      assert [
+               %{
+                 plugin_id: "ws_1",
+                 hooks: ["on_terminate"],
+                 provider: "Flezha.Plugin.Provider.Websocket"
+               },
+               %{
+                 plugin_id: "out_1",
+                 hooks: ["on_output"],
+                 provider: "Flezha.Plugin.Provider.StdOut"
+               }
+             ] = NodeManager.declared_bindings(pairs, "relay_a")
+    end
+
+    test "a relay with nothing declared has no rows" do
+      assert NodeManager.declared_bindings([{"relay_b", []}], "relay_a") == []
+    end
+  end
+
+  describe "overwatch_facts/0" do
+    test "is the decoded shape with nothing in it, a flow relay with no plugins" do
+      assert %{run: :flow, durable_steps: false, bindings: [], relay_class: nil} =
+               NodeManager.overwatch_facts()
+    end
+  end
+
+  describe "parse_init_values/1" do
+    test "blank means no init values" do
+      assert {:ok, %{}} = NodeManager.parse_init_values("  ")
+      assert {:ok, %{}} = NodeManager.parse_init_values(nil)
+    end
+
+    test "decodes JSON, and says what is wrong when it is not" do
+      assert {:ok, %{"a" => 1}} = NodeManager.parse_init_values(~s({"a": 1}))
+      assert {:error, "Init Values must be valid JSON."} = NodeManager.parse_init_values("{")
+    end
+  end
+
+  describe "logging" do
+    test "a disconnected call stays quiet" do
+      log = capture_log(fn -> NodeManager.list_namespaces("flzt_t") end)
+      refute log =~ "diverged"
+    end
+  end
+end

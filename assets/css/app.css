@@ -1,0 +1,292 @@
+/*
+ * flezha_console stylesheet.
+ *
+ * The console's component kit lives in `console/`; its colours are the
+ * stylebook's palette by role, and nothing here declares a colour literal.
+ *
+ * Order is load-bearing. Tailwind preflight lands first — every `border`
+ * utility depends on its `border-style: solid` default. The console's layers
+ * land next, so its reset and form baseline win the overlap with preflight.
+ * The stylebook's tokens follow — the palette the console's roles name — with
+ * its recipes for the shell's rail and topbar and for the relay pipeline
+ * graph.
+ * Tailwind's utilities land last, so `class="fcon-section mt-6"` still gets
+ * its margin.
+ */
+@import "tailwindcss/base";
+@import "@flezha/stylebook/css/fonts.css";
+@import "./console/tokens.css";
+@import "./console/base.css";
+@import "./console/components.css";
+@import "./console/shell.css";
+@import "@flezha/stylebook/css/tokens.css";
+@import "@flezha/stylebook/css/components.css";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+/* ---- Topology graph ----
+ * Nodes, wires and the legend wear the stylebook's relay-graph recipe. What
+ * stays here is the console's own behaviour on top of it: the relay's edge,
+ * nets in six hues with halos and junctions, ports and their taps, badges,
+ * focus, the view controls, the Cell sheet, the flow sentence and timeline.
+ * Records moving are drawn on a canvas by the `FlzPipeline` hook.
+ */
+@keyframes topo-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
+}
+
+/* The relay's ground, which a wire's halo repeats to cut a crossing line,
+   and which the legend's relay swatch shows. */
+.topo-canvas, .topo-legend {
+  --topo-ground: color-mix(in oklab, var(--text-brand) 3%, var(--surface-raised));
+}
+
+/* The stage: the graph fits it, and the motion canvas lies over it. */
+.topo-canvas {
+  position: relative; overflow: hidden; touch-action: none; cursor: grab;
+  min-height: 20rem; border: 1px solid var(--border-subtle); border-radius: var(--fcon-radius-surface);
+}
+.topo-canvas.is-panning { cursor: grabbing; }
+.topo-svg { display: block; width: 100%; height: 100%; }
+.topo-motion, .topo-motion canvas { position: absolute; inset: 0; pointer-events: none; }
+.topo-motion canvas { width: 100%; height: 100%; }
+.topo-frame[data-full] {
+  position: fixed; inset: 0; z-index: var(--fcon-z-dialog); border-radius: 0; overflow: auto;
+  padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* The viewer's controls in the panel header. */
+.topo-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.topo-seg, .topo-seg-button {
+  display: inline-flex; align-items: center; border: 1px solid var(--fcon-line);
+  border-radius: var(--fcon-radius-control); overflow: hidden; background: var(--fcon-surface);
+}
+.topo-seg button, .topo-seg-button {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font: inherit; font-size: 13px; font-weight: 500; padding: 0 var(--space-3); min-height: var(--fcon-control-h);
+  border: 0; background: transparent; color: var(--fcon-ink-2); cursor: pointer;
+}
+.topo-seg button:hover, .topo-seg-button:hover { background: var(--fcon-hover); color: var(--fcon-ink-1); }
+.topo-tool-icon { width: 1.125rem; height: 1.125rem; flex: none; }
+@media (width <= 899px) {
+  .topo-seg .topo-tool-text, [data-zoom="full"] .topo-tool-text { @apply sr-only; }
+}
+.topo-seg > * + * { border-left: 1px solid var(--fcon-line); }
+.topo-seg button[aria-pressed="true"], .topo-seg-button[aria-pressed="true"] {
+  background: var(--fcon-accent); color: var(--fcon-on-accent);
+}
+.topo-seg button:focus-visible, .topo-seg-button:focus-visible { outline: 2px solid var(--fcon-accent); outline-offset: -2px; }
+.topo-zoom {
+  font-family: var(--font-mono); font-size: 12px; color: var(--fcon-ink-3); padding: 4px 8px;
+  min-width: 3.25rem; text-align: center; font-variant-numeric: tabular-nums;
+}
+
+/* Zoom: the segmented control stood upright in the stage's corner; it steps
+   aside for an open Cell sheet. */
+.topo-zoom-panel {
+  position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 3;
+  flex-direction: column; align-items: stretch; cursor: auto; box-shadow: 0 4px 16px var(--fcon-shadow);
+}
+.topo-zoom-panel > * + * { border-left: 0; border-top: 1px solid var(--fcon-line); }
+.topo-zoom-panel button { justify-content: center; min-width: var(--fcon-control-h); padding: 0 var(--space-2); }
+.topo-zoom-panel .topo-zoom { padding: 6px 4px; min-width: 0; font-size: 11px; }
+.topo-cells ~ .topo-zoom-panel { right: calc(min(33.75rem, 100%) + var(--space-3)); }
+
+/* The relay's edge, selected by its header. */
+.topo-boundary-outline {
+  fill: var(--topo-ground);
+  stroke: var(--text-brand); stroke-width: 1.5; stroke-dasharray: 6 4;
+}
+.topo-boundary-outline.is-stalled { stroke: var(--warning); stroke-width: 2.5; stroke-dasharray: 5 3; }
+.topo-head { cursor: pointer; outline: none; }
+.topo-title { font-family: var(--font-mono); font-size: 13px; font-weight: 600; fill: var(--text-primary); }
+.topo-head:hover .topo-title,
+.topo-head:focus-visible .topo-title,
+.topo-head.is-selected .topo-title { fill: var(--fcon-accent); text-decoration: underline; }
+
+/* Nets: a halo in the relay's ground cuts the line a later net crosses, a
+   dot marks where a channel splits, and the hue keeps neighbours apart. */
+.topo-wire-halo {
+  fill: none; stroke: var(--topo-ground);
+  stroke-width: 7; stroke-linejoin: round;
+}
+.topo-wire { stroke-linejoin: round; }
+.topo-net[data-c="0"] {
+  --topo-hue: var(--fcon-wire-0);
+}
+.topo-net[data-c="1"] {
+  --topo-hue: var(--fcon-wire-1);
+}
+.topo-net[data-c="2"] {
+  --topo-hue: var(--fcon-wire-2);
+}
+.topo-net[data-c="3"] {
+  --topo-hue: var(--fcon-wire-3);
+}
+.topo-net[data-c="4"] {
+  --topo-hue: var(--fcon-wire-4);
+}
+.topo-net[data-c="5"] {
+  --topo-hue: var(--fcon-wire-5);
+}
+.topo-net[data-c] .topo-wire { stroke: var(--topo-hue); stroke-opacity: 0.9; }
+.topo-net[data-c] .topo-junction { fill: var(--topo-hue); }
+.topo-net.is-idle .topo-wire { stroke-dasharray: 2 4; stroke-opacity: 0.5; }
+.topo-wire--skip { stroke-dasharray: 3 3; }
+.topo-wire--dlq { stroke: var(--warning); stroke-dasharray: 2 4; stroke-opacity: 0.85; }
+.topo-wire--dlq.is-idle { stroke-opacity: 0.4; }
+.topo-junction { fill: var(--text-muted); }
+.topo-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: crosshair; }
+
+/* Focus: what a hovered wire or node touches stays, the rest steps back. */
+.topo-canvas .topo-net, .topo-canvas .topo-n { transition: opacity 0.15s; }
+.topo-canvas[data-focus] .topo-net { opacity: 0.16; }
+.topo-canvas[data-focus] .topo-n { opacity: 0.4; }
+
+/* Nodes. */
+.topo-n { cursor: pointer; outline: none; }
+.topo-n:focus-visible .flz-graph-node > rect:not(.topo-card),
+.topo-n.is-selected .flz-graph-node > rect:not(.topo-card) { stroke: var(--fcon-accent); stroke-width: 2.5; }
+.topo-card { fill: var(--surface-raised); stroke: var(--text-brand); stroke-width: 1; opacity: 0.7; }
+.topo-node-run rect { fill: var(--code-ground); stroke-dasharray: 5 3; }
+.topo-node-unbound rect { fill: var(--surface-raised); stroke: var(--text-muted); stroke-dasharray: 3 3; }
+.topo-node-unbound text { fill: var(--text-muted); }
+.topo-n-bin.is-hot rect { fill: var(--fcon-warning-subtle); stroke: var(--warning); stroke-dasharray: none; }
+.flz-graph-node.is-muted { opacity: 0.55; }
+
+.topo-label { font-size: 12px; font-family: var(--font-mono); }
+.topo-head .topo-sub,
+.flz-graph-node .topo-sub { fill: var(--text-muted); font-size: 11px; font-family: var(--font-mono); }
+.topo-rate { fill: var(--fcon-signal); font-size: 11px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.topo-rate.is-muted { fill: var(--text-muted); opacity: 0.7; }
+.topo-chan { fill: var(--text-secondary); font-size: 10.5px; font-family: var(--font-mono); }
+.topo-halo { paint-order: stroke; stroke: var(--surface-raised); stroke-width: 4px; stroke-linejoin: round; }
+.topo-mark { fill: var(--text-muted); color: var(--text-muted); font-size: 11px; font-family: var(--font-mono); }
+
+/* Ports on the relay's edge: where a tap opens. */
+.topo-port-hit { fill: transparent; }
+.topo-port-ring { fill: var(--surface-raised); stroke: var(--text-brand); stroke-width: 1.5; }
+.topo-port-core { fill: var(--text-brand); }
+.topo-port.is-unbound .topo-port-ring { stroke: var(--text-muted); }
+.topo-port.is-unbound .topo-port-core { fill: var(--text-muted); }
+.topo-port:hover .topo-port-ring,
+.topo-port:focus-visible .topo-port-ring,
+.topo-port.is-selected .topo-port-ring { stroke-width: 2.5; }
+.topo-port.is-tapped .topo-port-ring { fill: var(--fcon-accent); stroke: var(--fcon-accent); }
+.topo-port.is-tapped .topo-port-core { fill: var(--surface-raised); }
+.topo-tapping { fill: var(--fcon-accent); font-size: 10px; font-family: var(--font-mono); font-weight: 600; }
+
+/* Badges ride a tasklet's lower edge. */
+.topo-badge rect { fill: var(--fcon-warning-subtle); stroke: var(--warning); }
+.topo-badge text { font-family: var(--font-mono); font-size: 10px; font-weight: 600; fill: var(--warning); }
+.topo-badge.is-backlog rect { fill: var(--surface-raised); stroke: var(--fcon-signal); }
+.topo-badge.is-backlog text { fill: var(--fcon-signal); }
+.topo-badge.is-shed rect { fill: var(--fcon-negative-subtle); stroke: var(--negative); }
+.topo-badge.is-shed text { fill: var(--negative); }
+
+.topo-observers { fill: var(--text-brand); color: var(--text-brand); font-size: 11px; font-family: var(--font-mono); outline: none; }
+.topo-backpressure { fill: var(--warning); animation: topo-pulse 2s ease-in-out infinite; }
+
+/* The legend. */
+.topo-legend { padding: var(--space-3); flex-direction: column; flex-wrap: nowrap; }
+/* Plain sentences about how the graph is read: a tasklet's notes, the guide. */
+.topo-notes {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  font-size: 13px; line-height: 1.45; color: var(--fcon-ink-2);
+}
+.topo-notes strong { color: var(--fcon-ink-1); font-weight: 600; }
+.topo-cells-head .topo-notes { margin-top: var(--space-2); }
+.topo-guide { max-width: 34rem; }
+.topo-guide h4 { padding: var(--space-3) var(--space-3) 0; }
+.topo-guide .topo-notes { padding: var(--space-2) var(--space-3) var(--space-3); }
+/* The guide is long, so its popover may run taller than a menu; it alone scrolls. */
+.fcon-popover:has(> .topo-guide) { max-height: min(75vh, 44rem); }
+.topo-legend-badge {
+  border-radius: 999px; border: 1px solid var(--warning); color: var(--warning);
+  font-family: var(--font-mono); font-size: 10px; line-height: 1; padding: 2px 6px;
+}
+.topo-legend-badge.is-backlog { border-color: var(--fcon-signal); color: var(--fcon-signal); }
+.topo-legend-badge.is-shed { border-color: var(--negative); color: var(--negative); }
+.topo-legend span.topo-observers { border: 0; }
+.topo-legend-mark { fill: var(--surface-raised); stroke: var(--fcon-signal); stroke-width: 1.75; }
+.topo-legend-flow { stroke: var(--fcon-signal); stroke-width: 2; stroke-dasharray: 4 14; stroke-linecap: round; }
+.topo-legend-unmeasured { stroke: var(--fcon-ink-2); stroke-width: 2; stroke-dasharray: 10 6; stroke-linecap: round; }
+
+/* A tasklet's Cells, in a sheet over the graph's right side. */
+.topo-cells {
+  position: absolute; top: 0; right: 0; bottom: 0; width: min(33.75rem, 100%); z-index: 2;
+  display: flex; flex-direction: column; background: var(--fcon-surface);
+  border-left: 1px solid var(--fcon-line); box-shadow: -8px 0 24px var(--fcon-shadow); cursor: auto;
+}
+.topo-cells-head { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--fcon-line); }
+.topo-hops { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.topo-hop {
+  font-family: var(--font-mono); font-size: 12px; padding: 3px 8px; border: 1px solid var(--fcon-line);
+  border-radius: 999px; background: var(--fcon-hover); color: var(--fcon-ink-2); cursor: pointer;
+}
+.topo-hop:hover { border-color: var(--text-brand); }
+.topo-hop:focus-visible { outline: 2px solid var(--fcon-accent); outline-offset: 1px; }
+.topo-cells-body { flex: 1; overflow: auto; }
+.topo-cells-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.topo-cells-table th {
+  position: sticky; top: 0; background: var(--fcon-surface); text-align: right; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--fcon-ink-3); padding: 8px; white-space: nowrap;
+  border-bottom: 1px solid var(--fcon-line);
+}
+.topo-cells-table th button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-transform: inherit; letter-spacing: inherit; }
+.topo-cells-table th button:focus-visible { outline: 2px solid var(--fcon-accent); }
+.topo-cells-table th[aria-sort="descending"] button::after { content: " ↓"; }
+.topo-cells-table th[aria-sort="ascending"] button::after { content: " ↑"; }
+.topo-cells-table th:first-child, .topo-cells-table td:first-child { text-align: left; }
+.topo-cells-table td {
+  padding: 6px 8px; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  white-space: nowrap; border-bottom: 1px solid var(--border-subtle); color: var(--fcon-ink-1);
+}
+.topo-cells-table td.is-zero { color: var(--fcon-ink-3); }
+.topo-cells-table td.is-hot { color: var(--fcon-warning); font-weight: 600; }
+.topo-cell-key { max-width: 11rem; overflow: hidden; text-overflow: ellipsis; }
+.topo-cell-key::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 8px;
+  vertical-align: middle; background: transparent; transition: background 1.5s ease-out;
+}
+.is-fresh .topo-cell-key::before { background: var(--fcon-signal); transition: none; }
+.topo-cells-foot { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--fcon-line); }
+
+/* The graph's own inks, on the stylebook tokens it keeps. */
+.topo-primary   { color: var(--text-primary); }
+.topo-secondary { color: var(--text-secondary); }
+.topo-muted     { color: var(--text-muted); }
+
+/* The flow in words, and a bar per tick for what came in, was delivered,
+   was skipped and was parked. */
+.topo-state-word { font-weight: 600; margin-right: 0.35em; }
+.topo-state-word.is-streaming,
+.topo-state-word.is-trickle { color: var(--text-brand); }
+.topo-state-word.is-quiet   { color: var(--text-muted); }
+.topo-state-word.is-failing { color: var(--negative); }
+.topo-state-word.is-stuck   { color: var(--warning); }
+
+.topo-timeline-row { display: grid; grid-template-columns: 5.5rem 1fr; align-items: end; gap: 0.5rem; }
+.topo-timeline-label { color: var(--text-muted); font-size: 13px; }
+.topo-timeline-bars { width: 100%; border-bottom: 1px solid var(--border-subtle); }
+.topo-timeline-bars.is-in rect       { fill: var(--brand-solid); }
+.topo-timeline-bars.is-out rect      { fill: var(--positive); }
+.topo-timeline-bars.is-filtered rect { fill: var(--text-muted); }
+.topo-timeline-bars.is-parked rect   { fill: var(--warning); }
+.topo-timeline-axis { display: flex; justify-content: space-between; margin-left: 6rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .topo-backpressure { animation: none; }
+  .topo-canvas .topo-net, .topo-canvas .topo-n, .topo-cell-key::before { transition: none; }
+}
+
+/* On a phone the frame runs to the screen's edges, and the sheet covers the
+   whole stage. */
+@media (width <= 599px) {
+  .topo-frame { border-inline: 0; border-radius: 0; margin-inline: calc(-1 * var(--space-4)); }
+  .topo-cells { width: 100%; }
+  .topo-cells ~ .topo-zoom-panel { display: none; }
+  .topo-zoom-panel { flex-direction: row; align-items: center; right: var(--space-2); bottom: var(--space-2); }
+  .topo-zoom-panel > * + * { border-top: 0; border-left: 1px solid var(--fcon-line); }
+}

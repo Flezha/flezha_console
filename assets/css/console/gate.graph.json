@@ -1,0 +1,12 @@
+{
+  "tokens": "../../node_modules/@flezha/stylebook/css/tokens.css",
+  "ignore": ["--fcon-"],
+  "exempt": ["tokens.css"],
+  "parity": [],
+  "surfaces": ["--surface-base", "--surface-raised", "--surface-hover"],
+  "inks": ["--text-primary", "--text-secondary", "--text-muted", "--text-brand", "--positive", "--warning", "--negative"],
+  "fills": ["--brand-solid"],
+  "chromeSurfaces": [],
+  "chromeInks": [],
+  "solidPairs": []
+}

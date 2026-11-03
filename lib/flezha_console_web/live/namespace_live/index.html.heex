@@ -1,0 +1,144 @@
+<.page_header eyebrow="Platform" title="Namespaces">
+  <:sentence>
+    {Words.count(length(@namespaces), "namespace")} you can reach. A <.term key="namespace" />
+    is an
+    isolated scope with its own <.term key="hub" /> and <.term key="quota">limits</.term>.
+  </:sentence>
+  <:actions>
+    <.button
+      phx-click="open_create"
+      data-testid="create-namespace-btn"
+      icon="hero-plus"
+    >
+      Declare namespace
+    </.button>
+  </:actions>
+</.page_header>
+
+<.runtime_error error={@load_error} />
+
+<.partial_answer unreachable={@unreachable} controllers={@shell_pulse[:controllers]} />
+
+<.notice
+  :if={@declarations_unavailable?}
+  kind={:info}
+  testid="declarations-unavailable"
+  class="mb-5"
+>
+  This controller does not report declared namespaces, so only running hubs are listed and no
+  quota breach can be shown.
+</.notice>
+
+<.partial_empty :if={@namespaces == [] and @unreachable != []} noun="namespace" />
+
+<.empty_state
+  :if={@namespaces == [] and @unreachable == []}
+  icon="hero-rectangle-stack"
+  testid="namespaces-empty"
+>
+  A namespace is where relays, runners and plugins live. None is reachable with this console's token.
+</.empty_state>
+
+<.paged :let={page} id="namespaces" rows={@namespaces} paging={@paging}>
+  <ul :if={@namespaces != []} data-testid="namespaces-table" class="fcon-tiles">
+    <li
+      :for={ns <- page}
+      data-testid={"namespace-row-#{ns.name}"}
+      class="fcon-tile flz-tile"
+    >
+      <div class="flex items-start justify-between gap-3">
+        <.link
+          navigate={~p"/namespaces/#{ns.name}"}
+          class="fcon-tile-title fcon-num"
+          data-testid={"namespace-view-#{ns.name}"}
+        >
+          {ns.name}
+        </.link>
+      </div>
+      <p>
+        <.state_badge
+          kind={:namespace_state}
+          value={{ns.declared?, ns.running?}}
+          testid={"namespace-state-#{ns.name}"}
+        />
+      </p>
+      <.strip :if={ns.health != []} counts={ns.health} testid={"namespace-strip-#{ns.name}"} />
+      <p class="fcon-figures">
+        <span data-testid={"namespace-relays-#{ns.name}"}>
+          {Words.count(ns.relay_count, "relay")}
+        </span>
+        ·
+        <span data-testid={"namespace-runners-#{ns.name}"}>
+          {Words.count(ns.runner_count, "runner")}
+        </span>
+      </p>
+      <p
+        :if={ns.breaches != []}
+        data-testid={"namespace-breach-#{ns.name}"}
+        class="fcon-tone-negative"
+      >
+        At its limit: {Words.join(Enum.map(ns.breaches, &Words.humanize(&1.kind)))}
+      </p>
+      <p :if={ns.breaches == [] and ns.declared?} class="fcon-figures">Within every limit</p>
+      <p :if={not ns.declared?} class="fcon-figures">Undeclared, so no limits apply</p>
+    </li>
+  </ul>
+</.paged>
+
+<.dialog
+  :if={@show_create}
+  testid="create-namespace-modal"
+  size="form"
+  on_close="close_create"
+>
+  <:title>Declare a namespace</:title>
+
+  <.form_error
+    error={@create_error}
+    action="the namespace create"
+    testid="create-namespace-error"
+  />
+
+  <form
+    id="create-namespace-form"
+    phx-submit="create"
+    phx-change="create_change"
+    data-testid="create-namespace-form"
+    class="space-y-4"
+  >
+    <.input
+      type="text"
+      name="create[name]"
+      label="Name"
+      required
+      value={@create_form["name"]}
+      placeholder="analytics"
+      data-testid="create-namespace-name"
+    />
+    <p class="fcon-hint">
+      Quota overrides are optional — a kind left blank keeps the controller's default.
+    </p>
+    <div class="grid gap-3 sm:grid-cols-2">
+      <.input
+        type="number"
+        name="create[max_relays]"
+        label="Max relays"
+        value={@create_form["max_relays"]}
+        data-testid="create-max-relays"
+      />
+      <.input
+        type="number"
+        name="create[max_runners]"
+        label="Max runners"
+        value={@create_form["max_runners"]}
+        data-testid="create-max-runners"
+      />
+    </div>
+    <div class="flex justify-end gap-3 pt-2">
+      <.button variant="ghost" phx-click="close_create" data-testid="create-namespace-cancel">
+        Cancel
+      </.button>
+      <.button type="submit" data-testid="create-namespace-submit">Declare</.button>
+    </div>
+  </form>
+</.dialog>

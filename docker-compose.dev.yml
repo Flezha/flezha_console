@@ -1,0 +1,568 @@
+# All-in-one dev compose: flezha controller + UI + kafka stack
+# Usage:
+#   docker compose -f docker-compose.dev.yml up [--build]
+#
+# Attach to iex:    docker attach flezha_controller  (detach: Ctrl+P Ctrl+Q)
+# Get a bash shell: docker exec -it flezha_controller bash
+# Restart iex:      docker exec flezha_controller pkill -f iex
+
+# Each runner's credential, named once: its bootstrap step writes the token
+# file for the namespace, and the runner reads that file to prove it.
+x-default-runner-credential: &default-runner-credential
+  FLEZHA_RUNNER_NAMESPACE: ${FLEZHA_DEMO_NAMESPACE:-default}
+  FLEZHA_RUNNER_TOKEN_FILE: /auth/runner.token
+
+# The Erlang distribution cookie, named once: the controllers, the bootstrap
+# steps and the operator helpers of the tools service read this value. The
+# console holds none.
+x-dev-cookie: &dev-cookie
+  ERLANG_COOKIE: flezha_dev_cookie
+
+x-sandbox-runner-credential: &sandbox-runner-credential
+  FLEZHA_RUNNER_NAMESPACE: sandbox
+  FLEZHA_RUNNER_TOKEN_FILE: /auth/runner.sandbox.token
+
+x-second-runner-credential: &second-runner-credential
+  FLEZHA_RUNNER_NAMESPACE: second
+  FLEZHA_RUNNER_TOKEN_FILE: /auth/runner.second.token
+
+services:
+  controller:
+    build:
+      # The toolchain image is what flezha's own deploy/docker/dev/docker-compose.yml
+      # builds: Elixir+OTP, Rust, Node.js, protoc against bind-mounted source.
+      context: ../flezha
+      dockerfile: deploy/docker/dev/Dockerfile.toolchain
+    container_name: flezha_controller
+    hostname: flezha_controller
+    tty: true
+    stdin_open: true
+    restart: unless-stopped
+    environment:
+      FLEZHA_SOCKET_FILES_PATH: /flezha/storage/app/sockets/
+      FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
+      FLEZHA_GRACEFUL_SHUTDOWN_ENABLED: ${FLEZHA_GRACEFUL_SHUTDOWN_ENABLED:-true}
+      # Short in dev, so stopping the stack takes seconds; long enough for the
+      # controller to close its storage cleanly.
+      FLEZHA_GRACEFUL_SHUTDOWN_TIMEOUT_MS: ${FLEZHA_GRACEFUL_SHUTDOWN_TIMEOUT_MS:-5000}
+      # `docker stop` signals the whole process group: the restart loop below
+      # and the VM it runs both get SIGTERM, so the VM drains and the loop ends.
+      TINI_KILL_PROCESS_GROUP: "1"
+      # Off by default on the controller; on here so the UI's audit screen has
+      # something to show in dev.
+      FLEZHA_AUDIT_ENABLED: ${FLEZHA_AUDIT_ENABLED:-true}
+      # Enforced, not switched off. The controller only enables authorization by
+      # default under MIX_ENV=prod, and a dev stack that opted out would leave
+      # the UI's whole identity path — token, principal, refusals — untested
+      # locally. The `bootstrap` service below claims it.
+      FLEZHA_AUTHZ_ENABLED: "true"
+      # Absolute, so the bootstrap token's path does not depend on the cwd the
+      # controller happened to start in.
+      FLEZHA_AUTHZ_DIR: /flezha/storage/app/auth
+      # The dev default already, stated because a controller with no durability
+      # posture refuses to boot under prod config and the difference is worth
+      # being able to see here.
+      FLEZHA_DURABILITY_BACKEND: ${FLEZHA_DURABILITY_BACKEND:-none}
+      <<: *dev-cookie
+    depends_on:
+      # The plugin root is read once, at boot.
+      plugin_packages:
+        condition: service_completed_successfully
+      certs:
+        condition: service_completed_successfully
+    # Healthy once the code is compiled and the application has started: the
+    # testnet listener is one of the last things it opens.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/4500"]
+      interval: 30s
+      start_period: 10m
+      start_interval: 2s
+    # Graceful shutdown — see flezha's docs/public/topics/deploying/deploying_a_controller.md.
+    init: true
+    stop_signal: SIGTERM
+    stop_grace_period: 20s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    # Its own channel certificate is linked to the one path the HTTP API plugin
+    # is enabled with on every controller (priv/dev/bootstrap_authz.exs).
+    command: >
+      sh -c 'trap "exit 0" TERM INT;
+      ln -sf /channel_tls/$$HOSTNAME.pem /tmp/channel_server.pem;
+      ln -sf /channel_tls/$$HOSTNAME.key /tmp/channel_server.key;
+      while true; do
+        pkill node 2>/dev/null;
+        echo "==> Starting flezha iex...";
+        mix deps.get >/dev/null;
+        iex --sname flezha --cookie "$$ERLANG_COOKIE" -S mix;
+        echo "==> iex exited, restarting in 3s...";
+        sleep 3;
+      done'
+    volumes:
+      - fcon_socket_data:/socket_data
+      - ../flezha:/flezha
+      - fcon_flezha_build:/flezha/_build
+      - fcon_flezha_deps:/flezha/deps
+      - fcon_flezha_cargo_target:/flezha/_build/.target
+      - fcon_channel_tls:/channel_tls:ro
+    networks:
+      fcon_network:
+        # The console's controller URL names every controller, as a DNS name
+        # for a cluster does: the HTTP API listens only on the controllers that
+        # hold `_system`, and the console pins whichever answers.
+        aliases: [flezha_controllers]
+
+  # A second controller in the same cluster, so every screen is exercised on a
+  # relay, a runner and a dead letter the console's own controller does not
+  # hold. It runs the same checkout and build, joins the first through manual
+  # discovery and keeps its storage, sockets included, in a volume of its own,
+  # holding copies of the first's plugin packages. The console stays connected
+  # to the first.
+  controller_2:
+    extends:
+      service: controller
+    container_name: flezha_controller_2
+    hostname: flezha_controller_2
+    environment:
+      FLEZHA_INITIAL_NODES: flezha@flezha_controller
+    # Started once the first controller has fetched and compiled into the
+    # shared deps and build volumes; two compiles at once leave one of them
+    # without its modules.
+    depends_on:
+      controller:
+        condition: service_healthy
+      plugin_packages:
+        condition: service_completed_successfully
+      controller_2_storage:
+        condition: service_completed_successfully
+    command: >
+      sh -c 'trap "exit 0" TERM INT;
+      ln -sf /channel_tls/$$HOSTNAME.pem /tmp/channel_server.pem;
+      ln -sf /channel_tls/$$HOSTNAME.key /tmp/channel_server.key;
+      while true; do
+        echo "==> Starting flezha iex...";
+        iex --sname flezha --cookie "$$ERLANG_COOKIE" -S mix;
+        echo "==> iex exited, restarting in 3s...";
+        sleep 3;
+      done'
+    volumes:
+      - fcon_controller_2_storage:/flezha/storage
+
+  # Readies the second controller's storage before it boots: its plugin root
+  # gets the packages the first one loads, since a loader writes into its own
+  # root and so cannot share one, and the volume is handed to the image's user,
+  # because Docker makes a new volume as root.
+  controller_2_storage:
+    build:
+      context: ../flezha
+      dockerfile: deploy/docker/dev/Dockerfile.toolchain
+    container_name: fcon_controller_2_storage
+    user: root
+    restart: "no"
+    depends_on:
+      plugin_packages:
+        condition: service_completed_successfully
+    command:
+      - sh
+      - -c
+      - mkdir -p /storage/app/plugins && cp /packages/*.fpz /storage/app/plugins/ && chown -R flezha:flezha /storage
+    volumes:
+      - fcon_controller_2_storage:/storage
+      - ../flezha/storage/app/plugins:/packages:ro
+
+  # Makes the controllers' channel certificates and the console's client
+  # certificate, from a dev authority of their own, into the volume each reads
+  # them from. Keeps what already exists. See priv/dev/certs.sh.
+  certs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fcon_certs
+    user: root
+    restart: "no"
+    command:
+      - sh
+      - /flezha_console_dev/certs.sh
+      - channel
+      - --name
+      - flezha_controllers
+      - flezha_controller
+      - flezha_controller_2
+    volumes:
+      - ./priv/dev:/flezha_console_dev:ro
+      - fcon_channel_tls:/channel_tls
+
+  # Builds the flezha_http plugin package with the controller's toolchain and
+  # places it, with a copy the loader refuses, in the plugin root the
+  # controller reads at boot. See priv/dev/plugin_packages.sh.
+  plugin_packages:
+    build:
+      context: ../flezha
+      dockerfile: deploy/docker/dev/Dockerfile.toolchain
+    container_name: fcon_plugin_packages
+    restart: "no"
+    command: ["sh", "/flezha_console_dev/plugin_packages.sh"]
+    volumes:
+      - ../flezha:/flezha
+      - ./priv/dev:/flezha_console_dev:ro
+      # Mounted over a directory the image gives its build user, so the
+      # volume is that user's too.
+      - fcon_plugin_build:/home/flezha/_build
+    networks:
+      - fcon_network
+
+  # The runner is its own service, mirroring flezha's deploy/docker/dev/docker-compose.yml.
+  # It owns its process, so it survives a controller restart on the SDK's own
+  # reconnect loop — unlike a runner launched through the controller, which dies
+  # with whatever process owned its Port.
+  runner:
+    build:
+      context: ../flezha
+      dockerfile: deploy/docker/dev/Dockerfile.toolchain
+    container_name: flezha_rust_runner
+    restart: unless-stopped
+    # The runner has no SIGTERM handler, so as PID 1 it would ignore `docker stop`.
+    init: true
+    # The runner exits when its stdin reaches EOF, which is how a controller
+    # that owns its Port shuts it down. Without an open stdin, docker hands it
+    # /dev/null and it exits immediately at startup.
+    stdin_open: true
+    tty: true
+    depends_on:
+      controller:
+        condition: service_started
+      # A controller enforcing authorization refuses a runner that cannot
+      # prove its namespace; the bootstrap writes the credential it presents.
+      bootstrap:
+        condition: service_completed_successfully
+    environment:
+      FLEZHA_SOCKET_FILES_PATH: /flezha/storage/app/sockets/
+      FLEZHA_TRANSPORT: ${FLEZHA_TRANSPORT:-uds}
+      # The SDK's default under /var/lib is not writable by the image's user;
+      # in its home the id survives a restart, so the runner is recognised.
+      FLEZHA_RUNNER_ID_PATH: /home/flezha/.flezha-runner-id
+      <<: *default-runner-credential
+    working_dir: /flezha/test/apps/rust_runner
+    command:
+      - sh
+      - -c
+      - |
+        until [ -S /flezha/storage/app/sockets/runner_control_channel.sock ]; do
+          echo "[runner] waiting for controller control socket..."
+          sleep 1
+        done
+        # `test/apps/rust_runner` links to the crate's real path, and cargo
+        # resolves a workspace member only by that one.
+        FLEZHA_NAMESPACE_SECRET="$$(cat "$$FLEZHA_RUNNER_TOKEN_FILE")"
+        export FLEZHA_NAMESPACE_SECRET
+        exec cargo run --quiet --manifest-path=/flezha/sdk/rust/test_app/Cargo.toml -- "$$FLEZHA_RUNNER_NAMESPACE"
+    volumes:
+      - fcon_auth_data:/auth:ro
+      - fcon_socket_data:/socket_data
+      - ../flezha:/flezha
+      - fcon_flezha_cargo_target:/flezha/_build/.target
+    networks:
+      - fcon_network
+
+  # The runner above, connected to the second controller through that
+  # controller's sockets, in the namespace `second` that no runner of the first
+  # serves. Every factory it registers is therefore served only there, and a
+  # relay started from one runs on the second controller. Same binary as the
+  # first runner, so it adds no build.
+  runner_2:
+    extends:
+      service: runner
+    container_name: flezha_rust_runner_2
+    depends_on:
+      controller_2:
+        condition: service_started
+      second_bootstrap:
+        condition: service_completed_successfully
+    environment:
+      <<: *second-runner-credential
+    volumes:
+      - fcon_controller_2_storage:/flezha/storage
+
+  # A second runner, in a namespace of its own, running the Elixir project kept
+  # in the git-ignored local_dev/sandbox_runners/elixir_runner. Started only with
+  # `--profile local-runner`. It is the runner above — image, sockets, checkout,
+  # credentials — plus the project and its own build volumes.
+  sandbox_runner:
+    extends:
+      service: runner
+    container_name: fcon_sandbox_runner
+    profiles: [local-runner]
+    depends_on:
+      sandbox_bootstrap:
+        condition: service_completed_successfully
+    environment:
+      <<: *sandbox-runner-credential
+      # Outside the mounted project, so a build on the host never shares a
+      # _build or deps with this one.
+      MIX_BUILD_ROOT: /home/flezha/_build
+      MIX_DEPS_PATH: /home/flezha/deps
+    # At the same depth as on the host, so a path dependency on
+    # ../../../../flezha/sdk/elixir resolves in both.
+    working_dir: /flezha_console/local_dev/sandbox_runners/elixir_runner
+    command:
+      - sh
+      - -c
+      - |
+        until [ -S /flezha/storage/app/sockets/runner_control_channel.sock ]; do
+          echo "[sandbox_runner] waiting for controller control socket..."
+          sleep 1
+        done
+        FLEZHA_NAMESPACE_SECRET="$$(cat "$$FLEZHA_RUNNER_TOKEN_FILE")"
+        export FLEZHA_NAMESPACE_SECRET
+        mix deps.get && exec mix run --no-halt -- "$$FLEZHA_RUNNER_NAMESPACE"
+    volumes:
+      - ./local_dev:/flezha_console/local_dev
+      # Mounted over directories the image gives its build user, so the
+      # volumes are that user's too.
+      - fcon_sandbox_build:/home/flezha/_build
+      - fcon_sandbox_deps:/home/flezha/deps
+
+  # Claims the controller's authorization bootstrap and issues the token the UI
+  # presents, once, after the controller is up. It has to be a step rather than
+  # an env var: the token does not exist until the controller has booted, and
+  # `flz` cannot reach a controller running under `iex -S mix` (it shells out to
+  # the release launcher, which a source checkout does not build).
+  bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fcon_bootstrap
+    hostname: fcon_bootstrap
+    # Named volumes are created root-owned; this step has to write into one.
+    user: root
+    restart: "no"
+    depends_on:
+      controller:
+        condition: service_started
+    environment:
+      <<: [*dev-cookie, *default-runner-credential]
+      FLEZHA_NODE: flezha@flezha_controller
+      FLEZHA_TOKEN_FILE: /auth/ui.token
+      FLEZHA_CONSOLE_PRINCIPAL: flezha-console
+    volumes:
+      - .:/flezha_console
+      - fcon_auth_data:/auth
+    networks:
+      - fcon_network
+    # The script waits for the controller node itself, which is a better signal
+    # than any file: a reachable node is one that can answer the claim.
+    command:
+      - sh
+      - -c
+      - exec elixir --sname fcon_bootstrap --hidden --cookie "$$ERLANG_COOKIE" /flezha_console/priv/dev/bootstrap_authz.exs
+
+  # The same script for the sandbox runner: it reuses the UI token `bootstrap`
+  # wrote, creates the namespace and issues that runner's credential.
+  sandbox_bootstrap:
+    extends:
+      service: bootstrap
+    container_name: fcon_sandbox_bootstrap
+    hostname: fcon_sandbox_bootstrap
+    profiles: [local-runner]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    environment:
+      <<: *sandbox-runner-credential
+
+  # The same script for the second runner's namespace and credential.
+  second_bootstrap:
+    extends:
+      service: bootstrap
+    container_name: fcon_second_bootstrap
+    hostname: fcon_second_bootstrap
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    environment:
+      <<: *second-runner-credential
+
+  db:
+    image: postgres:16.15
+    container_name: flezha_console_db
+    hostname: flezha_console_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: flezha_console_db
+    # Loopback only: the host runs `mix test` against it, and its password is
+    # the well-known dev one.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - fcon_network
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fcon_web
+    hostname: fcon_web
+    # Reaps the asset watchers and passes `docker stop` on to the VM.
+    init: true
+    ports:
+      - "4000:4000"
+    environment:
+      MIX_ENV: dev
+      # The console's channel to its controller: HTTPS with a client
+      # certificate, every certificate made by the `certs` step.
+      FLEZHA_CONTROLLER_URL: https://flezha_controllers:8765
+      FLEZHA_CONTROLLER_CA: /channel_tls/ca.pem
+      FLEZHA_CLIENT_CERT: /channel_tls/console.pem
+      FLEZHA_CLIENT_KEY: /channel_tls/console.key
+      # Written by the `bootstrap` service. Read as a file rather than an env
+      # var because it is issued after this container starts.
+      FLEZHA_TOKEN_FILE: /auth/ui.token
+      # A config or dependency change stops the console, and the restart
+      # policy below brings it back with the new configuration.
+      FLEZHA_CONSOLE_RESTART_ON_CONFIG_CHANGE: "true"
+      # Every screen re-reads twice a second, so what a browser test caused
+      # shows without waiting out a screen's own cadence.
+      FLEZHA_CONSOLE_REFRESH_INTERVAL_MS: "500"
+    depends_on:
+      db:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+    volumes:
+      - .:/flezha_console
+      - fcon_web_deps:/flezha_console/deps
+      - fcon_web_build:/flezha_console/_build
+      - fcon_auth_data:/auth:ro
+      - fcon_channel_tls:/channel_tls:ro
+      # The stylebook is an npm `file:` dependency, and npm writes a relative
+      # symlink for one. From assets/node_modules/@flezha/ it walks up four
+      # levels, which lands on the container root — so this path is the one
+      # the symlink resolves to and cannot be chosen freely. A dangling
+      # symlink fails silently: @import resolves to nothing and the console
+      # renders unstyled.
+      - ../flezha_stylebook:/flezha_stylebook:ro
+    networks:
+      - fcon_network
+    restart: unless-stopped
+
+  # The operator helpers, which stand in for `flz` on a controller's host: the
+  # stack script, CLI calls for the browser suite, seeding and shape recording.
+  # They hold the cookie and reach the controllers over distribution, so the
+  # console does not have to. Each runs here with `docker exec`.
+  tools:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fcon_tools
+    hostname: fcon_tools
+    init: true
+    environment:
+      <<: *dev-cookie
+      FLEZHA_NODE: flezha@flezha_controller
+      FLEZHA_TOKEN_FILE: /auth/ui.token
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes:
+      - .:/flezha_console
+      - fcon_auth_data:/auth:ro
+    networks:
+      - fcon_network
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
+
+  # One broker that is also its own controller (KRaft), so no ZooKeeper.
+  # Nothing on the host talks to it: it advertises only its in-network name.
+  kafka:
+    image: apache/kafka:4.3.2
+    container_name: fcon_kafka
+    hostname: fcon_kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@fcon_kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://fcon_kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: ZmNvbkthZmthRGV2U3RhY2s
+      KAFKA_LOG4J_OPTS: -Dlog4j2.configurationFile=/etc/kafka/dev-log4j2.yaml
+    configs:
+      - source: kafka_log4j
+        target: /etc/kafka/dev-log4j2.yaml
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "fcon_kafka:9092"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+      start_interval: 5s
+    networks:
+      - fcon_network
+
+  kafka_ui:
+    image: kafbat/kafka-ui:v1.5.0
+    container_name: fcon_kafka_ui
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: fcon_kafka:9092
+      # Its per-poll statistics lines are debug chatter; warnings still print.
+      LOGGING_LEVEL_ROOT: warn
+      LOGGING_LEVEL_IO_KAFBAT_UI: warn
+      # Netty's native and off-heap memory use, which JDK 25 warns about at boot.
+      JAVA_OPTS: --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - fcon_network
+
+configs:
+  # The broker logs a page of INFO lines per start; warnings and up still print.
+  kafka_log4j:
+    content: |
+      Configuration:
+        Appenders:
+          Console:
+            name: STDOUT
+            PatternLayout:
+              pattern: "[%d] %p %m (%c)%n"
+        Loggers:
+          Root:
+            level: WARN
+            AppenderRef:
+              ref: STDOUT
+
+volumes:
+  fcon_plugin_build:
+  fcon_auth_data:
+  fcon_socket_data:
+  fcon_flezha_build:
+  fcon_flezha_deps:
+  fcon_flezha_cargo_target:
+  fcon_web_deps:
+  fcon_web_build:
+  fcon_sandbox_build:
+  fcon_sandbox_deps:
+  fcon_controller_2_storage:
+  fcon_channel_tls:
+
+networks:
+  fcon_network:
+    driver: bridge
