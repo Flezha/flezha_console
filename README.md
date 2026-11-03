@@ -11,7 +11,7 @@ controller over its HTTPS channel, the controller's HTTP API, with a client
 certificate and the operator's flezha token. The console holds no cookie and
 starts no Erlang distribution toward the controllers.
 
-![Starting a relay from the console: pick a factory, name the relay, review and start it](docs/console-start-a-relay.webp)
+![A tour of the console: the namespace dashboard, starting a relay from a factory, and the relay's diagram with data flowing through it](docs/console-tour.webp)
 
 ## Vocabulary
 
