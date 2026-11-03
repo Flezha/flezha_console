@@ -1,10 +1,17 @@
 # Flezha Console
 
-The Phoenix LiveView console for a [flezha](../flezha) controller. It holds
-no domain state of its own — every screen is a projection of a call to the
-controller over its HTTPS channel: the controller's HTTP API, with a client
+[![CI](https://github.com/Flezha/flezha_console/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Flezha/flezha_console/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Flezha/flezha_console)](https://github.com/Flezha/flezha_console/releases/latest)
+[![Docker](https://img.shields.io/docker/v/flezha/flezha_console?label=docker&sort=semver)](https://hub.docker.com/r/flezha/flezha_console)
+[![License](https://img.shields.io/badge/license-MPL--2.0-blue)](LICENSE)
+
+The Phoenix LiveView console for a [Flezha](https://github.com/Flezha/flezha) controller. It holds
+no domain state of its own: every screen is a projection of a call to the
+controller over its HTTPS channel, the controller's HTTP API, with a client
 certificate and the operator's flezha token. The console holds no cookie and
 starts no Erlang distribution toward the controllers.
+
+![Starting a relay from the console: pick a factory, name the relay, review and start it](docs/console-start-a-relay.webp)
 
 ## Vocabulary
 
