@@ -721,7 +721,7 @@ that built it with `scripts/smoke-release.sh`, and only when all three passed
 attaches them and `SHA256SUMS.txt` to the tag's release. A tag with a `-`
 (`v0.1.0-rc.1`) makes a pre-release.
 
-The image `flezha/flezha-console` is published by hand: `scripts/publish-image.sh`, run
+The image `flezha/flezha_console` is published by hand: `scripts/publish-image.sh`, run
 once on an amd64 machine and once on an arm64 one, each with the stylebook checkout beside
 this repository, pushes that machine's image and joins both under `:<version>` and
 `:latest`.

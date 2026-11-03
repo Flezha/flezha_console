@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publishes the console image to Docker Hub as flezha/flezha-console.
+# Publishes the console image to Docker Hub as flezha/flezha_console.
 #
 # Run it once on an amd64 machine and once on an arm64 one, logged in as
 # flezha (`docker login -u flezha`), with the flezha_stylebook checkout beside
@@ -10,7 +10,7 @@
 # published `:<version>-<arch>` is never overwritten unless REPUBLISH=1.
 set -euo pipefail
 
-IMAGE="flezha/flezha-console"
+IMAGE="flezha/flezha_console"
 
 cd "$(dirname "$0")/.."
 
