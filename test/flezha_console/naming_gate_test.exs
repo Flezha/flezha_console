@@ -141,8 +141,9 @@ defmodule FlezhaConsole.NamingGateTest do
     end
 
     test "masks an allowlisted occurrence in its own path only" do
-      assert NamingGate.judge(".claude/skills/x/SKILL.md", "the workflow") == []
-      assert NamingGate.judge("README.md", "the workflow") != []
+      navigation = "test/flezha_console_web/live/console_navigation_test.exs"
+      assert NamingGate.judge(navigation, ~S|get(conn, "/operatives")|) == []
+      assert NamingGate.judge("README.md", ~S|get(conn, "/operatives")|) != []
     end
   end
 end
