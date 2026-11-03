@@ -5,7 +5,7 @@ defmodule FlezhaConsole.Service.NodeConnectorTest do
   a name it pins and moves off when that address stops answering.
 
   Each test serves and stops its own listeners, so none shares one per module.
-  The certificates are made by the stack's own step, `priv/dev/certs.sh`.
+  The certificates are made by the stack's own step, `rel/overlays/bin/certs`.
   """
 
   use ExUnit.Case, async: false
@@ -36,7 +36,7 @@ defmodule FlezhaConsole.Service.NodeConnectorTest do
 
   defp certs!(dir, hosts) do
     {_out, 0} =
-      System.cmd("sh", ["priv/dev/certs.sh", "channel" | hosts],
+      System.cmd("sh", ["rel/overlays/bin/certs", "channel" | hosts],
         env: [{"CHANNEL_TLS_DIR", dir}],
         stderr_to_stdout: true
       )

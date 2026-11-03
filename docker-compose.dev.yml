@@ -173,7 +173,7 @@ services:
 
   # Makes the controllers' channel certificates and the console's client
   # certificate, from a dev authority of their own, into the volume each reads
-  # them from. Keeps what already exists. See priv/dev/certs.sh.
+  # them from. Keeps what already exists. See rel/overlays/bin/certs.
   certs:
     build:
       context: .
@@ -183,14 +183,14 @@ services:
     restart: "no"
     command:
       - sh
-      - /flezha_console_dev/certs.sh
+      - /flezha_console_certs
       - channel
       - --name
       - flezha_controllers
       - flezha_controller
       - flezha_controller_2
     volumes:
-      - ./priv/dev:/flezha_console_dev:ro
+      - ./rel/overlays/bin/certs:/flezha_console_certs:ro
       - fcon_channel_tls:/channel_tls
 
   # Builds the flezha_http plugin package with the controller's toolchain and

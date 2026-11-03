@@ -285,7 +285,7 @@ arguments as they crossed the wire, with `%{source: :http, token: token}` as its
 context, and its answer is encoded as core's channel encodes it, so every screen
 test drives the real HTTP transport and the real decoder. `start!/1` points the
 console's channel at the listener until the module that started it ends; with
-`tls:` it serves HTTPS with mutual TLS from certificates `priv/dev/certs.sh`
+`tls:` it serves HTTPS with mutual TLS from certificates `rel/overlays/bin/certs`
 made. A channel-backed module is tagged `:channel`, runs alone, starts one
 listener in its shared setup and resets the fake before each test; only a test
 that stops its listener starts its own, in a module of its own. A stream ended
