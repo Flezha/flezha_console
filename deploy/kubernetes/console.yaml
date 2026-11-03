@@ -125,7 +125,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: console
-          image: flezha-console:0.1.0
+          image: flezha/flezha-console:0.1.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

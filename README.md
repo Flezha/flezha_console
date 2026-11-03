@@ -709,23 +709,27 @@ it ends, and a failure names the step that failed. No controller is needed.
 
 ### CI and cutting a release
 
-`.github/workflows/ci.yml` runs on every push to `master` and every pull
+`.github/workflows/ci.yml` runs on every push to `main` and every pull
 request: `mix format --check-formatted`, `mix compile --warnings-as-errors`,
 `mix test` against a Postgres service, and `mix assets.deploy`. Pushes to `dev`
 and other branches start nothing, and the browser suite does not run in CI.
 
-A release is cut by pushing a `v*` tag from `master`.
+A release is cut by pushing a `v*` tag from `main`.
 `.github/workflows/release.yml` then builds the archive on Linux and on both
 macOS runners with `scripts/release-archive.sh`, smoke-tests each on the runner
 that built it with `scripts/smoke-release.sh`, and only when all three passed
 attaches them and `SHA256SUMS.txt` to the tag's release. A tag with a `-`
 (`v0.1.0-rc.1`) makes a pre-release.
 
+The image `flezha/flezha-console` is published by hand: `scripts/publish-image.sh`, run
+once on an amd64 machine and once on an arm64 one, each with the stylebook checkout beside
+this repository, pushes that machine's image and joins both under `:<version>` and
+`:latest`.
+
 Both files check out `flezha/flezha_stylebook` beside the console, and `ci.yml`
 also the parts of `flezha/flezha` that
-`test/flezha_console/service/published_surface_test.exs` reads. They read both
-with the repository secret `SIBLING_REPOS_TOKEN`, a fine-grained token with
-read-only access to those two repositories.
+`test/flezha_console/service/published_surface_test.exs` reads. Both
+repositories are public, so no token is needed.
 
 ## Manual setup (no Docker)
 

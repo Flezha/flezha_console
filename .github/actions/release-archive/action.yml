@@ -5,9 +5,6 @@ description: >
   exist yet, and uploads it for the publish job.
 
 inputs:
-  token:
-    description: A token that can read flezha/flezha_stylebook.
-    required: true
   database-url:
     description: The smoke test's database, on a running Postgres.
     required: true
@@ -16,8 +13,6 @@ runs:
   using: composite
   steps:
     - uses: ./flezha_console/.github/actions/setup
-      with:
-        token: ${{ inputs.token }}
 
     - name: Build the archive
       shell: bash

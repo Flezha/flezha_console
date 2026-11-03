@@ -4,11 +4,6 @@ description: >
   from, and Erlang and Elixir at the versions the console's own images build with
   (deploy/Dockerfile), and Node.
 
-inputs:
-  token:
-    description: A token that can read flezha/flezha_stylebook.
-    required: true
-
 runs:
   using: composite
   steps:
@@ -16,7 +11,6 @@ runs:
       uses: actions/checkout@v5
       with:
         repository: flezha/flezha_stylebook
-        token: ${{ inputs.token }}
         path: flezha_stylebook
 
     - uses: erlef/setup-beam@v1

@@ -1,10 +1,10 @@
 name: CI
 
-# Pushes to master and pull requests are checked; a push to any other branch
+# Pushes to main and pull requests are checked; a push to any other branch
 # starts nothing. The browser suite needs the dev stack and does not run here.
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -33,16 +33,13 @@ jobs:
           path: flezha_console
 
       - uses: ./flezha_console/.github/actions/setup
-        with:
-          token: ${{ secrets.SIBLING_REPOS_TOKEN }}
 
       # The published-surface test reads core's consumer API and error catalogue
       # from ../flezha.
-      - name: Check out flezha/flezha's published API (SIBLING_REPOS_TOKEN)
+      - name: Check out flezha/flezha's published API
         uses: actions/checkout@v5
         with:
           repository: flezha/flezha
-          token: ${{ secrets.SIBLING_REPOS_TOKEN }}
           path: flezha
           sparse-checkout-cone-mode: false
           sparse-checkout: |

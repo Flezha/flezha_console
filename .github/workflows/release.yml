@@ -28,7 +28,6 @@ jobs:
 
       - uses: ./flezha_console/.github/actions/release-archive
         with:
-          token: ${{ secrets.SIBLING_REPOS_TOKEN }}
           database-url: ecto://postgres:postgres@localhost:${{ job.services.postgres.ports['5432'] }}/flezha_console_smoke
 
   # macOS runners have no service containers, so Postgres comes from Homebrew.
@@ -53,7 +52,6 @@ jobs:
 
       - uses: ./flezha_console/.github/actions/release-archive
         with:
-          token: ${{ secrets.SIBLING_REPOS_TOKEN }}
           database-url: ${{ steps.postgres.outputs.url }}
 
   publish:
