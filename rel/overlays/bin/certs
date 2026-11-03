@@ -1,13 +1,13 @@
 #!/bin/sh
 # Makes the dev stack's certificates, each kind from an authority of its own:
 #
-#     certs.sh channel [--name <name>] <host>...
+#     certs channel [--name <name>] <host>...
 #                                  the controllers' HTTPS channel: an authority, a
 #                                  server certificate per controller host, also
 #                                  naming `name`, a name every controller answers
 #                                  to, and the console's client certificate,
 #                                  `console`
-#     certs.sh dist <host>...      the TLS overlay's Erlang distribution: an
+#     certs dist    <host>...      the TLS overlay's Erlang distribution: an
 #                                  authority, and per host a certificate and an
 #                                  `inet_tls_dist` option file
 #

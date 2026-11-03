@@ -23,7 +23,7 @@ x-dist-tls: &dist-tls
 services:
   # Makes the distribution authority, and a key, certificate and option file per
   # distributed host, into the volume every node reads them from. Keeps what
-  # already exists. See priv/dev/certs.sh.
+  # already exists. See rel/overlays/bin/certs.
   dist_tls_certs:
     build:
       context: .
@@ -33,7 +33,7 @@ services:
     restart: "no"
     command:
       - sh
-      - /flezha_console_dev/certs.sh
+      - /flezha_console_certs
       - dist
       - flezha_controller
       - flezha_controller_2
@@ -42,7 +42,7 @@ services:
       - fcon_sandbox_bootstrap
       - fcon_second_bootstrap
     volumes:
-      - ./priv/dev:/flezha_console_dev:ro
+      - ./rel/overlays/bin/certs:/flezha_console_certs:ro
       - fcon_dist_tls:/dist_tls
 
   controller:

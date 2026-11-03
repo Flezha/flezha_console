@@ -243,7 +243,7 @@ token already written; nothing is re-claimed.
 
 The same step enables the `http_api` plugin in `_system`, the channel the
 console reaches the controllers through, over mutual TLS. A one-shot `certs`
-step (`priv/dev/certs.sh channel`) makes a dev authority for it, apart from any
+step (`rel/overlays/bin/certs channel`) makes a dev authority for it, apart from any
 distribution one: a server certificate per controller and the console's client
 certificate, into the `fcon_channel_tls` volume, kept across restarts. The
 plugin listens only on the controllers that hold `_system`, so both controllers
@@ -353,7 +353,7 @@ overlay on:
 docker compose -f docker-compose.dev.yml -f docker-compose.dev-tls.yml up
 ```
 
-A one-shot `fcon_dist_tls_certs` (`priv/dev/certs.sh dist`) makes a private
+A one-shot `fcon_dist_tls_certs` (`rel/overlays/bin/certs dist`) makes a private
 distribution authority, apart from the channel's, and a key, certificate and
 option file per distributed host, into the `fcon_dist_tls` volume. Later runs keep them, and remake only what is missing,
 expires within 30 days, or was signed by an earlier CA. The option files are
@@ -680,6 +680,12 @@ existing database), `SECRET_KEY_BASE` (`openssl rand -base64 48`), `PHX_HOST`,
 - A flezha token, as `FLEZHA_TOKEN` or `FLEZHA_TOKEN_FILE`, or stored per user
   in Settings: the HTTP API refuses every request without one, even on a
   controller whose authorization is open.
+
+The release and the image carry `bin/certs`, which makes these certificates from
+a self-signed authority of its own: `bin/certs channel --name <shared name>
+<controller host>...` writes the authority, a server certificate per controller
+and the console's client certificate into `$CHANNEL_TLS_DIR` (default
+`/channel_tls`), and keeps the ones still valid on later runs.
 
 The controllers need a release newer than 0.1.6, with the `http_api` plugin
 enabled in `_system` over TLS with `tls_client_cacertfile`. The console starts

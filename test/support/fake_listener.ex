@@ -52,7 +52,7 @@ defmodule FlezhaConsole.FakeListener do
 
     * `:tls` — `{dir, host}`: serve HTTPS as core's `http_api` does over mutual
       TLS, presenting `dir`'s certificate for `host` and accepting only clients
-      `dir`'s authority signed, as `priv/dev/certs.sh channel` makes them; the
+      `dir`'s authority signed, as `rel/overlays/bin/certs channel` makes them; the
       URL then names `host`, and the console presents `dir`'s `console`
       certificate;
     * `:ip`, `:port` — where to listen, by default 127.0.0.1 and any free port;
@@ -103,7 +103,7 @@ defmodule FlezhaConsole.FakeListener do
     {:https, tls, host, credentials(dir)}
   end
 
-  @doc "The files a console presents from `dir`, as `priv/dev/certs.sh channel` makes them."
+  @doc "The files a console presents from `dir`, as `rel/overlays/bin/certs channel` makes them."
   def credentials(dir),
     do: %{
       ca: Path.join(dir, "ca.pem"),
