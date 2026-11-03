@@ -85,8 +85,6 @@ defmodule FlezhaConsole.NamingGate do
 
   # {path prefix, text, reason}
   @allowlist [
-    {".claude/", ~r/workflow/i,
-     "OpenSpec's generated commands and skills use the word for OpenSpec's own process"},
     {"", ~r/\.github\/workflows\//, "the directory GitHub reads CI definitions from"},
     {"", ~r/\/v1\/stream/, "the route core's HTTP API serves its streams at"},
     {"test/flezha_console_web/live/console_navigation_test.exs", ~r/\/operatives/,
