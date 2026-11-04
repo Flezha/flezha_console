@@ -5,10 +5,10 @@ and macOS on Intel, with its own Erlang runtime, and a `SHA256SUMS.txt` over
 them. Download your platform's archive and the checksums, check, and unpack:
 
 ```bash
-gh release download v0.1.0 -R Flezha/flezha_console \
+gh release download v0.1.1 -R Flezha/flezha_console \
   -p 'flezha_console-*-linux-x86_64.tar.gz' -p SHA256SUMS.txt
 sha256sum -c --ignore-missing SHA256SUMS.txt     # macOS: shasum -a 256 -c --ignore-missing SHA256SUMS.txt
-tar -xzf flezha_console-0.1.0-linux-x86_64.tar.gz
+tar -xzf flezha_console-0.1.1-linux-x86_64.tar.gz
 ```
 
 A macOS archive is signed ad hoc, not notarized. Fetched with `gh` or `curl` it
