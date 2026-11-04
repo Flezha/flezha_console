@@ -457,7 +457,7 @@ defmodule FlezhaConsoleWeb.RelayIndexLiveTest do
   describe "the relay lifecycle feed" do
     test "each signal is an entry, newest first, and reloads the rows", %{conn: conn, node: node} do
       with_fleet(node, rows: [row("r1")])
-      {:ok, view, _html} = live(conn, ~p"/relays")
+      {view, _html} = live_loaded(conn, ~p"/relays")
       reads = length(FakeController.calls(node, {Relay, :list}))
 
       feed(view, signal(:relay_started, %{namespace: "default", relay: "r1", factory: "orders"}))
@@ -483,6 +483,7 @@ defmodule FlezhaConsoleWeb.RelayIndexLiveTest do
       assert html =~
                ~r/data-testid="lifecycle-what-2"[^>]*>\s*<span[^>]*>default<\/span> started from orders/
 
+      render_async(view)
       assert length(FakeController.calls(node, {Relay, :list})) >= reads + 3
     end
 
@@ -506,12 +507,13 @@ defmodule FlezhaConsoleWeb.RelayIndexLiveTest do
       node: node
     } do
       with_fleet(node, rows: [row("r1")])
-      {:ok, view, _html} = live(conn, ~p"/relays")
+      {view, _html} = live_loaded(conn, ~p"/relays")
 
       reads = length(FakeController.calls(node, {Relay, :list}))
       html = feed(view, signal(:relay_started, %{namespace: "secret", relay: "x", factory: "f"}))
 
       refute html =~ ~s(data-testid="lifecycle-entry-0")
+      render_async(view)
       assert length(FakeController.calls(node, {Relay, :list})) == reads
     end
 

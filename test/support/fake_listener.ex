@@ -142,15 +142,18 @@ defmodule FlezhaConsole.FakeListener do
     ExUnit.Callbacks.on_exit(fn -> replace_pool(NodeConnector.finch_spec(previous)) end)
   end
 
-  # The connector is paused between its messages, so no retry of its own is
-  # using the pool while it is replaced.
+  # The connector is stopped while the pool is replaced, so no probe of its own
+  # is using the pool, and started again after. Pausing it instead would wait
+  # out a probe in flight, which against an address that does not answer can
+  # outlast the test.
   defp replace_pool(spec) do
     id = NodeConnector.finch()
-    :ok = :sys.suspend(NodeConnector)
+    :ok = Supervisor.terminate_child(FlezhaConsole.Supervisor, NodeConnector)
     :ok = Supervisor.terminate_child(FlezhaConsole.Supervisor, id)
     :ok = Supervisor.delete_child(FlezhaConsole.Supervisor, id)
     {:ok, _pid} = Supervisor.start_child(FlezhaConsole.Supervisor, spec)
-    :ok = :sys.resume(NodeConnector)
+    {:ok, _pid} = Supervisor.restart_child(FlezhaConsole.Supervisor, NodeConnector)
+    :ok
   end
 
   @doc "Stops `controller`'s listener, as a controller that went away."
