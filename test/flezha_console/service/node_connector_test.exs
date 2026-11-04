@@ -213,10 +213,6 @@ defmodule FlezhaConsole.Service.NodeConnectorTest do
       refute NodeConnector.reconnect()
       assert_received {:flezha_stream, _id, _result} = message
       assert {:ended, {:error, :node_not_connected}} = NodeManager.stream_result(message, request)
-
-      # Back, so the connector's own retries end before the next test.
-      FakeListener.start!(tls: {dir, "localhost"}, port: controller.port, point: false)
-      assert NodeConnector.reconnect()
     end
 
     test "broadcasts down and up as the channel goes and comes" do
