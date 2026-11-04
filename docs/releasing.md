@@ -4,7 +4,7 @@
 
 ```bash
 scripts/release-archive.sh       # _build/dist/flezha_console-<version>-<platform>.tar.gz
-scripts/smoke-release.sh _build/dist/flezha_console-0.1.0-linux-x86_64.tar.gz \
+scripts/smoke-release.sh _build/dist/flezha_console-0.1.1-linux-x86_64.tar.gz \
   ecto://postgres:postgres@localhost:5432/flezha_console_smoke
 ```
 
