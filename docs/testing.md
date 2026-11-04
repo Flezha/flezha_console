@@ -24,11 +24,22 @@ npx playwright show-report                    # durations per test, slowest firs
 E2E_TRACE=1 npx playwright test topology     # record a trace for each failure
 npm run e2e:flake-check                       # the whole suite 3 times; lists any test that wavered
 npm run e2e:flake-check -- 5 access           # 5 runs of the files matching `access`
+npm run tokens                                # the design-token gate over assets/ and lib/
 ```
 
 CI (`.github/workflows/ci.yml`) runs the ExUnit layer on every push to `master`
 and every pull request, beside the format check, the warnings-as-errors compile
 and the asset build. The browser suite needs the dev stack and runs only locally.
+
+## The design-token gate
+
+`npm run tokens` runs the stylebook's own `check-tokens.mjs` over this
+repository, once for the console's colour roles and once for the relay graph's
+stylebook tokens. It fails on a `var()` naming a token nobody defines, a token
+defined but never referenced, and any ink/surface pairing below its WCAG AA
+floor in either theme — so a colour that only looks fine in dark mode is caught
+before it ships. It also fails on a hex, `rgb()` or `hsl()` colour written
+outside a token file.
 
 ## Which layer an assertion belongs to
 

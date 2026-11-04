@@ -5,8 +5,8 @@ defmodule FlezhaConsoleWeb.Glossary do
 
   One source for three readers: `term/1` explains a term where a screen first
   uses it, the help overlay lists a screen's purpose and its terms, and the
-  README's vocabulary table is checked against `terms/0` by a test, so the
-  table and the console cannot come to disagree.
+  vocabulary table in `docs/guide.md` is checked against `terms/0` by a test,
+  so the table and the console cannot come to disagree.
   """
 
   # Core's role set is closed in v1 and not on its published surface, so the

@@ -19,9 +19,9 @@ defmodule FlezhaConsoleWeb.GlossaryTest do
     end
   end
 
-  test "every term in the README's vocabulary table has a glossary entry" do
+  test "every term in the guide's vocabulary table has a glossary entry" do
     vocabulary =
-      "README.md"
+      "docs/guide.md"
       |> File.read!()
       |> String.split("## Vocabulary")
       |> Enum.at(1)
@@ -35,7 +35,7 @@ defmodule FlezhaConsoleWeb.GlossaryTest do
     assert length(terms) > 10
 
     for term <- terms do
-      assert Glossary.term(term), "README term #{term} has no glossary entry"
+      assert Glossary.term(term), "guide term #{term} has no glossary entry"
     end
   end
 
